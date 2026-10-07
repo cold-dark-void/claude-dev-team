@@ -958,6 +958,24 @@ target.
       tests prove the prompt text and the wiring. They do not prove what a live judge
       scores. The first live proof is the next ship gate after WP 1-16.
 
+  - **(l) Grok nest deferral (normative; CDT-512-C6).** Grok nested `/orchestrate`
+    (already `nest_depth>=1`) cannot spawn `/council`. That is a harness adapter,
+    not an away-flag bug, and not a ninth BC. There is **no resident daemon**.
+    - A child on Grok MUST NOT spawn `/council`. After tests on `feat/*` it
+      returns `needs-parent-M14 SHA=<sha> branch=<branch>`. It MUST NOT write
+      card #2 as a BC7 spawn-fail halt. It MUST NOT print resume-ship y.
+    - The parent walker at `nest_depth` 0 runs M14 (`ship-gate-council.md`)
+      then Stage 3. B.4 exports `DEVTEAM_NEST_DEPTH=1`. Helper:
+      `skills/autopilot/nest-host.sh`.
+    - `resume-ship` y remains only for real council disagree
+      (`conf<80 / CONTRADICTED`). Depth-0 M14(d) self-verified / total-fail
+      stays BC7. Away+autopilot MUST NOT require a Telegram y solely because
+      of nest depth.
+    - Decision enum stays frozen. `needs-parent-M14` is a procedure outcome,
+      not a new card `decision`. Do not claim Grok nested spawn works unless
+      proven. **(d)** / ship-gate §5 goldens and blob-pinned scripts stay
+      unchanged.
+
 ### AC8 — LOC exclusion + `--max-loc` override (CDT-223)
 
 A gate is **never** removed. This AC changes **what LOC counts** and **which numeric bound**
@@ -1338,6 +1356,10 @@ It MUST NOT add a budget-cap flag. `parse-flags.sh` stays six-key.
   map (M14(a), M14(h)). MUST NOT tag an AC `[process]` when it asserts diff content.
   An investigator's own run of a `Verify:` command during the council pass is evidence, not
   a runner log (M14(a), WP 1-15). It does not clear an AC by itself.
+- **N18** — MUST NOT BC7-halt a Grok nested child because `/council` cannot spawn
+  (M14(l)). MUST NOT print resume-ship y or ping intercom for nest depth.
+  MUST NOT add a ninth BC or a resident daemon. MUST NOT treat Grok nest
+  spawn-fail as `--resume-ship` y.
 
 ---
 
@@ -1491,6 +1513,19 @@ Format and rules: M14(g) and M14(h). Each ticket that ships through M14 has one
   Verify: bash skills/epic/test.sh
 - **D.** [process] The suites that the ACs of this subsection and of SPEC-025 `### wp-1-09-epic-seal` name pass, `bash tools/run-all-tests.sh` passes and every `/release` gate passes. SPEC-025 holds the full AC set for this WP.
 
+### CDT-512-C6
+
+- **A.** Child `/orchestrate` on Grok (`nest_depth>=1`) MUST NOT require the child to spawn `/council`. `nest-host.sh` reports `can_spawn_council=false`; ship-gate §2b returns `needs-parent-M14` and MUST NOT write a BC7 halt.
+  Verify: bash skills/autopilot/test-nest-host.sh
+- **B.** Parent walker at `nest_depth` 0 runs M14, or nested spawn is allowed (Claude). Mode B exports `DEVTEAM_NEST_DEPTH=1` and on `needs-parent-M14` the parent walker runs M14.
+  Verify: bash skills/autopilot/test-nest-m14.sh
+- **C.** Away+autopilot MUST NOT require a Telegram y solely because of nest depth. Step 11 MUST NOT print the resume-ship y hint on `needs-parent-M14`.
+  Verify: bash skills/autopilot/test-nest-m14.sh
+- **D.** SPEC/docs state the Grok nest rule. `resume-ship` y remains only for real council disagree (`conf<80 / CONTRADICTED`). Depth-0 M14(d) is unchanged.
+  Verify: bash skills/autopilot/test-nest-m14.sh
+- **E.** [process] There is no resident daemon. No ninth BC. Decision enum frozen.
+  Suites `skills/autopilot/test-nest-host.sh` and `test-nest-m14.sh` pass.
+
 ---
 
 ## Test
@@ -1506,6 +1541,7 @@ Format and rules: M14(g) and M14(h). Each ticket that ships through M14 has one
 
 | Date | Change |
 |------|--------|
+| 2026-10-07 | CDT-512-C6: **M14(l) Grok nest deferral.** Child `/orchestrate` on Grok (`nest_depth>=1`) cannot spawn `/council`. Return `needs-parent-M14`; parent at depth 0 runs M14. `resume-ship` y remains only for real council disagree (`conf<80 / CONTRADICTED`). N18. Helper `skills/autopilot/nest-host.sh`. **(d)** / §5 goldens unchanged. New `### CDT-512-C6` AC subsection. |
 | 2026-10-02 | CDT-371: the "no workflow file edited here" note is historical. `ship-gate-council.md` already names the merge-base diff, not a staged diff. |
 | 2026-10-01 | WP 5-06 (CDT-304, CDT-333): Status DRAFT → ACTIVE. M2 cross-references AGENTS.md: epic children seal through `/release`; non-epic `--autopilot=master` stays land-no-release. |
 | 2026-09-30 | WP 1-09 (`wp-1-09-epic-seal`; CDT-322, rv-w2-34; the rest of the WP is in SPEC-025): **M5 note (h)** — `reroute-epic` at an `/epic` gate cannot hand off to `/epic`: A.5 prints a soft warn and continues when there are more than 8 proposed children and halts otherwise (never a silent proceed), B.3 runs it as `halt` with no nested epic allowed (`--redecompose` is never autopilot-started, note (g)), any other value runs as `halt`; the `/epic` SKILL defines the map itself. **M5 table** — the `/epic` `ship-choice` cell reads "ships only via B.7 seal (M14)", not "never ships". **M11a (a)** — the `release_bump` persist happens at `init`, so a release-bump token over a null durable `release_bump` on resume exits 64 and is never set on the session alone. New `### wp-1-09-epic-seal` AC subsection. Status stays DRAFT. |

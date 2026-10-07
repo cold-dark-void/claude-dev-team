@@ -82,7 +82,9 @@ branches, not merge-only. That pass appends **card #2** (same `run_id`) and yiel
 **post-council effective decision**: council **agree** (conf ≥ 80, non-degraded) keeps card #1's
 `pr`/`merge`; **disagree / degraded / total-fail** forces `halt` (BC7). On a card #1 already
 `halt`/`reroute-epic`, the council pass is **skipped** (ship-gate-council.md §2) and the
-effective decision is card #1's.
+effective decision is card #1's. On Grok nest (`ship-gate-council.md` §2b /
+`nest-host.sh can_spawn_council=false`), Stage 2 returns `needs-parent-M14` instead of
+firing M14 — not a BC7 halt.
 
 Act on the **post-council effective decision**:
 - `pr` → take Option 1 (Create PR) above exactly as the user's choice would; emit `task_complete`
@@ -113,6 +115,13 @@ Act on the **post-council effective decision**:
   On dirty ship-history (H8): halt with exact `history dirty — rewrite needed`;
   **MUST NOT** Linear/backlog Done, **MUST NOT** print Orchestration complete /
   ship success.
+- `needs-parent-M14` → print
+  `needs-parent-M14 SHA=<git rev-parse HEAD> branch=<git rev-parse --abbrev-ref HEAD>`
+  and return. MUST NOT land. MUST NOT emit `task_blocked` for nest depth.
+  MUST NOT print the resume-ship y hint. MUST NOT ping intercom / Telegram for a
+  nest-depth y. Parent walker at `nest_depth` 0 runs Stage 2 then Stage 3
+  (SPEC-033 M14(l)). If `nest-host.sh classify-spawn-fail` is `needs-parent-M14`,
+  reclassify a spawn-fail halt as this outcome (do not treat it as BC7).
 - `halt` / `reroute-epic` → print the one-line message below and return control; on `halt`
   **only**, first emit `task_blocked` (detail = the one-line message below) via **Passive
   notifications → Tier B** (fail-open; § in `cross-cutting.md`) — `reroute-epic` does NOT notify-blocked;
@@ -139,9 +148,13 @@ Wait for user choice.
 
 ### Resume ship after BC7 override (CDT-135; CDT-195)
 
-**When:** A prior ship-choice halt (typically BC7 after M14 council disagree /
-degraded / spawn-fail) left the work ready to ship, the human has reviewed and
-**explicitly** wants to finish shipping, and re-running full PM/TL/IC is waste.
+**When:** A prior ship-choice halt after **real council disagree**
+(`conf<80 / CONTRADICTED`) left the work ready to ship, the human has reviewed
+and **explicitly** wants to finish shipping, and re-running full PM/TL/IC is
+waste. Depth-0 M14(d) self-verified / total spawn-fail stays BC7. Grok nest
+spawn-fail is `needs-parent-M14`, not this path — resume-ship y remains only
+for real council disagree. MUST NOT print the resume-ship y hint for nest
+depth.
 
 **Entry (either):**
 1. `/orchestrate <ISSUE-ID> --resume-ship[=<patch|minor|major|master>]`

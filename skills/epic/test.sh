@@ -2802,6 +2802,16 @@ else
   fail "cdt287 negative B rc=$RC out=$OUT"
 fi
 
+# ---- CDT-512-C6 / SPEC-033 M14(l): Grok nest needs-parent-M14 ----
+# Protocol greps (operational home = mode-b-execute.md B.4/B.5).
+if grep -q 'DEVTEAM_NEST_DEPTH=1' "$SKILL_BODY" \
+  && grep -q 'needs-parent-M14' "$SKILL_BODY" \
+  && grep -q 'parent walker runs M14' "$SKILL_BODY"; then
+  pass "CDT-512-C6 Mode B Grok nest protocol"
+else
+  fail "CDT-512-C6 Mode B missing DEVTEAM_NEST_DEPTH=1 / needs-parent-M14 / parent walker runs M14"
+fi
+
 echo ""
 echo "PASS=$PASS FAIL=$FAIL"
 if [ "$FAIL" -ne 0 ]; then

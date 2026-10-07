@@ -6,6 +6,9 @@ Pre-written headings (release-train M5c, orchestrate version-sync tasks) are kep
 via skip-if-present when `/release` is given an explicit version — do not invent a
 second heading for the same version.
 
+### v1.21.7
+- **Grok nest defers M14 to parent walker (CDT-512-C6)** — child /orchestrate on Grok returns needs-parent-M14 instead of BC7. Parent at depth 0 runs council then release. resume-ship y stays only for real council disagree. nest-host.sh. No Telegram y for nest depth.
+
 ### v1.21.6
 - **Send Telegram typing on outbound send, not inbound pickup (CDT-512-C5)** — inbound pickup does not sendChatAction. ir_send_text types once immediately before sendMessage. No keepalive loop. SPEC-038 AC10 rewritten. Aligns the v1.21.5 CHANGELOG lead with the fold subject (D2).
 

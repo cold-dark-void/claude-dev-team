@@ -137,7 +137,9 @@ Recommended agent: <ic4|ic5>
 Estimate: <S|M|L>
 
 Output mode: terse for agent spawns.
-PM kickoff is mandatory — do not skip."
+PM kickoff is mandatory — do not skip.
+DEVTEAM_NEST_DEPTH=1
+On Grok, do not spawn /council; after tests return needs-parent-M14."
 ```
 
 **When `use_shared=true` (epic `--worktree` / `worktree_enabled` + integration path set) — append to the handoff payload and export for the child run:**
@@ -177,6 +179,7 @@ RB=$(bash "$EPIC_LIB" show "$EPIC_ID" | jq -r '.release_bump // empty')
 if [ -n "$RB" ] && [ "$RB" != "null" ]; then
   export EPIC_RELEASE_END="$EPIC_ID"
 fi
+export DEVTEAM_NEST_DEPTH=1
 ```
 
 `/release` Step 0 and orchestrate Step 11 call
@@ -191,6 +194,10 @@ incomplete-child + functional-gap notice; incomplete does **not** block). When
 When `use_shared=false` (default / no `--worktree`): omit the shared-WT block;
 per-child worktree behavior is unchanged. Still export `EPIC_RELEASE_END` when
 `release_bump` is set (release=end always couples to `--worktree` at parse time).
+
+Always export `DEVTEAM_NEST_DEPTH=1` in the child `/kickoff` or `/orchestrate`
+environment (CDT-512-C6 / SPEC-033 M14(l)). Depth 1 on Grok cannot spawn
+`/council`; the child returns `needs-parent-M14` after tests.
 
 Invoke the existing `/kickoff` or `/orchestrate` command with that payload.
 Do **not** reimplement their internals here.
@@ -236,6 +243,14 @@ Continue waits for wrap-ticket / orchestrate lifecycle (A.6 default remains
 Never mark `completed` merely because kickoff produced a plan (M7).
 **Kickoff mode:** M13 boundary still applies between children; completion
 attestation is unchanged (user/`/epic complete` — never auto on plan alone).
+
+**Grok nest `needs-parent-M14` (CDT-512-C6 / SPEC-033 M14(l)):** when the child
+`/orchestrate` return contains `needs-parent-M14`, this is **not** a BC7 halt
+and **not** a resume-ship y. MUST NOT ping intercom / Telegram for a nest-depth
+y. Unset `DEVTEAM_NEST_DEPTH` (or set `0`). The parent walker runs M14
+(`skills/autopilot/ship-gate-council.md` at depth 0) then Stage 3
+(`end-state.md` / `/release`) for that child. Depth-0 council disagree
+(`conf<80 / CONTRADICTED`) still BC7 + resume-ship y. There is no resident daemon.
 
 ### B.6 Between-child context discipline (M13 / CDT-127)
 

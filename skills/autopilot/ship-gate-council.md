@@ -85,13 +85,50 @@ shape-field mismatch):
    card #2 on that parse.
 4. Return; halt escalation is the BC handler's job (§7).
 
-On **stamp pass**, continue to §3. Process is pre-cleared; the claim under audit is
+On **stamp pass**, continue to §2b. Process is pre-cleared; the claim under audit is
 **technical-only** (M14(a) CDT-185 narrow claim — §3b).
 
 This pre-flight and the verdict mapper's own guard 3 check (SPEC-033 M14(h)) are two
 independent fail-closed layers, not duplicates to reconcile: the mapper
 (`skills/autopilot/ship-gate-verdict.sh`) re-reads this same card #1 stamp shape against
 `plan.process_acs[]` at mapping time, after the council has already run.
+
+### 2b. Grok nest deferral (CDT-512-C6 / SPEC-033 M14(l))
+
+After §2a stamp pass and **before** §3 tier selection, detect whether this session
+can spawn `/council`. Resolve `skills/autopilot/nest-host.sh` through plugin-dir
+and run it with `--ticket <ticket_id>`:
+
+```bash
+NEST_HOST=$(bash "$PDH/skills/plugin-dir.sh" file skills/autopilot/nest-host.sh)
+NEST_JSON=$(bash "$NEST_HOST" --ticket "<ticket_id>")
+CAN=$(jq -r .can_spawn_council <<<"$NEST_JSON")
+```
+
+`can_spawn_council=false` means **Grok nest** (`host=grok` and `nest_depth>=1`).
+The child is already depth 1; the harness cannot spawn `/council`. This is a
+harness adapter, not an away-flag path, and not a ninth BC. There is **no resident daemon**.
+
+When `can_spawn_council` is false:
+
+1. MUST NOT invoke `/council`.
+2. MUST NOT write a BC7 halt (do not take §5 total-fail / mapper `--no-report`).
+3. MUST NOT write card #2. The pass is **deferred**, not fired. Parent at
+   `nest_depth` 0 fires M14 later against this card #1 (`exactly two` cards
+   still hold for the attempt that actually fires).
+4. MUST NOT print the CDT-135 resume-ship y hint. MUST NOT ping intercom /
+   Telegram for a nest-depth y.
+5. Print exactly:
+   `needs-parent-M14 SHA=<git rev-parse HEAD> branch=<git rev-parse --abbrev-ref HEAD>`
+6. Return that token as the Stage 2 outcome. Parent walker runs M14
+   (`DEVTEAM_NEST_DEPTH=0` or unset) then Stage 3.
+
+When `can_spawn_council` is true, continue to §3. Claude nested spawn remains
+allowed. Depth-0 Grok still runs M14 here.
+
+If `/council` is attempted and spawn fails, run
+`nest-host.sh classify-spawn-fail`: `needs-parent-M14` takes this §2b path;
+`bc7-spawn-fail` takes §5 (depth-0 M14(d) unchanged).
 
 ## 3. Select the tier, then build and invoke the council claim
 
@@ -421,3 +458,7 @@ newlines/control chars.
 - **Feed the mapper's output back into the council.** `skills/autopilot/ship-gate-verdict.sh`
   runs after the verdict, MUST NOT read evidence, spawn an agent, call `/council`, or write a
   file, and MUST NOT feed anything to the council (M14(i)).
+- **BC7-halt a Grok nested child because `/council` cannot spawn.** That is §2b
+  `needs-parent-M14` (CDT-512-C6 / M14(l)), not §5. §5 still applies at
+  `nest_depth` 0. MUST NOT write a BC7 halt for nest depth. MUST NOT invent a
+  ninth BC. There is no resident daemon.

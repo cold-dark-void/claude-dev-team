@@ -20,7 +20,7 @@ End-to-end issue orchestrator. Fetches issue context, creates a worktree, spawns
 | `[--tier=<light\|standard\|full>]` | Pipeline cost tier (CDT-206 / SPEC-009). `standard` / `full` = current Step 0–12 pipeline. `light` = scoper-planner, skip DAG, one IC4, single-pass TL, no council default, wrap-lite. No `--tier`: Step 2 auto-sizes S→light, M→standard, L→full (cheap signals, no extra spawn) in the existing scope-confirm gate; explicit `--tier` wins. Independent of `--council-tier`. |
 | `[--council-tier=<skip\|light\|full>]` | DRI council-pipeline override (CDT-126 / SPEC-013). Independent of `--tier`. |
 | `[--max-loc=<n\|unbound>]` | Per-run DRI LOC-cap override (CDT-223 / SPEC-033 AC8). `=` form only. No env. `n` = BC4 per-PR hard cap + M10.1 (raise or tighten). `unbound` = BC4 + M10.1 off. Per-file 1000 unchanged unless `unbound`. Independent of `--tier` / `--council-tier`. |
-| `[--resume-ship[=<patch\|minor\|major\|master>]]` | Resume a halted ship phase with an explicit bump (CDT-135 / CDT-195); see `steps/11-ship.md`. |
+| `[--resume-ship[=<patch\|minor\|major\|master>]]` | Resume a halted ship phase with an explicit bump (CDT-135 / CDT-195); see `steps/11-ship.md`. Human y is only for real council disagree (`conf<80 / CONTRADICTED`), not Grok nest spawn-fail (`needs-parent-M14`). |
 
 `/orchestrate --tier` is the pipeline cost tier. `--council-tier` and `/council --tier` are the council pipeline. They are independent.
 
@@ -68,7 +68,7 @@ Proceed with this scope? Any adjustments?
 10. **Tech Lead review loop** — every completed IC task gets a Tech Lead review. `REQUEST CHANGES` routes feedback back to the IC. If the same task cycles 3+ times without consensus, you are asked to break the deadlock.
 11. **Post-approve polish (optional)** — after all tasks APPROVE, one behavior-preserving polish pass on recently modified files only (`skills/post-approve-polish`). Skip with `CODE_SIMPLIFY=0` or empty/docs-only diff. Fail-open — never blocks QA.
 12. **QA validation** — after review (and simplify if run), QA runs against the spec and acceptance criteria. Failures route back to the responsible IC for a fix-and-re-review cycle.
-13. **Ship** — presents a diff summary; **tracking close-out** runs from the feature worktree against the shared `$MROOT` backlog store (`skills/backlog/close.sh` for each plan `closes:` backlog item; Linear Done when MCP available) as **local write-through only** — process trackers are **not** staged into the product delivery commit. Then PR/squash options. Suggests `/wrap-ticket` for worktree/learnings.
+13. **Ship** — presents a diff summary; **tracking close-out** runs from the feature worktree against the shared `$MROOT` backlog store (`skills/backlog/close.sh` for each plan `closes:` backlog item; Linear Done when MCP available) as **local write-through only** — process trackers are **not** staged into the product delivery commit. Then PR/squash options. Suggests `/wrap-ticket` for worktree/learnings. On Grok nest (`DEVTEAM_NEST_DEPTH>=1`) the child does not spawn `/council`; it returns `needs-parent-M14` and the parent walker runs M14 (SPEC-033 M14(l)).
 14. **Friction check (non-blocking)** — at completion the orchestrator runs the phase-1 retro gate against the just-finished session. If the session accumulated friction signals, it prints a one-line `Consider: /retro <session-id>` hint. Never auto-runs `/retro`, never blocks completion.
 
 ### Escalation triggers

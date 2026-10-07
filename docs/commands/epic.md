@@ -68,6 +68,9 @@ mechanical subcommands, not `/epic` flags.)
    `--autopilot`: Mode B keeps walking until B.3 halt/`n`, empty ready-set,
    all children completed (B.7 iff `release_bump`), only blocked/in_progress,
    M13 seed-fail, or user interrupt — not after the first shipped child.
+   Child `/orchestrate` on Grok exports `DEVTEAM_NEST_DEPTH=1` and may return
+   `needs-parent-M14`; the parent walker runs M14 at depth 0 (no Telegram y
+   for nest depth).
    `--autopilot=patch|minor|major` is **seal-intent**: a new decompose persists
    it as `release_bump` (with `worktree_enabled=true`) when `--release` did not.
    On resume, a bump token over a null `release_bump` exits 64 (resume has no

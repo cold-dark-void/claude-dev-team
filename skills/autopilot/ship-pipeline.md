@@ -16,8 +16,11 @@ keeps its own contract home and is cited, never forked:
 Run the stages **in order**; a stage runs only after the previous one returned
 its artifact. Stage 2 is skipped **only** for the case `ship-gate-council.md §2`
 already defines (card #1 is `halt`/`reroute-epic` — then the effective decision
-is card #1's). Stage 3 runs only on an effective `merge` under a non-null
-`--autopilot=<token>`; an effective `pr` takes Step 11 Option 1 and stops.
+is card #1's). Stage 2 is **deferred** (not fired) when `nest-host.sh` reports
+`can_spawn_council=false`: print `needs-parent-M14` and return; parent at
+`nest_depth` 0 runs Stage 2. That is not a BC7 halt. Stage 3 runs only on an
+effective `merge` under a non-null `--autopilot=<token>`; an effective `pr`
+takes Step 11 Option 1 and stops.
 
 ```bash
 # Fresh shell — resolve the three stage docs through the plugin root.
@@ -45,8 +48,8 @@ On a clean card #1, run `ship-gate-council.md`'s procedure **before any ship
 action** — on **both** `pr` and `merge`. It appends **card #2** (same
 `run_id`) and yields the post-council effective decision: council **agree**
 (conf ≥ 80, non-degraded) keeps card #1's `pr`/`merge`; **disagree / degraded
-/ total-fail** forces `halt` (BC7). Act on the **post-council effective
-decision** only.
+/ total-fail** forces `halt` (BC7). Grok nest (§2b) yields `needs-parent-M14`
+instead of card #2. Act on the **post-council effective decision** only.
 
 ## Stage 3 — Execute (end-state)
 
@@ -64,4 +67,5 @@ Exits that leave the pipeline early are the ones the stage docs and Step 11
 already define: CDT-141-C4 `RELEASE_END_BLOCKED=true` (print the assert
 message, `task_blocked`, return — baseline unchanged, release **and**
 land-no-release forbidden mid-epic), ship-history dirty (`history dirty —
-rewrite needed`, H8), and the Step-11 resume hint on a BC7 halt.
+rewrite needed`, H8), the Step-11 resume hint on a BC7 halt, and
+`needs-parent-M14` (Grok nest; parent runs M14; no resume-ship y).

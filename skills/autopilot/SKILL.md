@@ -139,6 +139,12 @@ ship-choice path — Stage 1 decide (`self-answer.md`) → Stage 2 audit
 (`ship-gate-council.md`) → Stage 3 execute (`end-state.md`). Read it instead of
 wiring the three by hand; it cites, it does not fork.
 
+**Grok nest (SPEC-033 M14(l) / CDT-512-C6).** Cite, do not fork. On Grok at
+`nest_depth>=1`, Stage 2 defers: `needs-parent-M14`, no BC7, no resume-ship y.
+Parent at depth 0 runs M14. `resume-ship` y remains only for real council
+disagree (`conf<80 / CONTRADICTED`). Helper: `skills/autopilot/nest-host.sh`.
+There is no resident daemon.
+
 ---
 
 ## The three-gate scheme fits `/orchestrate` only — `/kickoff` & `/epic` per command (SPEC-033 M5)
