@@ -34,14 +34,16 @@ It validates the token with `getMe`. Then it asks for a member name.
 The default is `$USER`. Type a name if you need a different one.
 
 Then it waits for one private message to the bot. Send any message.
-Press Enter. The script writes state under `~/.claude/telegram-router/`
-(or `INTERCOM_STATE_ROOT` in tests). It never writes inside the repo.
+The script long-polls `getUpdates` for 30s. Do not pipe Enter. The script
+writes state under `~/.claude/telegram-router/` (or `INTERCOM_STATE_ROOT`
+in tests). It never writes inside the repo.
 
 It prints a host-aware arming block. Arm `watch.sh`, not `poller.sh`.
 Use one bash-only cycle every 45 seconds. Do not print the token.
 
-If `~/.config/telegram/bot_token` already exists, ask reuse vs replace.
-Do not overwrite the file without a confirm.
+If `~/.config/telegram/bot_token` already exists (mode 600), the script
+offers reuse vs replace. Reuse does not print the token. Do not overwrite
+the file without a confirm.
 
 ---
 
@@ -78,7 +80,7 @@ You can enable Topics later and re-run pairing when you want sid per topic.
 
 | Symptom | What you do |
 |---------|-------------|
-| Empty pairing / no private-chat sender | Send a message to the bot, then re-run `/setup telegram`. |
+| Empty pairing / no private-chat sender | Send a private message to the bot, then re-run `/setup telegram`. Do not pipe Enter before the DM. The pairing wait is a 30s long-poll. |
 | Unmapped topic | Empty map or only General: traffic stays in the Walkie-talkie (`default_session`). Session topics already mapped: an unknown thread is dropped. Topics off is not a failed setup. |
 | 409 conflict | Another poller holds the getUpdates offset. Stop the other job. One host job only. |
 | Agent names a shared bot | Refuse. Create your own bot. Do not use a username from memory. |

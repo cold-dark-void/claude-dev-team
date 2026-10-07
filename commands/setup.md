@@ -604,14 +604,16 @@ layer merge — `list` calls `resolve-model.sh`.
 ## Sub: `telegram` — skill-delegate → `skills/intercom/setup-telegram.sh`
 
 Configure the Telegram Intercom (SPEC-038). The script is interactive: it
-prints a BotFather preamble, prompts for the bot token, validates via `getMe`,
-pairs the operator chat, writes state under the state root (outside the repo;
-`INTERCOM_STATE_ROOT` honored), and prints a token-free host-aware arming
-block (absolute `watch.sh`, 45s cadence; Grok silent watcher plus Claude
-CronCreate only if empty stdout injects zero parent turn). Run it in the
-foreground so the token prompt can be answered. The command documents and
-delegates only — **do not** inline any setup behavior here. Not
-doctor-gated. The script takes no flags; extra arguments are not forwarded.
+prints a BotFather preamble, reuses a mode-600 `bot_token` or prompts for a
+new one, validates via `getMe`, pairs the operator chat with a 30s
+`getUpdates` long-poll (no Enter wait), writes state under the state root
+(outside the repo; `INTERCOM_STATE_ROOT` honored), and prints a token-free
+host-aware arming block (absolute `watch.sh`, 45s cadence; Grok silent
+watcher plus Claude CronCreate only if empty stdout injects zero parent
+turn). Run it in the foreground so prompts can be answered. The command
+documents and delegates only — **do not** inline any setup behavior here.
+Not doctor-gated. The script takes no flags; extra arguments are not
+forwarded.
 
 Operator runbook: `docs/runbooks/setup-telegram.md`.
 
@@ -621,9 +623,13 @@ Operator runbook: `docs/runbooks/setup-telegram.md`.
 - Do not default the member name to a person. The script defaults to `$USER`
   or requires a name.
 - Never paste the bot token into chat. Never print the token.
-- If `~/.config/telegram/bot_token` already exists (mode 600), ask reuse vs
-  replace. Do not overwrite silently. Scripted reuse lands in CDT-512-C4;
-  until then, confirm with the operator before replacing the file.
+- If `~/.config/telegram/bot_token` already exists (mode 600), offer reuse vs
+  replace. Do not overwrite silently. Reuse does not print the token. Default
+  is reuse (`Y` / empty / EOF). Answer `n` to replace via the hidden prompt.
+- Pairing wait: tell the operator to send any private message to the bot,
+  then wait. The script long-polls `getUpdates` for 30s. Do not pipe a fake
+  Enter before the member has DMed the bot. An empty queue after that wait
+  exits 1 with no Intercom state beyond the token file — re-run after the DM.
 - Guide Topics (sid per topic) when the operator wants that. Topics off is a
   supported single General window, not a failed setup.
 

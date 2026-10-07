@@ -970,6 +970,126 @@ else
   bad "CDT-512-C3 AC8 only-general: rc=$P_RC inbox=$(inbox_n main) err=$P_ERR"
 fi
 
+# ---- CDT-512-C4: TTY-less token reuse + pairing wait ---------------------------
+
+fresh_case
+seed_token
+put_resp_file "getMe" "$FIXTURES/getme-ok.json"
+put_resp_file "getUpdates" "$FIXTURES/getupdates-pairing.json"
+put_resp_file "getChat" "$FIXTURES/getchat-forum.json"
+tok_before=$(cat "$HOME/.config/telegram/bot_token")
+out=$(printf '%s\n' "y" "testdev" | USER=testdev bash "$SETUP" 2>&1)
+rc=$?
+if [ "$rc" -eq 0 ] \
+  && printf '%s' "$out" | grep -qi 'reuse' \
+  && printf '%s' "$out" | grep -q 'bot_token' \
+  && [ "$(cat "$HOME/.config/telegram/bot_token")" = "$tok_before" ] \
+  && [ "$(stat -c %a "$HOME/.config/telegram/bot_token")" = "600" ] \
+  && ! printf '%s' "$out" | grep -qF "$TEST_TOKEN" \
+  && [ "$(jq -r '.members["197372681"].name' "$STATE_ROOT/config.json")" = "testdev" ]; then
+  ok "CDT-512-C4 AC1 mode-600 bot_token offers reuse without printing the token"
+else
+  bad "CDT-512-C4 AC1 reuse: rc=$rc tok_printed=$(printf '%s' "$out" | grep -cF "$TEST_TOKEN") out=$out"
+fi
+
+fresh_case
+seed_token
+put_resp_file "getMe" "$FIXTURES/getme-ok.json"
+put_resp_file "getUpdates" "$FIXTURES/getupdates-pairing.json"
+put_resp_file "getChat" "$FIXTURES/getchat-forum.json"
+out=$(printf '%s\n' "" "testdev" | USER=testdev bash "$SETUP" 2>&1)
+rc=$?
+if [ "$rc" -eq 0 ] && ! printf '%s' "$out" | grep -qF "$TEST_TOKEN" \
+  && [ -f "$STATE_ROOT/config.json" ]; then
+  ok "CDT-512-C4 AC1 empty reuse answer defaults to keep the existing token"
+else
+  bad "CDT-512-C4 AC1 default-Y reuse: rc=$rc out=$out"
+fi
+
+fresh_case
+seed_token
+put_resp_file "getMe" "$FIXTURES/getme-ok.json"
+put_resp_file "getUpdates" "$FIXTURES/getupdates-pairing.json"
+put_resp_file "getChat" "$FIXTURES/getchat-forum.json"
+out=$(printf '%s\n' "$TEST_TOKEN" "testdev" | USER=testdev bash "$SETUP" 2>&1)
+rc=$?
+if [ "$rc" -eq 0 ] && ! printf '%s' "$out" | grep -qF "$TEST_TOKEN" \
+  && [ "$(cat "$HOME/.config/telegram/bot_token")" = "$TEST_TOKEN" ]; then
+  ok "CDT-512-C4 AC1 piped token as reuse answer still reuses and stays unpublished"
+else
+  bad "CDT-512-C4 AC1 piped-token reuse: rc=$rc out=$out"
+fi
+
+fresh_case
+seed_token
+put_resp_file "getMe" "$FIXTURES/getme-ok.json"
+put_resp_file "getUpdates" "$FIXTURES/getupdates-pairing.json"
+put_resp_file "getChat" "$FIXTURES/getchat-forum.json"
+NEW_TOKEN="999999999:REPLACEMENT-TOKEN-NOT-REAL"
+out=$(printf '%s\n' "n" "$NEW_TOKEN" "testdev" | USER=testdev bash "$SETUP" 2>&1)
+rc=$?
+written=$(tr -d ' \t\r\n' < "$HOME/.config/telegram/bot_token")
+if [ "$rc" -eq 0 ] && [ "$written" = "$NEW_TOKEN" ] \
+  && ! printf '%s' "$out" | grep -qF "$TEST_TOKEN" \
+  && ! printf '%s' "$out" | grep -qF "$NEW_TOKEN"; then
+  ok "CDT-512-C4 AC1 replace writes a new token without printing it"
+else
+  bad "CDT-512-C4 AC1 replace: rc=$rc written=$written out=$out"
+fi
+
+fresh_case
+put_resp_file "getMe" "$FIXTURES/getme-ok.json"
+put_resp_file "getUpdates" "$FIXTURES/getupdates-pairing.json"
+put_resp_file "getChat" "$FIXTURES/getchat-forum.json"
+out=$(printf '%s\n' "$TEST_TOKEN" "testdev" | USER=testdev bash "$SETUP" 2>&1)
+rc=$?
+if [ "$rc" -eq 0 ] && [ -f "$STATE_ROOT/config.json" ] \
+  && ! printf '%s' "$out" | grep -qi 'Press Enter' \
+  && printf '%s' "$out" | grep -qi 'wait' \
+  && printf '%s' "$out" | grep -q '30' \
+  && ! printf '%s' "$out" | grep -qF "$TEST_TOKEN"; then
+  ok "CDT-512-C4 AC2 pairing long-polls 30s without a piped Enter"
+else
+  bad "CDT-512-C4 AC2 no-Enter pairing: rc=$rc out=$out"
+fi
+
+fresh_case
+put_resp_file "getMe" "$FIXTURES/getme-ok.json"
+put_resp "getUpdates" '{"ok":true,"result":[]}'
+out=$(printf '%s\n' "$TEST_TOKEN" "testdev" | USER=testdev bash "$SETUP" 2>&1)
+rc=$?
+if [ "$rc" -eq 1 ] && [ -z "$(ls -A "$STATE_ROOT" 2>/dev/null)" ] \
+  && printf '%s' "$out" | grep -qi 'wait' \
+  && printf '%s' "$out" | grep -q '30' \
+  && ! printf '%s' "$out" | grep -qi 'Press Enter' \
+  && ! printf '%s' "$out" | grep -qF "$TEST_TOKEN"; then
+  ok "CDT-512-C4 AC2 empty getUpdates exits 1 with no state beyond the token file"
+else
+  bad "CDT-512-C4 AC2 empty queue: rc=$rc state=$(ls -A "$STATE_ROOT" 2>/dev/null) out=$out"
+fi
+
+paste_ok=1
+grep -qi 'never paste' "$SETUP" || paste_ok=0
+grep -qi 'never paste' "$SETUP_MD" || paste_ok=0
+while IFS= read -r line; do
+  printf '%s' "$line" | grep -qiE 'paste .{0,60}token|token.{0,40}paste' || continue
+  printf '%s' "$line" | grep -qi 'never' && continue
+  printf '%s' "$line" | grep -qi 'prompt' && continue
+  paste_ok=0
+done < "$SETUP"
+if [ "$paste_ok" -eq 1 ]; then
+  ok "CDT-512-C4 AC3 never instruct pasting the token into chat"
+else
+  bad "CDT-512-C4 AC3 paste-into-chat instruction leaked"
+fi
+
+if grep -qi 'pipe' "$SETUP_MD" && grep -qi 'Enter' "$SETUP_MD" \
+  && grep -q '30' "$SETUP_MD" && grep -qi 'pairing' "$SETUP_MD"; then
+  ok "CDT-512-C4 AC4 commands/setup.md documents the agent pairing wait"
+else
+  bad "CDT-512-C4 AC4 commands/setup.md missing agent pairing wait"
+fi
+
 echo
 echo "Results: $PASS passed, $FAIL failed"
 [ "$FAIL" -eq 0 ]

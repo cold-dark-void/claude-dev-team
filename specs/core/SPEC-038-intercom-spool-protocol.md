@@ -301,17 +301,23 @@ degrades to plain-chat General delivery).
 `/setup telegram` (CLI-only — secrets; `commands/setup.md` routes to
 `skills/intercom/setup-telegram.sh`):
 
-1. Prompt for the token; write `~/.config/telegram/bot_token` (0600) and
-   `mkdir -m 700 -p` the parent. Creation sets modes explicitly — no umask
-   reliance, no looser-perms window — and `chmod 700` an already-existing
-   parent (`mkdir -p` never tightens).
+1. BotFather preamble, then token: if `~/.config/telegram/bot_token`
+   exists with mode 600, offer reuse vs replace without printing the
+   token (default reuse). Otherwise prompt (no echo) and write the file
+   (0600) plus `mkdir -m 700 -p` the parent. Creation sets modes
+   explicitly — no umask reliance, no looser-perms window — and
+   `chmod 700` an already-existing parent (`mkdir -p` never tightens).
+   Never instruct pasting the token into chat.
 2. Validate via `getMe`. Failure → print the reason, write no state beyond
    the token file.
-3. Pairing: instruct the operator to message the bot, then one
-   `getUpdates?timeout=30&offset=-1` captures the chat id, the pairing
-   message's `message_thread_id` when present, and the initial offset
-   (`max update_id + 1`) — satisfying AC22 startup validation. The pairing
-   update is consumed by that offset; it is not written as an inbox record.
+3. Pairing: instruct the operator to send any private message to the bot
+   and wait. Do not wait for a piped Enter. One
+   `getUpdates?timeout=30&offset=-1` long-poll (30s) captures the chat id,
+   the pairing message's `message_thread_id` when present, and the initial
+   offset (`max update_id + 1`) — satisfying AC22 startup validation. An
+   empty queue after that wait exits 1 with no state beyond the token
+   file. The pairing update is consumed by that offset; it is not written
+   as an inbox record.
 4. Write `config.json` (§ State layout), create the state dirs, and write
    `topics.json` / `seen.tsv`. When pairing captured a numeric
    `message_thread_id`, `topics.json` is
@@ -632,8 +638,7 @@ Format and rules: SPEC-033 M14(g) and M14(h).
   Verify: bash skills/intercom/test.sh
 - **AC3.** `commands/setup.md` telegram agent rules: do not suggest a
   shared bot username from memory; do not default the member name to a
-  person; if a token file exists, ask reuse vs replace (script reuse is
-  CDT-512-C4).
+  person; if a token file exists, ask reuse vs replace.
   Verify: bash skills/intercom/test.sh
 - **AC4.** `docs/runbooks/setup-telegram.md` exists. README points at it
   with one line. Bot API has no read receipts (platform limit).
@@ -706,6 +711,33 @@ Format and rules: SPEC-033 M14(g) and M14(h).
   Never print the bot token. Never commit `.claude/backlog` or
   `.claude/epics`.
 
+### CDT-512-C4
+
+- **AC1.** When `~/.config/telegram/bot_token` exists with mode 600,
+  `setup-telegram.sh` offers reuse vs replace. Reuse does not print the
+  token and does not overwrite the file. Default is reuse (`Y` / empty /
+  EOF). `n` / `replace` prompts for a new token (no echo) and writes it
+  0600. Never print the token.
+  Verify: bash skills/intercom/test.sh
+- **AC2.** Pairing prints a wait (send any private message, long-poll
+  30s) and runs `getUpdates?timeout=30&offset=-1` without a piped Enter.
+  An empty queue after that wait exits 1 with no Intercom state beyond
+  the token file. The wait copy MUST NOT say Press Enter.
+  Verify: bash skills/intercom/test.sh
+- **AC3.** Setup copy MUST NOT instruct pasting the token into chat.
+  "Never paste the token into chat" stays in the BotFather preamble and
+  in `commands/setup.md`.
+  Verify: bash skills/intercom/test.sh
+- **AC4.** `commands/setup.md` telegram agent rules document the agent
+  pairing wait: do not pipe Enter before the member DMs the bot; the
+  wait is a 30s long-poll.
+  Verify: bash skills/intercom/test.sh
+- **AC5.** [process] `bash tools/run-all-tests.sh` exit 0; skill-lint,
+  smoke, docs-drift pass. CDT-512-C1 `watch.sh` ACs pass. CDT-512-C2
+  preamble ACs pass. CDT-512-C3 pairing-seed ACs pass. Patch bump; no
+  new `commands/*.md`. Never print the bot token. Never commit
+  `.claude/backlog` or `.claude/epics`.
+
 ## Test
 
 - [ ] Token file written 0600 with 700 parent; repo stays clean (AC1)
@@ -760,6 +792,12 @@ Format and rules: SPEC-033 M14(g) and M14(h).
       (CDT-512-C2 AC4/AC8)
 - [ ] Topics on/off both supported; `is_forum=false` is not an error
       (CDT-512-C2 AC6/AC7)
+- [ ] Mode-600 `bot_token` reuse vs replace; reuse never prints the token
+      (CDT-512-C4 AC1)
+- [ ] Pairing long-polls 30s without a piped Enter; empty queue exits 1
+      with no state beyond the token file (CDT-512-C4 AC2)
+- [ ] Setup never instructs pasting the token into chat (CDT-512-C4 AC3)
+- [ ] `commands/setup.md` documents the agent pairing wait (CDT-512-C4 AC4)
 
 ## Validation
 
@@ -781,6 +819,7 @@ Format and rules: SPEC-033 M14(g) and M14(h).
 | 2026-10-07 | CDT-512-C1 — host adapter `watch.sh`: poller stays one-shot; idle injects no parent turn; host-aware arming (Grok silent watcher + Claude CronCreate-if-zero-parent-turn); wake-line grammar; edge-triggered failure wake |
 | 2026-10-07 | CDT-512-C2 — per-dev bot setup: `$USER` member default, BotFather preamble, operator runbook, topics on/off both supported |
 | 2026-10-07 | CDT-512-C3 — pairing seeds General `thread_id`; unmapped empty/only-general map routes to `default_session`; poller ignores bot self-echo and forum service messages; chmod 700 existing `state/` |
+| 2026-10-07 | CDT-512-C4 — TTY-less `/setup telegram`: mode-600 `bot_token` reuse vs replace; pairing long-polls 30s with no Enter wait |
 
 ## Cross-references
 

@@ -6,6 +6,9 @@ Pre-written headings (release-train M5c, orchestrate version-sync tasks) are kep
 via skip-if-present when `/release` is given an explicit version — do not invent a
 second heading for the same version.
 
+### v1.21.5
+- **TTY-less `/setup telegram` (CDT-512-C4)** — mode-600 `bot_token` offers reuse vs replace (default reuse, never printed). Pairing long-polls `getUpdates?timeout=30` with no Enter wait; empty queue exits 1 with no Intercom state beyond the token file. `commands/setup.md` documents the agent pairing wait. SPEC-038 ACs for CDT-512-C4.
+
 ### v1.21.4
 - **Seed General on pairing; do not drop first inbound (CDT-512-C3)** — pairing stores `message_thread_id` as `topics.json` `general` and fail-open `editForumTopic` names it General. Unmapped threads relay to `default_session` when the map is empty or only-general; session-topic maps stay fail-closed. Poller ignores bot `getMe.id` and empty-text forum service messages. Existing `state/` is chmod 700. SPEC-038 ACs for CDT-512-C3.
 

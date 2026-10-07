@@ -2,9 +2,10 @@
 # setup-telegram.sh — /setup telegram backend (SPEC-038 § /setup telegram).
 # Subprocess CLI: never source it. Secrets stay CLI-only.
 #
-# Steps: prompt token -> 0600 token file + 0700 parent -> getMe validate
-# (failure: no state beyond the token file) -> one getUpdates?timeout=30&offset=-1
-# pairing call (chat id + optional message_thread_id + initial offset) ->
+# Steps: BotFather preamble; reuse an existing mode-600 bot_token (never print
+# it) or prompt/write 0600 + 0700 parent -> getMe validate (failure: no state
+# beyond the token file) -> one getUpdates?timeout=30&offset=-1 pairing call
+# with no Enter wait (chat id + optional message_thread_id + initial offset) ->
 # getChat topics check -> write config.json / topics.json (seed general when
 # the pairing message carried a thread id) / seen.tsv / state dirs / offset
 # under the state
@@ -48,7 +49,7 @@ if [ -f "$cfg" ] && jq -e '.schema == 1 and (.members | type == "object") and (.
   esac
 fi
 
-# ---- 1. token: BotFather preamble, then prompt (no echo), 0700/0600 file ------
+# ---- 1. token: preamble; reuse mode-600 file or prompt (no echo) --------------
 
 cat >&2 <<'EOF'
 Create your own Telegram bot with @BotFather. This Intercom bot is yours.
@@ -56,24 +57,50 @@ Do not reuse a teammate's bot or token. Never share the token.
 Never paste the token into chat.
 Write it to ~/.config/telegram/bot_token (mode 600), or paste it at the next prompt (input is hidden).
 EOF
-printf 'Telegram bot token (from @BotFather): ' >&2
-token=""
-IFS= read -rs token || die "cannot read the token from stdin"
-token="${token//[[:space:]]/}"
-[ -n "$token" ] || die "empty token"
 
 tokdir="$HOME/.config/telegram"
-if [ -d "$tokdir" ]; then
-  # mkdir -p never tightens: an existing parent must be chmod'ed explicitly.
-  chmod 700 "$tokdir" || die "cannot chmod 700 $tokdir"
+tokfile="$tokdir/bot_token"
+reuse=false
+if [ -f "$tokfile" ]; then
+  mode=$(stat -c %a "$tokfile" 2>/dev/null || stat -f %Lp "$tokfile" 2>/dev/null) || mode=""
+  case "$mode" in
+    600|0600)
+      echo "Existing token file at $tokfile (mode 600)." >&2
+      echo "Reuse it? [Y/n] Never paste the token into chat; reuse does not print it." >&2
+      ans=""
+      IFS= read -r ans || ans=""
+      ans="${ans#"${ans%%[![:space:]]*}"}"
+      ans="${ans%"${ans##*[![:space:]]}"}"
+      case "$ans" in
+        n|N|no|NO|replace|REPLACE) reuse=false ;;
+        *) reuse=true ;;
+      esac
+      ;;
+  esac
 fi
-mkdir -m 700 -p "$tokdir" || die "cannot create $tokdir (mode 700)"
-# atomic_write is tmp+rename; with the new file the mode comes from umask, so
-# chmod 600 explicitly — modes are set explicitly, never via umask reliance.
-if ! atomic_write "$tokdir/bot_token" printf '%s\n' "$token"; then
-  die "cannot write $tokdir/bot_token"
+
+if [ "$reuse" = true ]; then
+  ir_token_read >/dev/null || die "cannot read existing token file"
+else
+  printf 'Telegram bot token (from @BotFather): ' >&2
+  token=""
+  IFS= read -rs token || die "cannot read the token from stdin"
+  token="${token//[[:space:]]/}"
+  [ -n "$token" ] || die "empty token"
+
+  if [ -d "$tokdir" ]; then
+    # mkdir -p never tightens: an existing parent must be chmod'ed explicitly.
+    chmod 700 "$tokdir" || die "cannot chmod 700 $tokdir"
+  fi
+  mkdir -m 700 -p "$tokdir" || die "cannot create $tokdir (mode 700)"
+  # atomic_write is tmp+rename; with the new file the mode comes from umask, so
+  # chmod 600 explicitly — modes are set explicitly, never via umask reliance.
+  if ! atomic_write "$tokfile" printf '%s\n' "$token"; then
+    die "cannot write $tokfile"
+  fi
+  chmod 600 "$tokfile" || die "cannot chmod 600 $tokfile"
+  unset token
 fi
-chmod 600 "$tokdir/bot_token" || die "cannot chmod 600 $tokdir/bot_token"
 
 # ---- 2. validate via getMe (fail => no state beyond the token file) ------------
 
@@ -100,20 +127,22 @@ name="${name%"${name##*[![:space:]]}"}"
 [ -n "$name" ] || die "member name required (set USER or type a name)"
 
 # ---- 4. pairing: one long-poll getUpdates?timeout=30&offset=-1 ------------------
+# No Enter wait (CDT-512-C4): the 30s long-poll is the wait. A piped Enter
+# raced an empty getUpdates queue.
 
 cat >&2 <<'EOF'
 To give each session or ticket its own topic, enable Topics in this private chat (Bot API 9.3+ private bot topics / forum). That is sid per topic.
 Topics off is supported: one General window (walkie-talkie only). getChat.is_forum=false is not an error.
 EOF
-echo "Now send ANY message to @${bot_username} in Telegram (private chat with the bot)." >&2
-printf 'Press Enter once you have sent it: ' >&2
-IFS= read -r _ || true
+echo "Send ANY private message to @${bot_username} in Telegram." >&2
+echo "Then wait — pairing long-polls getUpdates for 30s. Do not pipe Enter." >&2
+echo "Never paste the bot token into chat." >&2
 
 resp=$(tg_api "getUpdates?timeout=30&offset=-1" --max-time 45) \
   || die "pairing getUpdates failed (curl rc $?) — no state written beyond the token file"
 chat_id=$(jq -r '[.result[] | select(.message.chat.type == "private")][0].message.chat.id // empty' <<<"$resp")
 case "$chat_id" in
-  ''|*[!0-9]*) die "no private-chat sender captured — send a message to @${bot_username} and re-run (no state beyond the token file)" ;;
+  ''|*[!0-9]*) die "no private-chat sender captured — send a message to @${bot_username}, then wait (long-poll 30s). Do not pipe Enter before the DM. No state beyond the token file" ;;
 esac
 thread_id=$(jq -r '[.result[] | select(.message.chat.type == "private")][0].message.message_thread_id // empty' <<<"$resp")
 case "$thread_id" in

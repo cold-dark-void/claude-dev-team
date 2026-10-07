@@ -84,8 +84,10 @@ Personal Intercom bot (SPEC-038). Delegates to
 `skills/intercom/setup-telegram.sh`. Not doctor-gated.
 
 Every developer creates their own bot. Do not reuse a teammate's token.
-Do not suggest a shared bot from memory. Operator steps:
-[Telegram Intercom setup](../runbooks/setup-telegram.md).
+Do not suggest a shared bot from memory. Never paste the token into chat.
+If `~/.config/telegram/bot_token` is mode 600, the script offers reuse.
+Pairing long-polls 30s — do not pipe Enter before the operator DMs the bot.
+Operator steps: [Telegram Intercom setup](../runbooks/setup-telegram.md).
 
 ## Sub: `slack`
 
