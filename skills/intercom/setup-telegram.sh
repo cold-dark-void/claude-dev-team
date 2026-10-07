@@ -6,8 +6,8 @@
 # (failure: no state beyond the token file) -> one getUpdates?timeout=30&offset=-1
 # pairing call (chat id + initial offset) -> getChat topics check -> write
 # config.json / topics.json / seen.tsv / state dirs / offset under the state
-# root (INTERCOM_STATE_ROOT honored, AC23) -> print the harness schedule prompt
-# (ci-watch pattern, <= 4 KiB, token-free). Re-run with a valid config asks
+# root (INTERCOM_STATE_ROOT honored, AC23) -> print the host-aware arming block
+# (absolute watch.sh, 45s, <= 4 KiB, token-free). Re-run with a valid config asks
 # before overwriting. bash/jq/curl only (AC21); token never in argv/logs (AC4):
 # every call goes through the tg_api funnel in common.sh.
 set -u
@@ -146,25 +146,33 @@ chmod 600 "$statedir/seen.tsv" || die "cannot chmod 600 $statedir/seen.tsv"
 atomic_write "$statedir/offset" printf '%s\n' "$offset" || die "cannot write $statedir/offset"
 chmod 600 "$statedir/offset" || die "cannot chmod 600 $statedir/offset"
 
-# ---- 7. harness schedule prompt (ci-watch pattern, token-free) ------------------
+# ---- 7. host-aware arming block (token-free, ≤ 4 KiB) ---------------------------
 
-poller="$SCRIPT_DIR/poller.sh"
-[ -f "$poller" ] || echo "setup-telegram: note: $poller not found yet (poller task pending)" >&2
+watch="$SCRIPT_DIR/watch.sh"
+[ -f "$watch" ] || echo "setup-telegram: note: $watch not found" >&2
 
 echo "Paired: chat $chat_id ($name, owner), initial offset $offset, topics_enabled=$topics_enabled."
 echo "State root: $root"
 echo
-echo "--- BEGIN harness schedule prompt (arm with Claude CronCreate, durable) ---"
+echo "--- BEGIN harness schedule prompt (host-aware arming) ---"
 cat <<EOF
-You are the telegram-router poller runner. Self-contained. One cycle per invocation.
-Run:
-  bash $poller
+Arm the Intercom host job on watch.sh, not poller.sh. One bash-only cycle per invocation.
+Command (absolute):
+  bash $watch
+Cadence: every 45 seconds (30–60s allowed).
+
+Grok: silent watcher. Run bash-only watch.sh cycles. Print only per the wake grammar (inbound or edge-triggered poller exit). Empty stdout MUST NOT start a parent turn. Do not use scheduler_create for idle.
+
+Claude: CronCreate only if that job injects zero parent turn when watch.sh stdout is empty (exit 0). Otherwise the same silent-watcher path. CronCreate bash-only no-parent-turn is UNVERIFIED until proven on this host. CronCreate MUST NOT be the sole arming instruction.
+
 Rules:
-- Exit 0 or 75: finish silently (75 = another cycle holds the lock).
-- Any other exit code: print the script's stderr, then exit 0.
+- watch.sh always exits 0.
 - Never set INTERCOM_STATE_ROOT. Never read, pass, or print the bot token.
 - One cycle per invocation. Do not loop and do not sleep between cycles.
+- Do not copy poller stderr onto stdout.
 - Do not re-arm. Do not open interactive confirms.
+- Host crontab is forbidden.
+
 Schedule: every 45 seconds, durable: true
 EOF
 echo "--- END harness schedule prompt ---"

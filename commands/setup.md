@@ -606,7 +606,9 @@ layer merge — `list` calls `resolve-model.sh`.
 Configure the Telegram Intercom (SPEC-038). The script is interactive: it
 prompts for the bot token, validates via `getMe`, pairs the operator chat,
 writes state under the state root (outside the repo; `INTERCOM_STATE_ROOT`
-honored), and prints the harness schedule prompt. Run it in the foreground so
+honored), and prints a token-free host-aware arming block (absolute
+`watch.sh`, 45s cadence; Grok silent watcher plus Claude CronCreate only if
+empty stdout injects zero parent turn). Run it in the foreground so
 the token prompt can be answered. The command documents and delegates only —
 **do not** inline any setup behavior here. Not doctor-gated. The script takes
 no flags; extra arguments are not forwarded.

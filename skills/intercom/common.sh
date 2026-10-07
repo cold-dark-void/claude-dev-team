@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # common.sh — shared library for the intercom spool protocol (SPEC-038).
-# Sourced by intercom.sh, poller.sh, setup-telegram.sh, probe.sh and the
+# Sourced by intercom.sh, poller.sh, watch.sh, setup-telegram.sh, probe.sh and the
 # hermetic suites. It is a library: it defines functions and exits; it never
 # performs I/O on its own. The two CLIs (intercom.sh, poller.sh) are never
 # sourced.

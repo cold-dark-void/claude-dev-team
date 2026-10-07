@@ -6,6 +6,10 @@ Pre-written headings (release-train M5c, orchestrate version-sync tasks) are kep
 via skip-if-present when `/release` is given an explicit version — do not invent a
 second heading for the same version.
 
+### v1.21.2
+- **Bash-only Intercom poller host adapter (CDT-512-C1)** — `skills/intercom/watch.sh` runs one `poller.sh` cycle per invocation with empty stdout on idle; session-facing wake lines only on member inbound or edge-triggered poller failure. `setup-telegram.sh` prints a host-aware arming block (Grok silent watcher + Claude CronCreate only if no parent turn). Idle never injects a main-session LLM turn. SPEC-038 ACs for CDT-512-C1.
+- **Doctor T3c hermetic Intercom isolation** — `skills/doctor/test.sh` exports `INTERCOM_STATE_ROOT` to a temp dir so consecutive `--json` runs stay byte-identical when a live poller ticks heartbeat age.
+
 ### v1.21.1
 - **Hook-template shellcheck gate is strict-when-present** — findings fail the gate naming every offending template (the `HOOK_TEMPLATE_SHELLCHECK_STRICT` opt-in is retired), a planted-finding graft proves rc 1 against the real binary, and a dedicated `hook-templates` CI job (rule B9) enforces it on every PR; the two SC1007 findings are fixed in-fence.
 - **macOS CI lane is required and green** — the `macos` job drops `continue-on-error`, runs `tools/run-all-tests.sh --portable --platform macos` at timeout 20, and `ci-workflow-test.sh` rule B8/G2 asserts the required shape with POSIX-portable seds (the GNU-only `0,/re/` forms); `macos` is a required status check on master (repo settings, recorded on CDT-502).

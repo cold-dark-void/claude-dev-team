@@ -163,6 +163,14 @@ run_poller() { # one poller cycle; sets P_OUT P_ERR P_RC
   P_ERR=$(cat "$ERRF")
 }
 
+run_watch() { # one host-adapter cycle; sets W_OUT W_ERR W_RC
+  : > "$CALLS_LOG"
+  : > "$ARGV_LOG"
+  W_OUT=$(bash "$WATCH" 2>"$ERRF")
+  W_RC=$?
+  W_ERR=$(cat "$ERRF")
+}
+
 run_cli() { # SCRIPT ARG... — sets C_OUT C_ERR C_RC
   C_OUT=$(bash "$@" 2>"$ERRF")
   C_RC=$?

@@ -26,9 +26,11 @@ done
 . "$PLUGIN_ROOT/tests/lib/mtimes.sh"
 
 POLLER="$HERE/poller.sh"
+WATCH="$HERE/watch.sh"
 INTERCOM="$HERE/intercom.sh"
 FIXTURES="$HERE/fixtures"
 TEST_TOKEN="123456789:TEST-TOKEN-NOT-REAL"
+SENTINEL="123456789:TEST-SENTINEL-TOKEN"
 
 PASS=0
 FAIL=0
@@ -462,6 +464,255 @@ if [ "$P_RC" -eq 0 ] && [ "$(calls_count sendMessage)" = "1" ] \
   ok "AC18 away ON: outbox drains proactively in the cycle"
 else
   bad "AC18 away drain: rc=$P_RC sends=$(calls_count sendMessage)"
+fi
+
+# ---- CDT-512-C1: host adapter watch.sh ------------------------------------------
+
+plant_inbox() { # SID FROM_ID [TEXT] [STEM]
+  mkdir -m 700 -p "$STATE_ROOT/spool/$1/inbox"
+  jq -n --arg sid "$1" --argjson from "$2" --arg text "${3:-planted secret}" \
+    '{ts: 0, sid: $sid, dir: "in", kind: "message", text: $text,
+      from_id: $from, update_id: 0, thread_id: 0}' \
+    > "$STATE_ROOT/spool/$1/inbox/${4:-900000000_0_plant}.json"
+}
+
+# paired idle: empty stdout, rc 0, heartbeat advances, offset unchanged, no poller stderr
+seed_paired "197372681"
+ok_empty_result
+touch_ago "$STATE_ROOT/state/heartbeat" 5
+hb_aged=$(stat -c %Y "$STATE_ROOT/state/heartbeat")
+off_before=$(offset_val)
+export CURL_STDERR_ECHO=1
+run_watch
+unset CURL_STDERR_ECHO
+hb_after=$(stat -c %Y "$STATE_ROOT/state/heartbeat" 2>/dev/null || echo 0)
+if [ "$W_RC" -eq 0 ] && [ -z "$W_OUT" ] \
+  && [ "$hb_after" -gt "$hb_aged" ] && [ "$(offset_val)" = "$off_before" ] \
+  && ! printf '%s' "$W_OUT" | grep -q 'poller:' \
+  && ! printf '%s' "$W_OUT" | grep -q 'curl:' \
+  && ! printf '%s' "$W_OUT" | grep -q '\[scrubbed\]'; then
+  ok "CDT-512-C1 AC2 paired idle: empty stdout, rc 0, heartbeat advances, offset unchanged, no poller stderr"
+else
+  bad "CDT-512-C1 idle: rc=$W_RC out=[$W_OUT] hb $hb_aged->$hb_after off=$(offset_val)"
+fi
+
+# unpaired: rc 0, no heartbeat, no fetch, empty stdout
+fresh_case
+seed_token
+mkdir -m 700 -p "$STATE_ROOT/state"
+printf '100\n' > "$STATE_ROOT/state/offset"
+run_watch
+if [ "$W_RC" -eq 0 ] && [ -z "$W_OUT" ] && [ ! -f "$STATE_ROOT/state/heartbeat" ] \
+  && [ ! -s "$CALLS_LOG" ]; then
+  ok "CDT-512-C1 AC2 unpaired: rc 0, empty stdout, no heartbeat, no fetch"
+else
+  bad "CDT-512-C1 unpaired: rc=$W_RC out=[$W_OUT] calls=[$(cat "$CALLS_LOG")]"
+fi
+
+# inbound one sid: exact grammar, no message text
+seed_paired "197372681"
+put_resp "getUpdates" "$(result_body "$(upd_msg 100 197372681 "hello there secret")")"
+run_watch
+want="intercom: inbound sid=main path=$STATE_ROOT/spool/main/inbox"
+if [ "$W_RC" -eq 0 ] && [ "$W_OUT" = "$want" ] \
+  && ! printf '%s' "$W_OUT" | grep -q 'hello there secret'; then
+  ok "CDT-512-C1 AC3 inbound one sid: exact wake grammar, no message text"
+else
+  bad "CDT-512-C1 inbound one: rc=$W_RC out=[$W_OUT] want=[$want]"
+fi
+
+# inbound two sids: lexicographic unique, paths in sid order
+seed_paired "197372681"
+cfg_edit "$STATE_ROOT/topics.json" '.["sess-a"] = {thread_id: 201, title: "sess-a"} | .["sess-b"] = {thread_id: 202, title: "sess-b"}'
+put_resp "getUpdates" "$(result_body \
+  "$(upd_msg 300 197372681 "for a secret" 201)" \
+  "$(upd_msg 301 197372681 "for b secret" 202)")"
+run_watch
+want="intercom: inbound sid=sess-a,sess-b path=$STATE_ROOT/spool/sess-a/inbox $STATE_ROOT/spool/sess-b/inbox"
+if [ "$W_RC" -eq 0 ] && [ "$W_OUT" = "$want" ] \
+  && ! printf '%s' "$W_OUT" | grep -q 'secret'; then
+  ok "CDT-512-C1 AC3 inbound two sids: lex order, paths match, no body dump"
+else
+  bad "CDT-512-C1 inbound two: rc=$W_RC out=[$W_OUT] want=[$want]"
+fi
+
+# pre-existing inbox does not wake (stamp created first)
+seed_paired "197372681"
+plant_inbox "main" 197372681 "pre-existing body"
+ok_empty_result
+run_watch
+if [ "$W_RC" -eq 0 ] && [ -z "$W_OUT" ]; then
+  ok "CDT-512-C1 AC3 pre-existing inbox: no wake on first stamp"
+else
+  bad "CDT-512-C1 pre-existing: rc=$W_RC out=[$W_OUT]"
+fi
+
+# silent: phone /away
+seed_paired "197372681"
+put_resp "getUpdates" "$(result_body "$(upd_msg 100 197372681 "/away")")"
+run_watch
+if [ "$W_RC" -eq 0 ] && [ -z "$W_OUT" ]; then
+  ok "CDT-512-C1 AC3 silent phone /away"
+else
+  bad "CDT-512-C1 /away: rc=$W_RC out=[$W_OUT]"
+fi
+
+# silent: phone /afk
+seed_paired "197372681"
+put_resp "getUpdates" "$(result_body "$(upd_msg 100 197372681 "/afk")")"
+run_watch
+if [ "$W_RC" -eq 0 ] && [ -z "$W_OUT" ]; then
+  ok "CDT-512-C1 AC3 silent phone /afk"
+else
+  bad "CDT-512-C1 /afk: rc=$W_RC out=[$W_OUT]"
+fi
+
+# silent: outbox drain only
+seed_paired "197372681"
+put_outbox "main" "drain me"
+ok_empty_result
+run_watch
+if [ "$W_RC" -eq 0 ] && [ -z "$W_OUT" ]; then
+  ok "CDT-512-C1 AC3 silent outbox drain"
+else
+  bad "CDT-512-C1 drain: rc=$W_RC out=[$W_OUT]"
+fi
+
+# silent: escalation sweep
+seed_paired "197372681"
+put_pending "main" "q_esc" "expired question" "$(( $(date +%s) - 3600 ))"
+ok_empty_result
+run_watch
+if [ "$W_RC" -eq 0 ] && [ -z "$W_OUT" ]; then
+  ok "CDT-512-C1 AC3 silent escalation sweep"
+else
+  bad "CDT-512-C1 escalation: rc=$W_RC out=[$W_OUT]"
+fi
+
+# silent: ignored update types
+seed_paired "197372681"
+put_resp "getUpdates" "$(result_body \
+  "$(upd_edited 200 197372681)" \
+  "$(upd_channel 201 197372681)" \
+  "$(upd_callback 202)" \
+  "$(upd_nochat 203)")"
+run_watch
+if [ "$W_RC" -eq 0 ] && [ -z "$W_OUT" ]; then
+  ok "CDT-512-C1 AC3 silent ignored update types"
+else
+  bad "CDT-512-C1 ignored types: rc=$W_RC out=[$W_OUT]"
+fi
+
+# silent: 429 exit 0
+seed_paired "197372681"
+put_resp_file "getUpdates" "$FIXTURES/ratelimited-429.json"
+run_watch
+if [ "$W_RC" -eq 0 ] && [ -z "$W_OUT" ]; then
+  ok "CDT-512-C1 AC3 silent 429 (poller exit 0)"
+else
+  bad "CDT-512-C1 429: rc=$W_RC out=[$W_OUT]"
+fi
+
+# silent: getUpdates transport fail exit 0
+seed_paired "197372681"
+put_resp "getUpdates" '__CURL_FAIL__'
+run_watch
+if [ "$W_RC" -eq 0 ] && [ -z "$W_OUT" ]; then
+  ok "CDT-512-C1 AC3 silent getUpdates transport fail"
+else
+  bad "CDT-512-C1 transport: rc=$W_RC out=[$W_OUT]"
+fi
+
+# silent: lock-held 75
+seed_paired "197372681"
+ok_empty_result
+env CURL_DELAY=3 bash "$POLLER" > "$HERMETIC_ROOT/wlock.out" 2>&1 &
+WLP=$!
+sleep 1
+run_watch
+if [ "$W_RC" -eq 0 ] && [ -z "$W_OUT" ]; then
+  ok "CDT-512-C1 AC3 silent lock-held 75"
+else
+  bad "CDT-512-C1 lock-75: rc=$W_RC out=[$W_OUT]"
+fi
+wait "$WLP" || true
+
+# failure latch: first 4 wakes, identical 4 silent, 0 clears, 4 wakes again, 2 vs 4 wakes
+seed_paired "197372681"
+put_resp_file "getUpdates" "$FIXTURES/conflict-409.json"
+run_watch
+if [ "$W_RC" -eq 0 ] && [ "$W_OUT" = "intercom: poller exit 4" ] \
+  && [ "$(tr -d ' \t\r\n' < "$STATE_ROOT/state/last_wake_exit")" = "4" ]; then
+  ok "CDT-512-C1 AC4 first poller exit 4 wakes"
+else
+  bad "CDT-512-C1 first 4: rc=$W_RC out=[$W_OUT] latch=$(cat "$STATE_ROOT/state/last_wake_exit" 2>/dev/null)"
+fi
+run_watch
+if [ "$W_RC" -eq 0 ] && [ -z "$W_OUT" ]; then
+  ok "CDT-512-C1 AC4 identical exit 4 stays silent"
+else
+  bad "CDT-512-C1 second 4: rc=$W_RC out=[$W_OUT]"
+fi
+ok_empty_result
+run_watch
+if [ "$W_RC" -eq 0 ] && [ -z "$W_OUT" ] && [ ! -f "$STATE_ROOT/state/last_wake_exit" ]; then
+  ok "CDT-512-C1 AC4 exit 0 clears the failure latch"
+else
+  bad "CDT-512-C1 clear latch: rc=$W_RC out=[$W_OUT] latch=$([ -f "$STATE_ROOT/state/last_wake_exit" ] && echo yes || echo no)"
+fi
+put_resp_file "getUpdates" "$FIXTURES/conflict-409.json"
+run_watch
+if [ "$W_RC" -eq 0 ] && [ "$W_OUT" = "intercom: poller exit 4" ]; then
+  ok "CDT-512-C1 AC4 exit 4 wakes again after a 0 cycle"
+else
+  bad "CDT-512-C1 4 after 0: rc=$W_RC out=[$W_OUT]"
+fi
+printf 'abc\n' > "$STATE_ROOT/state/offset"
+run_watch
+if [ "$W_RC" -eq 0 ] && [ "$W_OUT" = "intercom: poller exit 2" ]; then
+  ok "CDT-512-C1 AC4 different exit 2 vs 4 wakes"
+else
+  bad "CDT-512-C1 2 vs 4: rc=$W_RC out=[$W_OUT]"
+fi
+
+# inbound every new-inbox cycle even when failure latch is silent; combined inbound then failure
+seed_paired "197372681"
+ok_empty_result
+run_watch
+plant_inbox "main" 197372681 "combined secret" "900000001_0_plant"
+put_resp_file "getUpdates" "$FIXTURES/conflict-409.json"
+run_watch
+want_in="intercom: inbound sid=main path=$STATE_ROOT/spool/main/inbox"
+want_both="$want_in
+intercom: poller exit 4"
+if [ "$W_RC" -eq 0 ] && [ "$W_OUT" = "$want_both" ] \
+  && ! printf '%s' "$W_OUT" | grep -q 'combined secret'; then
+  ok "CDT-512-C1 AC4 combined: inbound then failure"
+else
+  bad "CDT-512-C1 combined: rc=$W_RC out=[$W_OUT] want=[$want_both]"
+fi
+plant_inbox "main" 197372681 "again secret" "900000002_0_plant"
+put_resp_file "getUpdates" "$FIXTURES/conflict-409.json"
+run_watch
+if [ "$W_RC" -eq 0 ] && [ "$W_OUT" = "$want_in" ]; then
+  ok "CDT-512-C1 AC4 inbound still prints every new-inbox cycle (failure latch silent)"
+else
+  bad "CDT-512-C1 inbound-while-latched: rc=$W_RC out=[$W_OUT]"
+fi
+
+# sentinel absent from W_OUT
+seed_paired "197372681"
+seed_token "$SENTINEL"
+ok_empty_result
+export CURL_STDERR_ECHO=1
+run_watch
+unset CURL_STDERR_ECHO
+if [ "$W_RC" -eq 0 ] && ! printf '%s' "$W_OUT" | grep -qF "$SENTINEL" \
+  && ! printf '%s' "$W_ERR" | grep -qF "$SENTINEL" \
+  && ! grep -qF "$SENTINEL" "$ARGV_LOG" 2>/dev/null; then
+  ok "CDT-512-C1 AC6 sentinel absent from adapter stdout/stderr/argv"
+else
+  bad "CDT-512-C1 adapter sentinel: rc=$W_RC out=[$W_OUT]"
 fi
 
 echo

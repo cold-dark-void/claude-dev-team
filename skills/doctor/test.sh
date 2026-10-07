@@ -28,6 +28,9 @@ skip() { SKIPN=$((SKIPN + 1)); echo "SKIP: $1"; }
 TMP=$(mktemp -d "${TMPDIR:-/tmp}/doctor-test.XXXXXX")
 cleanup() { rm -rf "$TMP"; }
 trap cleanup EXIT
+# Isolate live Intercom heartbeat/offset from T3c JSON determinism.
+export INTERCOM_STATE_ROOT="$TMP/intercom-isolated"
+mkdir -p "$INTERCOM_STATE_ROOT"
 
 doctor() {
   # Run doctor against current cwd (fixture MROOT)

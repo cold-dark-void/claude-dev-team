@@ -4,7 +4,7 @@ description: >
   Intercom spool protocol (SPEC-038 phase 1). The intercom CLI verbs
   (ask/send/away), the per-session spool layout, the record and heartbeat
   file formats, and the tg_api token funnel shared by poller.sh,
-  setup-telegram.sh, and the hermetic suites. Agent-internal protocol skill,
+  watch.sh, setup-telegram.sh, and the hermetic suites. Agent-internal protocol skill,
   not a slash Surface. bash + jq + curl only (AC21).
 user-invocable: false
 ---
@@ -74,6 +74,8 @@ State is box-level only — never inside the repo (AC23).
     poller.lock                  flock target
     seen.tsv                     "update_id<TAB>epoch" dedupe window, prune > 1000
     away                         absent = off; present = on
+    inbox.stamp                  adapter mtime watermark for new inbox files
+    last_wake_exit               adapter: last non-{0,75} poller exit that already woke
   spool/<sid>/
     inbox/                       inbound JSON for the session
     outbox/                      outbound JSON the poller drains
@@ -143,10 +145,44 @@ call through the `tg_api METHOD [curl-args...]` funnel in `common.sh`:
 - Callers pass their own `--max-time`; the funnel never retries. Do not pass
   `-K` to `tg_api`.
 
+## Host adapter (`watch.sh`)
+
+`watch.sh` is a subprocess CLI. Never source it. One cycle per invocation.
+The armed host job is `bash <absolute-plugin>/skills/intercom/watch.sh`
+every 30–60 s. `watch.sh` always exits 0. It sources `common.sh` for the
+state root only. It never calls `tg_api` and never reads the bot token.
+
+Each cycle:
+
+1. Create `state/inbox.stamp` if missing, then run `poller.sh` once.
+2. Discard poller stdout. Keep poller stderr in a temp file. Do not copy
+   it to stdout. Delete the temp file.
+3. Wake on new allowlisted inbox files (mtime newer than the stamp;
+   `from_id` is a `config.json` `members` key). Print one inbound line.
+4. Wake on a poller exit other than 0 or 75 only when that code differs
+   from `state/last_wake_exit`. Print one failure line. A 0 or 75 cycle
+   deletes the latch.
+5. Touch the stamp.
+
+Wake lines (token-free; no inbound body):
+
+```
+intercom: inbound sid=<sid>[,<sid>...] path=<abs-inbox> [<abs-inbox>...]
+intercom: poller exit <n>
+```
+
+Unique sids are lexicographic. Each `path` is `$IR_STATE/spool/<sid>/inbox`
+in the same order. When both fire, print inbound then failure. Idle paired
+cycles write zero bytes on stdout.
+
+`/setup telegram` prints a host-aware arming block: absolute `watch.sh`,
+45 s cadence, Grok silent watcher, and Claude CronCreate only if empty
+stdout injects zero parent turn.
+
 ## Hermetic testing
 
 Point `INTERCOM_STATE_ROOT` at `mktemp -d` and shim `curl` on `PATH`; the
-suites run with no network. `common.sh` is sourceable; `intercom.sh` and
-`poller.sh` refuse to be sourced. Temp paths use `mktemp` or
+suites run with no network. `common.sh` is sourceable; `intercom.sh`,
+`poller.sh`, and `watch.sh` refuse to be sourced. Temp paths use `mktemp` or
 `${TMPDIR:-/tmp}`. Probe the live API only with `probe.sh` (operator-invoked,
 never inside suites).

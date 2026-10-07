@@ -27,6 +27,7 @@ done
 INTERCOM="$HERE/intercom.sh"
 COMMON="$HERE/common.sh"
 POLLER="$HERE/poller.sh"
+WATCH="$HERE/watch.sh"
 SETUP="$HERE/setup-telegram.sh"
 SETUP_MD="$PLUGIN_ROOT/commands/setup.md"
 FIXTURES="$HERE/fixtures"
@@ -87,6 +88,18 @@ else
   bad "poller.sh source behavior unexpected: rc=$rc out=$out"
 fi
 
+if [ -f "$WATCH" ]; then
+  out=$(bash -c '. "'"$WATCH"'"' 2>&1)
+  rc=$?
+  if [ "$rc" -eq 1 ] && printf '%s' "$out" | grep -q 'subprocess CLI'; then
+    ok "watch.sh refuses to be sourced (rc 1 + message)"
+  else
+    bad "watch.sh source guard: rc=$rc out=$out"
+  fi
+else
+  bad "watch.sh missing (source guard)"
+fi
+
 # ---- AC21: bash/jq/curl only; graceful absence ---------------------------------
 
 shebang_ok=1
@@ -94,6 +107,29 @@ for f in "$HERE"/*.sh; do
   [ "$(head -n 1 "$f")" = "#!/usr/bin/env bash" ] || { shebang_ok=0; bad "AC21 shebang not env bash: $f"; }
 done
 [ "$shebang_ok" -eq 1 ] && ok "AC21 every skills/intercom/*.sh starts with #!/usr/bin/env bash"
+
+if [ ! -f "$WATCH" ]; then
+  bad "CDT-512-C1 AC1 watch.sh missing from interpreter scan set"
+else
+  interp_ok=1
+  for f in "$HERE"/*.sh; do
+    if grep -E '(^|[[:space:]])(python3?|node|ruby|perl)([[:space:]|&;<>]|$)' "$f" >/dev/null; then
+      interp_ok=0
+      bad "AC1 interpreter invocation in $f"
+    fi
+  done
+  [ "$interp_ok" -eq 1 ] && ok "AC1 no python/node/ruby/perl in skills/intercom/*.sh (incl. watch.sh)"
+  if grep -E '\btg_api\b|\bir_token_read\b' "$WATCH" >/dev/null; then
+    bad "CDT-512-C1 watch.sh must not call tg_api or ir_token_read"
+  else
+    ok "CDT-512-C1 watch.sh never calls tg_api / ir_token_read"
+  fi
+  if grep -E 'while[[:space:]]+(true|:)|sleep[[:space:]]' "$WATCH" >/dev/null; then
+    bad "CDT-512-C1 AC1 watch.sh resident loop/sleep"
+  else
+    ok "CDT-512-C1 AC1 watch.sh is one-shot (no resident while/sleep)"
+  fi
+fi
 
 out=$(env PATH="$EMPTY_BIN" "$(command -v bash)" "$INTERCOM" ask "hi" 2>&1)
 rc=$?
@@ -362,6 +398,50 @@ else
   bad "AC1 pairing completion: rc=$rc out=$out"
 fi
 
+arm=$(printf '%s\n' "$out" | awk '/--- BEGIN /,/--- END /')
+arm_bytes=$(printf '%s' "$arm" | wc -c | tr -d ' ')
+arm_ok=1
+if ! printf '%s' "$arm" | grep -qF "$HERE/watch.sh"; then
+  arm_ok=0
+  bad "CDT-512-C1 AC5 arming block missing absolute watch.sh path"
+fi
+if ! printf '%s' "$arm" | grep -Eq 'every (3[0-9]|[45][0-9]|60) seconds'; then
+  arm_ok=0
+  bad "CDT-512-C1 AC5 arming block missing 30–60s cadence"
+fi
+if ! printf '%s' "$arm" | grep -qi 'grok' || ! printf '%s' "$arm" | grep -qi 'silent watcher'; then
+  arm_ok=0
+  bad "CDT-512-C1 AC5 arming block missing Grok silent watcher"
+fi
+if ! printf '%s' "$arm" | grep -q 'CronCreate' || ! printf '%s' "$arm" | grep -qi 'parent turn'; then
+  arm_ok=0
+  bad "CDT-512-C1 AC5 arming block missing Claude CronCreate-if-zero-parent-turn"
+fi
+if ! printf '%s' "$arm" | grep -qi 'grok' || ! printf '%s' "$arm" | grep -q 'CronCreate'; then
+  arm_ok=0
+  bad "CDT-512-C1 AC5 CronCreate must not be the sole arming instruction"
+fi
+if [ "$arm_bytes" -gt 4096 ]; then
+  arm_ok=0
+  bad "CDT-512-C1 AC5 arming block is $arm_bytes bytes (cap 4096)"
+fi
+if printf '%s' "$arm" | grep -qF "$TEST_TOKEN" || printf '%s' "$arm" | grep -qF "$SENTINEL"; then
+  arm_ok=0
+  bad "CDT-512-C1 AC5/AC6 sentinel or token in arming block"
+fi
+if printf '%s' "$arm" | grep -q 'watch-intercom.sh'; then
+  arm_ok=0
+  bad "CDT-512-C1 AC5 arming block instructs watch-intercom.sh"
+fi
+[ "$arm_ok" -eq 1 ] && ok "CDT-512-C1 AC5 host-aware arming block (abs watch.sh, 30–60s, Grok+Claude, ≤4KiB, token-free)"
+
+wi_hits=$(find "$PLUGIN_ROOT" -name 'watch-intercom.sh' ! -path '*/.git/*' 2>/dev/null || true)
+if [ -n "$wi_hits" ]; then
+  bad "CDT-512-C1 AC7 watch-intercom.sh present in plugin tree: $wi_hits"
+else
+  ok "CDT-512-C1 AC7 no watch-intercom.sh in plugin tree"
+fi
+
 # ---- AC2: unpaired bot relays nothing --------------------------------------------
 
 fresh_case
@@ -461,6 +541,29 @@ if [ "$nonstdin" = "0" ] && [ "$argvk" -eq 1 ]; then
   ok "AC4 every request URL travels via the -K - stdin config, never argv"
 else
   bad "AC4 transport path: nonstdin=$nonstdin argvk=$argvk calls=[$(cat "$CALLS_LOG")]"
+fi
+
+# CDT-512-C1 AC6: sentinel absent from adapter stdout (and not passed as argv)
+fresh_case
+seed_token "$SENTINEL"
+base_config "197372681" > "$STATE_ROOT/config.json"
+mkdir -m 700 -p "$STATE_ROOT/state"
+printf '100\n' > "$STATE_ROOT/state/offset"
+: > "$STATE_ROOT/state/seen.tsv"
+date +%s > "$STATE_ROOT/state/heartbeat"
+printf '{"general": {"thread_id": 100, "title": "General"}}\n' > "$STATE_ROOT/topics.json"
+put_resp "getUpdates" '{"ok":true,"result":[]}'
+export CURL_STDERR_ECHO=1
+run_watch
+unset CURL_STDERR_ECHO
+aleak=""
+printf '%s' "$W_OUT" | grep -qF "$SENTINEL" && aleak="$aleak adapter-stdout"
+printf '%s' "$W_ERR" | grep -qF "$SENTINEL" && aleak="$aleak adapter-stderr"
+grep -qF "$SENTINEL" "$ARGV_LOG" 2>/dev/null && aleak="$aleak curl-argv"
+if [ -z "$aleak" ] && [ "${W_RC:-1}" -eq 0 ]; then
+  ok "CDT-512-C1 AC6 sentinel absent from adapter stdout/stderr and curl argv"
+else
+  bad "CDT-512-C1 AC6 adapter sentinel leaked to:$aleak rc=${W_RC-unset}"
 fi
 
 # ---- AC6/AC7/AC10: thread-mapped delivery, no cross-delivery, typing once ---------

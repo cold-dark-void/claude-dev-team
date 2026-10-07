@@ -3,7 +3,7 @@
 **Status**: ACTIVE
 **Category**: core
 **Created**: 2026-10-05
-**Covers**: `skills/intercom/` (`SKILL.md`, `common.sh`, `intercom.sh`, `poller.sh`, `setup-telegram.sh`, `probe.sh`, `test.sh`, `test-poller.sh`), `commands/away.md`, `commands/afk.md`, `commands/setup.md` (`telegram` and `slack` subs), `skills/doctor/checks/intercom.sh`, `README.md`
+**Covers**: `skills/intercom/` (`SKILL.md`, `common.sh`, `intercom.sh`, `poller.sh`, `watch.sh`, `setup-telegram.sh`, `probe.sh`, `test.sh`, `test-poller.sh`), `commands/away.md`, `commands/afk.md`, `commands/setup.md` (`telegram` and `slack` subs), `skills/doctor/checks/intercom.sh`, `README.md`
 
 ## Overview
 
@@ -13,9 +13,13 @@ answers from Telegram; the **General** topic is the **walkie-talkie** for
 anything, anytime. Default mode keeps the CLI primary and adds a 15-minute
 **escalation** for unanswered questions. **Away mode** makes the intercom
 primary. Phase 1 is file-based: per-session spool dirs, a thin `intercom` CLI,
-and a harness-scheduled ephemeral poller. Zero new runtimes — bash, jq, and
-curl only (CDT-501 AC21). A containerized daemon replaces the poller in a
-phase-2 ticket; it MUST keep this spool interface (§ Phase-2 contract).
+and a harness-scheduled ephemeral poller. The phase-1 scheduler is harness
+re-invocation (Claude CronCreate or a Grok silent watcher) of the host
+adapter `watch.sh`; `poller.sh` stays one-shot. An idle paired cycle injects
+no parent turn (CDT-512-C1). Zero new runtimes — bash, jq, curl, and flock
+only (CDT-501 AC21, CDT-512-C1 AC1). A containerized daemon replaces the
+poller in a phase-2 ticket; it MUST keep this spool interface
+(§ Phase-2 contract).
 
 Brainstorm: `.claude/plans/2026-10-03-brainstorm-telegram-intercom.md`
 (box-level plan store). Glossary terms: Intercom, Walkie-talkie, Escalation,
@@ -37,6 +41,8 @@ Runtime state lives outside the repo (CDT-501 AC23). Test override:
     poller.lock                       # flock target (AC22)
     seen.tsv                          # "update_id<TAB>epoch" dedupe window (prune >1000)
     away                              # absent = off; present = on
+    last_wake_exit                    # adapter: last non-{0,75} poller exit that already woke
+    inbox.stamp                       # adapter: mtime watermark for new inbox files
   spool/<sid>/
     inbox/                            # inbound JSON for the session
     outbox/                           # outbound JSON the poller drains
@@ -95,10 +101,13 @@ Subprocess CLI — never sourced. Always exits 0 on success.
 
 ## Poller cycle (`poller.sh`)
 
-One cycle per invocation; the harness schedule (§ Setup) invokes it every
-30–60 s. Inside the cycle, `getUpdates` long-polls (`timeout` = config
-`poll_timeout_s`, default 30) for near-instant pickup. Never a resident loop,
-never a daemon, never host crontab.
+One cycle per invocation. The harness schedule (§ Setup, § Host adapter)
+re-invokes `watch.sh` every 30–60 s; `watch.sh` runs `poller.sh` once.
+Inside the cycle, `getUpdates` long-polls (`timeout` = config
+`poll_timeout_s`, default 30) for near-instant pickup. Never a resident
+loop, never a daemon, never host crontab, never `scheduler_create` /
+CronCreate / an LLM inside `poller.sh` or `watch.sh`. Idle paired cycles
+write no session-facing stdout.
 
 1. `flock -n` on `state/poller.lock`. Busy → exit 75, mutate nothing (AC22).
 2. Validate `state/offset` is a non-negative integer. Missing/invalid →
@@ -130,6 +139,67 @@ never a daemon, never host crontab.
 7. After each processed update: write `state/offset` (`update_id + 1`) and
    append `seen.tsv`; prune rows older than 1000.
 8. Escalation sweep (§ Escalation).
+
+`poller.sh` success path writes no stdout. Warnings go to stderr. The host
+adapter (§ Host adapter) consumes that cycle; the armed host job MUST NOT
+copy poller stderr onto session-facing stdout.
+
+## Host adapter (`watch.sh`)
+
+Plugin-owned subprocess CLI at `skills/intercom/watch.sh`. Never sourced.
+Cycle tools: bash, jq, curl, flock only (plus the same coreutils the poller
+already uses: `find`, `date`, `stat`, `mktemp`). No LLM, no other
+interpreter, no scheduler inside the cycle. One cycle per invocation; no
+resident `while`/`sleep`.
+
+The armed host job is `bash <absolute-plugin>/skills/intercom/watch.sh`,
+not `poller.sh` directly. `watch.sh` always exits 0 so a host that treats
+non-zero as a parent turn cannot wake on idle or on a repeating failure.
+
+`watch.sh` MUST NOT read, pass, or print the bot token (no argv, no env).
+It MUST NOT copy poller stderr onto stdout.
+
+Wake predicate uses `config.json` `members` keys, never a hardcoded chat
+id. Unpaired (no members): run `poller.sh` (SPEC-038 AC2: exit 0, no
+heartbeat, no fetch) and print nothing.
+
+**Inbox watermark.** `state/inbox.stamp` lives under the state root. If
+the stamp is missing, create it, then run `poller.sh` (pre-existing inbox
+files do not wake). After the cycle, a new allowlisted inbox record is a
+`spool/<sid>/inbox/*.json` whose mtime is newer than the stamp and whose
+`from_id` is a `members` key. Touch the stamp at the end of every adapter
+cycle.
+
+**Session-facing stdout** iff at least one of:
+
+- **inbound:** this cycle wrote ≥1 new allowlisted inbox record
+  (Walkie-talkie or a session topic). Phone `/away`/`/afk` write no inbox
+  record. Outbox drain, Escalation sweep, ignored update types, 429 with
+  poller exit 0, getUpdates transport failure with poller exit 0, and
+  lock-held 75 are silent.
+- **failure:** `poller.sh` exit ∉ {0, 75}, edge-triggered (below).
+
+**Wake-line grammar** (token-free; MUST NOT dump inbound text, `from_id`,
+`update_id`, or the bot token):
+
+- inbound, one line:
+  `intercom: inbound sid=<sid>[,<sid>...] path=<abs-inbox> [<abs-inbox>...]`
+  Unique sids sorted lexicographically. Each `path` is the absolute inbox
+  directory `$IR_STATE/spool/<sid>/inbox` (`INTERCOM_STATE_ROOT` honored),
+  in the same order as `sid=`. Example:
+  `intercom: inbound sid=main path=/home/u/.claude/telegram-router/spool/main/inbox`
+- failure, one line: `intercom: poller exit <n>` where `<n>` is the decimal
+  poller exit (never 0, never 75).
+- inbound and first-failure in the same cycle: inbound line, then failure
+  line.
+- silent: zero bytes on stdout.
+
+**Failure wake is edge-triggered.** `state/last_wake_exit` holds the last
+non-{0,75} poller exit that already produced a failure wake. First such
+exit prints the failure line and records it. A repeating identical exit
+stays silent until a 0/75 cycle (delete `last_wake_exit`) or a different
+non-{0,75} exit (print and update). Inbound wake fires every cycle that
+wrote new inbox records, independent of the failure latch.
 
 ## Escalation
 
@@ -227,9 +297,20 @@ degrades to plain-chat General delivery).
    offset (`max update_id + 1`) — satisfying AC22 startup validation.
 4. Write `config.json` (§ State layout), create the state dirs and empty
    `topics.json` / `seen.tsv`.
-5. Print the self-contained harness schedule prompt (≤ 4 KiB, ci-watch
-   pattern) that invokes `poller.sh` every 30–60 s, with the absolute plugin
-   path baked in and no token content (§ Poller cycle).
+5. Print a token-free host-aware arming block (≤ 4 KiB) that invokes
+   `watch.sh` every 30–60 s with the absolute plugin path baked in
+   (§ Host adapter). The block MUST include both:
+   - **Grok:** a silent watcher that runs bash-only `watch.sh` cycles and
+     prints only per the wake grammar (empty stdout MUST NOT start a
+     parent turn). MUST NOT use Grok `scheduler_create` for idle.
+   - **Claude:** CronCreate only if that job injects zero parent turn when
+     `watch.sh` stdout is empty (exit 0). Otherwise the same silent-watcher
+     path. Claude CronCreate bash-only no-parent-turn is UNVERIFIED until
+     proven on the host — CronCreate MUST NOT be the sole arming
+     instruction.
+   The block MUST NOT instruct copying or shipping
+   `~/.grok/long-running-background-tasks/watch-intercom.sh`. Host crontab
+   is forbidden. `commands/setup.md` telegram sub matches this contract.
 
 `/setup slack` prints `Slack ships in v1.1/v2.` and exits 0 with zero state
 writes (AC5). Transport abstraction in phase 1 is one funneled API-call
@@ -254,9 +335,21 @@ to migrate. Graduating poller → daemon changes no interface.
 
 ## MUST
 
-- MUST ship `intercom.sh`, `poller.sh`, `setup-telegram.sh`, `common.sh` as
-  pure-subprocess bash CLIs (bash + jq + curl only, AC21); `poller.sh` and
-  `intercom.sh` are never sourced.
+- MUST ship `intercom.sh`, `poller.sh`, `watch.sh`, `setup-telegram.sh`,
+  `common.sh` as pure-subprocess bash CLIs (bash + jq + curl + flock only
+  in the poller/adapter cycle, AC21 / CDT-512-C1 AC1); `poller.sh`,
+  `watch.sh`, and `intercom.sh` are never sourced.
+- MUST keep `poller.sh` one-shot: one cycle per invocation, no resident
+  `while`/`sleep`, no LLM, no CronCreate / `scheduler_create` inside the
+  cycle.
+- MUST arm the host job on `watch.sh` (not `poller.sh` directly). Idle
+  paired cycles MUST write zero session-facing stdout. `watch.sh` MUST
+  always exit 0.
+- MUST print session-facing stdout only per § Host adapter (inbound wake
+  or edge-triggered failure wake). Wake lines MUST follow the wake-line
+  grammar; MUST NOT dump inbound text or the bot token.
+- MUST persist failure-wake latch in `state/last_wake_exit` and inbox
+  watermark in `state/inbox.stamp` under the state root.
 - MUST keep all runtime state in § State layout paths; MUST NOT write state
   inside the repo (AC23).
 - MUST guard `poller.sh` with a non-blocking lock: a second concurrent start
@@ -290,6 +383,16 @@ to migrate. Graduating poller → daemon changes no interface.
 
 - MUST NOT run a resident daemon, loop, or host crontab entry in phase 1
   (harness-scheduled ephemeral cycles only).
+- MUST NOT use Grok `scheduler_create` for idle Intercom cycles.
+- MUST NOT instruct copying or shipping
+  `~/.grok/long-running-background-tasks/watch-intercom.sh`. The plugin
+  tree MUST NOT contain `watch-intercom.sh`. Optional wrapper lives under
+  `skills/intercom/` only.
+- MUST NOT make CronCreate the sole arming instruction.
+- MUST NOT add a new slash Surface for this adapter (patch; no new
+  `commands/*.md`).
+- MUST NOT pass the bot token via `watch.sh` argv or env, and MUST NOT
+  copy poller stderr onto adapter stdout.
 - MUST NOT spawn a second `getUpdates` consumer for the same token.
 - MUST NOT relay non-allowlisted traffic or anything during unpaired
   operation. The reserved `/away`/`/afk` (§ Poller cycle) are the only
@@ -313,6 +416,11 @@ to migrate. Graduating poller → daemon changes no interface.
   rich artifact is a `sendDocument` upload, no third-party service.
 - **Host crontab** — rejected: host machine safeguard (no bare-metal
   daemons/cron ownership) and resolved design prefers harness scheduling.
+- **Grok `scheduler_create` on idle** — rejected: that path spawned an
+  LLM and injected a parent turn every cycle (CDT-512-C1).
+- **Ship `~/.grok/long-running-background-tasks/watch-intercom.sh`** —
+  rejected: local workaround (resident loop, hardcoded chat id, inbound
+  body dump). Product adapter is `skills/intercom/watch.sh`.
 
 ## Acceptance criteria
 
@@ -426,6 +534,63 @@ Format and rules: SPEC-033 M14(g) and M14(h).
   (SPEC-021), smoke (SPEC-030), and docs-drift pass; the release bump for the
   new `/away` and `/afk` surfaces is minor.
 
+### CDT-512-C1
+
+- **AC1.** `poller.sh` and any plugin-owned arming wrapper (`watch.sh`)
+  are `#!/usr/bin/env bash` subprocess CLIs. Cycle tools: bash, jq, curl,
+  flock only. No LLM, no other interpreter, no `scheduler_create` /
+  CronCreate inside the cycle. One cycle per invocation; no resident
+  `while`/`sleep` in `poller.sh` or `watch.sh` (daemon = CDT-509).
+  Verify: bash skills/intercom/test.sh
+- **AC2.** Paired Intercom (`config.json` has ≥1 member) and a cycle that
+  writes zero `spool/*/inbox/*.json`: `state/heartbeat` mtime advances;
+  `state/offset` changes only under existing SPEC-038 offset rules (idle
+  with no processed updates: unchanged); armed host job stdout is empty;
+  adapter does not copy poller stderr onto stdout. Unpaired (no members):
+  SPEC-038 AC2 unchanged — exit 0, no heartbeat, no fetch.
+  Verify: bash skills/intercom/test-poller.sh
+- **AC3.** Armed host job prints session-facing stdout iff: (inbound)
+  this cycle wrote ≥1 new `spool/<sid>/inbox/*.json` for an allowlisted
+  member message (Walkie-talkie or session topic), or (failure)
+  `poller.sh` exit ∉ {0, 75}. Silent: phone `/away`/`/afk` (no inbox
+  record), outbox drain, Escalation sweep, ignored update types, 429 with
+  exit 0, getUpdates transport failure with exit 0, lock-held 75. Wake
+  line is token-free; names each affected sid; pointer to inbox path(s);
+  MUST NOT dump inbound text; MUST NOT print or pass the bot token.
+  Grammar: `intercom: inbound sid=<sid>[,<sid>...] path=<abs-inbox> [...]`
+  and `intercom: poller exit <n>`.
+  Verify: bash skills/intercom/test-poller.sh
+- **AC4.** A repeating identical non-{0,75} exit MUST NOT inject a parent
+  turn every 30–60s. First failure wakes; same exit stays silent until a
+  0/75 cycle or a different exit. Inbound wake fires every cycle that
+  wrote new inbox records.
+  Verify: bash skills/intercom/test-poller.sh
+- **AC5.** `setup-telegram.sh` prints a token-free arming block (≤ 4 KiB,
+  absolute `watch.sh` path, cadence 30–60s) that includes both: Grok
+  silent watcher that runs bash-only cycles and prints only per AC3/AC4;
+  Claude CronCreate only if that job injects zero parent turn on empty
+  stdout (exit 0), otherwise the same silent-watcher path. CronCreate
+  MUST NOT be the sole arming instruction. Block MUST NOT instruct
+  copying or shipping `~/.grok/long-running-background-tasks/watch-intercom.sh`.
+  `commands/setup.md` telegram sub + this spec § Setup match.
+  Verify: bash skills/intercom/test.sh
+- **AC6.** Sentinel token absent from poller stdout/stderr, adapter
+  stdout, setup arming block, and any new plugin file. Adapter MUST NOT
+  pass the token via argv or env.
+  Verify: bash skills/intercom/test.sh
+- **AC7.** Plugin tree has no `watch-intercom.sh` and ships nothing under
+  `~/.grok/long-running-background-tasks/`. Optional wrapper lives under
+  `skills/intercom/` only (`watch.sh`).
+  Verify: bash skills/intercom/test.sh
+- **AC8.** This spec § Poller cycle / § Host adapter / § Setup: harness
+  re-invocation (Claude CronCreate or Grok silent watcher) is the phase-1
+  scheduler; `poller.sh` stays one-shot; idle injects no parent turn.
+  CDT-501 ACs still pass. No new slash Surface.
+  Verify: bash skills/intercom/test.sh
+- **AC9.** [process] `bash tools/run-all-tests.sh` exits 0; skill-lint
+  (SPEC-021), smoke (SPEC-030), and docs-drift pass; release bump is
+  patch (no new `commands/*.md`).
+
 ## Test
 
 - [ ] Token file written 0600 with 700 parent; repo stays clean (AC1)
@@ -448,6 +613,22 @@ Format and rules: SPEC-033 M14(g) and M14(h).
 - [ ] Second poller exits 75, mutates nothing; invalid offset refuses; 409 exits 4 (AC22)
 - [ ] `INTERCOM_STATE_ROOT` reroute keeps the repo untouched (AC23)
 - [ ] Two-member config fixture parses and processes; default ships one member (AC25)
+- [ ] `watch.sh` and `poller.sh` are one-shot bash; shebang/interpreter scan
+      covers the wrapper; no resident loop (CDT-512-C1 AC1)
+- [ ] Paired idle: heartbeat mtime advances, offset unchanged, adapter
+      stdout empty; unpaired: no heartbeat, no fetch (CDT-512-C1 AC2)
+- [ ] Session-facing stdout only on new allowlisted inbox or poller
+      exit ∉ {0,75}; wake grammar token-free with sid + inbox path
+      (CDT-512-C1 AC3)
+- [ ] Failure wake edge-triggered; inbound wake every new-inbox cycle
+      (CDT-512-C1 AC4)
+- [ ] Setup arming block ≤ 4 KiB, absolute `watch.sh`, Grok silent
+      watcher + Claude CronCreate-if-zero-parent-turn; CronCreate not sole
+      (CDT-512-C1 AC5)
+- [ ] Sentinel absent from poller/adapter/setup paths; adapter does not
+      pass the token (CDT-512-C1 AC6)
+- [ ] No `watch-intercom.sh` in the plugin tree; nothing shipped under
+      `~/.grok/long-running-background-tasks/` (CDT-512-C1 AC7)
 
 ## Validation
 
@@ -466,6 +647,7 @@ Format and rules: SPEC-033 M14(g) and M14(h).
 |------|--------|
 | 2026-10-05 | CDT-501 — initial ACTIVE spec: spool protocol, `intercom` CLI, poller cycle, escalation, away, longread, `/setup telegram`/`slack`, doctor check, phase-2 contract |
 | 2026-10-05 | CDT-501 — command-relay clarification (only `/away`/`/afk` are intercepted; other slash text relays) and AC consolidation to the M14 budget: 2+3→2, 6+7+8→6, 12+13→12, 14+15+16→14, 17+18+19+20→17 |
+| 2026-10-07 | CDT-512-C1 — host adapter `watch.sh`: poller stays one-shot; idle injects no parent turn; host-aware arming (Grok silent watcher + Claude CronCreate-if-zero-parent-turn); wake-line grammar; edge-triggered failure wake |
 
 ## Cross-references
 
