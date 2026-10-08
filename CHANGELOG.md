@@ -6,6 +6,11 @@ Pre-written headings (release-train M5c, orchestrate version-sync tasks) are kep
 via skip-if-present when `/release` is given an explicit version — do not invent a
 second heading for the same version.
 
+### v1.21.13
+- **Intercom topic auto-create fix (CDT-531)** — the poller now sends the Bot API `name` parameter (`-F "name=$sid"`) instead of `title=`, so `createForumTopic` succeeds and per-session topics are actually created and recorded; an empty derived name is skipped with one warn and plain-chat delivery.
+- **Per-sid rejection cache (CDT-531)** — a 4xx auto-create rejection is cached per sid (`state/topic-reject.tsv`, 0600, under the poller lock) so failing sids stop re-calling and re-warning every cycle; entries expire after a 24h TTL and 429/5xx/transport failures are never cached; a `topics.json` hit short-circuits the cache.
+- **probe.sh (CDT-531)** — the live probe sends the same `name` parameter.
+
 ### v1.21.12
 - **Intercom outbox per-part delivery (CDT-530)** — `ir_send_longread` marks the message part delivered (`summary_sent`/`text_sent`, atomic rewrite) so a retry cycle re-sends only the remaining part; the record is deleted only after all parts succeed and at-least-once semantics hold. Previously a failed document upload re-sent the summary on every cycle.
 - **Regression coverage (CDT-530)** — hermetic tests for the failed-document retry (summary exactly once, one attempt per cycle), the no-summary `text_sent` path, a failed flag rewrite keeping the record, and flag-absent compatibility.

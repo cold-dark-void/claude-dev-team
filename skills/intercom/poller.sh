@@ -43,6 +43,7 @@ ROOT=$(ir_state_root)
 OFFSET_FILE="$STATE_DIR/offset"
 HEARTBEAT_FILE="$STATE_DIR/heartbeat"
 SEEN_FILE="$STATE_DIR/seen.tsv"
+TOPIC_REJECT_FILE="$STATE_DIR/topic-reject.tsv"
 AWAY_FILE="$STATE_DIR/away"
 TOPICS_FILE="$ROOT/topics.json"
 CONFIG_FILE="$ROOT/config.json"
@@ -180,6 +181,77 @@ ir_ok_or_warn() {
   return 1
 }
 
+# ---- topic-rejection cache (CDT-531 AC3/AC4) ------------------------------------
+
+# TTL after which a cached 4xx rejection is retried (entry dropped). SPEC-038
+# leaves the value to the implementation; 24 h keeps a persistently broken
+# topic from re-storming the API every cycle while still self-healing.
+TOPIC_REJECT_TTL_S=86400
+
+# ir_topic_reject_cached SID — rc 0 when SID has a live rejection entry (AC3).
+ir_topic_reject_cached() {
+  local sid="$1" s ts
+  [ -f "$TOPIC_REJECT_FILE" ] || return 1
+  while IFS=$'\t' read -r s ts; do
+    [ "$s" = "$sid" ] || continue
+    case "$ts" in ''|*[!0-9]*) return 1 ;; esac
+    return 0
+  done < "$TOPIC_REJECT_FILE"
+  return 1
+}
+
+# ir_topic_reject_prune — drop expired or malformed entries (AC4 TTL retry).
+ir_topic_reject_prune() {
+  [ -f "$TOPIC_REJECT_FILE" ] || return 0
+  local now tmp sid ts changed=0
+  now=$(date +%s)
+  tmp=$(mktemp "${TMPDIR:-/tmp}/poller.reject.XXXXXX") || return 0
+  while IFS=$'\t' read -r sid ts; do
+    case "$ts" in ''|*[!0-9]*) changed=1; continue ;; esac
+    [ $(( now - ts )) -lt "$TOPIC_REJECT_TTL_S" ] || { changed=1; continue; }
+    printf '%s\t%s\n' "$sid" "$ts" >> "$tmp"
+  done < "$TOPIC_REJECT_FILE"
+  if [ "$changed" -eq 1 ]; then
+    chmod 600 "$tmp" 2>/dev/null || true
+    mv -f "$tmp" "$TOPIC_REJECT_FILE" \
+      || { rm -f "$tmp"; warn "cannot prune $TOPIC_REJECT_FILE"; return 0; }
+  else
+    rm -f "$tmp"
+  fi
+}
+
+# ir_topic_reject_cache SID — replace any prior entry and record the rejection
+# (AC3). The spec requires exactly one sid<TAB>epoch line per sid.
+ir_topic_reject_cache() {
+  local sid="$1" tmp s ts
+  tmp=$(mktemp "${TMPDIR:-/tmp}/poller.reject.XXXXXX") || return 1
+  if [ -f "$TOPIC_REJECT_FILE" ]; then
+    while IFS=$'\t' read -r s ts; do
+      [ "$s" = "$sid" ] && continue
+      printf '%s\t%s\n' "$s" "$ts" >> "$tmp"
+    done < "$TOPIC_REJECT_FILE"
+  fi
+  printf '%s\t%s\n' "$sid" "$(date +%s)" >> "$tmp" || { rm -f "$tmp"; return 1; }
+  chmod 600 "$tmp" 2>/dev/null || true
+  mv -f "$tmp" "$TOPIC_REJECT_FILE" \
+    || { rm -f "$tmp"; warn "cannot write $TOPIC_REJECT_FILE"; return 1; }
+}
+
+# ir_topic_reject_record SID RESP — cache only a 4xx rejection; 429 (rate
+# limit) and 5xx are retry-worthy and stay uncached, as are unparseable
+# bodies (AC4). Transport failures never reach here: tg_api rc≠0 returns
+# before the response is inspected.
+ir_topic_reject_record() {
+  local sid="$1" resp="$2" code
+  code=$(jq -r '(.error_code // 0) | floor' <<<"$resp" 2>/dev/null) || code=0
+  case "$code" in
+    ''|*[!0-9]*) return 0 ;;
+  esac
+  [ "$code" -ge 400 ] && [ "$code" -le 499 ] || return 0
+  [ "$code" -eq 429 ] && return 0
+  ir_topic_reject_cache "$sid"
+}
+
 # ir_resolve_outbound SID — sets IR_OUT_CHAT / IR_OUT_THREAD ("" = plain chat,
 # i.e. General delivery when topics are unavailable). Auto-creates the session
 # topic (AC11). rc 1 only on transport failure; an API rejection degrades to
@@ -205,7 +277,18 @@ ir_resolve_outbound() {
     return 0
   fi
   # Auto-create the session topic; record it so later lookups hit (AC11).
-  resp=$(tg_api createForumTopic -F "chat_id=$OWNER_CHAT" -F "title=$sid") || return 1
+  # The topic name is the sid itself (Bot API parameter `name`, CDT-531 AC1);
+  # an empty name would be rejected by Telegram every cycle (AC2).
+  if [ -z "$sid" ]; then
+    warn "createForumTopic skipped: derived topic name is empty; delivering to plain chat"
+    return 0
+  fi
+  ir_topic_reject_prune
+  if ir_topic_reject_cached "$sid"; then
+    # Cached 4xx rejection: zero create calls, plain chat, no re-warn (AC3).
+    return 0
+  fi
+  resp=$(tg_api createForumTopic -F "chat_id=$OWNER_CHAT" -F "name=$sid") || return 1
   if ir_ok_or_warn "$resp" "createForumTopic"; then
     t=$(jq -r '.result.message_thread_id // empty' <<<"$resp" 2>/dev/null) || t=""
     case "$t" in
@@ -229,6 +312,9 @@ ir_resolve_outbound() {
         mv -f "$tmp" "$TOPICS_FILE" || { warn "cannot publish $TOPICS_FILE"; rm -f "$tmp"; }
         ;;
     esac
+  else
+    # 4xx rejections are cached per sid; 5xx/429/transport failures are not (AC4).
+    ir_topic_reject_record "$sid" "$resp"
   fi
   return 0
 }

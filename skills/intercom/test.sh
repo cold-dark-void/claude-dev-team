@@ -707,7 +707,7 @@ run_poller
 if [ "$P_RC" -eq 0 ] \
   && [ "$(calls_count createForumTopic)" = "1" ] \
   && [ "$(jq -r '.["fresh-sid"].thread_id' "$STATE_ROOT/topics.json")" = "777" ] \
-  && grep -Fq 'title=fresh-sid' "$ARGV_LOG" \
+  && grep -Fq 'name=fresh-sid' "$ARGV_LOG" \
   && grep -Fq 'message_thread_id=777' "$ARGV_LOG" \
   && grep -Fq 'text=notify text' "$ARGV_LOG" \
   && [ "$(find "$STATE_ROOT/spool/fresh-sid/outbox" -name '*.json' 2>/dev/null | wc -l | tr -d ' ')" = "0" ]; then

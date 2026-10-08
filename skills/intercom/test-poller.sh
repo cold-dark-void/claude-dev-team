@@ -1049,6 +1049,125 @@ else
   bad "CDT-529 AC8 failure path: rc=$P_RC sends=$(calls_count sendMessage) err=$P_ERR"
 fi
 
+# ---- CDT-531: createForumTopic name= guard + per-sid rejection cache -------------
+
+# AC1/AC7: the auto-create sends the Bot API `name` parameter (never `title`),
+# records topics.json, and delivers into the created thread.
+seed_paired "197372681"
+put_outbox "fresh-sid" "notify fresh"
+ok_empty_result
+put_resp_file "createForumTopic" "$FIXTURES/createforumtopic-ok.json"
+run_poller
+if [ "$P_RC" -eq 0 ] && [ "$(calls_count createForumTopic)" = "1" ] \
+  && grep -Fq 'name=fresh-sid' "$ARGV_LOG" \
+  && ! grep -Fq 'title=fresh-sid' "$ARGV_LOG" \
+  && [ "$(jq -r '.["fresh-sid"].thread_id' "$STATE_ROOT/topics.json")" = "777" ] \
+  && grep -Fq 'message_thread_id=777' "$ARGV_LOG"; then
+  ok "CDT-531 AC1/AC7 auto-create sends name=fresh-sid and records topics.json"
+else
+  bad "CDT-531 AC1/AC7 name param: rc=$P_RC topics=$(cat "$STATE_ROOT/topics.json" 2>/dev/null) argv=$(grep createForumTopic "$ARGV_LOG" | tr '\n' ' ')"
+fi
+
+# AC3/AC7: a 400 rejection is cached per sid (one sid<TAB>epoch line, 0600):
+# the rejecting cycle emits exactly one createForumTopic call plus the warn and
+# degrades to plain chat; the next cycle emits zero createForumTopic calls,
+# still delivers plain chat, and does not repeat the warn.
+seed_paired "197372681"
+put_outbox "cache-sid" "first try"
+put_resp_file "createForumTopic" "$FIXTURES/rejected-400.json"
+run_poller
+rej="$STATE_ROOT/state/topic-reject.tsv"
+if [ "$P_RC" -eq 0 ] && [ "$(calls_count createForumTopic)" = "1" ] \
+  && printf '%s' "$P_ERR" | grep -q 'createForumTopic rejected' \
+  && [ "$(calls_count sendMessage)" = "1" ] \
+  && ! grep -Fq 'message_thread_id=' "$ARGV_LOG" \
+  && [ "$(wc -l < "$rej" 2>/dev/null | tr -d ' ')" = "1" ] \
+  && [ "$(stat -c %a "$rej" 2>/dev/null || stat -f %Lp "$rej")" = "600" ] \
+  && [ "$(cut -f1 "$rej")" = "cache-sid" ] \
+  && [ "$(cut -f2 "$rej" | grep -Eq '^[0-9]+$' && echo yes)" = "yes" ]; then
+  ok "CDT-531 AC3 first 400 rejection: one call, warn once, cached sid<TAB>epoch 0600, plain chat"
+else
+  bad "CDT-531 AC3 first rejection: rc=$P_RC calls=$(calls_count createForumTopic) rej=[$(cat "$rej" 2>/dev/null)] mode=$(stat -c %a "$rej" 2>/dev/null) err=$P_ERR"
+fi
+put_outbox "cache-sid" "second try"
+run_poller
+if [ "$P_RC" -eq 0 ] && [ "$(calls_count createForumTopic)" = "0" ] \
+  && [ "$(calls_count sendMessage)" = "1" ] \
+  && ! printf '%s' "$P_ERR" | grep -q 'createForumTopic rejected' \
+  && grep -Fq 'text=second try' "$ARGV_LOG" \
+  && ! grep -Fq 'message_thread_id=' "$ARGV_LOG"; then
+  ok "CDT-531 AC3 cached sid: zero create calls, no re-warn, plain-chat delivery"
+else
+  bad "CDT-531 AC3 cached cycle: rc=$P_RC calls=$(calls_count createForumTopic) sends=$(calls_count sendMessage) err=$P_ERR"
+fi
+
+# AC4: mapping hit short-circuits before the cache is consulted.
+jq '.["cache-sid"] = {thread_id: 305, title: "cache-sid"}' \
+  "$STATE_ROOT/topics.json" > "$STATE_ROOT/topics.json.tmp" \
+  && mv -f "$STATE_ROOT/topics.json.tmp" "$STATE_ROOT/topics.json"
+put_outbox "cache-sid" "mapped now"
+run_poller
+if [ "$P_RC" -eq 0 ] && [ "$(calls_count createForumTopic)" = "0" ] \
+  && grep -Fq 'message_thread_id=305' "$ARGV_LOG"; then
+  ok "CDT-531 AC4 topics.json hit short-circuits ahead of the rejection cache"
+else
+  bad "CDT-531 AC4 mapping hit: rc=$P_RC calls=$(calls_count createForumTopic) argv=$(grep sendMessage "$ARGV_LOG" | tr '\n' ' ')"
+fi
+
+# AC4: a cached entry past the TTL is dropped and the create is retried.
+seed_paired "197372681"
+mkdir -m 700 -p "$STATE_ROOT/state"
+printf 'stale-sid\t%s\n' "$(( $(date +%s) - 90000 ))" > "$STATE_ROOT/state/topic-reject.tsv"
+chmod 600 "$STATE_ROOT/state/topic-reject.tsv"
+put_outbox "stale-sid" "retry after ttl"
+put_resp_file "createForumTopic" "$FIXTURES/createforumtopic-ok.json"
+run_poller
+if [ "$P_RC" -eq 0 ] && [ "$(calls_count createForumTopic)" = "1" ] \
+  && grep -Fq 'name=stale-sid' "$ARGV_LOG" \
+  && [ "$(jq -r '.["stale-sid"].thread_id' "$STATE_ROOT/topics.json")" = "777" ]; then
+  ok "CDT-531 AC4 expired rejection entry retried and re-recorded"
+else
+  bad "CDT-531 AC4 TTL retry: rc=$P_RC calls=$(calls_count createForumTopic) topics=$(cat "$STATE_ROOT/topics.json" 2>/dev/null)"
+fi
+
+# AC4: 429 is never cached (rate limits stay retry-worthy).
+seed_paired "197372681"
+put_outbox "rate-sid" "rate limited"
+put_resp_file "createForumTopic" "$FIXTURES/ratelimited-429.json"
+run_poller
+if [ "$P_RC" -eq 0 ] && [ "$(calls_count createForumTopic)" = "1" ] \
+  && [ ! -e "$STATE_ROOT/state/topic-reject.tsv" ]; then
+  ok "CDT-531 AC4 429 rejection is not cached"
+else
+  bad "CDT-531 AC4 429: rc=$P_RC calls=$(calls_count createForumTopic) rej=[$(cat "$STATE_ROOT/state/topic-reject.tsv" 2>/dev/null)]"
+fi
+
+# AC4: a 5xx rejection is never cached.
+seed_paired "197372681"
+put_outbox "five-sid" "server error"
+put_resp "createForumTopic" '{"ok":false,"error_code":502,"description":"Bad Gateway"}'
+run_poller
+if [ "$P_RC" -eq 0 ] && [ "$(calls_count createForumTopic)" = "1" ] \
+  && [ ! -e "$STATE_ROOT/state/topic-reject.tsv" ]; then
+  ok "CDT-531 AC4 5xx rejection is not cached"
+else
+  bad "CDT-531 AC4 5xx: rc=$P_RC calls=$(calls_count createForumTopic) rej=[$(cat "$STATE_ROOT/state/topic-reject.tsv" 2>/dev/null)]"
+fi
+
+# AC4: a transport failure (curl exit 7) is never cached and keeps the record.
+seed_paired "197372681"
+put_outbox "dead-sid" "transport down"
+printf '__CURL_FAIL__\n' > "$RESP_DIR/createForumTopic"
+run_poller
+if [ "$P_RC" -eq 0 ] && printf '%s' "$P_ERR" | grep -q 'cannot reach Telegram for outbox' \
+  && [ -f "$STATE_ROOT/spool/dead-sid/outbox/900000000_0_test.json" ] \
+  && [ ! -e "$STATE_ROOT/state/topic-reject.tsv" ]; then
+  ok "CDT-531 AC4 transport failure is not cached and the record is kept"
+else
+  bad "CDT-531 AC4 transport: rc=$P_RC rej=[$(cat "$STATE_ROOT/state/topic-reject.tsv" 2>/dev/null)] err=$P_ERR"
+fi
+rm -f "$RESP_DIR/createForumTopic"
+
 # ---- CDT-529: AC4 escalation back-fill + AC10 outbound contract ------------------
 
 # AC4: the sweep back-fills route.thread_id in the same rewrite that sets escalated

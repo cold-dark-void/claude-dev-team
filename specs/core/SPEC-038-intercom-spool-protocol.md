@@ -1263,6 +1263,50 @@ cycle; the CDT-529 ACs pin it.
   No poller surface change: one-shot cycle, no LLM, no resident loop.
   Never print the bot token (existing hermetic sentinel still passes).
 
+### CDT-531
+
+- **AC1.** The auto-create call in `ir_resolve_outbound` sends the Bot
+  API parameter `name` (not `title`): `createForumTopic -F
+  "chat_id=$OWNER_CHAT" -F "name=$sid"`. A successful create records
+  `topics.json` exactly as before (thread_id + title = sid).
+  Verify: bash skills/intercom/test-poller.sh
+- **AC2.** `createForumTopic` is never invoked with an empty name: if
+  the derived name would be empty, the call is skipped, exactly one
+  one-line stderr warn is emitted, and delivery degrades to plain chat.
+  Verify: bash skills/intercom/test-poller.sh
+- **AC3.** A 4xx API rejection of the auto-create is cached per sid in
+  a state file (one `sid<TAB>rejected_at_epoch` line per entry, written
+  and pruned under the existing poller lock, 0600). While a sid's
+  rejection is cached, later cycles skip the create call for that sid
+  (zero `createForumTopic` argv entries), degrade to plain chat, and do
+  not repeat the warn every cycle.
+  Verify: bash skills/intercom/test-poller.sh
+- **AC4.** Cache invalidation: a cached rejection is retried (entry
+  dropped) after a TTL, and a transport failure or non-4xx (5xx/429)
+  response is never cached. A `topics.json` mapping hit for the sid
+  short-circuits before the cache is consulted.
+  Verify: bash skills/intercom/test-poller.sh
+- **AC5.** The CDT-529 AC8 failure-path contract is updated, not
+  reverted: an auto-create rejection still degrades to plain chat, but
+  the retry cadence is now cache-gated per AC3/AC4 (this supersedes the
+  CDT-529 AC8 sentence leaving the createForumTopic retry cadence
+  untouched). Inbound routing (`ir_route_inbound`) and the CDT-530
+  functions (`ir_send_longread`, `ir_drain_outbox` flag shape) are not
+  modified.
+  Verify: bash skills/intercom/test-poller.sh
+- **AC6.** `probe.sh` sends the same fix (`name` parameter) so the
+  live topic probe passes against the real Bot API.
+  Verify: bash skills/intercom/test-poller.sh
+- **AC7.** The argv assertion for auto-create checks `name=` (the
+  `title=fresh-sid` assertion is updated), and a hermetic test proves
+  an unmapped-thread cycle emits at most one `createForumTopic` call
+  with a non-empty `name=` value, with a second cycle emitting zero.
+  Verify: bash skills/intercom/test.sh
+- **AC8.** [process] `bash tools/run-all-tests.sh` exits 0; skill-lint,
+  docs-drift, and spec-lint pass. Release bump is patch (no new
+  `commands/*.md`). The bot token never appears in argv, logs, spool
+  files, or error text.
+
 ## Test
 
 - [ ] Token file written 0600 with 700 parent; repo stays clean (AC1)

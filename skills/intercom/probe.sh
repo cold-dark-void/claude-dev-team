@@ -236,7 +236,7 @@ if resp=$(tg_api "getChat?chat_id=${chat_id}" --max-time 15) \
   && jq -e '.ok == true and .result.is_forum == true' <<<"$resp" >/dev/null 2>&1; then
   report PASS "operator chat topics status" "is_forum=true (topics-dependent routing available)"
   title="intercom-probe-$(date +%s)"
-  body=$(jq -n --arg chat "$chat_id" --arg t "$title" '{chat_id: $chat, title: $t}')
+  body=$(jq -n --arg chat "$chat_id" --arg n "$title" '{chat_id: $chat, name: $n}')
   if resp=$(tg_post createForumTopic "$body" --max-time 15) \
     && jq -e '.ok == true and (.result.message_thread_id | type == "number")' <<<"$resp" >/dev/null 2>&1; then
     tid=$(jq -r '.result.message_thread_id' <<<"$resp")
