@@ -6,6 +6,11 @@ Pre-written headings (release-train M5c, orchestrate version-sync tasks) are kep
 via skip-if-present when `/release` is given an explicit version — do not invent a
 second heading for the same version.
 
+### v1.21.11
+- **Intercom inbound routing: active-session fallback (CDT-529)** — a reply in an unmapped or inactive question thread routes to the single orchestrating session's spool; zero or ≥2 active sessions fall to `spool/main` with exactly one warn naming the thread id (supersedes the CDT-512-C3 fail-closed ignore).
+- **Ask-time route records (CDT-529)** — `ir_pending_write` writes `route: {sid, thread_id}` in the single atomic creation write; `thread_id` is null on lookup failure and is back-filled by the escalation sweep in the same rewrite that marks `escalated`.
+- **Docs and tests** — hermetic AC1–AC10 poller/CLI cases (legacy `topics.json` compatibility, unchanged `ir_resolve_outbound` contract) and a runbook section for manually moving CDT-528 misroutes.
+
 ### v1.21.10
 - **Intercom poller: BusyBox-safe longread materialize (CDT-528)** — ir_send_longread falls back via `mktemp -d` + `longread.md` inside (BusyBox mktemp rejects suffixed templates), `rm -rf` on all paths. Hermetic BusyBox-stub tests for materialize and failing-send; GNU matrix unchanged. test.sh CDT-509 drift guard drops poller.sh (SPEC-038 § CDT-528).
 

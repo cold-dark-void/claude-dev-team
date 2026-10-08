@@ -294,15 +294,21 @@ ir_outbox_write() {
 
 ir_pending_write() {
   # ir_pending_write SID TEXT — one pending question; prints the qid.
-  # <qid>.json: {"qid","sid","text","asked_at","escalated":false,"escalated_at":null}
-  local sid="$1" text="$2" dir tmp qid json
+  # <qid>.json: {"qid","sid","text","asked_at","escalated":false,"escalated_at":null,
+  #              "route":{"sid":...,"thread_id":...}}
+  local sid="$1" text="$2" dir tmp qid json tid root
   dir=$(ir_spool_dir "$sid" pending) || return 1
   tmp=$(ir_record_tmp "$dir" q) || return 1
   qid="q_$(date +%s)_${tmp##*.q.}"
+  root=$(ir_state_root)
+  tid=$(jq -r --arg sid "$sid" '(.[$sid].thread_id // empty)' "$root/topics.json" 2>/dev/null)
+  case "$tid" in ''|*[!0-9]*) tid=null ;; *) tid="$tid" ;; esac
   if ! json=$(jq -n \
-      --arg qid "$qid" --arg sid "$sid" --arg text "$text" --arg asked_at "$(date +%s)" '
+      --arg qid "$qid" --arg sid "$sid" --arg text "$text" --arg asked_at "$(date +%s)" \
+      --argjson tid "$tid" '
       {qid: $qid, sid: $sid, text: $text, asked_at: ($asked_at|tonumber),
-       escalated: false, escalated_at: null}'); then
+       escalated: false, escalated_at: null,
+       route: {sid: $sid, thread_id: $tid}}'); then
     rm -f "$tmp"
     echo "intercom: cannot build pending record" >&2
     return 1

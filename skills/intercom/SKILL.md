@@ -70,7 +70,8 @@ State is box-level only — never inside the repo (AC23).
   config.json                    schema 1; members allowlist keyed by chat id
   topics.json                    sid -> {thread_id, title}; "general" -> thread_id
                                  pairing seeds general when message_thread_id present;
-                                 unmapped thread + empty/only-general map → default_session
+                                 unmapped/inactive thread → single active session,
+                                 else default_session + warn (CDT-529)
   state/
     offset                       next getUpdates offset; non-negative integer
     heartbeat                    touched each poller cycle (epoch seconds line)
@@ -89,6 +90,19 @@ State is box-level only — never inside the repo (AC23).
 `common.sh` reads `config.json` but never creates it — `/setup telegram`
 (T4) owns setup. Missing `config.json` degrades reads to defaults (for
 example `concise_threshold` 1024).
+
+## Inbound routing (poller)
+
+The poller resolves one sid per allowlisted update. First hit wins
+(CDT-529):
+
+1. Plain chat (no `thread_id`) → `default_session`. Never re-route plain
+   chat to a session.
+2. `thread_id` mapped to an active sid (≥1 unanswered `pending/`
+   question) → that sid.
+3. Unmapped or inactive thread → the single active session, else
+   `default_session` plus one stderr warn naming the thread id. This
+   supersedes the CDT-512-C3 zero-artifacts ignore for unmapped threads.
 
 ## File formats
 
@@ -109,8 +123,13 @@ writes unique. Pending question (`pending/<qid>.json`, qid
 
 ```json
 {"qid": "q_1791197624_ab12cd", "sid": "main", "text": "",
- "asked_at": 0, "escalated": false, "escalated_at": null}
+ "asked_at": 0, "escalated": false, "escalated_at": null,
+ "route": {"sid": "main", "thread_id": 555}}
 ```
+
+`route` records the sid and its mapped `thread_id`. `thread_id` is `null`
+when the sid has no mapped topic. The escalation sweep back-fills
+`thread_id` after a successful send.
 
 Heartbeat: one line, integer epoch seconds, written by atomically replacing
 the file. Readers compute staleness from the file mtime, not the content

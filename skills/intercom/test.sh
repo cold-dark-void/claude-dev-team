@@ -185,6 +185,46 @@ fi
   && ok "pending record written 0600" \
   || bad "pending record mode: $(stat -c %a "$pend" 2>/dev/null)"
 
+# ---- CDT-529 AC4/AC6: route fields from the single creation write ----------------
+
+fresh_case
+seed_token
+printf '{"general": {"thread_id": 100, "title": "General"}, "main": {"thread_id": 555, "title": "main"}}\n' > "$STATE_ROOT/topics.json"
+run_cli "$INTERCOM" ask --sid main "mapped route question"
+qid="$C_OUT"
+if [ "$C_RC" -eq 0 ] && [ -f "$STATE_ROOT/spool/main/pending/$qid.json" ] \
+  && [ "$(jq -r '.route.sid' "$STATE_ROOT/spool/main/pending/$qid.json")" = "main" ] \
+  && [ "$(jq -r '.route.thread_id' "$STATE_ROOT/spool/main/pending/$qid.json")" = "555" ]; then
+  ok "CDT-529 AC4 ask records route {sid, thread_id} from the topics.json lookup"
+else
+  bad "CDT-529 AC4 route shape: rc=$C_RC route=$(jq -c '.route' "$STATE_ROOT/spool/main/pending/$qid.json" 2>/dev/null) err=$C_ERR"
+fi
+
+fresh_case
+seed_token
+printf 'not json at all\n' > "$STATE_ROOT/topics.json"
+run_cli "$INTERCOM" ask --sid main "lookup fails"
+qid="$C_OUT"
+if [ "$C_RC" -eq 0 ] && [ -f "$STATE_ROOT/spool/main/pending/$qid.json" ] \
+  && [ "$(jq -r '.route.sid' "$STATE_ROOT/spool/main/pending/$qid.json")" = "main" ] \
+  && [ "$(jq -r '.route.thread_id' "$STATE_ROOT/spool/main/pending/$qid.json")" = "null" ]; then
+  ok "CDT-529 AC6 unreadable topics.json: non-empty route.sid, route.thread_id null"
+else
+  bad "CDT-529 AC6 lookup failure: rc=$C_RC route=$(jq -c '.route' "$STATE_ROOT/spool/main/pending/$qid.json" 2>/dev/null) err=$C_ERR"
+fi
+
+fresh_case
+seed_token
+run_cli "$INTERCOM" ask --sid main "no topics file"
+qid="$C_OUT"
+if [ "$C_RC" -eq 0 ] && [ -f "$STATE_ROOT/spool/main/pending/$qid.json" ] \
+  && [ "$(jq -r '.route.sid' "$STATE_ROOT/spool/main/pending/$qid.json")" = "main" ] \
+  && [ "$(jq -r '.route.thread_id' "$STATE_ROOT/spool/main/pending/$qid.json")" = "null" ]; then
+  ok "CDT-529 AC6 absent topics.json: non-empty route.sid, route.thread_id null"
+else
+  bad "CDT-529 AC6 absent file: rc=$C_RC route=$(jq -c '.route' "$STATE_ROOT/spool/main/pending/$qid.json" 2>/dev/null) err=$C_ERR"
+fi
+
 run_cli_env "INTERCOM_SID=env-sid" "$INTERCOM" ask "hello env"
 if [ "$C_RC" -eq 0 ] && [ -d "$STATE_ROOT/spool/env-sid/pending" ]; then
   ok "INTERCOM_SID resolves the spool sid"
@@ -577,10 +617,13 @@ else
 fi
 
 # ---- AC6/AC7/AC10: thread-mapped delivery, no cross-delivery, no pickup typing ----
+# CDT-529: mapped delivery requires an ACTIVE sid, so sess-a/sess-b hold pending.
 
 fresh_case
 seed_paired "197372681"
 cfg_edit "$STATE_ROOT/topics.json" '.["sess-a"] = {thread_id: 201, title: "sess-a"} | .["sess-b"] = {thread_id: 202, title: "sess-b"}'
+put_pending "sess-a" "q_ra" "a active" "$(date +%s)"
+put_pending "sess-b" "q_rb" "b active" "$(date +%s)"
 put_resp "getUpdates" "$(result_body \
   "$(upd_msg 300 197372681 "for a" 201)" \
   "$(upd_msg 301 197372681 "for b" 202)" \
@@ -592,7 +635,7 @@ if [ "$P_RC" -eq 0 ] \
   && [ "$(inbox_n sess-b)" = "1" ] && [ "$(jq -r '.update_id' "$(inbox_files sess-b)")" = "301" ] \
   && [ "$(inbox_n main)" = "2" ] \
   && [ "$(offset_val)" = "304" ] && [ "$(seen_n)" = "4" ]; then
-  ok "AC6/AC7 each update lands only in its thread-mapped sid inbox; general and plain chat reach default_session"
+  ok "AC6/AC7 mapped active sids each get only their thread's update; general and plain chat reach default_session"
 else
   bad "AC6/AC7/AC8 routing: rc=$P_RC a=$(inbox_n sess-a) b=$(inbox_n sess-b) main=$(inbox_n main)"
 fi
@@ -908,16 +951,16 @@ put_pending "main" "q_keep" "still pending" "$(date +%s)"
 put_resp "getUpdates" "$(result_body "$(upd_msg 300 197372681 "stray" 999)")"
 run_poller
 pending_left=$(find "$STATE_ROOT/spool/main/pending" -name '*.json' 2>/dev/null | wc -l | tr -d ' ')
+answered_n=$(find "$STATE_ROOT/spool/main/answered" -name '*.json' 2>/dev/null | wc -l | tr -d ' ')
 if [ "$P_RC" -eq 0 ] \
-  && [ "$(inbox_n main)" = "0" ] \
-  && [ "$(inbox_n sess-a)" = "0" ] \
-  && [ "$pending_left" = "1" ] \
+  && [ "$(inbox_n main)" = "1" ] \
+  && [ "$(jq -r '.text' "$(inbox_files main)")" = "stray" ] \
+  && [ "$pending_left" = "0" ] && [ "$answered_n" = "1" ] \
   && [ "$(offset_val)" = "301" ] \
-  && [ "$(calls_count sendChatAction)" = "0" ] \
-  && printf '%s' "$P_ERR" | grep -q "unmapped topic"; then
-  ok "CDT-512-C3 AC4 unmapped + session-topic map stays fail-closed"
+  && [ "$(calls_count sendChatAction)" = "0" ]; then
+  ok "CDT-512-C3 AC4 (superseded by CDT-529 AC2): unmapped thread falls back to the single active session and answers it"
 else
-  bad "CDT-512-C3 AC4 fail-closed: rc=$P_RC inbox=$(inbox_n main) pending=$pending_left err=$P_ERR"
+  bad "CDT-512-C3 AC4 fallback: rc=$P_RC inbox=$(inbox_n main) pending=$pending_left answered=$answered_n err=$P_ERR"
 fi
 
 fresh_case
@@ -956,11 +999,13 @@ for _svc in forum_topic_edited forum_topic_created forum_topic_closed forum_topi
   fi
 done
 
-if grep -q 'Walkie-talkie' "$PLUGIN_ROOT/docs/runbooks/setup-telegram.md" \
-  && grep -q 'unknown thread is dropped' "$PLUGIN_ROOT/docs/runbooks/setup-telegram.md"; then
-  ok "CDT-512-C3 AC8 runbook unmapped-topic row matches empty-map relay"
+if grep -q 'Unmapped topic' "$PLUGIN_ROOT/docs/runbooks/setup-telegram.md" \
+  && grep -q 'Walkie-talkie' "$PLUGIN_ROOT/docs/runbooks/setup-telegram.md" \
+  && grep -q 'silently dropped' "$PLUGIN_ROOT/docs/runbooks/setup-telegram.md" \
+  && grep -q 'CDT-529' "$PLUGIN_ROOT/docs/runbooks/setup-telegram.md"; then
+  ok "CDT-512-C3 AC8 runbook unmapped-topic row documents the CDT-529 fallback (no silent drop)"
 else
-  bad "CDT-512-C3 AC8 runbook unmapped-topic row missing Walkie-talkie/drop wording"
+  bad "CDT-512-C3 AC8 runbook unmapped-topic row missing Unmapped topic/Walkie-talkie/CDT-529 wording"
 fi
 
 fresh_case

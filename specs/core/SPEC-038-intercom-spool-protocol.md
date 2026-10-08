@@ -94,7 +94,12 @@ stderr. The transcript-mirror root is precedent (identity is the session).
 Subprocess CLI — never sourced. Always exits 0 on success.
 
 - `intercom ask [--sid S] TEXT` — write `pending/<qid>.json`; print the qid.
-  No network. The poller escalates it (§ Escalation).
+  No network. The record carries `route: {sid, thread_id}` in the single
+  atomic creation write: `sid` is the resolved asking session (always
+  non-empty); `thread_id` is a best-effort `topics.json` lookup for that
+  sid, `null` when unmapped (the poller back-fills it on the escalated
+  send). A topics.json lookup failure never yields a route-less record
+  (CDT-529 AC4/AC6/Q5). The poller escalates it (§ Escalation).
 - `intercom send [--sid S] [--summary T] [--file PATH] TEXT` — write an
   outbox record. The poller drains outbox → Telegram. Longreads (§ Longread).
 - `intercom away [on|off|status]` — toggle/read `state/away` (AC17 CLI side).
@@ -131,12 +136,21 @@ write no session-facing stdout.
    - ignore empty-text (and empty-caption) `forum_topic_edited` /
      `forum_topic_created` / `forum_topic_closed` / `forum_topic_reopened`
      service messages the same way.
-   - otherwise resolve sid: `thread_id` → `topics.json`. The general
-     topic routes to `default_session`. An unmapped thread id with an empty
-     map or a map that contains only `general` also routes to
-     `default_session` (walkie-talkie; CDT-512-C3). An unmapped thread id
-     when any non-`general` sid exists is ignored with zero artifacts
-     (AC6 cross-delivery). Write an inbox record. Any other
+   - otherwise resolve sid (CDT-529 resolution order; first hit wins):
+     (a) no `thread_id` (plain chat) → `default_session` (walkie-talkie;
+     CDT-512-C3). When any non-`default` sid has an unanswered pending
+     question, one stderr warn names the correlation miss (CDT-529 Q3) —
+     plain chat is never re-routed to a session.
+     (b) `thread_id` mapped to a sid whose `spool/<sid>/pending/` holds ≥1
+     unanswered question (an *active* session) → that sid (CDT-529 AC1).
+     (c) `thread_id` unmapped, or mapped to a sid with no unanswered
+     pending (no longer active; CDT-529 AC5): exactly one active session
+     → that sid (CDT-529 AC2); zero or ≥2 active sessions →
+     `default_session` plus one stderr warn line naming the unmapped
+     thread id (CDT-529 AC3). This supersedes the CDT-512-C3
+     zero-artifacts ignore for unmapped thread ids: unmapped traffic is
+     never silently dropped, and cross-delivery to a non-default sid other
+     than the single active one cannot occur. Write an inbox record. Any other
      slash-prefixed text (commands addressed to other bots, or any other
      `/`-leading message) is session content and relays as a normal message —
      the reserved pair above is the only intercepted command (§ MUST NOT).
@@ -222,7 +236,10 @@ For every `spool/*/pending/*.json` not yet answered, and not yet escalated:
 
 Escalation sends the question text to the session's intercom topic
 (auto-creating the topic — § Topics) exactly once: set `escalated: true` and
-`escalated_at`. An escalated question never re-fires (AC14). Answering it —
+`escalated_at`. When the send succeeds through a created or resolved topic,
+the sweep also back-fills the record's `route.thread_id` in the same
+rewrite (CDT-529 AC4/AC6). An escalated question never re-fires (AC14).
+Answering it —
 any allowlisted inbound in that session's topic or the general topic for the
 default session — cancels further escalation and relays the answer to the
 session spool (AC14).
@@ -237,8 +254,13 @@ auto-create the session topic (AC11). The general topic is the
 walkie-talkie: its messages route to `default_session`, and that session's
 replies return to the general topic (AC6). An inbound `message_thread_id`
 absent from the map still routes to `default_session` when the map is `{}`
-or contains only `general`. Fail-closed unmapped stays when any
-non-`general` sid exists (AC6 cross-delivery). `topics_enabled` is a setup
+or contains only `general`. CDT-529 supersedes the fail-closed ignore for
+unmapped thread ids: an unmapped thread id (or a thread whose mapped sid is
+no longer active) routes to the single *active* session when exactly one
+exists, else to `default_session` with one warn line naming the thread id
+(§ Poller cycle; CDT-529 AC2/AC3/AC5). An active session is one whose
+`spool/<sid>/pending/` holds ≥1 unanswered question — the definition of
+"currently orchestrating" (CDT-529 Q1). `topics_enabled` is a setup
 mode flag; inbound routing uses the map shape, not that flag. Per-session
 topics prevent cross-delivery (AC6).
 
@@ -491,9 +513,16 @@ Surface (`commands/*.md`).
   `seen.tsv` dedupe window (at-least-once delivery, update_id dedupe, AC12).
 - MUST route by `thread_id` → sid, and general-topic traffic to
   `default_session` only (AC6). An unmapped thread id with an empty map
-  or a map that contains only `general` MUST route to `default_session`.
-  An unmapped thread id MUST stay fail-closed when any non-`general` sid
-  exists.
+  or a map that contains only `general` MUST route per the CDT-529
+  resolution order (§ Poller cycle): the single active session when
+  exactly one exists, else `default_session` plus one warn line naming
+  the thread id. Plain chat (no `thread_id`) MUST always route to
+  `default_session` (CDT-529 Q3); the zero-artifacts ignore for unmapped
+  thread ids is superseded (CDT-529 AC3/AC5).
+- MUST write every pending-question record's `route` fields
+  (`sid`, `thread_id`) in the single atomic creation write; `route.sid`
+  MUST be present and non-empty even when the `topics.json` lookup fails
+  (CDT-529 AC6).
 - MUST ignore inbound whose `from.id` equals `getMe` bot id, and
   empty-text forum topic service messages, with zero inbox artifacts and
   without answering pending questions.
@@ -600,6 +629,25 @@ Surface (`commands/*.md`).
   the 0600 file read-only.
 - **Custom published image / `:latest`** — rejected: Docker Official Image
   pinned by digest after operator approval.
+- **"Active session" via spool-dir existence** — rejected (CDT-529 Q1):
+  every session that ever used the intercom has spool dirs, so "exactly
+  one" would never hold and AC2 would be untestable. Pending-question
+  presence is the observable definition of *currently orchestrating*.
+- **"Active session" via spool mtime recency window** — rejected: adds a
+  knob and an mtime heuristic with no semantic anchor; pending presence
+  self-deactivates exactly when the question is answered.
+- **Correlate inbound to the ask record via `reply_to_message.message_id`**
+  — rejected: requires the poller to remember every escalation send's
+  `message_id`, and a member replying from a different client or quoting
+  manually carries no `reply_to_message`. Topic mapping + active-session
+  fallback covers the same traffic with less state.
+- **Configurable fallback target (`fallback_session` key)** — rejected for
+  this ticket (CDT-529 Q2): the single-active-session default plus
+  `default_session` for zero/≥2 covers all confirmed ACs; config surface
+  is deferred to CDT-531 if a need appears.
+- **Rewriting misrouted CDT-528 records in `spool/main/inbox/`** —
+  rejected as code (CDT-529 Q4): one-off operator `jq` move documented in
+  the runbook; automated migration of past misroutes is out of scope.
 
 ## Acceptance criteria
 
@@ -1113,6 +1161,72 @@ Format and rules: SPEC-033 M14(g) and M14(h).
   and docs-drift pass. Release bump is patch; no new `commands/*.md`.
   Never print the bot token.
 
+An *active* session is one whose `spool/<sid>/pending/` holds ≥1
+unanswered question (resolved Q1). Route resolution order is § Poller
+cycle; the CDT-529 ACs pin it.
+
+### CDT-529
+
+- **AC1.** An inbound reply in a forum topic whose `message_thread_id` is
+  mapped to a `sid` in `topics.json` whose pending dir holds ≥1
+  unanswered question writes the message JSON to
+  `spool/<that-sid>/inbox/` (existing record shape unchanged).
+  Verify: bash skills/intercom/test-poller.sh
+- **AC2.** A thread with no `topics.json` mapping and exactly one active
+  session routes to that session's `inbox/`. The target is the single
+  active session itself — no configuration key is added (resolved Q2).
+  Verify: bash skills/intercom/test-poller.sh
+- **AC3.** A thread with no mapping and zero or ≥2 active sessions writes
+  to `spool/<default_session>/inbox/` and emits exactly one stderr warn
+  line naming the unmapped thread id. No artifacts beyond the record
+  (no topic creation, no pending mutation).
+  Verify: bash skills/intercom/test-poller.sh
+- **AC4.** `intercom.sh ask` resolves the route before any delivery: the
+  pending record written by `ir_pending_write` carries
+  `route: {sid, thread_id}` — `sid` is the asking session, `thread_id`
+  the best-effort `topics.json` lookup for that sid (`null` when
+  unmapped) — so a reply returns to the asking session even if no
+  session ever posted to that topic before. The poller back-fills
+  `route.thread_id` in the same rewrite that marks `escalated` when the
+  escalated send went through a created/resolved topic.
+  Verify: bash skills/intercom/test.sh
+- **AC5.** A thread mapped to a sid with no unanswered pending question
+  (no longer active) behaves per AC3: `default_session` inbox + one warn
+  line naming the thread id. The message is never silently dropped.
+  Verify: bash skills/intercom/test-poller.sh
+- **AC6.** The pending record's route fields are written in the single
+  atomic creation write (one tmp + rename). A failed or unreadable
+  `topics.json` lookup cannot produce a question without a non-empty
+  `route.sid`; `route.thread_id` is `null` in that case and is
+  back-filled best-effort later.
+  Verify: bash skills/intercom/test.sh
+- **AC7.** Existing `topics.json` files without new fields remain
+  readable: a map holding only legacy `{sid: {thread_id, title}}` entries
+  routes exactly as before (no migration step, no new required keys);
+  absent route data falls back to the § Poller cycle order.
+  Verify: bash skills/intercom/test-poller.sh
+- **AC8.** Guardrail (CDT-531 out of scope): the topic-creation failure
+  path for an unmapped sid is unchanged — `ir_resolve_outbound` still
+  degrades to plain chat with the same warn, and inbound still follows
+  the AC3 fallback; the escalation loop error's frequency and severity
+  are unchanged (the createForumTopic retry cadence is untouched).
+  Verify: bash skills/intercom/test-poller.sh
+- **AC9.** The CDT-528 scenario does not recur: with exactly one
+  orchestrating session and a reply in the question thread (the topic the
+  escalation was delivered into), the routed inbox record appears within
+  the monitor's existing expiry window — `watch.sh` is not modified.
+  Verify: bash skills/intercom/test-poller.sh
+- **AC10.** Outbound routing is unaffected: `ir_resolve_outbound`
+  behavior (map hit → topic; default session → general/plain;
+  auto-create otherwise) and its call sites are unchanged in contract;
+  all existing poller tests pass.
+  Verify: bash skills/intercom/test-poller.sh
+- **AC11.** [process] `bash tools/run-all-tests.sh` exits 0; skill-lint,
+  docs-drift, and spec-lint pass. Release bump is patch (no new
+  `commands/*.md`; the check-bump-class gate is surface-based). The
+  routing-fallback default-behavior change is recorded; `/release` owns
+  the final bump-class call. Never print the bot token.
+
 ## Test
 
 - [ ] Token file written 0600 with 700 parent; repo stays clean (AC1)
@@ -1205,12 +1319,26 @@ Format and rules: SPEC-033 M14(g) and M14(h).
       (CDT-527 AC7)
 - [ ] Hermetic never pull/run a real image; probe not invoked (CDT-527 AC8)
 - [ ] setup.md / SKILL.md / runbook document start vs C1 (CDT-527 AC9)
+- [ ] Mapped topic + active sid routes to that sid's inbox (CDT-529 AC1)
+- [ ] Unmapped thread + exactly one active session routes there (CDT-529 AC2)
+- [ ] Unmapped thread + zero/≥2 active → `default_session` + one warn line
+      naming the thread id (CDT-529 AC3)
+- [ ] Pending record carries `route: {sid, thread_id}` from the single
+      creation write; back-fill on the escalated send (CDT-529 AC4/AC6)
+- [ ] Mapped-but-inactive sid falls back per AC3, never silent (CDT-529 AC5)
+- [ ] Legacy `topics.json` (no route fields) routes unchanged (CDT-529 AC7)
+- [ ] Plain chat always `default_session`; correlation-miss warn only when a
+      non-default sid has a pending question (CDT-529 Q3)
+- [ ] createForumTopic failure path and its warn unchanged (CDT-529 AC8)
+- [ ] `ir_resolve_outbound` contract unchanged; existing outbound tests pass
+      (CDT-529 AC10)
 
 ## Validation
 
 - [ ] Spec reviewed against CDT-501 ACs 1–25 (PM final, 2026-10-05), the
       2026-10-03 brainstorm decision log, CDT-509 ACs 1–13 (PM kickoff,
-      2026-10-07), and CDT-527 ACs 1–10 (PM scope, 2026-10-07)
+      2026-10-07), CDT-527 ACs 1–10 (PM scope, 2026-10-07), and CDT-529
+      ACs 1–10 (PM confirmed, 2026-10-08)
 - [ ] `probe.sh` remains operator-only (CDT-527 AC8); not a setup or
       merge gate. Operator may run it before a first live start.
 - [ ] Hermetic suites green with no network; `tools/run-all-tests.sh` exit 0
@@ -1252,6 +1380,7 @@ Format and rules: SPEC-033 M14(g) and M14(h).
 | 2026-10-07 | CDT-512-C5 — typing is send-path only: no `sendChatAction` on inbound pickup; `ir_send_text` types once immediately before `sendMessage`; no keepalive loop |
 | 2026-10-07 | CDT-509 — phase-2 containerized daemon: `daemon.sh` loops one-shot `poller.sh`; token `:ro` + state bind; flock per cycle not across; setup daemon-mode = heartbeat fresh AND compose `intercom`; digest-pin + approve-before-pull; `probe.sh` pre-deploy; C1 harness remains |
 | 2026-10-07 | CDT-527 — `/setup telegram` starts the Intercom daemon when Docker is available (`start-daemon.sh`); availability = CLI + compose v2 + `docker info`; identity-running or post-`up` prints daemon mode even if heartbeat is empty (supersedes CDT-509 AC10 heartbeat conjunct for setup mode); `probe.sh` stays operator-only (supersedes CDT-509 AC12 for the automated start path); C1 fallback when Docker is missing or operator answers n; `--start-daemon` for an already-paired box; patch, no new Surface |
+| 2026-10-08 | CDT-529 — inbound routing: unmapped threads resolve via the single *active* session (≥1 unanswered pending) else `default_session` + warn (supersedes the CDT-512-C3 zero-artifacts ignore for unmapped threads); plain chat always `default_session`; `ir_pending_write` records `route: {sid, thread_id}` atomically at ask time and the sweep back-fills `thread_id` on the escalated send; mapped-but-inactive sid falls back per AC3; CDT-528 misrouted records get a documented manual fix only |
 
 ## Cross-references
 

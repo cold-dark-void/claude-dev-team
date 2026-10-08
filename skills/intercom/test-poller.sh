@@ -583,17 +583,20 @@ else
   bad "CDT-512-C1 inbound one: rc=$W_RC out=[$W_OUT] want=[$want]"
 fi
 
-# inbound two sids: lexicographic unique, paths in sid order
+# CDT-529 supersedes the old mapped-always rule: sess-a/sess-b are mapped but
+# inactive (no unanswered pending), so both updates fall back to default_session.
 seed_paired "197372681"
 cfg_edit "$STATE_ROOT/topics.json" '.["sess-a"] = {thread_id: 201, title: "sess-a"} | .["sess-b"] = {thread_id: 202, title: "sess-b"}'
 put_resp "getUpdates" "$(result_body \
   "$(upd_msg 300 197372681 "for a secret" 201)" \
   "$(upd_msg 301 197372681 "for b secret" 202)")"
 run_watch
-want="intercom: inbound sid=sess-a,sess-b path=$STATE_ROOT/spool/sess-a/inbox $STATE_ROOT/spool/sess-b/inbox"
+want="intercom: inbound sid=main path=$STATE_ROOT/spool/main/inbox"
 if [ "$W_RC" -eq 0 ] && [ "$W_OUT" = "$want" ] \
+  && [ "$(inbox_n main)" = "2" ] \
+  && [ "$(inbox_n sess-a)" = "0" ] && [ "$(inbox_n sess-b)" = "0" ] \
   && ! printf '%s' "$W_OUT" | grep -q 'secret'; then
-  ok "CDT-512-C1 AC3 inbound two sids: lex order, paths match, no body dump"
+  ok "CDT-512-C1 (CDT-529 AC5/AC3) inbound two sids: inactive mapped topics fall back to default_session, no body dump"
 else
   bad "CDT-512-C1 inbound two: rc=$W_RC out=[$W_OUT] want=[$want]"
 fi
@@ -787,6 +790,198 @@ if [ "$W_RC" -eq 0 ] && [ -z "$W_OUT" ] && [ "$(inbox_n main)" = "0" ]; then
   ok "CDT-512-C3 AC5 watch stdout empty when cycle consumed only bot-id updates"
 else
   bad "CDT-512-C3 AC5 watch bot-id: rc=$W_RC out=[$W_OUT] inbox=$(inbox_n main)"
+fi
+
+# ---- CDT-529: inbound routing resolution order (AC1/AC2/AC3/AC5) ----------------
+
+# AC1: mapped thread + active sid routes to that sid's inbox (record shape unchanged)
+seed_paired "197372681"
+cfg_edit "$STATE_ROOT/topics.json" '.["sess-a"] = {thread_id: 201, title: "sess-a"}'
+put_pending "sess-a" "q_a1" "is the staging tag live?" "$(date +%s)"
+put_resp "getUpdates" "$(result_body "$(upd_msg 300 197372681 "here you go" 201)")"
+run_poller
+if [ "$P_RC" -eq 0 ] && [ "$(inbox_n sess-a)" = "1" ] && [ "$(inbox_n main)" = "0" ] \
+  && [ "$(jq -r '.update_id' "$(inbox_files sess-a)")" = "300" ] \
+  && [ "$(jq -r '.thread_id' "$(inbox_files sess-a)")" = "201" ] \
+  && [ -f "$STATE_ROOT/spool/sess-a/answered/q_a1.json" ]; then
+  ok "CDT-529 AC1 mapped thread + active sid routes to that sid's inbox"
+else
+  bad "CDT-529 AC1: rc=$P_RC a=$(inbox_n sess-a) main=$(inbox_n main) err=$P_ERR"
+fi
+
+# AC2: unmapped thread + exactly one active session routes there (no warn, no topic)
+seed_paired "197372681"
+put_pending "solo" "q_s1" "orchestrating" "$(date +%s)"
+put_resp "getUpdates" "$(result_body "$(upd_msg 300 197372681 "stray reply" 999)")"
+run_poller
+if [ "$P_RC" -eq 0 ] && [ "$(inbox_n solo)" = "1" ] && [ "$(inbox_n main)" = "0" ] \
+  && [ "$(jq -r '.text' "$(inbox_files solo)")" = "stray reply" ] \
+  && [ "$(offset_val)" = "301" ] \
+  && [ "$(calls_count createForumTopic)" = "0" ] \
+  && ! printf '%s' "$P_ERR" | grep -q "unmapped"; then
+  ok "CDT-529 AC2 unmapped thread + exactly one active session routes to that sid"
+else
+  bad "CDT-529 AC2: rc=$P_RC solo=$(inbox_n solo) main=$(inbox_n main) err=$P_ERR"
+fi
+
+# AC3 zero active: default_session inbox + exactly one warn line naming the thread id
+seed_paired "197372681"
+put_resp "getUpdates" "$(result_body "$(upd_msg 300 197372681 "no target" 999)")"
+run_poller
+warn_lines=$(printf '%s\n' "$P_ERR" | grep -c '^poller: thread 999 ' || true)
+if [ "$P_RC" -eq 0 ] && [ "$(inbox_n main)" = "1" ] && [ "$warn_lines" -eq 1 ] \
+  && [ "$(jq -r '.text' "$(inbox_files main)")" = "no target" ] \
+  && [ "$(offset_val)" = "301" ] \
+  && [ "$(calls_count createForumTopic)" = "0" ]; then
+  ok "CDT-529 AC3 zero active: default_session + exactly one warn naming thread 999"
+else
+  bad "CDT-529 AC3 zero: rc=$P_RC main=$(inbox_n main) warns=$warn_lines err=$P_ERR"
+fi
+
+# AC3 two active: default_session + one warn; no cross-delivery, pending untouched
+seed_paired "197372681"
+cfg_edit "$STATE_ROOT/topics.json" '.["sess-a"] = {thread_id: 201, title: "sess-a"} | .["sess-b"] = {thread_id: 202, title: "sess-b"}'
+put_pending "sess-a" "q_a2" "a active" "$(date +%s)"
+put_pending "sess-b" "q_b2" "b active" "$(date +%s)"
+put_resp "getUpdates" "$(result_body "$(upd_msg 300 197372681 "two active" 999)")"
+run_poller
+warn_lines=$(printf '%s\n' "$P_ERR" | grep -c '^poller: thread 999 ' || true)
+if [ "$P_RC" -eq 0 ] && [ "$(inbox_n main)" = "1" ] && [ "$warn_lines" -eq 1 ] \
+  && [ "$(inbox_n sess-a)" = "0" ] && [ "$(inbox_n sess-b)" = "0" ] \
+  && [ "$(find "$STATE_ROOT/spool/sess-a/pending" -name '*.json' 2>/dev/null | wc -l | tr -d ' ')" = "1" ] \
+  && [ "$(find "$STATE_ROOT/spool/sess-b/pending" -name '*.json' 2>/dev/null | wc -l | tr -d ' ')" = "1" ] \
+  && [ "$(offset_val)" = "301" ]; then
+  ok "CDT-529 AC3 two active: default_session + one warn; no cross-delivery, pending untouched"
+else
+  bad "CDT-529 AC3 two: rc=$P_RC main=$(inbox_n main) warns=$warn_lines err=$P_ERR"
+fi
+
+# AC5 zero active: a mapped-but-inactive sid falls back per AC3 (default + warn)
+seed_paired "197372681"
+cfg_edit "$STATE_ROOT/topics.json" '.["sess-a"] = {thread_id: 201, title: "sess-a"}'
+put_resp "getUpdates" "$(result_body "$(upd_msg 300 197372681 "to a stale topic" 201)")"
+run_poller
+warn_lines=$(printf '%s\n' "$P_ERR" | grep -c '^poller: thread 201 ' || true)
+if [ "$P_RC" -eq 0 ] && [ "$(inbox_n main)" = "1" ] && [ "$warn_lines" -eq 1 ] \
+  && [ "$(inbox_n sess-a)" = "0" ]; then
+  ok "CDT-529 AC5 mapped-but-inactive sid: default_session + one warn, never silent"
+else
+  bad "CDT-529 AC5 inactive: rc=$P_RC main=$(inbox_n main) warns=$warn_lines err=$P_ERR"
+fi
+
+# AC5 + AC2: an inactive mapped thread follows the single active session (no warn)
+seed_paired "197372681"
+cfg_edit "$STATE_ROOT/topics.json" '.["sess-a"] = {thread_id: 201, title: "sess-a"}'
+put_pending "other" "q_o2" "other active" "$(date +%s)"
+put_resp "getUpdates" "$(result_body "$(upd_msg 300 197372681 "to a stale topic" 201)")"
+run_poller
+if [ "$P_RC" -eq 0 ] && [ "$(inbox_n other)" = "1" ] && [ "$(inbox_n main)" = "0" ] \
+  && [ "$(inbox_n sess-a)" = "0" ] \
+  && ! printf '%s' "$P_ERR" | grep -q "unmapped"; then
+  ok "CDT-529 AC5 inactive mapped thread follows the single active session"
+else
+  bad "CDT-529 AC5 active-fallback: rc=$P_RC other=$(inbox_n other) main=$(inbox_n main) err=$P_ERR"
+fi
+
+# ---- CDT-529: AC7 legacy topics.json, Q3 correlation miss, AC8 failure path ------
+
+# AC7: a legacy map holding only {sid: {thread_id, title}} routes unchanged and
+# the cycle never migrates/rewrites the file.
+seed_paired "197372681"
+printf '{"general": {"thread_id": 100, "title": "General"}, "legacy": {"thread_id": 205, "title": "legacy"}}\n' > "$STATE_ROOT/topics.json"
+topics_before=$(cat "$STATE_ROOT/topics.json")
+put_pending "legacy" "q_l1" "legacy active" "$(date +%s)"
+put_resp "getUpdates" "$(result_body "$(upd_msg 300 197372681 "legacy routing" 205)")"
+run_poller
+if [ "$P_RC" -eq 0 ] && [ "$(inbox_n legacy)" = "1" ] \
+  && [ "$(jq -r '.text' "$(inbox_files legacy)")" = "legacy routing" ] \
+  && [ "$(cat "$STATE_ROOT/topics.json")" = "$topics_before" ]; then
+  ok "CDT-529 AC7 legacy topics.json routes unchanged; no migration rewrite"
+else
+  bad "CDT-529 AC7 legacy: rc=$P_RC legacy=$(inbox_n legacy) err=$P_ERR"
+fi
+
+# Q3: plain chat + a NON-default sid holding pending -> one correlation-miss warn
+seed_paired "197372681"
+put_pending "sess-x" "q_x1" "x active" "$(date +%s)"
+put_resp "getUpdates" "$(result_body "$(upd_msg 300 197372681 "plain talk")")"
+run_poller
+warn_lines=$(printf '%s\n' "$P_ERR" | grep -c 'correlation miss' || true)
+if [ "$P_RC" -eq 0 ] && [ "$(inbox_n main)" = "1" ] && [ "$warn_lines" -eq 1 ] \
+  && printf '%s' "$P_ERR" | grep -q 'session sess-x has an unanswered question'; then
+  ok "CDT-529 Q3 plain chat + non-default pending: one correlation-miss warn naming sess-x"
+else
+  bad "CDT-529 Q3 miss: rc=$P_RC main=$(inbox_n main) warns=$warn_lines err=$P_ERR"
+fi
+
+# Q3: plain chat with only the default sid active -> no correlation-miss warn
+seed_paired "197372681"
+put_pending "main" "q_m1" "main active" "$(date +%s)"
+put_resp "getUpdates" "$(result_body "$(upd_msg 300 197372681 "plain again")")"
+run_poller
+if [ "$P_RC" -eq 0 ] && [ "$(inbox_n main)" = "1" ] \
+  && ! printf '%s' "$P_ERR" | grep -q 'correlation miss'; then
+  ok "CDT-529 Q3 plain chat + only-default pending: no correlation-miss warn"
+else
+  bad "CDT-529 Q3 default-pending: rc=$P_RC main=$(inbox_n main) err=$P_ERR"
+fi
+
+# AC8: createForumTopic failure path unchanged — same warn, plain-chat delivery,
+# escalation completes once, route.thread_id is not back-filled.
+seed_paired "197372681"
+put_pending "fresh-sid" "q_f1" "need an answer" "$(( $(date +%s) - 3600 ))"
+ok_empty_result
+put_resp_file "createForumTopic" "$FIXTURES/rejected-400.json"
+run_poller
+if [ "$P_RC" -eq 0 ] && [ "$(calls_count createForumTopic)" = "1" ] \
+  && printf '%s' "$P_ERR" | grep -q 'createForumTopic rejected' \
+  && [ "$(calls_count sendMessage)" = "1" ] \
+  && grep -Fq 'text=need an answer' "$ARGV_LOG" \
+  && ! grep -Fq 'message_thread_id=' "$ARGV_LOG" \
+  && [ "$(jq -r '.escalated' "$STATE_ROOT/spool/fresh-sid/pending/q_f1.json")" = "true" ] \
+  && [ "$(jq -r '.route.thread_id // "absent"' "$STATE_ROOT/spool/fresh-sid/pending/q_f1.json")" = "absent" ]; then
+  ok "CDT-529 AC8 createForumTopic failure: warn unchanged, plain-chat send, escalated once, no back-fill"
+else
+  bad "CDT-529 AC8 failure path: rc=$P_RC sends=$(calls_count sendMessage) err=$P_ERR"
+fi
+
+# ---- CDT-529: AC4 escalation back-fill + AC10 outbound contract ------------------
+
+# AC4: the sweep back-fills route.thread_id in the same rewrite that sets escalated
+seed_paired "197372681"
+put_pending "main" "q_rt" "back-fill me" "$(( $(date +%s) - 3600 ))"
+jq '.route = {sid: "main", thread_id: null}' \
+  "$STATE_ROOT/spool/main/pending/q_rt.json" > "$STATE_ROOT/spool/main/pending/q_rt.tmp" \
+  && mv -f "$STATE_ROOT/spool/main/pending/q_rt.tmp" "$STATE_ROOT/spool/main/pending/q_rt.json"
+ok_empty_result
+run_poller
+pend="$STATE_ROOT/spool/main/pending/q_rt.json"
+if [ "$P_RC" -eq 0 ] && [ "$(calls_count sendMessage)" = "1" ] \
+  && grep -Fq 'message_thread_id=100' "$ARGV_LOG" \
+  && [ "$(jq -r '.escalated' "$pend")" = "true" ] \
+  && [ "$(jq -r '.route.sid' "$pend")" = "main" ] \
+  && [ "$(jq -r '.route.thread_id' "$pend")" = "100" ]; then
+  ok "CDT-529 AC4 escalation back-fills route.thread_id in the escalated rewrite"
+else
+  bad "CDT-529 AC4 back-fill: rc=$P_RC route=$(jq -c '.route' "$pend" 2>/dev/null) err=$P_ERR"
+fi
+
+# AC10: ir_resolve_outbound contract unchanged — a mapped sid's outbox still
+# delivers into its mapped topic (auto-create and general fallback are covered
+# by the AC11/AC8 outbound tests in test.sh).
+seed_paired "197372681"
+cfg_edit "$STATE_ROOT/topics.json" '.["sess-a"] = {thread_id: 201, title: "sess-a"}'
+put_outbox "sess-a" "out to a"
+ok_empty_result
+run_poller
+if [ "$P_RC" -eq 0 ] && [ "$(calls_count createForumTopic)" = "0" ] \
+  && [ "$(calls_count sendMessage)" = "1" ] \
+  && grep -Fq 'text=out to a' "$ARGV_LOG" \
+  && grep -Fq 'message_thread_id=201' "$ARGV_LOG" \
+  && [ "$(find "$STATE_ROOT/spool/sess-a/outbox" -name '*.json' 2>/dev/null | wc -l | tr -d ' ')" = "0" ]; then
+  ok "CDT-529 AC10 ir_resolve_outbound unchanged: mapped sid outbox delivers into its topic"
+else
+  bad "CDT-529 AC10 outbound: rc=$P_RC sends=$(calls_count sendMessage) err=$P_ERR"
 fi
 
 echo

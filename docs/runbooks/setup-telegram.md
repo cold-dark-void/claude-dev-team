@@ -150,12 +150,30 @@ and does not arm `watch.sh`.
 
 ---
 
+## Move a misrouted record (CDT-528 fix)
+
+CDT-528 spooled some topic messages into `spool/main/inbox/`. Move each
+affected record by hand. This is a one-off operator step (CDT-529 Q4).
+Automated migration is out of scope (SPEC-038).
+
+Find the sid for the thread in `topics.json`, then run:
+
+```
+jq -r 'select(.thread_id==<THREAD_ID>) | input_filename' \
+  ~/.claude/telegram-router/spool/main/inbox/*.json |
+  xargs -r mv -t ~/.claude/telegram-router/spool/<sid>/inbox/
+```
+
+Replace `<THREAD_ID>` and `<sid>` with the real values.
+
+---
+
 ## Troubleshooting
 
 | Symptom | What you do |
 |---------|-------------|
 | Empty pairing / no private-chat sender | Send a private message to the bot, then re-run `/setup telegram`. Do not pipe Enter before the DM. The pairing wait is a 30s long-poll. |
-| Unmapped topic | Empty map or only General: traffic stays in the Walkie-talkie (`default_session`). Session topics already mapped: an unknown thread is dropped. Topics off is not a failed setup. |
+| Unmapped topic | An unmapped or inactive thread routes to the single active session, else the Walkie-talkie (`default_session`) with one warn. Nothing is silently dropped (CDT-529). Topics off is not a failed setup. |
 | 409 conflict | Another getUpdates consumer holds the offset. Stop `watch.sh` or `docker compose -p intercom stop` before probe or a second start. One consumer only. |
 | Agent names a shared bot | Refuse. Create your own bot. Do not use a username from memory. |
 | Token in chat | Revoke the token with BotFather. Create a new bot. Never paste the token again. |

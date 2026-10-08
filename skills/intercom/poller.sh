@@ -319,11 +319,17 @@ ir_drain_outbox() {
 
 # ---- step 8: escalation sweep (timestamp-based; catches up after downtime) ------
 
-# ir_mark_escalated PATH — set escalated/escalated_at after a successful send.
+# ir_mark_escalated PATH [THREAD_ID] — set escalated/escalated_at after a
+# successful send. A non-empty THREAD_ID (the delivered topic) is back-filled
+# into route.thread_id in the same rewrite (CDT-529 AC4/AC6); plain-chat
+# escalation leaves it null.
 ir_mark_escalated() {
-  local pend="$1" tmp
+  local pend="$1" tid="${2:-}" tmp
   tmp=$(mktemp "${TMPDIR:-/tmp}/poller.esc.XXXXXX") || return 1
-  jq --arg now "$(date +%s)" '.escalated = true | .escalated_at = ($now | tonumber)' \
+  jq --arg now "$(date +%s)" --arg tid "$tid" \
+    '.escalated = true
+     | .escalated_at = ($now | tonumber)
+     | if $tid != "" then .route.thread_id = ($tid | tonumber) else . end' \
     "$pend" > "$tmp" 2>/dev/null \
     || { warn "cannot rewrite pending question: $pend"; rm -f "$tmp"; return 1; }
   mv -f "$tmp" "$pend" || { warn "cannot publish pending question: $pend"; rm -f "$tmp"; return 1; }
@@ -356,7 +362,7 @@ ir_escalation_sweep() {
       continue
     fi
     if ir_send_text "$IR_OUT_CHAT" "$IR_OUT_THREAD" "$text"; then
-      ir_mark_escalated "$pend" || true
+      ir_mark_escalated "$pend" "$IR_OUT_THREAD" || true
     else
       warn "escalation send failed; will retry: $pend"
     fi
@@ -398,41 +404,75 @@ ir_seen_prune() {
 
 # ---- inbound helpers -------------------------------------------------------------
 
-# ir_route_inbound THREAD_ID — prints the sid; rc 1 when unroutable. A known
-# thread maps via topics.json ("general" → default_session); a plain chat
-# (no thread) is the walkie-talkie → default_session. An unmapped thread id
-# with an empty map or only the general key also routes to default_session.
-# Fail-closed when any non-general sid exists (AC6 cross-delivery).
+# ir_active_sessions — prints space-separated sane sids whose spool
+# pending/ holds ≥1 unanswered question file. CDT-529 defines an *active*
+# session this way ("currently orchestrating"); it is independent of the
+# topics_enabled setup flag. No dirs are created here (read-only probe).
+ir_active_sessions() {
+  local d sid out=""
+  for d in "$ROOT"/spool/*/pending; do
+    [ -d "$d" ] || continue
+    sid=${d%/*}
+    sid=${sid##*/}
+    ir_sane_sid "$sid" || continue
+    set -- "$d"/*.json
+    [ -f "$1" ] || continue
+    out="$out$sid "
+  done
+  printf '%s\n' "$out"
+}
+
+# ir_route_inbound THREAD_ID — prints the sid; rc 1 = ignore-with-zero-
+# artifacts (only an unusable default_session or an insane final sid).
+# CDT-529 resolution order, first hit wins:
+#   (a) no thread_id (plain chat) → default_session; one Q3 warn when a
+#       non-default session holds an unanswered question (correlation miss);
+#       plain chat is never re-routed to a session.
+#   (b) thread mapped to an active session → that sid (AC1).
+#   (c) thread unmapped, or mapped to a sid with no unanswered pending →
+#       the single active session (AC2); zero or ≥2 active → default_session
+#       with one warn naming the thread id (AC3). Supersedes the
+#       CDT-512-C3 zero-artifacts ignore for unmapped thread ids.
 ir_route_inbound() {
-  local tid="$1" sid="" n_other=0
+  local tid="$1" sid="" active s n_active=0
   if [ "$DEFAULT_SESSION_OK" -ne 1 ]; then
     warn "default_session unusable; ignoring inbound"
     return 1
   fi
-  if [ -n "$tid" ]; then
+  active=$(ir_active_sessions) || active=""
+  set -- $active
+  n_active=$#
+  if [ -z "$tid" ]; then
+    for s in $active; do
+      [ "$s" != "$DEFAULT_SESSION" ] || continue
+      warn "plain chat arrived while session $s has an unanswered question (correlation miss)"
+      break
+    done
+    sid=$DEFAULT_SESSION
+  else
     if [ -f "$TOPICS_FILE" ]; then
       sid=$(jq -r --arg tid "$tid" \
         'to_entries[] | select((.value.thread_id? // 0 | tostring) == $tid) | .key' \
         "$TOPICS_FILE" 2>/dev/null | head -n 1) || sid=""
     fi
-    if [ -z "$sid" ]; then
-      if [ -f "$TOPICS_FILE" ]; then
-        n_other=$(jq '[to_entries[] | select(.key != "general")] | length' \
-          "$TOPICS_FILE" 2>/dev/null) || n_other=0
-      fi
-      case "$n_other" in
-        ''|*[!0-9]*) n_other=0 ;;
-      esac
-      if [ "$n_other" -gt 0 ]; then
-        warn "message in unmapped topic $tid; ignored with zero artifacts"
-        return 1
-      fi
+    if [ "$sid" = "general" ]; then
       sid=$DEFAULT_SESSION
-    else
-      [ "$sid" = "general" ] && sid=$DEFAULT_SESSION
+    elif [ -n "$sid" ]; then
+      # (b) mapped to an active session (AC1); an inactive mapped sid falls
+      # through to (c) (AC5).
+      case " $active " in
+        *" $sid "*) printf '%s\n' "$sid" || return 1; return 0 ;;
+      esac
+      sid=""
     fi
-  else
-    sid=$DEFAULT_SESSION
+    if [ -z "$sid" ]; then
+      if [ "$n_active" -eq 1 ]; then
+        sid=${active%% *}
+      else
+        sid=$DEFAULT_SESSION
+        warn "thread $tid is unmapped or its session is inactive; $n_active active sessions — routed to $DEFAULT_SESSION"
+      fi
+    fi
   fi
   ir_sane_sid "$sid" || { warn "routed sid is unusable; ignored"; return 1; }
   printf '%s\n' "$sid"
