@@ -1318,17 +1318,18 @@ DOC_IC="$PLUGIN_ROOT/skills/doctor/checks/intercom.sh"
 DAEMON_SH="$HERE/daemon.sh"
 ALPINE_DIGEST='sha256:ce64758a109eb420d874a118f87920e625e12d3634e03b4a5573fd9f6e5d3507'
 
-# AC3: poller/watch/intercom stay byte-stable vs origin/master (additive daemon only).
+# AC3: watch/intercom stay byte-stable vs origin/master (additive daemon only).
+# poller.sh left the frozen set in CDT-528 (spec'd longread materialize change).
 if git -C "$PLUGIN_ROOT" rev-parse --is-inside-work-tree >/dev/null 2>&1 \
   && git -C "$PLUGIN_ROOT" rev-parse --verify origin/master >/dev/null 2>&1; then
   if git -C "$PLUGIN_ROOT" diff --quiet origin/master -- \
-    skills/intercom/poller.sh skills/intercom/watch.sh skills/intercom/intercom.sh; then
-    ok "CDT-509 AC3 poller.sh watch.sh intercom.sh 0-diff"
+    skills/intercom/watch.sh skills/intercom/intercom.sh; then
+    ok "CDT-509 AC3 watch.sh intercom.sh 0-diff"
   else
-    bad "CDT-509 AC3 poller.sh watch.sh intercom.sh drifted vs origin/master"
+    bad "CDT-509 AC3 watch.sh intercom.sh drifted vs origin/master"
   fi
 else
-  ok "CDT-509 AC3 poller.sh watch.sh intercom.sh 0-diff"
+  ok "CDT-509 AC3 watch.sh intercom.sh 0-diff"
 fi
 
 if [ -f "$DAEMON_SH" ] && ! grep -q 'topics.json' "$DAEMON_SH"; then

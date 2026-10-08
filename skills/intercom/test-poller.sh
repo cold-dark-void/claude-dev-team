@@ -308,6 +308,64 @@ else
   bad "matrix b: rc=$P_RC doc=[$doc_line]"
 fi
 
+# ---- CDT-528: BusyBox mktemp — the materialize template must be suffix-free --------
+
+install_busybox_mktemp() { # PATH stub mimicking BusyBox: a suffix after the X run is rejected
+  BB_BIN="$HERMETIC_ROOT/busybox-bin"
+  local real
+  real=$(command -v mktemp)
+  mkdir -p "$BB_BIN"
+  cat > "$BB_BIN/mktemp" <<EOF
+#!/usr/bin/env bash
+# BusyBox-shaped mktemp: any argument carrying an X run with a suffix after it
+# fails with "Invalid argument"; suffix-free templates delegate to real mktemp.
+for a in "\$@"; do
+  case "\$a" in
+    *XXXXXX?*)
+      printf 'mktemp: %s: Invalid argument\n' "\$a" >&2
+      exit 1
+      ;;
+  esac
+done
+exec '$real' "\$@"
+EOF
+  chmod +x "$BB_BIN/mktemp"
+}
+
+seed_paired "197372681"
+install_busybox_mktemp
+put_outbox "main" "long body without file" "busybox summary"
+ok_empty_result
+PATH="$BB_BIN:$PATH"
+run_poller
+PATH="${PATH#"$BB_BIN:"}"
+doc_line=$(grep -F 'document=@' "$ARGV_LOG" | head -n 1)
+if [ "$P_RC" -eq 0 ] && [ "$(calls_count sendMessage)" = "1" ] \
+  && [ "$(calls_count sendDocument)" = "1" ] \
+  && case "$doc_line" in *document=@*intercom-longread-*/longread.md) true ;; *) false ;; esac \
+  && [ "$(find "$STATE_ROOT/spool/main/outbox" -name '*.json' 2>/dev/null | wc -l | tr -d ' ')" = "0" ]; then
+  ok "CDT-528: BusyBox mktemp stub — materialized longread.md uploads and the record is deleted"
+else
+  bad "CDT-528 materialize: rc=$P_RC doc=[$doc_line]"
+fi
+
+seed_paired "197372681"
+install_busybox_mktemp
+put_outbox "main" "long body without file" "busybox failing send"
+ok_empty_result
+put_resp "sendDocument" '__CURL_FAIL__'
+PATH="$BB_BIN:$PATH"
+run_poller
+PATH="${PATH#"$BB_BIN:"}"
+if [ "$P_RC" -eq 0 ] \
+  && [ "$(find "$HERMETIC_ROOT/tmp" -maxdepth 1 -name 'intercom-longread-*' 2>/dev/null | wc -l | tr -d ' ')" = "0" ] \
+  && [ "$(find "$STATE_ROOT/spool/main/outbox" -name '*.json' 2>/dev/null | wc -l | tr -d ' ')" = "1" ] \
+  && printf '%s' "$P_ERR" | grep -q "record kept"; then
+  ok "CDT-528: failing sendDocument removes the temp dir and keeps the record for retry"
+else
+  bad "CDT-528 fail path: rc=$P_RC err=$P_ERR"
+fi
+
 seed_paired "197372681"
 printf 'attachment body\n' > "$HERMETIC_ROOT/att2.md"
 put_outbox "main" "plain text body" "" "$HERMETIC_ROOT/att2.md"

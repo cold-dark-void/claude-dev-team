@@ -262,20 +262,22 @@ ir_send_document() {
 # text); no summary means sendMessage(text) + sendDocument(file) when present.
 # Never chunk-split (AC9). rc 1 when a required send fails (record is kept).
 ir_send_longread() {
-  local chat="$1" thread="$2" text="$3" summary="$4" file="$5" tmp
+  local chat="$1" thread="$2" text="$3" summary="$4" file="$5" tdir doc
   if [ -n "$summary" ]; then
     ir_send_text "$chat" "$thread" "$summary" || return 1
     if [ -n "$file" ] && [ -f "$file" ]; then
       ir_send_document "$chat" "$thread" "$file" || return 1
     else
       [ -n "$file" ] && warn "longread file vanished, materializing text: $file"
-      tmp=$(mktemp "${TMPDIR:-/tmp}/intercom-longread-XXXXXX.md") || return 1
-      printf '%s' "$text" > "$tmp" || { rm -f "$tmp"; return 1; }
-      if ! ir_send_document "$chat" "$thread" "$tmp"; then
-        rm -f "$tmp"
+      # Suffix-free template: BusyBox mktemp rejects a suffix after the X run.
+      tdir=$(mktemp -d "${TMPDIR:-/tmp}/intercom-longread-XXXXXX") || return 1
+      doc="$tdir/longread.md"
+      printf '%s' "$text" > "$doc" || { rm -rf "$tdir"; return 1; }
+      if ! ir_send_document "$chat" "$thread" "$doc"; then
+        rm -rf "$tdir"
         return 1
       fi
-      rm -f "$tmp"
+      rm -rf "$tdir"
     fi
   else
     ir_send_text "$chat" "$thread" "$text" || return 1

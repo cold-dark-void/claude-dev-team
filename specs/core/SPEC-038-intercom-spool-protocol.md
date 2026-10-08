@@ -1082,6 +1082,37 @@ Format and rules: SPEC-033 M14(g) and M14(h).
   suites stay green. Release bump is patch; no new `commands/*.md`. Never
   print the bot token. Never commit `.claude/backlog` or `.claude/epics`.
 
+### CDT-528
+
+- **AC1.** `ir_send_longread` in `skills/intercom/poller.sh` materializes
+  the summary fallback (summary present, `file` set but missing) with a
+  BusyBox-safe sequence: `mktemp -d` a suffix-free
+  `${TMPDIR:-/tmp}/intercom-longread-XXXXXX` directory, write the record
+  text to `longread.md` inside it, `sendDocument` that path, and
+  `rm -rf` the directory on the success path and on every failure path
+  (write failure, send failure). No mktemp template in the file carries a
+  suffix after the `X` run. The document path still matches
+  `intercom-longread-*.md` (directory prefix + `longread.md`).
+  Verify: bash skills/intercom/test-poller.sh
+- **AC2.** The hermetic suite proves the BusyBox shape: with a PATH-stub
+  `mktemp` that rejects any template carrying a suffix after the `X` run
+  (exit nonzero, BusyBox-style) and delegates suffix-free templates to
+  the real mktemp, a summary record with a missing file materializes,
+  uploads `longread.md`, and its outbox record is deleted.
+  Verify: bash skills/intercom/test-poller.sh
+- **AC3.** Under the same stub with `sendDocument` failing: the temp
+  directory is removed (no stale files remain) and the outbox record is
+  kept for retry (one warn line, cycle still exits 0).
+  Verify: bash skills/intercom/test-poller.sh
+- **AC4.** GNU mktemp behavior is unchanged: the existing hermetic
+  materialize test still passes against the host's real mktemp, and the
+  other mktemp callsites (`poller.topics`, `poller.esc`, `poller.seen`)
+  are untouched.
+  Verify: bash skills/intercom/test-poller.sh
+- **AC5.** [process] `bash tools/run-all-tests.sh` exits 0; skill-lint
+  and docs-drift pass. Release bump is patch; no new `commands/*.md`.
+  Never print the bot token.
+
 ## Test
 
 - [ ] Token file written 0600 with 700 parent; repo stays clean (AC1)

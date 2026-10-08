@@ -6,6 +6,9 @@ Pre-written headings (release-train M5c, orchestrate version-sync tasks) are kep
 via skip-if-present when `/release` is given an explicit version — do not invent a
 second heading for the same version.
 
+### v1.21.10
+- **Intercom poller: BusyBox-safe longread materialize (CDT-528)** — ir_send_longread falls back via `mktemp -d` + `longread.md` inside (BusyBox mktemp rejects suffixed templates), `rm -rf` on all paths. Hermetic BusyBox-stub tests for materialize and failing-send; GNU matrix unchanged. test.sh CDT-509 drift guard drops poller.sh (SPEC-038 § CDT-528).
+
 ### v1.21.9
 - **Setup starts Intercom daemon when Docker is available (CDT-527)** — ir_docker_available (CLI + compose v2 + engine). start-daemon.sh compose up with host uid:gid. C1 watch.sh when Docker is missing. TTY-less default Y. No docker pull in hermetic tests.
 
