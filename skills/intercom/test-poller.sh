@@ -390,6 +390,110 @@ else
   bad "matrix d: rc=$P_RC sends=$(calls_count sendMessage) docs=$(calls_count sendDocument)"
 fi
 
+# ---- CDT-530 AC3: a delivered summary is not re-sent on the retry cycle --------
+
+seed_paired "197372681"
+printf 'attachment body\n' > "$HERMETIC_ROOT/att530.md"
+put_outbox "main" "long body text" "concise summary" "$HERMETIC_ROOT/att530.md"
+ok_empty_result
+put_resp "sendDocument" '__CURL_FAIL__'
+ACC="$HERMETIC_ROOT/argv-530.log"
+: > "$ACC"
+run_poller
+cat "$ARGV_LOG" >> "$ACC"
+if [ "$(find "$STATE_ROOT/spool/main/outbox" -name '*.json' 2>/dev/null | wc -l | tr -d ' ')" = "1" ] \
+  && [ "$(jq -r '.summary_sent // false' "$STATE_ROOT/spool/main/outbox"/*.json 2>/dev/null)" = "true" ]; then
+  ok "CDT-530 AC3: failed sendDocument keeps the record with summary_sent marked"
+else
+  bad "CDT-530 AC3 mark: rec=$(jq -c . "$STATE_ROOT/spool/main/outbox"/*.json 2>/dev/null)"
+fi
+run_poller
+cat "$ARGV_LOG" >> "$ACC"
+put_resp "sendDocument" '{"ok":true,"result":true}'
+run_poller
+cat "$ARGV_LOG" >> "$ACC"
+# The shim logs argv before failing, so each retry cycle contributes one
+# sendDocument line: assert one attempt per cycle (3), not a re-send within one.
+if [ "$P_RC" -eq 0 ] \
+  && [ "$(grep -Fc 'text=concise summary' "$ACC")" = "1" ] \
+  && [ "$(grep -Fc "document=@$HERMETIC_ROOT/att530.md" "$ACC")" = "3" ] \
+  && [ "$(find "$STATE_ROOT/spool/main/outbox" -name '*.json' 2>/dev/null | wc -l | tr -d ' ')" = "0" ]; then
+  ok "CDT-530 AC3: summary exactly once across three cycles, sendDocument once per cycle and delivered on the success cycle, record deleted"
+else
+  bad "CDT-530 AC3 retry: rc=$P_RC summary=$(grep -Fc 'text=concise summary' "$ACC") docs=$(grep -Fc "document=@$HERMETIC_ROOT/att530.md" "$ACC") recs=$(find "$STATE_ROOT/spool/main/outbox" -name '*.json' 2>/dev/null | wc -l | tr -d ' ')"
+fi
+
+# ---- CDT-530 AC4: the full-text part of a no-summary record is not re-sent -----
+
+seed_paired "197372681"
+printf 'attachment body\n' > "$HERMETIC_ROOT/att530b.md"
+put_outbox "main" "plain text body" "" "$HERMETIC_ROOT/att530b.md"
+ok_empty_result
+put_resp "sendDocument" '__CURL_FAIL__'
+ACC="$HERMETIC_ROOT/argv-530b.log"
+: > "$ACC"
+run_poller
+cat "$ARGV_LOG" >> "$ACC"
+if [ "$(find "$STATE_ROOT/spool/main/outbox" -name '*.json' 2>/dev/null | wc -l | tr -d ' ')" = "1" ] \
+  && [ "$(jq -r '.text_sent // false' "$STATE_ROOT/spool/main/outbox"/*.json 2>/dev/null)" = "true" ]; then
+  ok "CDT-530 AC4: failed sendDocument keeps the record with text_sent marked"
+else
+  bad "CDT-530 AC4 mark: rec=$(jq -c . "$STATE_ROOT/spool/main/outbox"/*.json 2>/dev/null)"
+fi
+run_poller
+cat "$ARGV_LOG" >> "$ACC"
+put_resp "sendDocument" '{"ok":true,"result":true}'
+run_poller
+cat "$ARGV_LOG" >> "$ACC"
+if [ "$P_RC" -eq 0 ] \
+  && [ "$(grep -Fc 'text=plain text body' "$ACC")" = "1" ] \
+  && [ "$(grep -Fc "document=@$HERMETIC_ROOT/att530b.md" "$ARGV_LOG")" = "1" ] \
+  && [ "$(find "$STATE_ROOT/spool/main/outbox" -name '*.json' 2>/dev/null | wc -l | tr -d ' ')" = "0" ]; then
+  ok "CDT-530 AC4: full text exactly once across three cycles, record deleted after the file lands"
+else
+  bad "CDT-530 AC4 retry: rc=$P_RC text=$(grep -Fc 'text=plain text body' "$ACC") docs=$(grep -Fc 'document=@' "$ARGV_LOG") recs=$(find "$STATE_ROOT/spool/main/outbox" -name '*.json' 2>/dev/null | wc -l | tr -d ' ')"
+fi
+
+# ---- CDT-530 AC2: a failed flag rewrite keeps the record -----------------------
+# An invalid-JSON record is dropped at the sid check, so force the rewrite to
+# fail at publish time: read-only outbox makes the atomic mv fail after the
+# summary sendMessage succeeded. The record must survive unmarked.
+
+seed_paired "197372681"
+put_resp "getUpdates" '{"ok":true,"result":[]}'
+put_outbox "main" "long body text" "concise summary"
+chmod 555 "$STATE_ROOT/spool/main/outbox"
+run_poller
+chmod 700 "$STATE_ROOT/spool/main/outbox"
+if [ "$P_RC" -eq 0 ] \
+  && [ -f "$STATE_ROOT/spool/main/outbox/900000000_0_test.json" ] \
+  && [ "$(jq -r '.summary_sent // false' "$STATE_ROOT/spool/main/outbox/900000000_0_test.json" 2>/dev/null)" != "true" ]; then
+  ok "CDT-530 AC2: failed flag rewrite keeps the record (unpublishable rewrite)"
+else
+  bad "CDT-530 AC2 failed-mark: rc=$P_RC rec=$(find "$STATE_ROOT/spool/main/outbox" -name '*.json' 2>/dev/null | wc -l | tr -d ' ')"
+fi
+
+# ---- CDT-530 compat: a flag-absent (old-shape) record drains unchanged ----------
+
+seed_paired "197372681"
+printf 'attachment body\n' > "$HERMETIC_ROOT/att530c.md"
+mkdir -m 700 -p "$STATE_ROOT/spool/main/outbox"
+jq -n --arg sid "main" --arg text "old record body" --arg summary "old summary" \
+  --arg file "$HERMETIC_ROOT/att530c.md" --arg ts "$(date +%s)" \
+  '{ts: ($ts|tonumber), sid: $sid, dir: "out", kind: "message", text: $text,
+    from_id: 0, update_id: 0, thread_id: 0, summary: $summary, file: $file}' \
+  > "$STATE_ROOT/spool/main/outbox/900000001_0_old.json"
+ok_empty_result
+run_poller
+if [ "$P_RC" -eq 0 ] && [ "$(calls_count sendMessage)" = "1" ] && [ "$(calls_count sendDocument)" = "1" ] \
+  && grep -Fq 'text=old summary' "$ARGV_LOG" \
+  && grep -Fq "document=@$HERMETIC_ROOT/att530c.md" "$ARGV_LOG" \
+  && [ "$(find "$STATE_ROOT/spool/main/outbox" -name '*.json' 2>/dev/null | wc -l | tr -d ' ')" = "0" ]; then
+  ok "CDT-530 compat: flag-absent record sends both parts in one cycle and is deleted"
+else
+  bad "CDT-530 compat: rc=$P_RC sends=$(calls_count sendMessage) docs=$(calls_count sendDocument)"
+fi
+
 # ---- AC14/AC11: escalation fires once into the auto-created topic -------------------
 
 seed_paired "197372681"

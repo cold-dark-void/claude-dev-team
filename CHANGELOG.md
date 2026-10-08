@@ -6,6 +6,10 @@ Pre-written headings (release-train M5c, orchestrate version-sync tasks) are kep
 via skip-if-present when `/release` is given an explicit version — do not invent a
 second heading for the same version.
 
+### v1.21.12
+- **Intercom outbox per-part delivery (CDT-530)** — `ir_send_longread` marks the message part delivered (`summary_sent`/`text_sent`, atomic rewrite) so a retry cycle re-sends only the remaining part; the record is deleted only after all parts succeed and at-least-once semantics hold. Previously a failed document upload re-sent the summary on every cycle.
+- **Regression coverage (CDT-530)** — hermetic tests for the failed-document retry (summary exactly once, one attempt per cycle), the no-summary `text_sent` path, a failed flag rewrite keeping the record, and flag-absent compatibility.
+
 ### v1.21.11
 - **Intercom inbound routing: active-session fallback (CDT-529)** — a reply in an unmapped or inactive question thread routes to the single orchestrating session's spool; zero or ≥2 active sessions fall to `spool/main` with exactly one warn naming the thread id (supersedes the CDT-512-C3 fail-closed ignore).
 - **Ask-time route records (CDT-529)** — `ir_pending_write` writes `route: {sid, thread_id}` in the single atomic creation write; `thread_id` is null on lookup failure and is back-filled by the escalation sweep in the same rewrite that marks `escalated`.

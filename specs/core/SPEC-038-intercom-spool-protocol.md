@@ -1160,7 +1160,6 @@ Format and rules: SPEC-033 M14(g) and M14(h).
 - **AC5.** [process] `bash tools/run-all-tests.sh` exits 0; skill-lint
   and docs-drift pass. Release bump is patch; no new `commands/*.md`.
   Never print the bot token.
-
 An *active* session is one whose `spool/<sid>/pending/` holds ≥1
 unanswered question (resolved Q1). Route resolution order is § Poller
 cycle; the CDT-529 ACs pin it.
@@ -1226,6 +1225,43 @@ cycle; the CDT-529 ACs pin it.
   `commands/*.md`; the check-bump-class gate is surface-based). The
   routing-fallback default-behavior change is recorded; `/release` owns
   the final bump-class call. Never print the bot token.
+
+### CDT-530
+
+- **AC1.** `ir_drain_outbox` / `ir_send_longread` in
+  `skills/intercom/poller.sh` track per-part delivery in the outbox
+  record: after the message part of a record is delivered successfully
+  (the summary `sendMessage` when a summary is present, or the full-text
+  `sendMessage` when it is not), the poller rewrites that record with the
+  optional flag `summary_sent: true` / `text_sent: true` (jq to a tmp
+  file, atomic `mv` publish). The record-schema comment on
+  `ir_outbox_write` in `skills/intercom/common.sh` documents the flag.
+  Records without the flag — including records written by earlier
+  versions — drain unchanged (flag absent = part not yet sent).
+  Verify: bash skills/intercom/test-poller.sh
+- **AC2.** On a retry cycle a record whose message part is marked
+  delivered does not re-send it: the cycle sends only the remaining part
+  (`sendDocument`), and the record is deleted only after all parts
+  succeed. At-least-once semantics hold: a failed part send or a failed
+  flag rewrite keeps the record (a redelivered part is then possible;
+  exactly-once is not claimed, no record → no offset advance).
+  Verify: bash skills/intercom/test-poller.sh
+- **AC3.** Regression test (hermetic): a summary + file record whose
+  `sendDocument` fails twice then succeeds. Across the accumulated
+  `ARGV_LOG` of the three cycles the summary text appears exactly once
+  (the marked-delivered part is never re-sent); each failed cycle may log
+  a `sendDocument` attempt (at-least-once, per AC2), the successful
+  delivery happens on the success cycle only, and the outbox record is
+  deleted after the third cycle.
+  Verify: bash skills/intercom/test-poller.sh
+- **AC4.** The same once-only guarantee covers a no-summary record with
+  a file: when its `sendDocument` fails, the full-text `sendMessage` is
+  not repeated on the retry cycle (the `text_sent` path).
+  Verify: bash skills/intercom/test-poller.sh
+- **AC5.** [process] `bash tools/run-all-tests.sh` exits 0; skill-lint
+  and docs-drift pass. Release bump is patch; no new `commands/*.md`.
+  No poller surface change: one-shot cycle, no LLM, no resident loop.
+  Never print the bot token (existing hermetic sentinel still passes).
 
 ## Test
 

@@ -257,14 +257,35 @@ ir_send_document() {
   ir_ok_or_warn "$resp" "sendDocument"
 }
 
-# ir_send_longread CHAT THREAD TEXT SUMMARY FILE — SPEC-038 delivery rule:
-# a summary means sendMessage(summary) + sendDocument(file, else materialized
-# text); no summary means sendMessage(text) + sendDocument(file) when present.
+# ir_mark_outbox_part PATH FLAG — set summary_sent/text_sent after a successful
+# message-part send (CDT-530). jq to a tmp file, atomic mv publish, same rule
+# as ir_mark_escalated. rc 1 keeps the record for a redelivery (at-least-once).
+ir_mark_outbox_part() {
+  local rec="$1" flag="$2" tmp
+  tmp=$(mktemp "${TMPDIR:-/tmp}/poller.ob.XXXXXX") || return 1
+  jq --arg f "$flag" '.[$f] = true' "$rec" > "$tmp" 2>/dev/null \
+    || { warn "cannot rewrite outbox record: $rec"; rm -f "$tmp"; return 1; }
+  mv -f "$tmp" "$rec" || { warn "cannot publish outbox record: $rec"; rm -f "$tmp"; return 1; }
+}
+
+# ir_send_longread CHAT THREAD TEXT SUMMARY FILE [RECORD] — SPEC-038 delivery
+# rule: a summary means sendMessage(summary) + sendDocument(file, else
+# materialized text); no summary means sendMessage(text) + sendDocument(file)
+# when present. With RECORD (CDT-530), a part already marked delivered is not
+# re-sent (the retry cycle sends only the remaining part) and a successful
+# message part is marked on the record; a failed mark keeps the record, so a
+# redelivered part stays possible (at-least-once, no exactly-once claim).
 # Never chunk-split (AC9). rc 1 when a required send fails (record is kept).
 ir_send_longread() {
-  local chat="$1" thread="$2" text="$3" summary="$4" file="$5" tdir doc
+  local chat="$1" thread="$2" text="$3" summary="$4" file="$5" rec="${6:-}" tdir doc
   if [ -n "$summary" ]; then
-    ir_send_text "$chat" "$thread" "$summary" || return 1
+    if [ -z "$rec" ] \
+      || [ "$(jq -r '.summary_sent // false' "$rec" 2>/dev/null)" != "true" ]; then
+      ir_send_text "$chat" "$thread" "$summary" || return 1
+      if [ -n "$rec" ]; then
+        ir_mark_outbox_part "$rec" summary_sent || return 1
+      fi
+    fi
     if [ -n "$file" ] && [ -f "$file" ]; then
       ir_send_document "$chat" "$thread" "$file" || return 1
     else
@@ -280,7 +301,13 @@ ir_send_longread() {
       rm -rf "$tdir"
     fi
   else
-    ir_send_text "$chat" "$thread" "$text" || return 1
+    if [ -z "$rec" ] \
+      || [ "$(jq -r '.text_sent // false' "$rec" 2>/dev/null)" != "true" ]; then
+      ir_send_text "$chat" "$thread" "$text" || return 1
+      if [ -n "$rec" ]; then
+        ir_mark_outbox_part "$rec" text_sent || return 1
+      fi
+    fi
     if [ -n "$file" ]; then
       if [ -f "$file" ]; then
         ir_send_document "$chat" "$thread" "$file" || return 1
@@ -308,7 +335,7 @@ ir_drain_outbox() {
       continue
     fi
     ir_resolve_outbound "$sid" || { warn "cannot reach Telegram for outbox; record kept: $rec"; return 1; }
-    if ! ir_send_longread "$IR_OUT_CHAT" "$IR_OUT_THREAD" "$text" "$summary" "$file"; then
+    if ! ir_send_longread "$IR_OUT_CHAT" "$IR_OUT_THREAD" "$text" "$summary" "$file" "$rec"; then
       warn "outbox send failed; record kept for retry: $rec"
       return 1
     fi

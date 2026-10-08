@@ -268,7 +268,11 @@ ir_record_publish() {
 
 ir_outbox_write() {
   # ir_outbox_write SID TEXT SUMMARY FILE — one outbox record; prints its path.
-  # Empty summary/file are omitted from the JSON (optional fields). Filename is
+  # Empty summary/file are omitted from the JSON (optional fields). Optional
+  # per-part delivery flags summary_sent / text_sent (CDT-530) are absent on a
+  # fresh record: absent = part not yet sent, so records written by earlier
+  # versions drain unchanged. The poller adds the flag after that part is
+  # delivered; deletion happens only after all parts succeed. Filename is
   # <epoch_ms>_0_<rand>.json: the epoch_ms prefix keeps drain order chronological
   # and _0 marks update_id 0 (not a Telegram update); the random suffix keeps
   # same-millisecond writes unique. Poller-written inbox records use the spec
