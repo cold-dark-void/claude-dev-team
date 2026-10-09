@@ -133,6 +133,7 @@ fi
 ROOT=$(git rev-parse --show-toplevel)
 HERE=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 SHIP_START_SH="$HERE/ship-start.sh"
+LEAD_SUMMARY_SH="$HERE/lead-summary.sh"
 
 # Resolve --since (full or abbrev SHA / ref)
 if ! SINCE=$(git -C "$ROOT" rev-parse --verify "${SINCE_ARG}^{commit}" 2>/dev/null); then
@@ -168,68 +169,6 @@ count_non_merges() {
 list_non_merges() {
   local base="$1" tip="$2"
   git -C "$ROOT" rev-list --no-merges "${base}..${tip}"
-}
-
-# Normalize CHANGELOG lead bullet text (SPEC-010 D2):
-# strip leading "- ", surrounding **, trailing " — …" detail
-normalize_lead() {
-  local line="$1"
-  # trim leading whitespace
-  line="${line#"${line%%[![:space:]]*}"}"
-  # strip leading "- " or "-"
-  if [[ "$line" == -* ]]; then
-    line="${line#-}"
-    line="${line# }"
-  fi
-  # strip surrounding **bold** (leading/trailing ** pairs, and inner **)
-  line="${line//\*\*/}"
-  # strip trailing em-dash detail (space + em dash + rest) or " -- " fallback
-  if [[ "$line" == *" — "* ]]; then
-    line="${line%% — *}"
-  elif [[ "$line" == *" -- "* ]]; then
-    line="${line%% -- *}"
-  fi
-  # trim trailing whitespace
-  line="${line%"${line##*[![:space:]]}"}"
-  printf '%s\n' "$line"
-}
-
-# Extract lead bullet from CHANGELOG body for version X.Y.Z
-# Prints lead text or empty if missing/empty section
-changelog_lead_for() {
-  local body="$1" ver="$2"
-  local heading_re section_found=0 line lead=""
-  # Match ### vX.Y.Z or ### X.Y.Z
-  while IFS= read -r line || [ -n "$line" ]; do
-    if [[ "$line" =~ ^###[[:space:]]+v?([0-9]+\.[0-9]+\.[0-9]+)[[:space:]]*$ ]]; then
-      if [ "$section_found" -eq 1 ]; then
-        break
-      fi
-      if [ "${BASH_REMATCH[1]}" = "$ver" ]; then
-        section_found=1
-      fi
-      continue
-    fi
-    if [ "$section_found" -eq 1 ]; then
-      # first non-empty content line that looks like a bullet
-      if [[ "$line" =~ ^[[:space:]]*-[[:space:]] ]]; then
-        lead=$(normalize_lead "$line")
-        break
-      fi
-      # blank lines OK before bullet; other headings already handled
-      if [[ "$line" =~ ^[[:space:]]*$ ]]; then
-        continue
-      fi
-      # non-bullet content after heading without bullet → empty lead
-      break
-    fi
-  done <<<"$body"
-  if [ "$section_found" -eq 0 ]; then
-    printf '\n'
-    return 1
-  fi
-  printf '%s\n' "$lead"
-  [ -n "$lead" ]
 }
 
 # Repair-class subject patterns (D3).
@@ -396,19 +335,14 @@ while [ "$i" -lt "$n_tags" ]; do
     if [ "$subj_ver" != "$ver" ]; then
       add_finding "D2: $tname subject version $subj_ver != tag $ver: ${subject}"
     fi
-    # CHANGELOG at fold tree
-    cl_body=""
-    if cl_body=$(git -C "$ROOT" show "${fold}:${CHANGELOG}" 2>/dev/null); then
-      lead=""
-      if lead=$(changelog_lead_for "$cl_body" "$ver"); then
-        if [ "$summary" != "$lead" ]; then
-          add_finding "D2: $tname subject summary != CHANGELOG lead: got '${summary}' want '${lead}'"
-        fi
-      else
-        add_finding "D2: $tname missing or empty CHANGELOG section for v${ver}"
+    # CHANGELOG lead at fold tree (SPEC-010 D2 / R4 — lead-summary.sh SoT)
+    lead=""
+    if lead=$(cd "$ROOT" && bash "$LEAD_SUMMARY_SH" --from-commit "$fold" --changelog "$CHANGELOG" "$ver" 2>/dev/null); then
+      if [ "$summary" != "$lead" ]; then
+        add_finding "D2: $tname subject summary != CHANGELOG lead: got '${summary}' want '${lead}'"
       fi
     else
-      add_finding "D2: $tname no ${CHANGELOG} at fold ${fold:0:7}"
+      add_finding "D2: $tname missing or empty CHANGELOG section for v${ver}"
     fi
   fi
 

@@ -7,6 +7,7 @@ set -u
 
 HERE=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 CHECK="$HERE/check-ship-history.sh"
+LEAD="$HERE/lead-summary.sh"
 # shellcheck source=../../tests/lib/hermetic.sh
 . "$HERE/../../tests/lib/hermetic.sh"
 hermetic_init
@@ -18,11 +19,21 @@ RC=0
 pass() { PASS=$((PASS + 1)); echo "PASS: $*"; }
 fail() { FAIL=$((FAIL + 1)); echo "FAIL: $*"; }
 
-run_in_repo() { # run_in_repo <repo> -- <check-args...>
-  local d="$1"; shift
-  [ "$1" = "--" ] && shift
+run_tool() { # run_tool <script> <repo> [--] [args...]
+  local script="$1" d="$2"
+  [ $# -ge 2 ] || return 64
+  shift 2
+  [ "${1:-}" = "--" ] && shift
   RC=0
-  OUT=$(cd "$d" && bash "$CHECK" "$@" 2>&1) && RC=0 || RC=$?
+  OUT=$(cd "$d" && bash "$script" "$@" 2>&1) && RC=0 || RC=$?
+}
+
+run_in_repo() { # run_in_repo <repo> -- <check-args...>
+  run_tool "$CHECK" "$@"
+}
+
+run_lead() { # run_lead <repo> -- <args...>
+  run_tool "$LEAD" "$@"
 }
 
 run_check() { # run_check <expected_exit> [args...]  — usage-only OK outside repo
@@ -67,17 +78,6 @@ make_repo() {
   git -C "$d" config commit.gpgsign false
   git -C "$d" commit -q --allow-empty -m "init"
   printf '%s\n' "$d"
-}
-
-write_changelog_section() {
-  # write_changelog_section <repo> <ver> <lead> [detail]
-  local d="$1" ver="$2" lead="$3" detail="${4:-detail text}"
-  cat >"$d/CHANGELOG.md" <<EOF
-# Changelog
-
-### v${ver}
-- **${lead}** — ${detail}
-EOF
 }
 
 commit_all() {
@@ -486,6 +486,176 @@ expect_rc 1 "D4(a) remote-tracking tag retarget fires (positive)"
 expect_contains "D4:"
 expect_contains "refs/remotes/origin/tags/v0.8.3"
 rm -rf "$REPO"
+
+# ---------------------------------------------------------------------------
+# CDT-533 / SPEC-010 R4: lead-summary.sh SoT + CLI
+# ---------------------------------------------------------------------------
+if [ ! -f "$LEAD" ]; then
+  fail "lead-summary.sh missing"
+else
+  pass "lead-summary.sh exists"
+fi
+
+# SoT: checker has no local normalizer; invokes sibling helper (AC E)
+if grep -E '(^|[[:space:]])normalize_lead[[:space:]]*\(' "$CHECK" >/dev/null; then
+  fail "check-ship-history.sh still defines normalize_lead"
+else
+  pass "no local normalize_lead in check-ship-history.sh"
+fi
+if grep -E '(^|[[:space:]])changelog_lead_for[[:space:]]*\(' "$CHECK" >/dev/null; then
+  fail "check-ship-history.sh still defines changelog_lead_for"
+else
+  pass "no local changelog_lead_for in check-ship-history.sh"
+fi
+if grep -Fq 'lead-summary.sh' "$CHECK"; then
+  pass "check-ship-history.sh invokes lead-summary.sh"
+else
+  fail "check-ship-history.sh does not name lead-summary.sh"
+fi
+if grep -Fq -- '--from-commit' "$CHECK"; then
+  pass "check-ship-history.sh uses --from-commit"
+else
+  fail "check-ship-history.sh missing --from-commit"
+fi
+
+# VERSION prints D2-normalized lead (AC A)
+REPO=$(make_repo)
+write_changelog_section "$REPO" "1.2.3" "bold lead text"
+run_lead "$REPO" -- 1.2.3
+expect_rc 0 "lead-summary VERSION"
+if [ "$OUT" = "bold lead text" ]; then
+  pass "VERSION prints normalized lead"
+else
+  fail "VERSION lead mismatch: [$OUT]"
+fi
+run_lead "$REPO" -- v1.2.3
+expect_rc 0 "lead-summary vVERSION"
+if [ "$OUT" = "bold lead text" ]; then
+  pass "vVERSION matches ### vX.Y.Z"
+else
+  fail "vVERSION lead mismatch: [$OUT]"
+fi
+
+# heading without v
+cat >"$REPO/CHANGELOG.md" <<'EOF'
+# Changelog
+
+### 1.2.4
+- plain lead — trailing detail
+EOF
+run_lead "$REPO" -- 1.2.4
+expect_rc 0 "heading without v"
+if [ "$OUT" = "plain lead" ]; then
+  pass "strips trailing em-dash detail"
+else
+  fail "em-dash strip failed: [$OUT]"
+fi
+
+# missing section → 1
+run_lead "$REPO" -- 9.9.9
+expect_rc 1 "missing CHANGELOG section"
+
+# empty section → 1
+cat >"$REPO/CHANGELOG.md" <<'EOF'
+# Changelog
+
+### v2.0.0
+
+### v1.0.0
+- **old** — x
+EOF
+run_lead "$REPO" -- 2.0.0
+expect_rc 1 "empty CHANGELOG section"
+
+# bad argv → 64
+run_lead "$REPO" --
+expect_rc 64 "lead-summary no VERSION"
+run_lead "$REPO" -- --nope 1.0.0
+expect_rc 64 "lead-summary unknown flag"
+run_lead "$REPO" -- not-a-ver
+expect_rc 64 "lead-summary bad VERSION"
+
+# --changelog PATH override
+printf '%s\n' "# Changelog
+
+### v3.0.0
+- **alt path lead** — d
+" >"$REPO/ALT.md"
+run_lead "$REPO" -- --changelog ALT.md 3.0.0
+expect_rc 0 "--changelog PATH"
+if [ "$OUT" = "alt path lead" ]; then
+  pass "--changelog reads override path"
+else
+  fail "--changelog lead mismatch: [$OUT]"
+fi
+
+# --cached reads index, not worktree
+write_changelog_section "$REPO" "4.0.0" "committed lead"
+git -C "$REPO" add CHANGELOG.md
+git -C "$REPO" commit -q -m "cl committed"
+write_changelog_section "$REPO" "4.0.0" "staged lead"
+git -C "$REPO" add CHANGELOG.md
+write_changelog_section "$REPO" "4.0.0" "worktree lead"
+run_lead "$REPO" -- --cached 4.0.0
+expect_rc 0 "--cached"
+if [ "$OUT" = "staged lead" ]; then
+  pass "--cached reads index CHANGELOG"
+else
+  fail "--cached got [$OUT] want [staged lead]"
+fi
+
+# --from-commit reads that commit's tree
+write_changelog_section "$REPO" "5.0.0" "at first"
+git -C "$REPO" add CHANGELOG.md
+git -C "$REPO" commit -q -m "first cl"
+FIRST=$(head_sha "$REPO")
+write_changelog_section "$REPO" "5.0.0" "at second"
+git -C "$REPO" add CHANGELOG.md
+git -C "$REPO" commit -q -m "second cl"
+run_lead "$REPO" -- --from-commit "$FIRST" 5.0.0
+expect_rc 0 "--from-commit"
+if [ "$OUT" = "at first" ]; then
+  pass "--from-commit reads that commit"
+else
+  fail "--from-commit got [$OUT] want [at first]"
+fi
+rm -rf "$REPO"
+
+# --check match → 0; mismatch → 1 + D2: + expected subject (AC B)
+REPO=$(make_repo)
+write_changelog_section "$REPO" "6.0.0" "exact lead"
+run_lead "$REPO" -- --check 6.0.0 "feat: v6.0.0 — exact lead"
+expect_rc 0 "--check match"
+run_lead "$REPO" -- --check 6.0.0 "feat: v6.0.0 — wrong summary"
+expect_rc 1 "--check mismatch"
+expect_contains "D2:"
+expect_contains "feat: v6.0.0 — exact lead"
+# unknown prefix → expected uses fix:
+run_lead "$REPO" -- --check 6.0.0 "chore: v6.0.0 — exact lead"
+expect_rc 1 "--check unknown prefix"
+expect_contains "fix: v6.0.0 — exact lead"
+# --check does not mutate index/refs
+BEFORE_HEAD=$(head_sha "$REPO")
+BEFORE_INDEX=$(git -C "$REPO" diff --cached --name-only | sort)
+write_changelog_section "$REPO" "6.0.0" "exact lead"
+git -C "$REPO" add CHANGELOG.md
+STAGED_INDEX=$(git -C "$REPO" diff --cached --name-only | sort)
+run_lead "$REPO" -- --check --cached 6.0.0 "feat: v6.0.0 — wrong"
+AFTER_HEAD=$(head_sha "$REPO")
+AFTER_INDEX=$(git -C "$REPO" diff --cached --name-only | sort)
+if [ "$BEFORE_HEAD" = "$AFTER_HEAD" ] && [ "$STAGED_INDEX" = "$AFTER_INDEX" ]; then
+  pass "--check does not mutate index or refs"
+else
+  fail "--check mutated refs/index: head $BEFORE_HEAD→$AFTER_HEAD index [$STAGED_INDEX]→[$AFTER_INDEX]"
+fi
+rm -rf "$REPO"
+
+# --cached / --from-commit need a git repo → 64
+NOT_GIT=$(mktemp -d "${TMPDIR:-/tmp}/ship-hist-nogit-XXXXXX")
+RC=0
+OUT=$(cd "$NOT_GIT" && bash "$LEAD" --cached 1.0.0 2>&1) && RC=0 || RC=$?
+expect_rc 64 "--cached outside git repo"
+rm -rf "$NOT_GIT"
 
 # ---------------------------------------------------------------------------
 # plan DD6 linear prev lookup: O(T) git calls, not O(T^2) (bite in plan verify)

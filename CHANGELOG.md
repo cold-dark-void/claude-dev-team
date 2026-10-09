@@ -6,6 +6,9 @@ Pre-written headings (release-train M5c, orchestrate version-sync tasks) are kep
 via skip-if-present when `/release` is given an explicit version — do not invent a
 second heading for the same version.
 
+### v1.21.15
+- **Release fold subject from CHANGELOG lead + fail-closed pre-push D2 (CDT-533)** — new `skills/release/lead-summary.sh` (single D2 normalizer with `--cached`/`--from-commit`/`--check`); `/release` Step 5 builds the fold subject from the staged CHANGELOG lead and `--check`s it before `git commit`; `push-release.sh` D2-compares the tag commit before any push (`--print` skips); `check-ship-history.sh` D2 delegates to the helper.
+
 ### v1.21.14
 - **Doctor intercom/away surface checks (CDT-532)** — new check group `intercom` in `/dev-team:doctor`: away/afk state with routing-mismatch WARN on a FRESH `.wt-lock`, `topics.json`/spool probes, stale-poller detector comparing the daemon `/plugin` bind-mount Source against `$PLUGIN_ROOT` (inspect-only), and a `/setup slack` stub posture check. Read-only; `--fix` allowlist unchanged.
 

@@ -443,13 +443,23 @@ bash "$CHECK_STAGED" \
   admits additional staged paths beyond this ticket's product set. Do not use it
   to paper over accidental staging.
 
-Commit message — **type-prefixed subject with the version inline, plus a
-Co-Authored-By trailer. No `chore: release`. No prose body:**
-```
-<feat|fix>: vX.Y.Z — <one-line summary derived from the changelog lead bullet>
+Commit the fold with a type-prefixed subject. Derive the summary from the
+staged CHANGELOG lead — do **not** hand-write it. No `chore: release`. No
+prose body.
 
-Co-Authored-By: <Agent-or-Model> <noreply@…>
+```bash template
+# Fresh shell — carry PDH from the stanza fence above (SPEC-021 C1)
+PDH="${PDH:-$( { [ -n "${CLAUDE_PLUGIN_ROOT:-}" ] && [ -f "$CLAUDE_PLUGIN_ROOT/skills/plugin-dir.sh" ] && printf '%s\n' "$CLAUDE_PLUGIN_ROOT"; } || { [ -f skills/plugin-dir.sh ] && [ -f agents/pm.md ] && grep -qF '"name": "dev-team"' .claude-plugin/plugin.json 2>/dev/null && pwd; } || { _pr='${CLAUDE_PLUGIN_ROOT}'; [ "${_pr#\$}" = "$_pr" ] && [ -f "$_pr/skills/plugin-dir.sh" ] && printf '%s\n' "$_pr"; } || { for _mp in "$HOME"/.claude/plugins/marketplaces/*/; do [ -f "${_mp}skills/plugin-dir.sh" ] && [ -f "${_mp}agents/pm.md" ] && printf '%s\n' "${_mp%/}" && break; done; } || find ~/.claude/plugins/cache \( -path '*/dev-team/*/skills/plugin-dir.sh' -o -path '*/dev-team-edge/*/skills/plugin-dir.sh' \) 2>/dev/null | awk -F/ '{ver=""; for(i=1;i<=NF;i++) if(($i=="dev-team"||$i=="dev-team-edge")&&i<NF){ver=$(i+1);break}; if(ver=="") next; m=ver; gsub(/-pre\./,"~pre.",m); p=($0 ~ /\/cache\/cold-dark-void\/dev-team\//)?2:(($0 ~ /\/cache\/cold-dark-void\/dev-team-edge\//)?1:0); print m "\t" p "\t" $0}' | sort -t $'\t' -k1,1V -k2,2n -k3,3 | tail -1 | cut -f3 | xargs -r dirname | xargs -r dirname )}"
+LEAD_SUMMARY=$(bash "$PDH/skills/plugin-dir.sh" file skills/release/lead-summary.sh)
+LEAD=$(bash "$LEAD_SUMMARY" --cached X.Y.Z) || { echo "release: CHANGELOG lead missing for vX.Y.Z" >&2; exit 1; }
+SUBJECT="<feat|fix>: vX.Y.Z — $LEAD"
+bash "$LEAD_SUMMARY" --check --cached X.Y.Z "$SUBJECT" || exit 1
+git commit -m "$SUBJECT" \
+  -m "Co-Authored-By: <Agent-or-Model> <noreply@…>"
 ```
+
+- Non-zero `--check` → **Do NOT commit, tag, or push.** Print the helper
+  output as-is (includes `D2:` and the expected subject).
 - `feat:` for feature releases, `fix:` for fixes/hardening — match the bump from Step 1.
 - Em-dash (`—`) between version and summary, not a hyphen.
 - **Honest identity** — name the agent/model actually performing the release. Do **not** hardcode Claude/Anthropic when the agent is something else (e.g. Grok, Codex, a human). Examples:

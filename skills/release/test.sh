@@ -616,6 +616,44 @@ else
   fail "S11: gen-supported-versions.sh missing"
 fi
 
+# ---------------------------------------------------------------------------
+# S12 (CDT-533 / SPEC-010 H6.2): Step 5 names lead-summary.sh and --check
+# before git commit; no hand-written fold summary in the fence.
+# ---------------------------------------------------------------------------
+STEP5_BODY=$(section_body "5")
+if [ -z "$STEP5_BODY" ]; then
+  fail "S12: section 'Step 5' not found in SKILL.md"
+else
+  if printf '%s\n' "$STEP5_BODY" | grep -Fq 'lead-summary.sh'; then
+    pass "S12: Step 5 names lead-summary.sh"
+  else
+    fail "S12: Step 5 missing lead-summary.sh"
+  fi
+  LS_LINE=$(printf '%s\n' "$STEP5_BODY" | grep -n 'lead-summary.sh' | head -1 | cut -d: -f1)
+  CHECK_LINE=$(printf '%s\n' "$STEP5_BODY" | grep -n -- '--check' | head -1 | cut -d: -f1)
+  COMMIT_LINE=$(printf '%s\n' "$STEP5_BODY" | grep -n 'git commit -m' | head -1 | cut -d: -f1)
+  if [ -n "$CHECK_LINE" ]; then
+    pass "S12: Step 5 names --check"
+  else
+    fail "S12: Step 5 missing --check"
+  fi
+  if [ -n "$COMMIT_LINE" ]; then
+    pass "S12: Step 5 names git commit"
+  else
+    fail "S12: Step 5 missing git commit command"
+  fi
+  if [ -n "$LS_LINE" ] && [ -n "$CHECK_LINE" ] && [ -n "$COMMIT_LINE" ] \
+    && [ "$LS_LINE" -lt "$COMMIT_LINE" ] && [ "$CHECK_LINE" -lt "$COMMIT_LINE" ]; then
+    pass "S12: lead-summary.sh and --check appear before git commit"
+  else
+    fail "S12: order lead-summary=$LS_LINE --check=$CHECK_LINE git-commit=$COMMIT_LINE"
+  fi
+  if printf '%s\n' "$STEP5_BODY" | grep -Fq 'one-line summary derived from the changelog lead'; then
+    fail "S12: hand-written summary prose still in Step 5 fence"
+  else
+    pass "S12: no hand-written changelog-lead summary in Step 5"
+  fi
+fi
 
 # ---------------------------------------------------------------------------
 echo

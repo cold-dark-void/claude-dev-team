@@ -57,7 +57,8 @@ make_repo() {
   git -C "$d" config user.email "test@example.com"
   git -C "$d" config user.name "Test"
   printf 'x\n' >"$d/f.txt"
-  git -C "$d" add f.txt
+  write_changelog_section "$d" "0.0.1" "baseline" "fixture"
+  git -C "$d" add f.txt CHANGELOG.md
   git -C "$d" commit -q -m "fix: v0.0.1 — baseline"
   printf '%s\n' "$d"
 }
@@ -208,7 +209,8 @@ setup_push_repo() {
   git -C "$d" config user.email "test@example.com"
   git -C "$d" config user.name "Test"
   printf 'x\n' >"$d/f.txt"
-  git -C "$d" add f.txt
+  write_changelog_section "$d" "0.1.0" "baseline" "fixture"
+  git -C "$d" add f.txt CHANGELOG.md
   git -C "$d" commit -q -m "fix: v0.1.0 — baseline"
   git -C "$d" tag v0.1.0
   rd=$(mktemp -d "${TMPDIR:-/tmp}/ship-steps-remote-XXXXXX")
@@ -317,10 +319,13 @@ git -C "$FT_REPO" init -q -b master
 git -C "$FT_REPO" config user.email "test@example.com"
 git -C "$FT_REPO" config user.name "Test"
 printf 'x\n' >"$FT_REPO/f.txt"
-git -C "$FT_REPO" add f.txt
+write_changelog_section "$FT_REPO" "0.0.8" "base" "fixture"
+git -C "$FT_REPO" add f.txt CHANGELOG.md
 git -C "$FT_REPO" commit -q -m "fix: v0.0.8 — base"
 git -C "$FT_REPO" tag -a v0.0.9-stale -m "stale annotated at HEAD~1"
 printf 'y\n' >>"$FT_REPO/f.txt"
+write_changelog_section "$FT_REPO" "0.1.0" "tip" "fixture"
+git -C "$FT_REPO" add CHANGELOG.md
 git -C "$FT_REPO" commit -qam "fix: v0.1.0 — tip"
 git -C "$FT_REPO" tag v0.1.0
 FT_REMOTE=$(mktemp -d "${TMPDIR:-/tmp}/ship-steps-followtags-remote-XXXXXX")
@@ -353,6 +358,9 @@ printf 'z\n' >>"$CLONE/f.txt"
 git -C "$CLONE" commit -qam "fix: v0.1.1 — from other clone"
 git -C "$CLONE" push -q origin master
 
+write_changelog_section "$REPO" "0.1.2" "nff fold" "fixture"
+git -C "$REPO" add CHANGELOG.md
+git -C "$REPO" commit -q -m "fix: v0.1.2 — nff fold"
 git -C "$REPO" tag v0.1.2
 RC=0
 OUT=$(cd "$REPO" && bash "$PUSH_RELEASE" --tag v0.1.2 --remote origin 2>&1) && RC=0 || RC=$?
@@ -366,6 +374,36 @@ else
 fi
 
 rm -rf "$REPO" "$REMOTE" "$CLONE"
+
+# D2 mismatch: exit 1, remote unchanged, output has D2: + expected subject
+MM=$(mktemp -d "${TMPDIR:-/tmp}/ship-steps-d2-XXXXXX")
+git -C "$MM" init -q -b master
+git -C "$MM" config user.email "test@example.com"
+git -C "$MM" config user.name "Test"
+printf 'x\n' >"$MM/f.txt"
+write_changelog_section "$MM" "0.1.0" "correct lead" "fixture"
+git -C "$MM" add f.txt CHANGELOG.md
+git -C "$MM" commit -q -m "feat: v0.1.0 — wrong summary"
+git -C "$MM" tag v0.1.0
+MM_REMOTE=$(mktemp -d "${TMPDIR:-/tmp}/ship-steps-d2-remote-XXXXXX")
+git init -q --bare "$MM_REMOTE"
+git -C "$MM" remote add origin "$MM_REMOTE"
+REMOTE_BEFORE=$(git -C "$MM_REMOTE" for-each-ref)
+RC=0
+OUT=$(cd "$MM" && bash "$PUSH_RELEASE" --tag v0.1.0 --remote origin 2>&1) && RC=0 || RC=$?
+expect_rc 1 "push-release D2 mismatch"
+expect_contains "D2:"
+expect_contains "feat: v0.1.0 — correct lead"
+REMOTE_AFTER=$(git -C "$MM_REMOTE" for-each-ref)
+[ "$REMOTE_BEFORE" = "$REMOTE_AFTER" ] && pass "D2 mismatch leaves remote unchanged" || fail "D2 mismatch changed remote"
+# --print skips D2 and still pushes nothing
+RC=0
+OUT=$(cd "$MM" && bash "$PUSH_RELEASE" --tag v0.1.0 --remote origin --print 2>&1) && RC=0 || RC=$?
+expect_rc 0 "push-release --print skips D2"
+expect_contains "--atomic"
+REMOTE_AFTER=$(git -C "$MM_REMOTE" for-each-ref)
+[ "$REMOTE_BEFORE" = "$REMOTE_AFTER" ] && pass "--print on D2-mismatch still leaves remote unchanged" || fail "--print changed remote"
+rm -rf "$MM" "$MM_REMOTE"
 
 # =========================== static (AC A) ====================================
 

@@ -25,8 +25,12 @@ the remote.
 --print        print the push command (shell-quoted) instead of running it;
                pushes nothing.
 
-Exit 0 ok; 1 push failed (remote unchanged); 64 usage / not a repo /
-detached HEAD / tag missing / tag not at HEAD.
+After the tag-at-HEAD check and before git push, D2-compares the tag
+commit subject to the CHANGELOG lead at that commit (lead-summary.sh
+--check --from-commit). --print skips D2 and still pushes nothing.
+
+Exit 0 ok; 1 push failed or D2 mismatch (remote unchanged); 64 usage /
+not a repo / detached HEAD / tag missing / tag not at HEAD.
 EOF
 }
 
@@ -100,6 +104,15 @@ if [ "$PRINT" = 1 ]; then
   printf '%q ' "${CMD[@]}"
   printf '\n'
   exit 0
+fi
+
+HERE=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
+LEAD_SUMMARY_SH="$HERE/lead-summary.sh"
+VER="${TAG#v}"
+VER="${VER%%[-+]*}"
+SUBJECT=$(git log -1 --format=%s "$TAG_SHA")
+if ! bash "$LEAD_SUMMARY_SH" --check --from-commit "$TAG_SHA" "$VER" "$SUBJECT"; then
+  exit 1
 fi
 
 RC=0

@@ -4,7 +4,7 @@
 **Category**: core
 **Created**: 2026-03-22
 
-**Covers**: `skills/review-and-commit/SKILL.md`, `skills/release/SKILL.md`, `skills/release/check-staged-paths.sh`, `skills/release/check-ship-history.sh`, `skills/release/check-bump-class.sh`, `skills/release/install-git-hooks.sh`, `skills/release/step0.sh`, `skills/release/ship-start.sh`, `skills/release/push-release.sh`, `skills/release/test.sh`, `skills/release/test-bump-class.sh`, `skills/release/test-ship-history.sh`, `skills/release/test-step0.sh`, `skills/release/test-ship-steps.sh`, `githooks/pre-commit`, `skills/docs-drift/SKILL.md`, `skills/docs-drift/check.py`, `skills/docs-drift/check-docs-drift.sh`, `skills/docs-drift/test.sh`
+**Covers**: `skills/review-and-commit/SKILL.md`, `skills/release/SKILL.md`, `skills/release/check-staged-paths.sh`, `skills/release/check-ship-history.sh`, `skills/release/lead-summary.sh`, `skills/release/check-bump-class.sh`, `skills/release/install-git-hooks.sh`, `skills/release/step0.sh`, `skills/release/ship-start.sh`, `skills/release/push-release.sh`, `skills/release/test.sh`, `skills/release/test-bump-class.sh`, `skills/release/test-ship-history.sh`, `skills/release/test-step0.sh`, `skills/release/test-ship-steps.sh`, `githooks/pre-commit`, `skills/docs-drift/SKILL.md`, `skills/docs-drift/check.py`, `skills/docs-drift/check-docs-drift.sh`, `skills/docs-drift/test.sh`
 
 ## Overview
 
@@ -91,7 +91,7 @@ Fail-closed **one-commit-per-tag** policy for the ship window. **Single SoT for 
 
 **Dirty classes (D1–D4).** History is **dirty** iff any of:
 - **D1 — multi-commit-per-tag.** For any release tag `vX.Y.Z` (or `X.Y.Z`) whose target is in W: more than one non-merge commit lies in the half-open range `(prev_release_tag, this_tag]` where `prev_release_tag` is the nearest older `v*` tag ancestor (or `ship-start` if none). Equivalent: commits-per-tag ≠ 1 for any tag in W.
-- **D2 — subject / CHANGELOG mismatch.** For each tag `vX.Y.Z` in W: the sole fold commit's subject must match `^(feat|fix): v?X\.Y\.Z — ` and the summary after the em-dash MUST equal the **lead bullet text** of the matching `### vX.Y.Z` / `### X.Y.Z` section in `CHANGELOG.md` at that commit (strip leading `- ` / `**` / trailing ` — …` detail; compare bold lead if present). Missing CHANGELOG section or empty body → dirty.
+- **D2 — subject / CHANGELOG mismatch.** For each tag `vX.Y.Z` in W: the sole fold commit's subject must match `^(feat|fix): v?X\.Y\.Z — ` and the summary after the em-dash MUST equal the **lead bullet text** of the matching `### vX.Y.Z` / `### X.Y.Z` section in `CHANGELOG.md` at that commit (strip leading `- ` / `**` / trailing ` — …` detail; compare bold lead if present). Missing CHANGELOG section or empty body → dirty. Lead extraction MUST go through `skills/release/lead-summary.sh` (CDT-533, R4). `check-ship-history.sh` MUST invoke that CLI and MUST NOT keep a second copy of the lead normalizer.
 - **D3 — repair-class commits in W.** Any non-merge commit in W whose subject matches repair patterns: `^fixup!`, `^squash!`, `^WIP\b`, `^wip\b`, `^temp\b`, `^TMP\b`, `^chore:\s*repair\b`, `^chore:\s*retag\b`, or a second `feat:|fix:` release-shaped subject for a version already tagged in W (interactive double-commit hazard: squash delivery commit + later `/release` fold for the same version).
 - **D4 — tag retarget.** The checker reads release tags by full refname under `refs/tags/`. A branch or a remote-tracking branch with a release-tag name has no effect. Dirty iff any of: (a) **remote half** — a release tag in W has a local remote-tracking tag ref `refs/remotes/origin/tags/<name>` (no network) that peels to a different commit than the local tag; skipped when that ref is absent (not dirty solely for offline). This half applies only to a clone whose fetch configuration mirrors tags into `refs/remotes/origin/tags/`; git's default tag-fetch writes directly to `refs/tags/`, so most clones never populate that namespace and the half is a no-op there; (b) **snapshot half** — with `--tag-snapshot FILE` (H2), a release tag listed in FILE still exists locally but peels to a different commit (a retarget during this ship); (c) **expected half** — `--expect-tag TAG=SHA` is given and `git rev-parse <tag>^{commit}` ≠ SHA. The checker MUST NOT read tag reflogs (tags have no reflog under the default `core.logAllRefUpdates`).
 
@@ -108,13 +108,14 @@ Fail-closed **one-commit-per-tag** policy for the ship window. **Single SoT for 
 - **H5 — Proactive gate (AC-1, AC-5).** Callers MUST run the checker **before** claiming ship success — specifically before Linear/backlog **Done**, before printing `Orchestration complete`, and before any success claim that a release is shipped. MUST NOT wait for a human to say "squash commits!". Prefer run **after** the fold commit is created and **before** `git tag` + `git push` when the commit is still local (linearize-before-tag); when tags/commits are already pushed, still run — dirty → halt path (H7/H8), never silent repair.
 - **H6 — Release wiring.** `/release` MUST:
   1. Record `ship-start=$(git rev-parse HEAD)` at skill entry (before any commit), or accept an ambient `SHIP_START_SHA` when the caller (end-state / train / orchestrate) already opened W.
-  2. Run `check-ship-history.sh` after the Step 5 fold commit. Run it before `git tag`. If the history is dirty, halt. Do not tag.
-  3. After Step 6 tag (local) and **before** treating the release as done: run `check-ship-history.sh --since <ship-start>` (include the new tag). Non-zero → **Do NOT** claim success; follow H7/H8. Prefer not pushing tags until clean; if push already happened, still halt Done claims.
+  2. Before `git commit` in Step 5: run `lead-summary.sh --cached VERSION` to get the lead, build the subject `<feat|fix>: vX.Y.Z — <lead>` (the operator picks only `feat:` / `fix:` and the version), then `lead-summary.sh --check --cached VERSION SUBJECT`. Non-zero → do not commit, tag, or push. Print the helper output as-is (includes the expected subject).
+  3. Run `check-ship-history.sh` after the Step 5 fold commit. Run it before `git tag`. If the history is dirty, halt. Do not tag.
+  4. After Step 6 tag (local) and **before** treating the release as done: run `check-ship-history.sh --since <ship-start>` (include the new tag). Non-zero → **Do NOT** claim success; follow H7/H8. Prefer not pushing tags until clean; if push already happened, still halt Done claims.
 - **H7 — Interactive rewrite path (AC-2).** When dirty and the session is **not** autopilot: print dirty evidence (H3); propose a rewrite plan (which commits to fold, which tags to move); **require explicit user confirm** before any `git rebase` / `git commit --amend` / tag delete+recreate / `git push --force-with-lease`. On decline or no answer → halt; leave refs unchanged. MUST NOT force-push without that confirm.
 - **H8 — Autopilot halt path (AC-3).** When dirty and autopilot is on: MUST NOT silent force-push, amend, or retag. MUST halt with the exact phrase `history dirty — rewrite needed` plus H3 evidence. MUST NOT set Linear/backlog Done, MUST NOT print Orchestration complete / ship success. Resume only after human confirms a rewrite (interactive H7) or history becomes clean.
 - **H9 — End-state / orchestrate cite-not-fork (AC-6).** `skills/autopilot/end-state.md` and `skills/orchestrate/SKILL.md` Step 11 (ship) / Step 12 (wrap-up complete banner) MUST invoke or require a clean `check-ship-history.sh` result for any master-land / `/release` success path, citing SPEC-010 H1–H12. MUST NOT restate D1–D4 logic in those files. Step 12 MUST NOT print `Orchestration complete` on dirty (AC-7).
 - **H10 — Linearize preference.** When dirty is detected **before** tag+push, callers SHOULD fold/linearize first (interactive confirm or human-driven), then re-run the checker to green, then tag+push. Post-push dirty piles → H7/H8 halt only (no silent force).
-- **H11 — Tests.** MUST extend `skills/release/test.sh` (or a dedicated `skills/release/test-ship-history.sh` invoked from it) with temp-repo fixtures: clean 1-tag/1-commit → 0; D1 multi-commit under one tag → 1 + `history dirty — rewrite needed`; D2 subject≠CHANGELOG lead → 1; D3 fixup/WIP/double release-shaped → 1; D4 mismatched `--expect-tag` → 1; missing `--since` → 64; train-shaped two tags each with one commit → 0. Never mutate the live repo as the test subject.
+- **H11 — Tests.** MUST extend `skills/release/test.sh` (or a dedicated `skills/release/test-ship-history.sh` invoked from it) with temp-repo fixtures: clean 1-tag/1-commit → 0; D1 multi-commit under one tag → 1 + `history dirty — rewrite needed`; D2 subject≠CHANGELOG lead → 1; D3 fixup/WIP/double release-shaped → 1; D4 mismatched `--expect-tag` → 1; missing `--since` → 64; train-shaped two tags each with one commit → 0. Never mutate the live repo as the test subject. CDT-533: `lead-summary.sh` VERSION / `--check` / `--cached` / `--from-commit` fixtures live in `test-ship-history.sh`; Step 5 SKILL.md wiring greps live in `test.sh`; `push-release.sh` pre-push D2 fixtures live in `test-ship-steps.sh`.
 - **H12 — MUST NOT (scope).** Rewrite outside W; mega-squash concurrent tickets into one fold when they have distinct tags; reimplement CDT-189 staged-path allowlist; reimplement CDT-187 orchestrate pre-check; silent force-push under autopilot; claim Done/complete on partial or dirty history; dual-write a second dirty-predicate home outside this subsection.
 - Land-no-release (`--autopilot=master`, SPEC-033 M2) does not create a release tag. H1–H12 apply to a `/release` ship window. An untagged land-no-release commit is not a dirty finding. AGENTS.md scopes "master moves only at seal / `/release`" to epic children.
 
@@ -160,10 +161,33 @@ beyond its own documented job.
   a git repository; detached `HEAD`; `--tag` does not match
   `^v[0-9]+\.[0-9]+\.[0-9]+([-+][0-9A-Za-z.-]+)?$`; the tag does not
   resolve under `refs/tags/`; the tag's commit is not `HEAD` (the tag
-  MUST be at `HEAD` before this script runs). On a push failure (exit
-  `1`) `--atomic` leaves the remote unchanged and the script prints the
-  exact command to run by hand on stderr. `--print` prints that same
-  shell-quoted command to stdout and pushes nothing (exit `0`).
+  MUST be at `HEAD` before this script runs). After the tag-at-HEAD
+  precondition and before `git push`, MUST run D2 for that tag:
+  `lead-summary.sh --check --from-commit <tag-sha> VERSION SUBJECT`
+  where SUBJECT is `git log -1 --format=%s` of the tag commit and
+  VERSION is the tag's X.Y.Z. Mismatch or empty lead → exit `1`, do not
+  push, remote unchanged, output contains `D2:` and the expected
+  subject. `--print` skips this D2 check and still pushes nothing.
+  On a push failure (exit `1`) `--atomic` leaves the remote unchanged
+  and the script prints the exact command to run by hand on stderr.
+  `--print` prints that same shell-quoted command to stdout and pushes
+  nothing (exit `0`).
+- **R4 — `lead-summary.sh` (D2 lead + pre-commit `--check`, CDT-533).**
+  Pure-subprocess bash (no LLM, no network). Invocable from any cwd
+  inside a git work tree for `--cached` / `--from-commit`.
+  `lead-summary.sh [--changelog PATH | --cached | --from-commit REV]
+  VERSION` prints the D2-normalized lead of the matching
+  `### vX.Y.Z` / `### X.Y.Z` section (strip leading `- ` / `**` /
+  trailing ` — …` detail). `VERSION` is `X.Y.Z` or `vX.Y.Z`. Default
+  source is `CHANGELOG.md` in cwd. Exit `0` with that one line; `1`
+  missing or empty section; `64` usage / not a git repo when a git
+  source flag needs one. `--check VERSION SUBJECT` (same source flags)
+  exits `0` iff SUBJECT matches `^(feat|fix): v?VERSION — ` and the
+  summary after the em-dash equals that lead; else exit `1` with `D2:`
+  and the exact expected subject `<feat|fix>: vVERSION — <lead>`
+  (prefix from SUBJECT when it is `feat` or `fix`, else `fix`). MUST
+  NOT mutate the index or refs. Sibling of `check-ship-history.sh`
+  (same `HERE` pattern as `ship-start.sh`).
 
 ### Docs drift gate
 
@@ -198,7 +222,9 @@ Goal: a deterministic, LLM-free docs-consistency gate for `/release` — a struc
 - Verify ship-history gate via `bash skills/release/test.sh` (or `test-ship-history.sh`): D1–D4 dirty → exit 1 + `history dirty — rewrite needed`; clean 1:1 and train multi-tag → exit 0
 - Verify bump-class gate via `bash skills/release/test-bump-class.sh`: new `commands/*.md` + patch → 1; + minor/major → 0
 - Verify the Step 0 epic release=end guard via `bash skills/release/test-step0.sh`: exit `0` ok/skipped; exit `64` usage / detached `HEAD` / guard failure; exit `69` `jq` missing with an epics directory present
-- Verify `ship-start.sh` and `push-release.sh` via `bash skills/release/test-ship-steps.sh`: the snapshot's three printed lines and its `--path` and `--clear` modes (`--list`'s table format is exercised indirectly, as check-ship-history.sh's sole tag source); `push-release.sh` pushes only when the tag is at `HEAD`, and `--print` prints the command without pushing
+- Verify `ship-start.sh` and `push-release.sh` via `bash skills/release/test-ship-steps.sh`: the snapshot's three printed lines and its `--path` and `--clear` modes (`--list`'s table format is exercised indirectly, as check-ship-history.sh's sole tag source); `push-release.sh` pushes only when the tag is at `HEAD`, `--print` prints the command without pushing, and a D2 subject/lead mismatch exits `1` with `D2:` and does not push
+- Verify `lead-summary.sh` via `bash skills/release/test-ship-history.sh`: VERSION prints the D2-normalized lead; `--check` pass/fail; `--cached` and `--from-commit` sources; `check-ship-history.sh` invokes the helper
+- Verify Step 5 fold-subject wiring via `bash skills/release/test.sh`: `SKILL.md` Step 5 names `lead-summary.sh` and `--check` before `git commit`
 - Verify bump-class `--range BASE..TIP` via `bash skills/release/test-bump-class.sh`: reports every violating non-merge commit in the range; `--commit HEAD` alone stays blind to an earlier violation in the same range
 - Verify ship-history `--tag-snapshot FILE` via `bash skills/release/test-ship-history.sh`: a release tag retargeted since ship start → `D4:`; a tag since deleted → no finding
 - Verify a tagless first release uses the full history, never an empty range (`bash skills/release/test-ship-steps.sh` ship-start tagless case: `LAST_TAG` prints empty)
@@ -215,6 +241,7 @@ Goal: a deterministic, LLM-free docs-consistency gate for `/release` — a struc
 2. **No ref mutation (H3/H12):** script never runs `git commit` / `tag` / `push` / `rebase` / `reset` / `tag -d`.
 3. **Wiring (H5–H9):** `/release` records ship-start and runs checker before success claim; orchestrate Step 11/12 + end-state cite H, no Done/complete on dirty; autopilot never force-pushes on dirty.
 4. **Train carve-out:** two sequential tags each with exactly one fold commit → exit `0`.
+5. **Fold subject from lead (CDT-533, R4):** `lead-summary.sh VERSION` prints the D2-normalized lead; `--check` mismatch → exit `1` + `D2:` + expected subject; Step 5 SKILL.md derives the subject from `--cached` and `--check`s before `git commit`; `push-release.sh` runs `--check --from-commit` before `git push` (`--print` skips D2).
 
 **Docs drift gate:**
 
@@ -240,6 +267,7 @@ Goal: a deterministic, LLM-free docs-consistency gate for `/release` — a struc
 - [ ] Step 5 wiring: `check-staged-paths.sh` after intentional `git add`, before `git commit` in `skills/release/SKILL.md`
 - [ ] Ship-history gate: `check-ship-history.sh` D1–D4 fixtures green; `/release` + end-state + orchestrate Step 11/12 cite H without forking predicate; autopilot dirty → exact halt phrase, no Done
 - [ ] All-suites gate: Step 4.13 present in `skills/release/SKILL.md`; `bash tools/run-all-tests.sh` exits 0 on the release checkout
+- [ ] Fold-commit subject (CDT-533): `lead-summary.sh` fixtures green; Step 5 names the helper and `--check` before `git commit`; `push-release.sh` D2 mismatch does not push
 
 ## Open Questions
 
@@ -247,10 +275,28 @@ Goal: a deterministic, LLM-free docs-consistency gate for `/release` — a struc
 - [ ] Is the 80 confidence threshold optimal, or should it be configurable per project?
 - [ ] Should release support pre-release versions (e.g., 0.16.0-beta.1)?
 
+## Acceptance criteria
+
+Format and rules: SPEC-033 M14(g) and M14(h). Each ticket that ships through M14 has one `### <ticket_id>` subsection below.
+
+### CDT-533
+
+- **A.** `skills/release/lead-summary.sh VERSION` prints the D2-normalized lead of `### vVERSION` or `### VERSION` in `CHANGELOG.md` (strip leading `- `, `**`, and trailing ` — …` detail) and exits 0 with that one line. Missing or empty section exits 1. Bad argv exits 64. `--cached` reads `git show :CHANGELOG.md`. `--from-commit REV` reads `git show REV:CHANGELOG.md`. `--changelog PATH` overrides the path.
+  Verify: bash skills/release/test-ship-history.sh
+- **B.** `lead-summary.sh --check VERSION SUBJECT` (same source flags as A) exits 0 iff SUBJECT matches `^(feat|fix): v?VERSION — ` and the summary after the em-dash equals the A lead. Mismatch or empty lead exits 1; output contains `D2:` and the exact expected subject `<feat|fix>: vVERSION — <lead>` (prefix from SUBJECT when it is `feat` or `fix`, else `fix`). The helper does not mutate the index or refs.
+  Verify: bash skills/release/test-ship-history.sh
+- **C.** `/release` Step 5, after the staged-path gate and before `git commit`, sets the fold subject to `<feat|fix>: vX.Y.Z — $(lead-summary.sh --cached X.Y.Z)` (the operator picks only `feat:` / `fix:` and the version), then runs `--check --cached` on that subject. Non-zero → do not commit, tag, or push. `SKILL.md` Step 5 names `lead-summary.sh` and `--check` before `git commit` and does not instruct a hand-written summary.
+  Verify: bash skills/release/test.sh
+- **D.** `push-release.sh` runs B (`--from-commit` of the tag SHA) after the tag-at-HEAD precondition and before `git push`. Mismatch exits 1, does not push, leaves the remote unchanged, and output contains `D2:` plus the expected subject. `--print` skips D2. A matching lead still pushes.
+  Verify: bash skills/release/test-ship-steps.sh
+- **E.** `check-ship-history.sh` D2 lead extraction invokes `lead-summary.sh` (sibling path, same `HERE` pattern as `ship-start.sh`). It has no `normalize_lead` or `changelog_lead_for` function of its own. Existing D2 mismatch fixtures still exit 1 with a `D2:` line.
+  Verify: bash skills/release/test-ship-history.sh
+
 ## Version History
 
 | Date | Change |
 |------|--------|
+| 2026-10-08 | CDT-533: fold-commit subject from CHANGELOG lead. New R4 `lead-summary.sh`; H6.2 pre-commit `--check --cached`; R3 pre-push D2 (`--print` skips); D2 lead extraction is that CLI (no second normalizer in `check-ship-history.sh`). `### CDT-533` ACs A–E. |
 | 2026-10-02 | CDT-371 / CDT-391: the release bump is the version pair. Steps 4.6 and 4.12 are named. CDT-54 Task 2 is landed. Review does not spawn 5 sub-agents. Covers includes `skills/docs-drift/`. |
 | 2026-10-01 | WP 3-05 (W2-43): `/review-and-commit` is `/council --diff --tier full` plus optional pre-steps and the commit gate. The user-facing headings live only in `skills/council/templates/legacy-review.md`. |
 | 2026-10-01 | WP 2-03 (CDT-273, W1-60): D9 scans `skills/**/*.md` (not `fixtures/`), `agents/*.md`, `AGENTS.md`, and spec `**Covers**` lines. New check-id `skill-name`. A `#` line inside a fence does not end a heading section. D1–D10 stay the check range. |

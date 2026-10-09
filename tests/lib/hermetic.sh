@@ -9,6 +9,11 @@
 #                     GIT_COMMITTER_EMAIL values, and installs
 #                     `trap hermetic_cleanup EXIT`.
 #   hermetic_cleanup  rm -rf "$HERMETIC_ROOT" (no-op if unset).
+#   write_changelog_section
+#                     write_changelog_section <repo> <ver> <lead> [detail]
+#                     Writes CHANGELOG.md with one ### v<ver> lead bullet.
+#                     Default detail is "detail text" (ship-history fixtures).
+#                     Pass "fixture" as detail to match ship-steps bytes.
 #
 # A suite that installs its own EXIT trap after hermetic_init MUST call
 # hermetic_cleanup from that trap.
@@ -30,4 +35,15 @@ hermetic_init() {
 hermetic_cleanup() {
   [ -n "${HERMETIC_ROOT:-}" ] && rm -rf "$HERMETIC_ROOT"
   return 0
+}
+
+write_changelog_section() {
+  # write_changelog_section <repo> <ver> <lead> [detail]
+  local d="$1" ver="$2" lead="$3" detail="${4:-detail text}"
+  cat >"$d/CHANGELOG.md" <<EOF || return 1
+# Changelog
+
+### v${ver}
+- **${lead}** — ${detail}
+EOF
 }
