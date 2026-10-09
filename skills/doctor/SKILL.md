@@ -120,14 +120,19 @@ non-bootstrap — gating is the caller's job.
 | `intercom.heartbeat` | intercom |
 | `intercom.lock` | intercom |
 | `intercom.daemon` | intercom |
+| `intercom.away` | intercom |
+| `intercom.topics` | intercom |
+| `intercom.spool` | intercom |
+| `intercom.poller_stale` | intercom |
+| `intercom.slack` | intercom |
 
 ## Severity
 
 | Severity | When |
 |----------|------|
 | **FAIL** | Triplet drift; unparseable plugin/settings JSON; `schema_version` mismatch; wired hook → missing script; missing canonical hook **event** when `settings.hooks` exists |
-| **WARN** | Optional dep absent; uninitialized memory; extension unloadable; embedding config incoherent; embed errors logged in `.claude/memory/.errors.log` (`memory.embed_errors`, CDT-262; never FAIL); un-anchored **managed** hook path / managed pipe / managed script that is not executable (hooks run via `bash`; user-owned hooks silent — CDT-77); stale wt-lock; held distilling_lock; sandbox/`defaultMode` coherence (`bypassPermissions`, `dontAsk`, or `auto` without sandbox); `sandbox.enabled=true` but bwrap runtime init fails (`settings.sandbox_runtime`, CDT-78); Claude Code version drift vs last matrix-probed (`matrix.cc_version`, CDT-59); opted-in cwd transcript `missing`/`lag` (`transcript.mirror_lag`, CDT-221; never FAIL); Model map unparseable / bad value / unknown key / `jq` missing / `qa` or `council-judge` override (`models.map`, CDT-228; never FAIL); intercom daemon down or heartbeat stale (`intercom.daemon` / `intercom.heartbeat`, CDT-509; never FAIL) |
-| **SKIP** | Probe tool for that check absent; dev-only check in consumer; `transcript.mirror_lag` when not opted-in, `python3` absent, or `transcript-sync.sh` missing; `intercom.daemon` when `config.json` or docker CLI is absent |
+| **WARN** | Optional dep absent; uninitialized memory; extension unloadable; embedding config incoherent; embed errors logged in `.claude/memory/.errors.log` (`memory.embed_errors`, CDT-262; never FAIL); un-anchored **managed** hook path / managed pipe / managed script that is not executable (hooks run via `bash`; user-owned hooks silent — CDT-77); stale wt-lock; held distilling_lock; sandbox/`defaultMode` coherence (`bypassPermissions`, `dontAsk`, or `auto` without sandbox); `sandbox.enabled=true` but bwrap runtime init fails (`settings.sandbox_runtime`, CDT-78); Claude Code version drift vs last matrix-probed (`matrix.cc_version`, CDT-59); opted-in cwd transcript `missing`/`lag` (`transcript.mirror_lag`, CDT-221; never FAIL); Model map unparseable / bad value / unknown key / `jq` missing / `qa` or `council-judge` override (`models.map`, CDT-228; never FAIL); intercom daemon down or heartbeat stale (`intercom.daemon` / `intercom.heartbeat`, CDT-509; never FAIL); away on with a FRESH `.wt-lock` / non-numeric `state/away` / bad `topics.json` / missing or unwritable `spool/` / stale `/plugin` poller / missing `/setup slack` stub (`intercom.away` / `intercom.topics` / `intercom.spool` / `intercom.poller_stale` / `intercom.slack`, CDT-532; never FAIL) |
+| **SKIP** | Probe tool for that check absent; dev-only check in consumer; `transcript.mirror_lag` when not opted-in, `python3` absent, or `transcript-sync.sh` missing; `intercom.daemon` when `config.json` or docker CLI is absent; `intercom.away` / `intercom.topics` / `intercom.spool` when `config.json` is absent; `intercom.topics` when `jq` is absent; `intercom.poller_stale` when docker CLI, config, or compose identity is absent |
 | **PASS** | Invariant holds |
 
 Uninitialized memory is **WARN not FAIL** — fix-it is `/setup team`.
@@ -140,7 +145,7 @@ Only these repairs (idempotent; announced; TTY confirms; non-TTY applies). `--on
 2. Remove **STALE** (per SPEC-016 TTL) `.wt-lock` files — never worktree dirs, never FRESH locks. Owning check: `worktree.locks`.
 3. Sweep `$MROOT/.claude/handoff/cache/*.tmp`. Owning check: `handoff.tmp` (full run, or `--only handoff.tmp`).
 
-MUST NOT touch `settings.json`, schema, manifests, CHANGELOG, Model map JSON, or create memory/hooks.
+MUST NOT touch `settings.json`, schema, manifests, CHANGELOG, Model map JSON, or create memory/hooks. MUST NOT create or remove `state/away`, rewrite `topics.json`, create spool dirs, restart the intercom daemon, or write slack state.
 
 ## Single-source expectations
 
@@ -152,6 +157,7 @@ MUST NOT touch `settings.json`, schema, manifests, CHANGELOG, Model map JSON, or
 | Plugin resolve | `skills/plugin-dir.sh` subprocess |
 | schema_version expected | `skills/memory-store/schema.sql` seed |
 | Transcript lag | `transcript-sync --check` stdout (SPEC-036 M11) |
+| Intercom layout + Away | SPEC-038 (`INTERCOM_STATE_ROOT`, `state/away`, `topics.json`, spool); FRESH `.wt-lock` via `worktree-lib.sh status` (SPEC-016) |
 
 ## Naming
 

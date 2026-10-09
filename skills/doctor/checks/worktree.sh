@@ -17,22 +17,13 @@ check_worktree_locks() {
     return 0
   fi
 
-  local status_out=""
-  set +e
-  status_out=$(cd "$MROOT" && bash "$WT_LIB" status 2>/dev/null)
-  set -e
-
-  local line slug state
-  if [ -n "$status_out" ]; then
-    while IFS= read -r line || [ -n "$line" ]; do
-      [ -n "$line" ] || continue
-      # slug | branch | FRESH|STALE|NONE | age | HEAD
-      slug=$(printf '%s' "$line" | awk -F' \\| ' '{print $1}')
-      state=$(printf '%s' "$line" | awk -F' \\| ' '{print $3}')
-      case "$state" in
-        STALE) stale_list="${stale_list:+$stale_list }$slug" ;;
-      esac
-    done <<< "$status_out"
+  local slug stale_slugs=""
+  if wt_status_has STALE; then
+    stale_slugs=$(wt_status_slugs STALE) || true
+    while IFS= read -r slug || [ -n "$slug" ]; do
+      [ -n "$slug" ] || continue
+      stale_list="${stale_list:+$stale_list }$slug"
+    done <<< "$stale_slugs"
   fi
 
   # Orphan: lock without registered git worktree; worktree dir without lock

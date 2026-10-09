@@ -2822,16 +2822,32 @@ for cmd in bash jq curl flock grep sed awk cat chmod mkdir date stat \
   p=$(command -v "$cmd" 2>/dev/null) || continue
   ln -sf "$p" "$t29_tools/$cmd"
 done
-t29_docker_mock() { # running|down
-  local mode="$1"
-  cat >"$t29_tools/docker" <<EOF
+t29_docker_mock() { # running|down [plugin-source]
+  local mode="$1" src="${2:-}" dest="${INTERCOM_MOCK_BIN:-$t29_tools}/docker"
+  cat >"$dest" <<EOF
 #!/usr/bin/env bash
 for a in "\$@"; do
   case "\$a" in
-    pull|run|build|push) echo "t29 docker-mock refused \$a" >&2; exit 64 ;;
+    pull|run|exec|build|push) echo "t29 docker-mock refused \$a" >&2; exit 64 ;;
   esac
 done
 mode='$mode'
+src='$src'
+for a in "\$@"; do
+  if [ "\$a" = "inspect" ]; then
+    if [ "\$mode" != "running" ]; then exit 1; fi
+    printf '%s\n' "\$src"
+    exit 0
+  fi
+done
+q=0
+for a in "\$@"; do
+  [ "\$a" = "-q" ] && q=1
+done
+if [ "\$q" -eq 1 ]; then
+  if [ "\$mode" = "running" ]; then printf 't30cid\n'; fi
+  exit 0
+fi
 want=0
 prev=""
 for a in "\$@"; do
@@ -2844,7 +2860,7 @@ if [ "\$mode" = "running" ] && [ "\$want" -eq 1 ]; then
 fi
 exit 0
 EOF
-  chmod +x "$t29_tools/docker"
+  chmod +x "$dest"
 }
 T29P="$TMP/t29-proj"
 make_bare_project "$T29P"
@@ -2947,6 +2963,388 @@ PATH=$T29_PATH_SAVE
 export PATH
 rm -f "$INTERCOM_STATE_ROOT/config.json" \
   "$INTERCOM_STATE_ROOT/state/heartbeat"
+
+# =============================================================================
+# T30. Intercom/away surface (SPEC-022 M2k / CDT-532) — WARN-never-FAIL;
+#      INTERCOM_STATE_ROOT (not $MROOT); inspect-only poller_stale; stub slack
+# =============================================================================
+t30_cfg() {
+  mkdir -p "$INTERCOM_STATE_ROOT/state"
+  printf '%s\n' '{"schema":1,"members":{"1":{"name":"t30"}}}' \
+    >"$INTERCOM_STATE_ROOT/config.json"
+}
+T30_PATH_SAVE=$PATH
+T30_HOME="$TMP/t30-home"
+T30_STATE="$TMP/t30-intercom"
+T30_SENTINEL='SENTINEL_BOT_TOKEN_CDT532_DO_NOT_LEAK_9f3a'
+mkdir -p "$T30_HOME/.config/telegram" "$T30_STATE/state"
+printf '%s\n' "$T30_SENTINEL" >"$T30_HOME/.config/telegram/bot_token"
+chmod 600 "$T30_HOME/.config/telegram/bot_token"
+export INTERCOM_STATE_ROOT="$T30_STATE"
+T30P="$TMP/t30-proj"
+make_bare_project "$T30P"
+seed_plugin_triplet "$T30P"
+cd "$T30P" || exit 1
+t30_run() {
+  PATH="$t29_tools" HOME="$T30_HOME" INTERCOM_STATE_ROOT="$INTERCOM_STATE_ROOT" \
+    bash "$DOCTOR" "$@"
+}
+
+# T30a — config.json absent → away/topics/spool SKIP, never FAIL
+rm -f "$INTERCOM_STATE_ROOT/config.json" "$t29_tools/docker"
+RC=0
+OUT=$(t30_run --json --only intercom.away 2>/dev/null) || RC=$?
+ST=$(t29_field "$OUT" .status)
+if [ "$ST" = "SKIP" ] && [ "$ST" != "FAIL" ] && [ "$RC" -eq 0 ]; then
+  pass "T30a intercom.away no config → SKIP never FAIL (CDT-532 A)"
+else
+  fail "T30a away status=$ST rc=$RC out=$OUT"
+fi
+RC=0
+OUT=$(t30_run --json --only intercom.topics 2>/dev/null) || RC=$?
+ST=$(t29_field "$OUT" .status)
+if [ "$ST" = "SKIP" ] && [ "$RC" -eq 0 ]; then
+  pass "T30a2 intercom.topics no config → SKIP (CDT-532 B)"
+else
+  fail "T30a2 topics status=$ST rc=$RC out=$OUT"
+fi
+RC=0
+OUT=$(t30_run --json --only intercom.spool 2>/dev/null) || RC=$?
+ST=$(t29_field "$OUT" .status)
+if [ "$ST" = "SKIP" ] && [ "$RC" -eq 0 ]; then
+  pass "T30a3 intercom.spool no config → SKIP (CDT-532 C)"
+else
+  fail "T30a3 spool status=$ST rc=$RC out=$OUT"
+fi
+RC=0
+OUT=$(t30_run --json --only intercom.poller_stale 2>/dev/null) || RC=$?
+ST=$(t29_field "$OUT" .status)
+if [ "$ST" = "SKIP" ] && [ "$RC" -eq 0 ]; then
+  pass "T30a4 intercom.poller_stale no config → SKIP (CDT-532 D)"
+else
+  fail "T30a4 poller_stale status=$ST rc=$RC out=$OUT"
+fi
+
+# T30b — config present, state/away absent → PASS away: off
+t30_cfg
+RC=0
+OUT=$(t30_run --json --only intercom.away 2>/dev/null) || RC=$?
+ST=$(t29_field "$OUT" .status)
+DE=$(t29_field "$OUT" .detail)
+if [ "$ST" = "PASS" ] && [ "$RC" -eq 0 ] \
+   && printf '%s' "$DE" | grep -q 'away: off'; then
+  pass "T30b away absent → PASS away: off (CDT-532 A)"
+else
+  fail "T30b status=$ST rc=$RC detail=$DE out=$OUT"
+fi
+
+# T30c — numeric epoch, no FRESH .wt-lock → PASS away: on with age
+printf '%s\n' "$(($(date +%s) - 12))" >"$INTERCOM_STATE_ROOT/state/away"
+RC=0
+OUT=$(t30_run --json --only intercom.away 2>/dev/null) || RC=$?
+ST=$(t29_field "$OUT" .status)
+DE=$(t29_field "$OUT" .detail)
+if [ "$ST" = "PASS" ] && [ "$RC" -eq 0 ] \
+   && printf '%s' "$DE" | grep -q 'away: on' \
+   && printf '%s' "$DE" | grep -qE '[0-9]+s'; then
+  pass "T30c numeric away, no FRESH lock → PASS away: on + age (CDT-532 A)"
+else
+  fail "T30c status=$ST rc=$RC detail=$DE out=$OUT"
+fi
+
+# T30c2 — STALE .wt-lock does not trip routing-mismatch
+mkdir -p "$T30P/.worktrees/stale-slug"
+printf '%s %s\n' "0" "1970-01-01T00:00:00Z" >"$T30P/.worktrees/stale-slug/.wt-lock"
+RC=0
+OUT=$(t30_run --json --only intercom.away 2>/dev/null) || RC=$?
+ST=$(t29_field "$OUT" .status)
+DE=$(t29_field "$OUT" .detail)
+if [ "$ST" = "PASS" ] \
+   && ! printf '%s' "$DE" | grep -qi 'routing-mismatch'; then
+  pass "T30c2 STALE lock + away on → PASS not routing-mismatch (CDT-532 A)"
+else
+  fail "T30c2 status=$ST detail=$DE out=$OUT"
+fi
+rm -rf "$T30P/.worktrees/stale-slug"
+
+# T30d — away on + FRESH .wt-lock → WARN routing-mismatch, never FAIL
+mkdir -p "$T30P/.worktrees/fresh-slug"
+printf '%s %s\n' "$(date +%s)" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+  >"$T30P/.worktrees/fresh-slug/.wt-lock"
+RC=0
+OUT=$(t30_run --json --only intercom.away 2>/dev/null) || RC=$?
+ST=$(t29_field "$OUT" .status)
+DE=$(t29_field "$OUT" .detail)
+if [ "$ST" = "WARN" ] && [ "$ST" != "FAIL" ] && [ "$RC" -eq 1 ] \
+   && printf '%s' "$DE" | grep -qi 'routing-mismatch'; then
+  pass "T30d FRESH .wt-lock + away on → WARN routing-mismatch (CDT-532 A)"
+else
+  fail "T30d status=$ST rc=$RC detail=$DE out=$OUT"
+fi
+
+# T30d2 — non-numeric state/away → WARN (not away-on)
+printf '%s\n' "not-an-epoch" >"$INTERCOM_STATE_ROOT/state/away"
+RC=0
+OUT=$(t30_run --json --only intercom.away 2>/dev/null) || RC=$?
+ST=$(t29_field "$OUT" .status)
+if [ "$ST" = "WARN" ] && [ "$ST" != "FAIL" ]; then
+  pass "T30d2 non-numeric away → WARN never FAIL (CDT-532 A)"
+else
+  fail "T30d2 status=$ST rc=$RC out=$OUT"
+fi
+rm -f "$INTERCOM_STATE_ROOT/state/away"
+rm -rf "$T30P/.worktrees/fresh-slug"
+
+# T30e — topics.json absent / unparseable / not object → WARN
+RC=0
+OUT=$(t30_run --json --only intercom.topics 2>/dev/null) || RC=$?
+ST=$(t29_field "$OUT" .status)
+if [ "$ST" = "WARN" ] && [ "$ST" != "FAIL" ]; then
+  pass "T30e topics.json absent → WARN never FAIL (CDT-532 B)"
+else
+  fail "T30e status=$ST rc=$RC out=$OUT"
+fi
+printf '%s\n' '{not json' >"$INTERCOM_STATE_ROOT/topics.json"
+RC=0
+OUT=$(t30_run --json --only intercom.topics 2>/dev/null) || RC=$?
+ST=$(t29_field "$OUT" .status)
+if [ "$ST" = "WARN" ]; then
+  pass "T30e2 topics.json unparseable → WARN (CDT-532 B)"
+else
+  fail "T30e2 status=$ST out=$OUT"
+fi
+printf '%s\n' '[]' >"$INTERCOM_STATE_ROOT/topics.json"
+RC=0
+OUT=$(t30_run --json --only intercom.topics 2>/dev/null) || RC=$?
+ST=$(t29_field "$OUT" .status)
+if [ "$ST" = "WARN" ]; then
+  pass "T30e3 topics.json array → WARN (CDT-532 B)"
+else
+  fail "T30e3 status=$ST out=$OUT"
+fi
+
+# T30f — parseable object → PASS
+printf '%s\n' '{"general":{"thread_id":1}}' >"$INTERCOM_STATE_ROOT/topics.json"
+RC=0
+OUT=$(t30_run --json --only intercom.topics 2>/dev/null) || RC=$?
+ST=$(t29_field "$OUT" .status)
+if [ "$ST" = "PASS" ] && [ "$RC" -eq 0 ]; then
+  pass "T30f topics.json object → PASS (CDT-532 B)"
+else
+  fail "T30f status=$ST rc=$RC out=$OUT"
+fi
+
+# T30f2 — jq absent → SKIP (config + topics.json present)
+if [ -L "$t29_tools/jq" ] || [ -f "$t29_tools/jq" ]; then
+  rm -f "$t29_tools/jq"
+  RC=0
+  OUT=$(t30_run --json --only intercom.topics 2>/dev/null) || RC=$?
+  ST=$(t29_field "$OUT" .status)
+  p=$(command -v jq 2>/dev/null) && ln -sf "$p" "$t29_tools/jq"
+  if [ "$ST" = "SKIP" ] && [ "$RC" -eq 0 ]; then
+    pass "T30f2 jq absent → intercom.topics SKIP (CDT-532 B)"
+  else
+    fail "T30f2 status=$ST rc=$RC out=$OUT"
+  fi
+else
+  skip "T30f2 jq was not in t29_tools"
+fi
+
+# T30g — spool/ missing → WARN; check MUST NOT mkdir
+RC=0
+OUT=$(t30_run --json --only intercom.spool 2>/dev/null) || RC=$?
+ST=$(t29_field "$OUT" .status)
+if [ "$ST" = "WARN" ] && [ "$ST" != "FAIL" ] \
+   && [ ! -d "$INTERCOM_STATE_ROOT/spool" ]; then
+  pass "T30g spool/ missing → WARN, no mkdir (CDT-532 C)"
+else
+  fail "T30g status=$ST rc=$RC spool=$(ls -ld "$INTERCOM_STATE_ROOT/spool" 2>&1)"
+fi
+
+# T30h — spool/ present and writable → PASS
+mkdir -p "$INTERCOM_STATE_ROOT/spool"
+RC=0
+OUT=$(t30_run --json --only intercom.spool 2>/dev/null) || RC=$?
+ST=$(t29_field "$OUT" .status)
+if [ "$ST" = "PASS" ] && [ "$RC" -eq 0 ]; then
+  pass "T30h spool/ writable → PASS (CDT-532 C)"
+else
+  fail "T30h status=$ST rc=$RC out=$OUT"
+fi
+
+# T30h2 — spool/ not writable → WARN, no chmod
+if chmod a-w "$INTERCOM_STATE_ROOT/spool" 2>/dev/null \
+   && [ ! -w "$INTERCOM_STATE_ROOT/spool" ]; then
+  RC=0
+  OUT=$(t30_run --json --only intercom.spool 2>/dev/null) || RC=$?
+  ST=$(t29_field "$OUT" .status)
+  chmod u+w "$INTERCOM_STATE_ROOT/spool" 2>/dev/null || true
+  if [ "$ST" = "WARN" ] && [ -d "$INTERCOM_STATE_ROOT/spool" ]; then
+    pass "T30h2 spool/ not writable → WARN, dir kept (CDT-532 C)"
+  else
+    fail "T30h2 status=$ST rc=$RC out=$OUT"
+  fi
+else
+  chmod u+w "$INTERCOM_STATE_ROOT/spool" 2>/dev/null || true
+  skip "T30h2 cannot drop write bit (root?)"
+fi
+
+# T30i — docker/identity absent → poller_stale SKIP
+rm -f "$t29_tools/docker"
+RC=0
+OUT=$(t30_run --json --only intercom.poller_stale 2>/dev/null) || RC=$?
+ST=$(t29_field "$OUT" .status)
+if [ "$ST" = "SKIP" ] && [ "$ST" != "FAIL" ] && [ "$RC" -eq 0 ]; then
+  pass "T30i docker absent → poller_stale SKIP never FAIL (CDT-532 D)"
+else
+  fail "T30i status=$ST rc=$RC out=$OUT"
+fi
+t29_docker_mock down
+RC=0
+OUT=$(t30_run --json --only intercom.poller_stale 2>/dev/null) || RC=$?
+ST=$(t29_field "$OUT" .status)
+if [ "$ST" = "SKIP" ]; then
+  pass "T30i2 identity not running → poller_stale SKIP (CDT-532 D)"
+else
+  fail "T30i2 status=$ST out=$OUT"
+fi
+
+# T30j — identity running, byte-different /plugin poller.sh → WARN
+T30_FAKE_PLUGIN="$TMP/t30-fake-plugin"
+mkdir -p "$T30_FAKE_PLUGIN/skills/intercom"
+printf '%s\n' '#!/bin/sh' 'echo stale-poller-t30' \
+  >"$T30_FAKE_PLUGIN/skills/intercom/poller.sh"
+t29_docker_mock running "$T30_FAKE_PLUGIN"
+RC=0
+OUT=$(t30_run --json --only intercom.poller_stale 2>/dev/null) || RC=$?
+ST=$(t29_field "$OUT" .status)
+DE=$(t29_field "$OUT" .detail)
+if [ "$ST" = "WARN" ] && [ "$ST" != "FAIL" ] \
+   && printf '%s' "$DE" | grep -qi 'stale poller'; then
+  pass "T30j byte-different poller.sh → WARN stale poller (CDT-532 D)"
+else
+  fail "T30j status=$ST rc=$RC detail=$DE out=$OUT"
+fi
+
+# T30k — identity running, byte-equal → PASS
+t29_docker_mock running "$PLUGIN_ROOT"
+RC=0
+OUT=$(t30_run --json --only intercom.poller_stale 2>/dev/null) || RC=$?
+ST=$(t29_field "$OUT" .status)
+if [ "$ST" = "PASS" ] && [ "$RC" -eq 0 ]; then
+  pass "T30k matching poller.sh → PASS (CDT-532 D)"
+else
+  fail "T30k status=$ST rc=$RC out=$OUT"
+fi
+
+# T30l — source never docker pull/run/exec
+if ! grep -E '(^|[[:space:]])docker[[:space:]]+(pull|run|exec)([[:space:]|&;<>]|$)' \
+     "$SCRIPT_DIR/checks/intercom.sh" >/dev/null; then
+  pass "T30l checks/intercom.sh never docker pull/run/exec (CDT-532 D)"
+else
+  fail "T30l checks/intercom.sh calls docker pull, run, or exec"
+fi
+
+# T30m — slack PASS with stub detail; no slack daemon probe in source
+RC=0
+OUT=$(t30_run --json --only intercom.slack 2>/dev/null) || RC=$?
+ST=$(t29_field "$OUT" .status)
+DE=$(t29_field "$OUT" .detail)
+if [ "$ST" = "PASS" ] && [ "$RC" -eq 0 ] \
+   && printf '%s' "$DE" | grep -qF 'Slack ships in v1.1/v2.'; then
+  pass "T30m intercom.slack PASS stub posture (CDT-532 E)"
+else
+  fail "T30m status=$ST rc=$RC detail=$DE out=$OUT"
+fi
+if ! grep -Eiq 'slack (daemon|compose)|slack\.state|slack-daemon' \
+     "$SCRIPT_DIR/checks/intercom.sh"; then
+  pass "T30m2 slack check does not probe slack daemons/state (CDT-532 E)"
+else
+  fail "T30m2 intercom.sh probes slack daemons or state"
+fi
+
+# T30n — commands/setup.md absent → WARN (scratch PLUGIN_ROOT)
+T30PLUG="$TMP/t30-plugin"
+mkdir -p "$T30PLUG/skills/doctor/checks"
+cp "$PLUGIN_ROOT/skills/doctor/doctor.sh" "$T30PLUG/skills/doctor/"
+cp "$PLUGIN_ROOT/skills/doctor/checks/"*.sh "$T30PLUG/skills/doctor/checks/"
+RC=0
+OUT=$(PATH="$t29_tools" HOME="$T30_HOME" INTERCOM_STATE_ROOT="$INTERCOM_STATE_ROOT" \
+  bash "$T30PLUG/skills/doctor/doctor.sh" --json --only intercom.slack 2>/dev/null) || RC=$?
+ST=$(t29_field "$OUT" .status)
+if [ "$ST" = "WARN" ] && [ "$ST" != "FAIL" ]; then
+  pass "T30n setup.md absent → intercom.slack WARN (CDT-532 E)"
+else
+  fail "T30n status=$ST rc=$RC out=$OUT"
+fi
+
+# T30o — sentinel bot_token body absent from human and --json (stdout+stderr)
+RC=0
+HOUT=$(t30_run --only intercom 2>&1) || RC=$?
+JOUT=$(t30_run --json --only intercom 2>&1) || true
+if ! printf '%s' "$HOUT$JOUT" | grep -qF "$T30_SENTINEL"; then
+  pass "T30o bot_token sentinel absent from human/--json output (CDT-532 F)"
+else
+  fail "T30o sentinel leaked in doctor output"
+fi
+
+# T30p — --fix MUST NOT write intercom/away/topics/spool/slack state
+t30_snap() {
+  find "$INTERCOM_STATE_ROOT" "$T30_HOME/.config/telegram" -type f 2>/dev/null \
+    | LC_ALL=C sort | while IFS= read -r f || [ -n "$f" ]; do
+      [ -n "$f" ] || continue
+      cksum "$f" 2>/dev/null || true
+    done
+}
+SNAP_BEFORE=$(t30_snap)
+t30_run --fix --only intercom >/dev/null 2>&1 || true
+SNAP_AFTER=$(t30_snap)
+if [ "$SNAP_BEFORE" = "$SNAP_AFTER" ] \
+   && [ -d "$INTERCOM_STATE_ROOT/spool" ] \
+   && [ ! -f "$INTERCOM_STATE_ROOT/state/away" ]; then
+  pass "T30p --fix byte-identical intercom state (CDT-532 F)"
+else
+  fail "T30p --fix mutated intercom state before=$SNAP_BEFORE after=$SNAP_AFTER"
+fi
+
+# T30q — --only intercom lists new ids; schema stays 1; group intercom
+RC=0
+OUT=$(t30_run --json --only intercom 2>/dev/null) || RC=$?
+if printf '%s' "$OUT" | python3 -c '
+import json,sys
+d=json.load(sys.stdin)
+assert d.get("doctor_schema")=="1"
+ids={c["id"] for c in d["checks"]}
+want={"intercom.away","intercom.topics","intercom.spool",
+      "intercom.poller_stale","intercom.slack",
+      "intercom.deps","intercom.token","intercom.config",
+      "intercom.offset","intercom.heartbeat","intercom.lock","intercom.daemon"}
+missing=want-ids
+assert not missing, missing
+for c in d["checks"]:
+    if c["id"] in want:
+        assert c["group"]=="intercom", c
+print("ok")
+' 2>/dev/null; then
+  pass "T30q --only intercom emits new ids, schema 1 (CDT-532 G)"
+else
+  fail "T30q schema/ids: $OUT"
+fi
+
+# T30r — --gate=team with only these WARNs → exit 1 not 2
+printf '%s\n' "not-an-epoch" >"$INTERCOM_STATE_ROOT/state/away"
+RC=0
+t30_run --json --gate=team --only intercom.away >/dev/null 2>&1 || RC=$?
+if [ "$RC" -eq 1 ]; then
+  pass "T30r --gate=team away WARN → exit 1 not 2 (CDT-532 F)"
+else
+  fail "T30r gate rc=$RC (want 1)"
+fi
+rm -f "$INTERCOM_STATE_ROOT/state/away"
+
+PATH=$T30_PATH_SAVE
+export PATH
+export INTERCOM_STATE_ROOT="$TMP/intercom-isolated"
 
 # =============================================================================
 # Summary

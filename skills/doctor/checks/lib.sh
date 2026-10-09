@@ -110,6 +110,30 @@ json_escape() {
 
 have_cmd() { command -v "$1" >/dev/null 2>&1; }
 
+# FRESH/STALE/NONE from worktree-lib `status` (SPEC-016 TTL; M9). One loop.
+wt_status_slugs() { # wt_status_slugs FRESH|STALE|NONE — print matching slugs; rc 0 if any
+  [ -f "$WT_LIB" ] || return 1
+  local status_out="" line slug state want="$1" any=0
+  set +e
+  status_out=$(cd "$MROOT" && bash "$WT_LIB" status 2>/dev/null)
+  set -e
+  [ -n "$status_out" ] || return 1
+  while IFS= read -r line || [ -n "$line" ]; do
+    [ -n "$line" ] || continue
+    slug=$(printf '%s' "$line" | awk -F' \\| ' '{print $1}')
+    state=$(printf '%s' "$line" | awk -F' \\| ' '{print $3}')
+    if [ "$state" = "$want" ]; then
+      printf '%s\n' "$slug"
+      any=1
+    fi
+  done <<< "$status_out"
+  [ "$any" -eq 1 ]
+}
+
+wt_status_has() { # wt_status_has FRESH|STALE|NONE → rc 0 if any row matches
+  wt_status_slugs "$1" >/dev/null
+}
+
 # Platform extension suffix for sqlite loadables
 ext_suffix() {
   if [ "$(uname -s 2>/dev/null || echo Linux)" = "Darwin" ]; then

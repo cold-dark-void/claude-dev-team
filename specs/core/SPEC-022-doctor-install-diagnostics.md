@@ -4,7 +4,7 @@
 **Category**: core
 **Created**: 2026-07-03
 
-**Covers**: `commands/doctor.md`, `skills/doctor/doctor.sh`, `skills/doctor/SKILL.md`, `skills/doctor/test.sh`
+**Covers**: `commands/doctor.md`, `skills/doctor/doctor.sh`, `skills/doctor/SKILL.md`, `skills/doctor/test.sh`, `skills/doctor/checks/intercom.sh`
 
 ---
 
@@ -34,7 +34,8 @@ The command is **read-only by default** — it diagnoses and recommends, it neve
 - **M2h — `transcript.mirror_lag` (CDT-221 / SPEC-036 M11).** Check id `transcript.mirror_lag`, group `transcript`. Opt-in iff any `hooks.*.command` contains `transcript-mirror.sh` in `$MROOT/.claude/settings.json` or `settings.local.json` (also the worktree root's `.claude/` copies when present). When opted-in, default `/doctor` and `--json` MUST invoke `skills/transcript-mirror/transcript-sync.sh --check --cwd <git-show-toplevel-or-pwd>` only (MUST NOT invoke transcript-sync without `--check`). SoT is `--check` stdout lines `sid=… status=…` — doctor MUST NOT invent a second lag heuristic and MUST NOT treat `--check` rc as FAIL (`--check` always exits 0). Mapping: any cwd-bucket target `status=missing` or `status=lag` → WARN; all cwd targets `ok` or `in-progress` (or zero targets) → PASS; not opted-in → SKIP; `python3` or the transcript-sync helper absent → SKIP. WARN never FAIL. `status=in-progress` is not lag (MUST NOT WARN). Hook write miss (no sid dir and no `.errors.log` line) is still `missing` → WARN when opted-in. Scope: WARN/PASS only for sessions locatable in this project's cwd buckets (Claude project dir + Grok cwd bucket). Global store sid dirs from other projects MUST NOT affect this check. Fix-it MUST be one copy-pasteable `bash skills/transcript-mirror/transcript-sync.sh` invocation and MUST NOT be `/setup team` or `/setup orchestration`. `--fix` MUST NOT add transcript-sync (allowlist unchanged). Doctor MUST NOT add the recorder or SessionEnd to `EXPECTED_HOOK_*` / `hooks.events`. `hooks.hygiene` stays silent for `transcript-mirror.sh` (user-owned). Honor `TRANSCRIPT_MIRROR_ROOT` / `HOME` / `GROK_SESSIONS_DIR` by passing them through to `--check`.
 - **M2i — `models.map` (CDT-228 / SPEC-037 M19).** Check id `models.map`, group `config`. Scan the three Model map paths (local `$MROOT/.claude/dev-team/models.local.json`, repo `$MROOT/.claude/dev-team/models.json`, global `~/.claude/dev-team/models.json`). No files at any path → SKIP. All present files valid JSON + `agents` object + values non-empty strings + keys in the mappable set → PASS. Unparseable JSON / `agents` not an object / bad value / unknown key / `jq` missing → WARN (never FAIL). A `qa` or `council-judge` override present → WARN (SPEC-037 M9 text). `--fix` MUST NOT rewrite any map file (not on the M7 allowlist). WARN MUST NOT block `/setup team` (doctor exit 1, not 2). Fix-it MUST be `/setup models` (or `Install jq` when `jq` is absent).
 - **M2j — `memory.embed_errors` (WP 1-13 / CDT-262 / SPEC-004).** Check id `memory.embed_errors`, group `memory`. Read `<MROOT>/.claude/memory/.errors.log` (M1: read-only) and count the lines whose second field is `embed` with `embed_error_count` from `skills/memory-store/embed-common.sh` (`embed-one.sh` and `migrate-md.sh` append `<UTC ts> embed <site> <detail>` for every failed embed). `memory.db` absent → SKIP; a log present and `awk` or `embed-common.sh` absent → SKIP. Log absent or zero embed lines → PASS. One or more embed lines → WARN, never FAIL (M3): detail `N embed error(s) in .claude/memory/.errors.log (last: <ts>) — …`, and one fix-it that names the log file. The check MUST NOT print a log line's `<detail>` (it is sqlite error text and can quote memory content) and MUST NOT write or delete the log. WARN MUST NOT block `/setup team` (doctor exit 1, not 2).
-- **M3 — Optional-dep absence is WARN, never FAIL.** Severity semantics: FAIL is reserved for broken hard invariants (version-pair drift, unparseable plugin/settings JSON, `schema_version` mismatch, a wired **managed** hook pointing at a nonexistent script). The absence of any OPTIONAL dependency or opt-in feature MUST surface as WARN accompanied by its impact statement — an otherwise-healthy project missing all optional deps MUST exit with zero FAILs. `transcript.mirror_lag` (M2h) is WARN-never-FAIL: opted-in lag/missing is not a hard invariant. `models.map` (M2i) is WARN-never-FAIL.
+- **M2k — Intercom/away surface (CDT-532).** Group `intercom` (existing CDT-509 ids stay). New check ids: `intercom.away`, `intercom.topics`, `intercom.spool`, `intercom.poller_stale`, `intercom.slack`. WARN-never-FAIL. Read-only. `--fix` MUST NOT repair any of them. State root is `INTERCOM_STATE_ROOT` (default `~/.claude/telegram-router`), never `$MROOT/.claude/telegram-router`. `config.json` absent → SKIP for away/topics/spool (same skip gate as `intercom.daemon`). Away reads `state/away`: absent → PASS `away: off`; numeric epoch → report `away: on` and age; non-numeric → WARN; on plus a FRESH SPEC-016 `.wt-lock` under `$MROOT/.worktrees/` → WARN routing-mismatch. `topics.json` must be a parseable JSON object (`jq` absent → SKIP). `spool/` existence and writability via `[ -w ]` only (MUST NOT mkdir/touch). `intercom.poller_stale`: compose identity running → compare `skills/intercom/poller.sh` at the container `/plugin` bind-mount Source vs `$PLUGIN_ROOT/skills/intercom/poller.sh`; byte-differ → WARN; identity/docker/config absent → SKIP; inspect-only (MUST NOT `docker pull`/`docker run`/`docker exec`). `intercom.slack`: `/setup slack` stub posture (PASS with stub detail; MUST NOT probe slack daemons or slack state). Human and `--json` output MUST NOT contain the contents of `~/.config/telegram/bot_token`.
+- **M3 — Optional-dep absence is WARN, never FAIL.** Severity semantics: FAIL is reserved for broken hard invariants (version-pair drift, unparseable plugin/settings JSON, `schema_version` mismatch, a wired **managed** hook pointing at a nonexistent script). The absence of any OPTIONAL dependency or opt-in feature MUST surface as WARN accompanied by its impact statement — an otherwise-healthy project missing all optional deps MUST exit with zero FAILs. `transcript.mirror_lag` (M2h) is WARN-never-FAIL: opted-in lag/missing is not a hard invariant. `models.map` (M2i) is WARN-never-FAIL. `intercom.away` / `intercom.topics` / `intercom.spool` / `intercom.poller_stale` / `intercom.slack` (M2k) are WARN-never-FAIL.
 - **M4 — Fix-it line per finding.** Every WARN and FAIL row MUST carry exactly one concrete, copy-pasteable remediation — a command (`/setup team`, `/setup orchestration`, `/setup models`, `/release`, `/memory distill --force`, `bash skills/worktree-lib.sh release <slug>`, `bash skills/transcript-mirror/transcript-sync.sh`) or a one-line instruction. Never a vague "check your configuration". `/setup orchestration` fix-its for hook hygiene MUST only appear when the finding is on a managed command (M2c″) — setup deliberately leaves user-owned hooks alone. `transcript.mirror_lag` fix-it MUST be a transcript-sync invocation and MUST NOT be `/setup team` or `/setup orchestration`.
 - **M5 — Dual output.** Default output is a human table (one row per check: STATUS / check id / one-line detail, fix-it lines beneath WARN/FAIL rows, and a `N pass / N warn / N fail / N skip` summary footer). `--json` MUST emit a single stable JSON document on stdout — top-level `{doctor_schema, plugin_version, resolved_tier, checks[], summary}` with per-check `{id, group, status, detail, fixit}` (`fixit` null on PASS) — evolving additively only. Stdout discipline: with `--json`, stdout carries only the JSON payload; all diagnostics go to stderr.
 - **M6 — Exit-code contract.** Exactly: `0` = all executed checks PASS; `1` = at least one WARN, no FAIL; `2` = at least one FAIL; `64` = usage error. SKIPped checks (probe tool absent) MUST NOT affect the exit code — the missing tool is already its own WARN. This tri-state lets callers choose their gate threshold (`doctor` for strict, `[ $? -le 1 ]` for FAIL-only).
@@ -53,9 +54,9 @@ The command is **read-only by default** — it diagnoses and recommends, it neve
   self-remediating FAIL; else 0. Bare (no `--gate`) exit contract remains M6 (any FAIL → 2).
   Cross-command: `--gate=orchestration` MUST NOT waive fixit "/setup team" and vice versa.
   Invalid/unknown `--gate` value MUST exit 64. `--skip-doctor` remains a caller concern (M6b).
-- **M7 — `--fix` is a narrow, enumerated allowlist.** `--fix` MUST apply only repairs from an allowlist enumerated in the command doc, where every entry is (i) idempotent, (ii) destructive only to derived or stale state, and (iii) announced (intent printed) before it runs, with confirmation required when stdin is a TTY. Initial allowlist: clear a stale `distilling_lock` (`distill-<epoch>-<pid>` older than 1800s, the same literal as `distill-lock.sh`; a fresh lock stays unless `--force`), remove a STALE-per-SPEC-016 `.wt-lock`, and sweep orphaned `*.tmp` files in `.claude/handoff/cache/`. `--only <id|group>` limits repairs to the owning check (`worktree.distill_lock`, `worktree.locks`, `handoff.tmp`). MUST NOT add transcript-sync (SPEC-036 M11 / M2h). MUST NOT rewrite the Model map (M2i / SPEC-037). Everything else stays a fix-it recommendation.
+- **M7 — `--fix` is a narrow, enumerated allowlist.** `--fix` MUST apply only repairs from an allowlist enumerated in the command doc, where every entry is (i) idempotent, (ii) destructive only to derived or stale state, and (iii) announced (intent printed) before it runs, with confirmation required when stdin is a TTY. Initial allowlist: clear a stale `distilling_lock` (`distill-<epoch>-<pid>` older than 1800s, the same literal as `distill-lock.sh`; a fresh lock stays unless `--force`), remove a STALE-per-SPEC-016 `.wt-lock`, and sweep orphaned `*.tmp` files in `.claude/handoff/cache/`. `--only <id|group>` limits repairs to the owning check (`worktree.distill_lock`, `worktree.locks`, `handoff.tmp`). MUST NOT add transcript-sync (SPEC-036 M11 / M2h). MUST NOT rewrite the Model map (M2i / SPEC-037). MUST NOT add away, topics, spool, poller-stale, or slack repairs (M2k / CDT-532). Everything else stays a fix-it recommendation.
 - **M8 — MUST NOT repair beyond the allowlist or bootstrap anything.** `/doctor` (plugin surface **`dev-team:doctor`**) MUST NOT: create or initialize memory directories, DBs, or hooks; run or trigger schema migrations; download extensions; bump versions or edit `CHANGELOG.md`/manifests; write `.claude/settings.json` (hook-path repairs are a fix-it pointing at re-running `/setup orchestration`, which owns the rewrite rules); or shadow the Claude Code harness built-in `/doctor` (harness install health — distinct command). Bootstrap is SPEC-005's job in both modes, including `--fix`. Being used as a gate by callers does **not** grant doctor bootstrap rights.
-- **M9 — Single source of truth for expectations.** Expected states MUST be derived from their owning artifact, never from a second hand-maintained list inside `/doctor`: the expected hook set comes from `skills/init-orchestration` **templates** (template SoT per SPEC-002/SPEC-005; dual-copy live-hook gate retired — any remaining template-internal checks MUST NOT require tracked package live files); worktree staleness from SPEC-016's TTL rule (honoring `WT_LOCK_TTL_SECONDS`); plugin resolution by invoking `skills/plugin-dir.sh` as a subprocess (never a private re-implementation of its 3-tier algorithm); version rules from SPEC-002; transcript lag from `transcript-sync --check` stdout (SPEC-036 M11 — never a private freshness/cursor heuristic). If a canonical set changes, `/doctor`'s expectation follows without editing `/doctor`.
+- **M9 — Single source of truth for expectations.** Expected states MUST be derived from their owning artifact, never from a second hand-maintained list inside `/doctor`: the expected hook set comes from `skills/init-orchestration` **templates** (template SoT per SPEC-002/SPEC-005; dual-copy live-hook gate retired — any remaining template-internal checks MUST NOT require tracked package live files); worktree staleness from SPEC-016's TTL rule (honoring `WT_LOCK_TTL_SECONDS`); plugin resolution by invoking `skills/plugin-dir.sh` as a subprocess (never a private re-implementation of its 3-tier algorithm); version rules from SPEC-002; transcript lag from `transcript-sync --check` stdout (SPEC-036 M11 — never a private freshness/cursor heuristic); Intercom layout from SPEC-038 (`INTERCOM_STATE_ROOT`, `state/away`, `topics.json`, spool) and FRESH `.wt-lock` from SPEC-016 (M2k — never a second state-root or lock-TTL heuristic). If a canonical set changes, `/doctor`'s expectation follows without editing `/doctor`.
 - **M10 — The doctor never crashes on the disease.** `/doctor` itself MUST require only `bash`, `git`, and coreutils. When a tool a check depends on is absent (`sqlite3`, `jq`, `python3`), the dependent check reports SKIP (or the documented degraded state, e.g. ".md fallback mode active") and the run continues to a full table and a valid exit code — a missing dependency MUST NOT abort the battery.
 - **M11 — Worktree- and consumer-aware.** `/doctor` MUST resolve the project root via the worktree-aware formula (`git rev-parse --git-common-dir`) so it reads shared state correctly from inside `.worktrees/<slug>`, and MUST run meaningfully in both the dev checkout and a consumer project with a cache-installed plugin. Dev-repo-only template hygiene (if any residual check remains) MUST NOT produce WARN/FAIL in a consumer project; package absence of tracked live hooks MUST NOT FAIL anywhere (M2c′).
 - **M12 — Deterministic and offline.** The battery MUST be LLM-free and MUST NOT make network calls in any mode (default or `--fix`); remote-embedding health is checked as *config coherence* (M2b), not endpoint liveness. Two consecutive runs on unchanged state MUST produce identical results and exit codes.
@@ -91,6 +92,7 @@ The command is **read-only by default** — it diagnoses and recommends, it neve
 16. **Transcript mirror lag (M2h, M3, M4, M1, M7):** unregistered project → `transcript.mirror_lag` SKIP (healthy T3 stays exit 0). Opted-in + all cwd targets `ok`/`in-progress` → PASS. Opted-in + any cwd `missing` or `lag` → WARN, never FAIL; fix-it is `bash skills/transcript-mirror/transcript-sync.sh` and MUST NOT contain `/setup team` or `/setup orchestration`; bare doctor with only this WARN → exit 1. No sid dir and no `.errors.log` line still WARNs when opted-in. `in-progress` only → PASS. Other-project store sid dirs MUST NOT WARN. Default `/doctor` and `--json` MUST NOT create sid dirs (invoke `--check` only). `--fix` MUST NOT create sid dirs or invoke transcript-sync without `--check`. `python3` or helper absent → SKIP. Dual-host: Claude `*.jsonl` in the project dir AND Grok `chat_history.jsonl` in the cwd bucket. `hooks.hygiene` silent when `transcript-mirror.sh` is a second Stop command. `EXPECTED_HOOK_*` unchanged.
 17. **Model map (M2i, M3, M7):** no files at local/repo/global → `models.map` SKIP. Valid JSON + known keys + non-empty strings → PASS. Unparseable / `agents` not object / bad value / unknown key / `jq` missing / `qa` or `council-judge` override → WARN, never FAIL; `--gate=team` with only this WARN → exit 1. `--fix` MUST NOT rewrite the map. `--only config` is a known group.
 18. **Embed errors (M2j, M3, M1, M6c):** `memory.db` present and no `.errors.log` → `memory.embed_errors` PASS. A log with two `embed` lines and one foreign line → WARN with count 2, exit 1, a fix-it that names the log, `--gate=team` exit 1 (not 2), and the log byte-identical after the run. A log with no `embed` line → PASS. No `memory.db` → SKIP. The log lines come from the real writer `embed_log_error` (`skills/doctor/test.sh` T25).
+19. **Intercom/away surface (M2k, M3, M1, M7):** `config.json` absent → `intercom.away` / `intercom.topics` / `intercom.spool` SKIP, never FAIL. Config present, `state/away` absent → `intercom.away` PASS `away: off`. Numeric epoch, no FRESH `.wt-lock` → PASS `away: on` with age. Away on + FRESH `.wt-lock` → WARN routing-mismatch, never FAIL. Unparseable `topics.json` → WARN. `spool/` missing or not writable → WARN; the check MUST NOT mkdir. Compose identity running with a byte-different `/plugin` `poller.sh` → `intercom.poller_stale` WARN; docker/identity absent → SKIP; source MUST NOT `docker pull`/`run`/`exec`. `intercom.slack` PASS with stub detail. Sentinel body in `bot_token` absent from human and `--json` output. `--fix` MUST NOT write intercom state. `--only intercom` emits the new ids. `--gate=team` with only these WARNs → exit 1.
 
 ---
 
@@ -120,7 +122,7 @@ The command is **read-only by default** — it diagnoses and recommends, it neve
 
 | Date | Change |
 |------|--------|
-
+| 2026-10-08 | CDT-532: **M2k** — Intercom/away surface (`intercom.away`, `intercom.topics`, `intercom.spool`, `intercom.poller_stale`, `intercom.slack`); WARN-never-FAIL; `--fix` unchanged. Test 19. `## Acceptance criteria` / `### CDT-532`. Status stays ACTIVE. |
 | 2026-10-02 | CDT-371 / CDT-391: Covers is a header line. `/init-team` and `/init-orchestration` are not commands. |
 | 2026-10-01 | WP 4-09 (`wp-4-09-debug-doctor`; CDT-407, CDT-279 `[08 F14]` `[08 F23]` `[08 X4]`, rv-w2-38). **M2b** host match is exact, `host:port`, or a DNS label boundary. **M2c″** nonexec is WARN. **M2g** `resolved_tier` includes `marketplace`. **M7** `--fix` clears a stale `distilling_lock` only, unless `--force`; `--only` limits each repair. Test 11 amended. Status stays ACTIVE. |
 | 2026-09-30 | WP 1-13 (`wp-1-13-setup-team-lembed`; CDT-262): **M2j** — `memory.embed_errors` (group `memory`). Counts (with `embed_error_count` from `embed-common.sh`) the `embed` lines of `<MROOT>/.claude/memory/.errors.log` that `embed-one.sh` and `migrate-md.sh` append for every failed embed (SPEC-004); PASS / WARN / SKIP, never FAIL; read-only; prints no log detail. Test 18. Status stays ACTIVE. |
@@ -136,6 +138,62 @@ The command is **read-only by default** — it diagnoses and recommends, it neve
 | 2026-07-21 | CDT-46-C2: removed the `deps.opencode` / `deps.bwrap` optional-dep checks and the `LOCAL_AGENT` preflight surface (SPEC-019 deprecated + local-agent surfaces excised at v1.0.0). Optional-deps set is now `jq` / `python3` / `gh`; dropped the SPEC-019 boundary bullet and cross-reference. Status stays ACTIVE. |
 | 2026-07-14 | ACTIVE (CDV-191): `commands/doctor.md` + `skills/doctor/doctor.sh` + test harness; naming lock `dev-team:doctor`; OQs deferred (`/release` preflight, `--probe`) |
 | 2026-07-03 | Initial DRAFT — ideation wave 2 |
+
+## Acceptance criteria
+
+### CDT-532
+
+- **A.** Check id `intercom.away` (group `intercom`) reads `state/away` under
+  `INTERCOM_STATE_ROOT` (default `~/.claude/telegram-router`), not
+  `$MROOT/.claude/telegram-router`. `config.json` absent → SKIP. File absent →
+  PASS `away: off`. File present with a numeric epoch → report `away: on` and
+  age in seconds. Non-numeric contents → WARN. Away on plus at least one FRESH
+  SPEC-016 `.wt-lock` under `$MROOT/.worktrees/` → WARN naming routing-mismatch
+  risk. WARN-never-FAIL. Read-only. `--fix` MUST NOT create or remove
+  `state/away`.
+  Verify: bash skills/doctor/test.sh
+- **B.** Check id `intercom.topics` (group `intercom`): `config.json` absent →
+  SKIP. `jq` absent → SKIP. `topics.json` absent, unparseable, or not a JSON
+  object → WARN, never FAIL. Parseable object → PASS. Read-only. `--fix` MUST
+  NOT rewrite `topics.json`.
+  Verify: bash skills/doctor/test.sh
+- **C.** Check id `intercom.spool` (group `intercom`): `config.json` absent →
+  SKIP. `spool/` missing or not writable by the current uid → WARN, never FAIL.
+  Probe is `[ -d ]` / `[ -w ]` only — MUST NOT mkdir, touch, or chmod. Present
+  and writable → PASS. `--fix` MUST NOT create spool dirs.
+  Verify: bash skills/doctor/test.sh
+- **D.** Check id `intercom.poller_stale` (group `intercom`): when compose
+  project `intercom` identity is running, compare `skills/intercom/poller.sh`
+  at the container `/plugin` bind-mount Source with
+  `$PLUGIN_ROOT/skills/intercom/poller.sh`. Byte-differ → WARN (stale poller).
+  Byte-equal → PASS. Docker CLI, config, or identity not running → SKIP.
+  Inspect-only: MUST NOT `docker pull`, `docker run`, or `docker exec`.
+  WARN-never-FAIL. `--fix` MUST NOT restart the daemon.
+  Verify: bash skills/doctor/test.sh
+- **E.** Check id `intercom.slack` (group `intercom`) reports the `/setup slack`
+  stub posture (`Slack ships in v1.1/v2.`). PASS with stub detail. MUST NOT
+  look for slack daemons, slack compose projects, or slack state files.
+  `commands/setup.md` absent or missing the stub sentence → WARN, never FAIL.
+  `--fix` MUST NOT write slack state.
+  Verify: bash skills/doctor/test.sh
+- **F.** Default `/doctor` and `--json` remain read-only for A–E (M1): intercom
+  state, `topics.json`, spool paths, compose project `intercom`, and
+  `~/.config/telegram/bot_token` are byte-identical after the run. Human and
+  `--json` output MUST NOT contain the contents of that `bot_token` file
+  (plant a sentinel body; assert absent from stdout and stderr). M7 allowlist
+  is unchanged: `--fix` MUST NOT add away, topics, spool, poller-stale, or
+  slack repairs. `--gate=team` with only these WARNs exits 1, not 2.
+  Verify: bash skills/doctor/test.sh
+- **G.** `--only intercom` runs the existing CDT-509 checks plus A–E. `--json`
+  includes ids `intercom.away`, `intercom.topics`, `intercom.spool`,
+  `intercom.poller_stale`, and `intercom.slack` with group `intercom`. Schema
+  stays `doctor_schema: "1"` (additive ids only).
+  Verify: bash skills/doctor/test.sh
+- **H.** [process] `bash tools/run-all-tests.sh` exits 0; skill-lint (SPEC-021),
+  smoke (SPEC-030), and docs-drift pass. Release bump is patch (no new
+  `commands/*.md`). Never print the `bot_token` file body. Never commit
+  `.claude/backlog` or `.claude/epics`.
+
 ## Cross-references
 
 - **SPEC-002** — Plugin Infrastructure: version-pair rule, manifest layout, settings/sandbox baseline, `TaskCompleted` hook contract (`/doctor` verifies, never redefines).
@@ -145,4 +203,5 @@ The command is **read-only by default** — it diagnoses and recommends, it neve
 - **SPEC-016** — Worktree Isolation: `.wt-lock` format + TTL staleness rule; removals delegate to `worktree-lib.sh release`.
 - **SPEC-036** — Transcript Mirror: `transcript-sync --check` is the lag SoT; doctor MUST NOT extend `EXPECTED_HOOK_*`.
 - **SPEC-037** — Per-agent Model map: `models.map` diagnoses the three layer files; doctor MUST NOT rewrite them.
+- **SPEC-038** — Intercom spool: state layout, Away mode, compose project `intercom`; M2k reads that layout and MUST NOT redefine it.
 - Backlog: `.claude/backlog/doctor-install-diagnostics.md` (banked 2026-07-03; this spec is its "Goal" realized as a DRAFT).
