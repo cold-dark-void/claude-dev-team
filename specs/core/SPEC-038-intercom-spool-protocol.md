@@ -42,6 +42,8 @@ Runtime state lives outside the repo (CDT-501 AC23). Test override:
     poller.lock                       # flock target (AC22)
     seen.tsv                          # "update_id<TAB>epoch" dedupe window (prune >1000)
     away                              # absent = off; present = on
+    away_sid                          # advisory away endpoint sid, bare sid (CDT-535)
+    inbox-watch.stamp                 # session monitor watermark (CDT-535; never inbox.stamp)
     last_wake_exit                    # adapter: last non-{0,75} poller exit that already woke
     inbox.stamp                       # adapter: mtime watermark for new inbox files
   spool/<sid>/
@@ -49,6 +51,7 @@ Runtime state lives outside the repo (CDT-501 AC23). Test override:
     outbox/                           # outbound JSON the poller drains
     pending/                          # <qid>.json pending questions
     answered/                         # answered questions (audit)
+    consumed/                         # inbox records drained by `intercom read --ack` (CDT-535)
 ```
 
 `config.json` shape (schema 1; tolerates more members later — AC25):
@@ -102,7 +105,14 @@ Subprocess CLI — never sourced. Always exits 0 on success.
   (CDT-529 AC4/AC6/Q5). The poller escalates it (§ Escalation).
 - `intercom send [--sid S] [--summary T] [--file PATH] TEXT` — write an
   outbox record. The poller drains outbox → Telegram. Longreads (§ Longread).
+- `intercom read [--sid S] [--ack]` — print `spool/<sid>/inbox/` records in
+  filename order, one `qid=<id> kind=<kind>` line per record (`qid` is the
+  record's `qid` field, falling back to `update_id`) followed by the `text`
+  body. `--ack` moves each printed record to `spool/<sid>/consumed/`
+  atomically (tmp + rename, original filename preserved); without `--ack`
+  the read is non-destructive. No network (CDT-535).
 - `intercom away [on|off|status]` — toggle/read `state/away` (AC17 CLI side).
+  `on` also pins `state/away_sid` to the resolved session sid (§ Away mode).
 - `intercom help` — usage.
 
 ## Poller cycle (`poller.sh`)
@@ -136,18 +146,31 @@ write no session-facing stdout.
    - ignore empty-text (and empty-caption) `forum_topic_edited` /
      `forum_topic_created` / `forum_topic_closed` / `forum_topic_reopened`
      service messages the same way.
-   - otherwise resolve sid (CDT-529 resolution order; first hit wins):
-     (a) no `thread_id` (plain chat) → `default_session` (walkie-talkie;
-     CDT-512-C3). When any non-`default` sid has an unanswered pending
-     question, one stderr warn names the correlation miss (CDT-529 Q3) —
-     plain chat is never re-routed to a session.
-     (b) `thread_id` mapped to a sid whose `spool/<sid>/pending/` holds ≥1
-     unanswered question (an *active* session) → that sid (CDT-529 AC1).
-     (c) `thread_id` unmapped, or mapped to a sid with no unanswered
-     pending (no longer active; CDT-529 AC5): exactly one active session
-     → that sid (CDT-529 AC2); zero or ≥2 active sessions →
+   - otherwise resolve sid (CDT-529 resolution order + CDT-535; first hit
+     wins):
+     (a) no `thread_id` (plain chat) → `away_sid` when the away rule (b5)
+     applies, else `default_session` (walkie-talkie; CDT-512-C3). When any
+     non-`default` sid has an unanswered pending question and plain chat
+     lands on `default_session`, one stderr warn names the correlation
+     miss (CDT-529 Q3) — plain chat is never re-routed to an orchestrating
+     session. The warn is suppressed when (b5) routes plain chat to
+     `away_sid`: away-mode plain chat is expected, not a miss.
+     (b) `thread_id` mapped to a sid → that sid unconditionally
+     (topic-sticky, CDT-535): pending presence no longer gates a map hit,
+     so a mapped thread with zero unanswered pending still routes to its
+     own sid (supersedes the CDT-529 AC5 mapped-but-inactive fallback).
+     The `general` entry still resolves to `default_session`.
+     (b5) away ON (`state/away` present) and `state/away_sid` holds a sane
+     sid: plain chat, the `general` topic, and an unmapped `thread_id` —
+     everything that would otherwise land on `default_session` or the (c)
+     fallback — route to `away_sid`. The rule is unreachable for a mapped
+     session topic, so mapped threads are never stolen (CDT-535).
+     (c) `thread_id` unmapped (map lookup empty): exactly one active
+     session → that sid (CDT-529 AC2); zero or ≥2 active sessions →
      `default_session` plus one stderr warn line naming the unmapped
-     thread id (CDT-529 AC3). This supersedes the CDT-512-C3
+     thread id (CDT-529 AC3). The warn fires only for genuinely unmapped
+     threads: a mapped-but-inactive sid no longer reaches (c) (superseded
+     by the sticky (b), CDT-535). This supersedes the CDT-512-C3
      zero-artifacts ignore for unmapped thread ids: unmapped traffic is
      never silently dropped, and cross-delivery to a non-default sid other
      than the single active one cannot occur. Write an inbox record. Any other
@@ -255,10 +278,15 @@ walkie-talkie: its messages route to `default_session`, and that session's
 replies return to the general topic (AC6). An inbound `message_thread_id`
 absent from the map still routes to `default_session` when the map is `{}`
 or contains only `general`. CDT-529 supersedes the fail-closed ignore for
-unmapped thread ids: an unmapped thread id (or a thread whose mapped sid is
-no longer active) routes to the single *active* session when exactly one
-exists, else to `default_session` with one warn line naming the thread id
-(§ Poller cycle; CDT-529 AC2/AC3/AC5). An active session is one whose
+unmapped thread ids: an unmapped thread id routes to the single *active*
+session when exactly one exists, else to `default_session` with one warn
+line naming the thread id (§ Poller cycle; CDT-529 AC2/AC3). CDT-535 makes
+a mapped thread **topic-sticky**: it routes to its mapped sid always —
+pending or not — so a thread whose sid has since gone quiet is never
+re-routed (supersedes the CDT-529 AC5 mapped-but-inactive fallback; the
+AC3 warn fires only for genuinely unmapped threads). Away mode adds rule
+(b5): while away is ON, plain chat, the general topic, and unmapped
+threads land on `state/away_sid` instead. An active session is one whose
 `spool/<sid>/pending/` holds ≥1 unanswered question — the definition of
 "currently orchestrating" (CDT-529 Q1). `topics_enabled` is a setup
 mode flag; inbound routing uses the map shape, not that flag. Per-session
@@ -282,6 +310,19 @@ pending questions immediately, once each. Away ON means the intercom is
 primary: session replies and updates push proactively (outbox drains every
 cycle), and the main UI mirrors unchanged — the session transcript already
 holds the exchange. Away OFF restores the default escalation timer.
+
+`state/away_sid` (CDT-535) is the away endpoint identity — the spool inbox
+walkie-talkie traffic lands in while away is ON (§ Poller cycle (b5)). It
+is advisory and last-writer-wins: CLI `away on` writes it atomically with
+the resolved session sid (bare sid content; `away on` exits 1 when the sid
+is unresolvable — a session origin must know its sid); `ask`/`send`
+refresh it while away is ON ("whoever is speaking owns the walkie-talkie");
+`away off` removes only `away` and keeps `away_sid` until the next CLI
+`away on`; the phone `/away`/`/afk` path never writes or removes it.
+Absent or insane `away_sid` is not an error: away routing fails open to
+the (a)/(c) rules. The away session drains its inbox each turn with
+`intercom read --ack`; `skills/intercom/inbox-watch.sh` is the optional
+session-driven monitor that wakes it (CDT-535 AC8).
 
 ## Security
 
@@ -537,6 +578,8 @@ Surface (`commands/*.md`).
   and cancelled by an answer (AC14).
 - MUST keep away state in `state/away` only, togglable from CLI and phone;
   away ON escalates pending questions once, immediately (AC17).
+  `state/away_sid` (CDT-535) is advisory away-endpoint identity, not the
+  toggle: the phone path MUST NOT write or remove it.
 - MUST auto-create missing session topics on first outbound or escalation
   (AC11) and queue messages with an `offline, queued` notice when the
   heartbeat was stale (AC12).
@@ -1189,9 +1232,13 @@ cycle; the CDT-529 ACs pin it.
   `route.thread_id` in the same rewrite that marks `escalated` when the
   escalated send went through a created/resolved topic.
   Verify: bash skills/intercom/test.sh
-- **AC5.** A thread mapped to a sid with no unanswered pending question
-  (no longer active) behaves per AC3: `default_session` inbox + one warn
-  line naming the thread id. The message is never silently dropped.
+- **AC5.** A thread mapped to a sid routes to that sid **unconditionally**
+  — topic-sticky (CDT-535, superseding the original mapped-but-inactive
+  fallback): pending presence no longer gates a map hit, so a mapped
+  thread with zero unanswered pending still lands in its own sid's inbox
+  (the live-theft case). No `default_session` fallback, no warn: the AC3
+  fallback applies only to genuinely unmapped threads. The message is
+  never silently dropped.
   Verify: bash skills/intercom/test-poller.sh
 - **AC6.** The pending record's route fields are written in the single
   atomic creation write (one tmp + rename). A failed or unreadable
@@ -1307,6 +1354,80 @@ cycle; the CDT-529 ACs pin it.
   `commands/*.md`). The bot token never appears in argv, logs, spool
   files, or error text.
 
+### CDT-535
+
+- **AC1.** Topic-sticky inbound routing: a `message_thread_id` mapped in
+  `topics.json` routes to its mapped sid on every cycle — with zero
+  unanswered pending questions included (the live-theft case). The
+  single-active fallback (AC2) and the AC3 warn apply only when the map
+  lookup returns empty; the `general` entry still resolves to
+  `default_session` first.
+  Verify: bash skills/intercom/test-poller.sh
+- **AC2.** `state/away_sid` holds a bare sid. CLI `intercom away on`
+  writes it atomically (tmp + rename, `ir_away_sid_write`) with the
+  resolved session sid, and exits 1 when the sid is unresolvable without
+  writing any state; `away off` removes only `state/away` and keeps
+  `away_sid`; `away status` is unchanged.
+  Verify: bash skills/intercom/test.sh
+- **AC3.** The phone `/away`/`/afk` handler toggles `state/away` only:
+  it never writes, refreshes, or removes `state/away_sid`.
+  Verify: bash skills/intercom/test-poller.sh
+- **AC4.** `intercom ask`/`send` refresh `state/away_sid` (same atomic
+  write) when away is ON, and never create it when away is OFF. The
+  refresh is best-effort: a failed write never fails the ask/send.
+  Verify: bash skills/intercom/test.sh
+- **AC5.** Away routing rule (b5): with away ON and a sane
+  `state/away_sid`, plain chat, the `general` topic, and unmapped thread
+  ids route to `away_sid`; away ON with an absent or insane `away_sid`
+  fails open to the (a)/(c) rules. A mapped session topic routes to its
+  own sid even with away ON — mapped threads are never stolen.
+  Verify: bash skills/intercom/test-poller.sh
+- **AC6.** `intercom read [--sid S] [--ack]` prints each
+  `spool/<sid>/inbox/` record in filename order as one
+  `qid=<id> kind=<kind>` line (`qid` is the record's `qid` field falling
+  back to `update_id`) plus the `text` body (missing text → no body
+  line). `--ack` moves each printed record to `spool/<sid>/consumed/`
+  (tmp + rename in the same dir tree, original filename preserved) and is
+  idempotent; records that vanish mid-read are skipped. Without `--ack`
+  the inbox is unchanged. Empty inbox → exit 0, no output; unknown flag →
+  exit 2.
+  Verify: bash skills/intercom/test.sh
+- **AC7.** `consumed` is a whitelisted `ir_spool_dir` bucket (additive;
+  the existing `inbox|outbox|pending|answered` whitelist and all call
+  sites are unchanged).
+  Verify: bash skills/intercom/test.sh
+- **AC8.** `skills/intercom/inbox-watch.sh` is a subprocess CLI (never
+  sourced): while `state/away` is present it polls
+  `spool/<away_sid>/inbox/` (sid read from `away_sid`; absent/insane →
+  exit 0 silently) on a fixed interval (`WATCH_INTERVAL_S`, default 2,
+  capped 1–60) and prints the wake grammar
+  `intercom: inbound sid=<sid> path=<abs-inbox>` exactly once per new
+  `*.json` batch, using an mtime stamp-compare on
+  `state/inbox-watch.stamp` — never `state/inbox.stamp`. `state/away`
+  gone → touch the stamp, exit 0 promptly. It never starts a second
+  updates consumer, never reads the bot token, and never creates or takes
+  the sole-consumer lock. The away-gated loop is session-driven and is
+  not a poller/adapter cycle: SPEC-038's no-resident-loop rule stays
+  scoped to `poller.sh`/`watch.sh` (this AC defines the exception).
+  Verify: bash skills/intercom/test.sh
+- **AC9.** Pickup protocol is documented (skills/intercom/SKILL.md §
+  Verbs, commands/away.md, commands/afk.md): while away is ON, each
+  session turn runs `intercom read --ack` and replies via `send`/`ask`;
+  `away on` pins `away_sid`.
+  Verify: bash skills/docs-drift/test.sh
+- **AC10.** Doctor `intercom.away` probes `state/away_sid` only when away
+  is ON: a sane sid is named in the detail
+  (`away: on (age Ns, sid=<sid>)`); insane or empty content WARNs naming
+  the file with the `intercom away on` fix line. `away: off` with a stale
+  `away_sid` is not a finding (kept until the next CLI `away on`) — no
+  false WARN.
+  Verify: bash skills/doctor/test.sh
+- **AC11.** [process] `bash tools/run-all-tests.sh` exits 0; skill-lint
+  (SPEC-021), docs-drift, and spec-lint pass. Release bump is minor (new
+  CLI verb `read` and new `inbox-watch.sh` behavior; no new
+  `commands/*.md`). The bot token never appears in argv, logs, spool
+  files, or error text.
+
 ## Test
 
 - [ ] Token file written 0600 with 700 parent; repo stays clean (AC1)
@@ -1405,13 +1526,30 @@ cycle; the CDT-529 ACs pin it.
       naming the thread id (CDT-529 AC3)
 - [ ] Pending record carries `route: {sid, thread_id}` from the single
       creation write; back-fill on the escalated send (CDT-529 AC4/AC6)
-- [ ] Mapped-but-inactive sid falls back per AC3, never silent (CDT-529 AC5)
+- [ ] Mapped sid routes to its own inbox always — sticky, zero pending
+      included, never silent (CDT-529 AC5 as superseded by CDT-535)
 - [ ] Legacy `topics.json` (no route fields) routes unchanged (CDT-529 AC7)
 - [ ] Plain chat always `default_session`; correlation-miss warn only when a
       non-default sid has a pending question (CDT-529 Q3)
 - [ ] createForumTopic failure path and its warn unchanged (CDT-529 AC8)
 - [ ] `ir_resolve_outbound` contract unchanged; existing outbound tests pass
       (CDT-529 AC10)
+- [ ] Mapped thread routes to its own sid always — zero pending included,
+      no warn, no default fallback (CDT-535 AC1; supersedes CDT-529 AC5)
+- [ ] Away ON + sane `away_sid`: plain chat / general / unmapped →
+      `away_sid`; mapped thread never stolen; absent/insane `away_sid`
+      fails open (CDT-535 AC5)
+- [ ] `away on` pins `away_sid`; phone `/away` never clobbers it; `away
+      off` keeps it; `ask`/`send` refresh it while away ON and never
+      create it while OFF (CDT-535 AC2/AC3/AC4)
+- [ ] `intercom read` prints qid/kind/text in filename order; `--ack`
+      moves records to `consumed/` idempotently; `--sid` override; empty
+      inbox rc 0; unknown flag rc 2 (CDT-535 AC6/AC7)
+- [ ] `inbox-watch.sh`: stamp on first run, one grammar line per new
+      batch, pre-existing records silent, away-off exit 0, no token /
+      bridge / lock contact (CDT-535 AC8)
+- [ ] Doctor probes `away_sid` only when away is ON; stale `away_sid`
+      with away off is not a finding (CDT-535 AC10)
 
 ## Validation
 
@@ -1461,6 +1599,7 @@ cycle; the CDT-529 ACs pin it.
 | 2026-10-07 | CDT-509 — phase-2 containerized daemon: `daemon.sh` loops one-shot `poller.sh`; token `:ro` + state bind; flock per cycle not across; setup daemon-mode = heartbeat fresh AND compose `intercom`; digest-pin + approve-before-pull; `probe.sh` pre-deploy; C1 harness remains |
 | 2026-10-07 | CDT-527 — `/setup telegram` starts the Intercom daemon when Docker is available (`start-daemon.sh`); availability = CLI + compose v2 + `docker info`; identity-running or post-`up` prints daemon mode even if heartbeat is empty (supersedes CDT-509 AC10 heartbeat conjunct for setup mode); `probe.sh` stays operator-only (supersedes CDT-509 AC12 for the automated start path); C1 fallback when Docker is missing or operator answers n; `--start-daemon` for an already-paired box; patch, no new Surface |
 | 2026-10-08 | CDT-529 — inbound routing: unmapped threads resolve via the single *active* session (≥1 unanswered pending) else `default_session` + warn (supersedes the CDT-512-C3 zero-artifacts ignore for unmapped threads); plain chat always `default_session`; `ir_pending_write` records `route: {sid, thread_id}` atomically at ask time and the sweep back-fills `thread_id` on the escalated send; mapped-but-inactive sid falls back per AC3; CDT-528 misrouted records get a documented manual fix only |
+| 2026-10-09 | CDT-535 — walkie-talkie completion: topic-sticky routing (a mapped thread routes to its sid always, zero pending included — supersedes the CDT-529 AC5 mapped-but-inactive fallback; AC3 warn now unmapped-only); `state/away_sid` away endpoint (CLI `away on` pins, `ask`/`send` refresh while away ON, phone path never writes, `away off` keeps); rule (b5) routes plain/general/unmapped to `away_sid` while away ON; `intercom read [--sid] [--ack]` + `consumed/` spool bucket; session-driven `inbox-watch.sh` monitor (`state/inbox-watch.stamp`); doctor `away_sid` probe |
 
 ## Cross-references
 

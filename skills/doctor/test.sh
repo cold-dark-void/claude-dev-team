@@ -3095,6 +3095,46 @@ fi
 rm -f "$INTERCOM_STATE_ROOT/state/away"
 rm -rf "$T30P/.worktrees/fresh-slug"
 
+# T30d3 — away on + sane away_sid → PASS, detail names sid=<sid> (CDT-535)
+printf '%s\n' "$(($(date +%s) - 5))" >"$INTERCOM_STATE_ROOT/state/away"
+printf 'main\n' >"$INTERCOM_STATE_ROOT/state/away_sid"
+RC=0
+OUT=$(t30_run --json --only intercom.away 2>/dev/null) || RC=$?
+ST=$(t29_field "$OUT" .status)
+DE=$(t29_field "$OUT" .detail)
+if [ "$ST" = "PASS" ] && [ "$RC" -eq 0 ] \
+   && printf '%s' "$DE" | grep -q 'sid=main'; then
+  pass "T30d3 sane away_sid → PASS detail carries sid (CDT-535)"
+else
+  fail "T30d3 status=$ST detail=$DE out=$OUT"
+fi
+
+# T30d4 — away on + insane away_sid → WARN naming the file + away-on fix
+printf '%s\n' "not a sid!" >"$INTERCOM_STATE_ROOT/state/away_sid"
+RC=0
+OUT=$(t30_run --json --only intercom.away 2>/dev/null) || RC=$?
+ST=$(t29_field "$OUT" .status)
+if [ "$ST" = "WARN" ] && printf '%s' "$OUT" | grep -q 'away_sid' \
+   && printf '%s' "$OUT" | grep -q 'intercom away on'; then
+  pass "T30d4 insane away_sid → WARN naming the file with the away-on fix (CDT-535)"
+else
+  fail "T30d4 status=$ST out=$OUT"
+fi
+
+# T30d5 — away off + stale away_sid → PASS away: off, no false WARN (CDT-535)
+rm -f "$INTERCOM_STATE_ROOT/state/away"
+RC=0
+OUT=$(t30_run --json --only intercom.away 2>/dev/null) || RC=$?
+ST=$(t29_field "$OUT" .status)
+DE=$(t29_field "$OUT" .detail)
+if [ "$ST" = "PASS" ] && [ "$RC" -eq 0 ] \
+   && printf '%s' "$DE" | grep -q 'away: off'; then
+  pass "T30d5 away off keeps a stale away_sid without a finding (CDT-535)"
+else
+  fail "T30d5 status=$ST detail=$DE out=$OUT"
+fi
+rm -f "$INTERCOM_STATE_ROOT/state/away_sid"
+
 # T30e — topics.json absent / unparseable / not object → WARN
 RC=0
 OUT=$(t30_run --json --only intercom.topics 2>/dev/null) || RC=$?

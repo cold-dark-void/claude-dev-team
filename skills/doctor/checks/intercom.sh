@@ -203,10 +203,14 @@ check_intercom_lock() {
 
 check_intercom_away() {
   local id="intercom.away" group="intercom" root away val now age
+  local asid_file raw="" asid=""
   _intercom_unconfigured "$id" "$group" && return 0
   root=$(intercom_state_root)
   away="$root/state/away"
+  asid_file="$root/state/away_sid"
   if [ ! -f "$away" ]; then
+    # away off. A stale away_sid is kept by design (CDT-535: kept until the
+    # next CLI `away on`) — never a finding.
     record "$id" "$group" "PASS" "away: off" ""
     return 0
   fi
@@ -222,12 +226,42 @@ check_intercom_away() {
   esac
   now=$(date +%s)
   age=$((now - val))
+  # Away ON probes the endpoint (CDT-535): a sane bare sid joins the detail;
+  # insane/empty content is a WARN naming the file. An absent file is fine
+  # (phone-only away) — no mention, no finding.
+  if [ -f "$asid_file" ]; then
+    IFS= read -r raw < "$asid_file" || true
+    raw=$(trim_ws "$raw")
+    asid="$raw"
+    case "$asid" in
+      ''|.|..|.*) asid="" ;;
+      *..*) asid="" ;;
+      *[!A-Za-z0-9._-]*) asid="" ;;
+    esac
+    [ ${#asid} -le 128 ] || asid=""
+    if [ -z "$asid" ]; then
+      record "$id" "$group" "WARN" \
+        "state/away_sid does not hold a usable sid: ${raw:0:40}" \
+        "re-run: intercom away on"
+      return 0
+    fi
+  fi
   if wt_status_has FRESH; then
-    record "$id" "$group" "WARN" \
-      "away: on (age ${age}s) — routing-mismatch risk (FRESH .wt-lock under .worktrees/)" \
-      "/away off"
+    if [ -n "$asid" ]; then
+      record "$id" "$group" "WARN" \
+        "away: on (age ${age}s, sid=$asid) — routing-mismatch risk (FRESH .wt-lock under .worktrees/)" \
+        "/away off"
+    else
+      record "$id" "$group" "WARN" \
+        "away: on (age ${age}s) — routing-mismatch risk (FRESH .wt-lock under .worktrees/)" \
+        "/away off"
+    fi
   else
-    record "$id" "$group" "PASS" "away: on (age ${age}s)" ""
+    if [ -n "$asid" ]; then
+      record "$id" "$group" "PASS" "away: on (age ${age}s, sid=$asid)" ""
+    else
+      record "$id" "$group" "PASS" "away: on (age ${age}s)" ""
+    fi
   fi
 }
 

@@ -6,6 +6,9 @@ Pre-written headings (release-train M5c, orchestrate version-sync tasks) are kep
 via skip-if-present when `/release` is given an explicit version — do not invent a
 second heading for the same version.
 
+### v1.22.0
+- **Intercom walkie-talkie: the session half is wired (CDT-535)** — topic-sticky inbound routing: a `topics.json`-mapped thread now routes to its sid on every cycle, pending or not (the reply-theft case; CDT-529 AC5 rewritten, AC6a restored). New `state/away_sid` walkie-talkie endpoint: CLI `intercom away on` pins the session's sid atomically (phone `/away` toggles the flag only), `ask`/`send` refresh it while away is ON, and away-ON plain-chat/General/unmapped inbound routes to it — mapped topics are never stolen; absent/insane/corrupt `away_sid` fails open. New `intercom read [--sid S] [--ack]` verb drains a session inbox into `spool/<sid>/consumed/` via tmp+rename. New away-gated `skills/intercom/inbox-watch.sh` session monitor (stamp-compare only; no token, no poller, no sole-consumer lock). Agent pickup protocol documented in SKILL.md + `/away`/`/afk`; doctor `intercom.away` probes `away_sid` without false WARN. New CLI verb and routing default-behavior change → minor.
+
 ### v1.21.15
 - **Release fold subject from CHANGELOG lead + fail-closed pre-push D2 (CDT-533)** — new `skills/release/lead-summary.sh` (single D2 normalizer with `--cached`/`--from-commit`/`--check`); `/release` Step 5 builds the fold subject from the staged CHANGELOG lead and `--check`s it before `git commit`; `push-release.sh` D2-compares the tag commit before any push (`--print` skips); `check-ship-history.sh` D2 delegates to the helper.
 

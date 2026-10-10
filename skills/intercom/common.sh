@@ -14,6 +14,8 @@
 #   ir_record_tmp / ir_record_publish   atomic spool record writes (tmp + mv)
 #   ir_outbox_write / ir_pending_write  record builders
 #   ir_config_field    read config.json (schema 1); never creates it
+#   ir_away_sid_read   first-line, edge-trimmed state/away_sid read (CDT-535)
+#   ir_away_sid_write  state/away_sid atomic bare-sid publish (CDT-535)
 #   ir_require_tools   graceful jq/curl absence (AC21)
 #   ir_daemon_running  heartbeat fresh AND compose project intercom up (CDT-509 AC10)
 #   ir_docker_available  CLI + compose v2 + engine (CDT-527 AC1; inspect only)
@@ -209,9 +211,10 @@ ir_resolve_sid() {
 
 ir_spool_dir() {
   # ir_spool_dir SID BUCKET — prints spool/<sid>/<bucket>, creating it 0700.
+  # consumed (CDT-535) holds inbox records drained by `intercom read --ack`.
   local sid="$1" bucket="$2" root
   case "$bucket" in
-    inbox|outbox|pending|answered) ;;
+    inbox|outbox|pending|answered|consumed) ;;
     *)
       echo "ir_spool_dir: bad bucket '$bucket'" >&2
       return 1
@@ -320,6 +323,41 @@ ir_pending_write() {
   printf '%s\n' "$json" > "$tmp" || { rm -f "$tmp"; echo "intercom: cannot write pending record" >&2; return 1; }
   ir_record_publish "$tmp" "$dir/$qid.json" >/dev/null || return 1
   printf '%s\n' "$qid"
+}
+
+# ---- away endpoint (CDT-535) ---------------------------------------------------
+
+ir_away_sid_read() {
+  # ir_away_sid_read — prints the away endpoint sid from state/away_sid (CDT-535).
+  # Reads the FIRST line only and trims leading/trailing whitespace with the
+  # doctor's exact edge-trim idiom (skills/doctor/checks/intercom.sh). Internal
+  # whitespace survives the trim and fails the callers' sid sanity check — it
+  # is never stripped, so "walkie talkie" cannot collapse into a phantom sid.
+  local f raw s
+  f="$(ir_state_root)/state/away_sid"
+  [ -f "$f" ] || return 1
+  # `|| true`: a last line without a newline still fills raw (then fails sane).
+  IFS= read -r raw < "$f" || true
+  # Trim leading whitespace.
+  s="${raw#"${raw%%[![:space:]]*}"}"
+  # Trim trailing whitespace.
+  s="${s%"${s##*[![:space:]]}"}"
+  [ -n "$s" ] || return 1
+  printf '%s\n' "$s"
+}
+
+ir_away_sid_write() {
+  # ir_away_sid_write SID — atomically publish the away endpoint sid
+  # (state/away_sid, bare sid content) under the tmp+rename rule. Sanity-checked
+  # like every sid that becomes a path segment; rc 1 on a bad sid or a failed
+  # write. Advisory, last-writer-wins (SPEC-038 § Away mode).
+  local sid="$1" statedir
+  ir_sane_sid "$sid" || { echo "intercom: not a usable sid: $sid" >&2; return 1; }
+  statedir=$(ir_state_dir) || return 1
+  atomic_write "$statedir/away_sid" printf '%s\n' "$sid" || {
+    echo "intercom: cannot write $statedir/away_sid" >&2
+    return 1
+  }
 }
 
 # ---- config -------------------------------------------------------------------

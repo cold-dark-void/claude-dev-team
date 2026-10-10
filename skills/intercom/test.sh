@@ -319,9 +319,11 @@ else
 fi
 
 # ---- intercom away (AC17 CLI side, AC20 persistence) -----------------------------
+# CDT-535: `away on` resolves the session sid first (exit 1, no state written,
+# when unresolvable) and pins state/away_sid — the tests pass INTERCOM_SID.
 
 fresh_state
-run_cli "$INTERCOM" away on
+run_cli_env "INTERCOM_SID=main" "$INTERCOM" away on
 if [ "$C_RC" -eq 0 ] && [ "$C_OUT" = "away: on" ] && [ -f "$STATE_ROOT/state/away" ]; then
   ok "AC17/AC20 away on writes state/away"
 else
@@ -345,6 +347,246 @@ else
 fi
 run_cli "$INTERCOM" away bogus
 [ "$C_RC" -eq 2 ] && ok "away rejects unknown args with exit 2" || bad "away bogus rc=$C_RC"
+
+# ---- CDT-535: away_sid endpoint (no-sid refusal, pin, keep, ask/send refresh) ----
+
+fresh_case
+seed_token
+# No resolvable sid: away on exits 1 and writes NO state (CDT-535 AC2).
+out=$(env -u INTERCOM_SID -u CLAUDE_SESSION_ID \
+  TRANSCRIPT_MIRROR_ROOT="$HERMETIC_ROOT/transcript-none" \
+  bash "$INTERCOM" away on 2>"$ERRF"); rc=$?
+if [ "$rc" -eq 1 ] && [ ! -f "$STATE_ROOT/state/away" ] \
+  && [ ! -f "$STATE_ROOT/state/away_sid" ]; then
+  ok "CDT-535 away on without a resolvable sid exits 1 and writes no state"
+else
+  bad "CDT-535 no-sid: rc=$rc out=[$out] err=$(cat "$ERRF")"
+fi
+
+fresh_case
+seed_token
+run_cli_env "INTERCOM_SID=main" "$INTERCOM" away on
+if [ "$C_RC" -eq 0 ] && [ "$(cat "$STATE_ROOT/state/away_sid" 2>/dev/null)" = "main" ] \
+  && [ "$(stat -c %a "$STATE_ROOT/state/away_sid" 2>/dev/null)" = "600" ]; then
+  ok "CDT-535 away on pins away_sid to the session sid (bare, 0600)"
+else
+  bad "CDT-535 pin: rc=$C_RC sid=[$(cat "$STATE_ROOT/state/away_sid" 2>/dev/null)] err=$C_ERR"
+fi
+run_cli "$INTERCOM" away off
+if [ "$C_RC" -eq 0 ] && [ ! -f "$STATE_ROOT/state/away" ] \
+  && [ "$(cat "$STATE_ROOT/state/away_sid" 2>/dev/null)" = "main" ]; then
+  ok "CDT-535 away off removes only the flag and keeps away_sid"
+else
+  bad "CDT-535 keep: rc=$C_RC away=$([ -f "$STATE_ROOT/state/away" ] && echo yes || echo no) sid=$(cat "$STATE_ROOT/state/away_sid" 2>/dev/null)"
+fi
+
+# ask/send refresh away_sid only while away is ON (CDT-535 AC4).
+fresh_case
+seed_token
+run_cli "$INTERCOM" send --sid main "away off update"
+run_cli "$INTERCOM" ask --sid main "away off question"
+if [ "$C_RC" -eq 0 ] && [ ! -f "$STATE_ROOT/state/away_sid" ]; then
+  ok "CDT-535 ask/send while away OFF never create away_sid"
+else
+  bad "CDT-535 off-no-create: rc=$C_RC sid=$([ -f "$STATE_ROOT/state/away_sid" ] && echo yes || echo no) err=$C_ERR"
+fi
+run_cli_env "INTERCOM_SID=main" "$INTERCOM" away on
+run_cli "$INTERCOM" ask --sid worker-1 "worker question"
+if [ "$C_RC" -eq 0 ] && [ "$(cat "$STATE_ROOT/state/away_sid" 2>/dev/null)" = "worker-1" ]; then
+  ok "CDT-535 ask while away ON refreshes away_sid to the asking session"
+else
+  bad "CDT-535 ask refresh: rc=$C_RC sid=$(cat "$STATE_ROOT/state/away_sid" 2>/dev/null) err=$C_ERR"
+fi
+run_cli "$INTERCOM" send --sid worker-2 "worker update"
+if [ "$C_RC" -eq 0 ] && [ "$(cat "$STATE_ROOT/state/away_sid" 2>/dev/null)" = "worker-2" ]; then
+  ok "CDT-535 send while away ON refreshes away_sid to the sending session"
+else
+  bad "CDT-535 send refresh: rc=$C_RC sid=$(cat "$STATE_ROOT/state/away_sid" 2>/dev/null) err=$C_ERR"
+fi
+
+# ---- CDT-535: intercom read [--sid S] [--ack] ------------------------------------
+
+fresh_case
+seed_token
+mkdir -m 700 -p "$STATE_ROOT/spool/main/inbox"
+# Filename order (01/02/03) differs from update_id order (11/13/12); the middle
+# record carries no text and no qid field (qid must fall back to update_id).
+printf '%s\n' '{"ts": 1, "sid": "main", "dir": "in", "kind": "message", "text": "first inbound", "from_id": 1, "update_id": 11, "thread_id": 0}' > "$STATE_ROOT/spool/main/inbox/0000000001_11.json"
+printf '%s\n' '{"ts": 2, "sid": "main", "dir": "in", "kind": "answer", "update_id": 13, "thread_id": 0}' > "$STATE_ROOT/spool/main/inbox/0000000002_13.json"
+printf '%s\n' '{"ts": 3, "sid": "main", "dir": "in", "kind": "answer", "text": "second inbound", "from_id": 1, "update_id": 12, "thread_id": 0}' > "$STATE_ROOT/spool/main/inbox/0000000003_12.json"
+run_cli "$INTERCOM" read --sid main
+want_read='qid=11 kind=message
+first inbound
+qid=13 kind=answer
+qid=12 kind=answer
+second inbound'
+if [ "$C_RC" -eq 0 ] && [ "$C_OUT" = "$want_read" ]; then
+  ok "CDT-535 read prints qid/kind/text in filename order; qid falls back to update_id; missing text skips the body"
+else
+  bad "CDT-535 read: rc=$C_RC out=[$C_OUT] err=$C_ERR"
+fi
+if [ "$(find "$STATE_ROOT/spool/main/inbox" -name '*.json' | wc -l | tr -d ' ')" = "3" ]; then
+  ok "CDT-535 read without --ack leaves the inbox unchanged"
+else
+  bad "CDT-535 read-only: inbox count $(find "$STATE_ROOT/spool/main/inbox" -name '*.json' 2>/dev/null | wc -l | tr -d ' ')"
+fi
+
+# --ack empties the inbox into consumed/ (original names, content intact) and
+# is idempotent.
+run_cli "$INTERCOM" read --sid main --ack
+if [ "$C_RC" -eq 0 ] && [ "$C_OUT" = "$want_read" ] \
+  && [ -z "$(find "$STATE_ROOT/spool/main/inbox" -name '*.json' 2>/dev/null)" ] \
+  && [ "$(find "$STATE_ROOT/spool/main/consumed" -name '*.json' 2>/dev/null | wc -l | tr -d ' ')" = "3" ] \
+  && [ "$(jq -r '.text // ""' "$STATE_ROOT/spool/main/consumed/0000000001_11.json" 2>/dev/null)" = "first inbound" ]; then
+  ok "CDT-535 read --ack moves every printed record to consumed/ under its own name"
+else
+  bad "CDT-535 ack: rc=$C_RC inbox=$(find "$STATE_ROOT/spool/main/inbox" -name '*.json' 2>/dev/null | wc -l | tr -d ' ') consumed=$(find "$STATE_ROOT/spool/main/consumed" -name '*.json' 2>/dev/null | wc -l | tr -d ' ')"
+fi
+run_cli "$INTERCOM" read --sid main --ack
+if [ "$C_RC" -eq 0 ] && [ -z "$C_OUT" ]; then
+  ok "CDT-535 read --ack is idempotent (empty inbox: rc 0, no output)"
+else
+  bad "CDT-535 ack-idempotent: rc=$C_RC out=[$C_OUT] err=$C_ERR"
+fi
+
+# --sid override, empty inbox, unknown flag.
+fresh_case
+seed_token
+mkdir -m 700 -p "$STATE_ROOT/spool/other/inbox"
+printf '%s\n' '{"ts": 1, "sid": "other", "dir": "in", "kind": "message", "text": "for other", "from_id": 1, "update_id": 21, "thread_id": 0}' > "$STATE_ROOT/spool/other/inbox/0000000001_21.json"
+run_cli "$INTERCOM" read --sid other
+if [ "$C_RC" -eq 0 ] && [ "$C_OUT" = "qid=21 kind=message
+for other" ]; then
+  ok "CDT-535 read --sid override prints only that sid's inbox"
+else
+  bad "CDT-535 read --sid: rc=$C_RC out=[$C_OUT] err=$C_ERR"
+fi
+run_cli "$INTERCOM" read --sid empty-sid
+if [ "$C_RC" -eq 0 ] && [ -z "$C_OUT" ]; then
+  ok "CDT-535 read on an empty inbox exits 0 with no output"
+else
+  bad "CDT-535 read empty: rc=$C_RC out=[$C_OUT] err=$C_ERR"
+fi
+run_cli "$INTERCOM" read --bogus
+[ "$C_RC" -eq 2 ] && ok "CDT-535 read rejects unknown flags with exit 2" || bad "CDT-535 read flag rc=$C_RC"
+
+# A textless LAST record must not turn the CLI exit into 1.
+fresh_case
+seed_token
+mkdir -m 700 -p "$STATE_ROOT/spool/main/inbox"
+printf '%s\n' '{"ts": 1, "sid": "main", "dir": "in", "kind": "message", "update_id": 41, "thread_id": 0}' > "$STATE_ROOT/spool/main/inbox/0000000001_41.json"
+run_cli "$INTERCOM" read --sid main
+if [ "$C_RC" -eq 0 ] && [ "$C_OUT" = "qid=41 kind=message" ]; then
+  ok "CDT-535 read with a textless last record still exits 0"
+else
+  bad "CDT-535 read textless-last: rc=$C_RC out=[$C_OUT] err=$C_ERR"
+fi
+
+# ---- CDT-535: inbox-watch.sh (session-driven away monitor) -----------------------
+
+WATCHER="$HERE/inbox-watch.sh"
+
+if [ -f "$WATCHER" ]; then
+  out=$(bash -c '. "'"$WATCHER"'"' 2>&1)
+  rc=$?
+  if [ "$rc" -eq 1 ] && printf '%s' "$out" | grep -q 'subprocess CLI'; then
+    ok "CDT-535 inbox-watch refuses to be sourced"
+  else
+    bad "CDT-535 inbox-watch source guard: rc=$rc out=$out"
+  fi
+  # Static surface scan: the monitor never references the bridge, the token
+  # funnel, the sole-consumer lock, or the adapter watermark — not even in
+  # comments (runtime non-contact is asserted below).
+  if grep -Eq 'tg_api|ir_token_read|getUpdates|curl|poller|inbox\.stamp' "$WATCHER"; then
+    bad "CDT-535 inbox-watch references the bridge/token/lock/watermark surface"
+  else
+    ok "CDT-535 inbox-watch static scan: no bridge, token, lock or watermark contact"
+  fi
+else
+  bad "CDT-535 inbox-watch.sh missing"
+fi
+
+# Away off from the start: immediate exit 0, stamp created on first run.
+fresh_case
+seed_token
+mkdir -m 700 -p "$STATE_ROOT/state"
+out=$(bash "$WATCHER" 2>"$ERRF"); rc=$?
+if [ "$rc" -eq 0 ] && [ -z "$out" ] && [ -f "$STATE_ROOT/state/inbox-watch.stamp" ]; then
+  ok "CDT-535 inbox-watch: away off exits 0 immediately and creates the stamp"
+else
+  bad "CDT-535 watch off: rc=$rc out=[$out] stamp=$([ -f "$STATE_ROOT/state/inbox-watch.stamp" ] && echo yes || echo no) err=$(cat "$ERRF")"
+fi
+
+# Away ON + sane away_sid: pre-existing records stay silent; one new-record
+# batch prints the grammar line exactly once; removing away exits 0 promptly.
+fresh_case
+seed_token
+mkdir -m 700 -p "$STATE_ROOT/state" "$STATE_ROOT/spool/main/inbox"
+printf 'main\n' > "$STATE_ROOT/state/away_sid"
+printf 'epoch\n' > "$STATE_ROOT/state/away"
+printf '%s\n' '{"ts": 1, "sid": "main", "dir": "in", "kind": "message", "text": "pre-existing", "from_id": 1, "update_id": 31, "thread_id": 0}' > "$STATE_ROOT/spool/main/inbox/0000000001_31.json"
+sleep 1
+WOUT="$HERMETIC_ROOT/watcher.out"
+: > "$WOUT"
+WATCH_INTERVAL_S=1 bash "$WATCHER" > "$WOUT" 2>"$ERRF" &
+WPID=$!
+sleep 2
+if [ -s "$WOUT" ]; then
+  bad "CDT-535 inbox-watch woke on a pre-existing record: $(cat "$WOUT")"
+else
+  ok "CDT-535 inbox-watch: pre-existing records do not wake"
+fi
+printf '%s\n' '{"ts": 2, "sid": "main", "dir": "in", "kind": "message", "text": "fresh inbound", "from_id": 1, "update_id": 32, "thread_id": 0}' > "$STATE_ROOT/spool/main/inbox/0000000002_32.json"
+printf '%s\n' '{"ts": 3, "sid": "main", "dir": "in", "kind": "message", "text": "fresh inbound 2", "from_id": 1, "update_id": 33, "thread_id": 0}' > "$STATE_ROOT/spool/main/inbox/0000000003_33.json"
+sleep 2
+want_wake="intercom: inbound sid=main path=$STATE_ROOT/spool/main/inbox"
+if [ "$(cat "$WOUT")" = "$want_wake" ]; then
+  ok "CDT-535 inbox-watch: one grammar line per new-record batch (two records, printed once)"
+else
+  bad "CDT-535 inbox-watch wake: got=[$(cat "$WOUT")] want=[$want_wake]"
+fi
+rm -f "$STATE_ROOT/state/away"
+wait "$WPID"; WRC=$?
+if [ "$WRC" -eq 0 ]; then
+  ok "CDT-535 inbox-watch: removing state/away exits 0 promptly"
+else
+  bad "CDT-535 inbox-watch exit: rc=$WRC err=$(cat "$ERRF")"
+fi
+if [ ! -s "$ARGV_LOG" ] && [ ! -s "$CALLS_LOG" ] \
+  && [ ! -e "$STATE_ROOT/state/poller.lock" ] \
+  && [ ! -e "$STATE_ROOT/state/inbox.stamp" ] \
+  && ! grep -qF "$TEST_TOKEN" "$WOUT" && ! grep -qF "$SENTINEL" "$WOUT"; then
+  ok "CDT-535 inbox-watch: zero argv activity, no poller.lock, no inbox.stamp, token-free"
+else
+  bad "CDT-535 inbox-watch surface: argv=[$(cat "$ARGV_LOG" 2>/dev/null)] calls=[$(cat "$CALLS_LOG" 2>/dev/null)] lock=$([ -e "$STATE_ROOT/state/poller.lock" ] && echo yes || echo no) stamp=$([ -e "$STATE_ROOT/state/inbox.stamp" ] && echo yes || echo no)"
+fi
+
+# Away ON + insane away_sid: exit 0 silently, no loop, no wake.
+fresh_case
+seed_token
+mkdir -m 700 -p "$STATE_ROOT/state"
+printf 'epoch\n' > "$STATE_ROOT/state/away"
+printf 'not a sid!\n' > "$STATE_ROOT/state/away_sid"
+out=$(bash "$WATCHER" 2>"$ERRF"); rc=$?
+if [ "$rc" -eq 0 ] && [ -z "$out" ]; then
+  ok "CDT-535 inbox-watch: insane away_sid exits 0 silently"
+else
+  bad "CDT-535 watch insane: rc=$rc out=[$out] err=$(cat "$ERRF")"
+fi
+
+# Away ON + away_sid carrying internal whitespace: the reader trims edges
+# only, so "walkie talkie" fails open — exit 0 silently, no phantom spool dir.
+fresh_case
+seed_token
+mkdir -m 700 -p "$STATE_ROOT/state"
+printf 'epoch\n' > "$STATE_ROOT/state/away"
+printf 'walkie talkie\n' > "$STATE_ROOT/state/away_sid"
+out=$(bash "$WATCHER" 2>"$ERRF"); rc=$?
+if [ "$rc" -eq 0 ] && [ -z "$out" ] && [ ! -d "$STATE_ROOT/spool/walkietalkie" ]; then
+  ok "CDT-535 inbox-watch: corrupt away_sid (internal whitespace) exits 0 silently"
+else
+  bad "CDT-535 watch corrupt: rc=$rc out=[$out] phantom=$([ -d "$STATE_ROOT/spool/walkietalkie" ] && echo yes || echo no) err=$(cat "$ERRF")"
+fi
 
 # ---- AC5: /setup slack is a zero-write stub --------------------------------------
 
@@ -1363,18 +1605,19 @@ DOC_IC="$PLUGIN_ROOT/skills/doctor/checks/intercom.sh"
 DAEMON_SH="$HERE/daemon.sh"
 ALPINE_DIGEST='sha256:ce64758a109eb420d874a118f87920e625e12d3634e03b4a5573fd9f6e5d3507'
 
-# AC3: watch/intercom stay byte-stable vs origin/master (additive daemon only).
-# poller.sh left the frozen set in CDT-528 (spec'd longread materialize change).
+# AC3: watch.sh stays byte-stable vs origin/master (additive daemon only).
+# intercom.sh left the frozen set in CDT-535 (spec'd `read` verb + away_sid);
+# poller.sh left it in CDT-528 (spec'd longread materialize change).
 if git -C "$PLUGIN_ROOT" rev-parse --is-inside-work-tree >/dev/null 2>&1 \
   && git -C "$PLUGIN_ROOT" rev-parse --verify origin/master >/dev/null 2>&1; then
   if git -C "$PLUGIN_ROOT" diff --quiet origin/master -- \
-    skills/intercom/watch.sh skills/intercom/intercom.sh; then
-    ok "CDT-509 AC3 watch.sh intercom.sh 0-diff"
+    skills/intercom/watch.sh; then
+    ok "CDT-509 AC3 watch.sh 0-diff"
   else
-    bad "CDT-509 AC3 watch.sh intercom.sh drifted vs origin/master"
+    bad "CDT-509 AC3 watch.sh drifted vs origin/master"
   fi
 else
-  ok "CDT-509 AC3 watch.sh intercom.sh 0-diff"
+  ok "CDT-509 AC3 watch.sh 0-diff"
 fi
 
 if [ -f "$DAEMON_SH" ] && ! grep -q 'topics.json' "$DAEMON_SH"; then

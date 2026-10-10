@@ -1,7 +1,7 @@
 ---
 name: intercom
 description: >
-  Intercom spool protocol (SPEC-038). The intercom CLI verbs (ask/send/away),
+  Intercom spool protocol (SPEC-038). The intercom CLI verbs (ask/send/read/away),
   the per-session spool layout, the record and heartbeat file formats, the
   tg_api token funnel shared by poller.sh, watch.sh, daemon.sh,
   start-daemon.sh, and setup-telegram.sh, plus the phase-2 compose sidecar.
@@ -39,8 +39,15 @@ bash "$INTERCOM" ask "Which staging tag is live?"
   The poller escalates unanswered questions (§ Escalation in the spec).
 - `send [--sid S] [--summary T] [--file P] TEXT` — write one outbox record;
   print its path. No network. The poller drains outbox to Telegram.
+- `read [--sid S] [--ack]` — print `spool/<sid>/inbox/` records in filename
+  order: one `qid=<id> kind=<kind>` line per record (`qid` falls back to
+  `update_id`) plus the text body. `--ack` moves each printed record to
+  `spool/<sid>/consumed/` (original filename preserved) and is idempotent;
+  without `--ack` the read is non-destructive. No network (CDT-535).
 - `away [on|off|status]` — toggle or read `state/away`; print `away: on` or
-  `away: off`. Bare `away` means `status`. No network.
+  `away: off`. Bare `away` means `status`. `on` also pins `state/away_sid`
+  to the resolved session sid and exits 1 (writing no state) when the sid is
+  unresolvable. No network.
 - `help` — usage on stdout.
 
 Exit codes: `0` success, `1` operational failure (missing tool, bad `--file`,
@@ -78,13 +85,16 @@ State is box-level only — never inside the repo (AC23).
     poller.lock                  flock target
     seen.tsv                     "update_id<TAB>epoch" dedupe window, prune > 1000
     away                         absent = off; present = on
+    away_sid                     away endpoint sid, bare sid (CDT-535, advisory)
     inbox.stamp                  adapter mtime watermark for new inbox files
+    inbox-watch.stamp            session monitor watermark (CDT-535; never inbox.stamp)
     last_wake_exit               adapter: last non-{0,75} poller exit that already woke
   spool/<sid>/
     inbox/                       inbound JSON for the session
     outbox/                      outbound JSON the poller drains
     pending/                     <qid>.json pending questions
     answered/                    answered questions (audit)
+    consumed/                    inbox records drained by `read --ack` (CDT-535)
 ```
 
 `common.sh` reads `config.json` but never creates it — `/setup telegram`
@@ -94,15 +104,33 @@ example `concise_threshold` 1024).
 ## Inbound routing (poller)
 
 The poller resolves one sid per allowlisted update. First hit wins
-(CDT-529):
+(CDT-529 + CDT-535):
 
-1. Plain chat (no `thread_id`) → `default_session`. Never re-route plain
-   chat to a session.
-2. `thread_id` mapped to an active sid (≥1 unanswered `pending/`
-   question) → that sid.
-3. Unmapped or inactive thread → the single active session, else
+1. Plain chat (no `thread_id`) → `away_sid` while away is ON with a sane
+   `state/away_sid`, else `default_session`. Never re-route plain chat to
+   an orchestrating session.
+2. `thread_id` mapped to a sid → that sid **always** (topic-sticky,
+   CDT-535): pending presence no longer gates a map hit, so a mapped
+   thread with zero unanswered pending still lands in its own sid's
+   inbox. The `general` entry still resolves to `default_session`.
+3. Away ON + sane `away_sid`: the general topic and unmapped thread ids
+   route to `away_sid` (mapped topics are never stolen).
+4. Unmapped thread (map lookup empty) → the single active session, else
    `default_session` plus one stderr warn naming the thread id. This
-   supersedes the CDT-512-C3 zero-artifacts ignore for unmapped threads.
+   supersedes the CDT-512-C3 zero-artifacts ignore for unmapped threads;
+   the warn fires only for genuinely unmapped threads.
+
+## Away pickup protocol
+
+While away is ON, each session turn runs `intercom read --ack` and
+replies via `send`/`ask`. Away routing sends walkie-talkie traffic
+(plain chat, the general topic, unmapped threads) to `state/away_sid`
+(CDT-535): `away on` pins it to the session's sid, `ask`/`send` refresh
+it while away is ON, `away off` keeps it, and the phone `/away` path
+never writes it. `skills/intercom/inbox-watch.sh` is the optional
+session-driven monitor: run it in the background while away to print the
+wake grammar on new inbox records (it stamps `state/inbox-watch.stamp`
+and touches no other adapter or poller state).
 
 ## File formats
 
@@ -135,7 +163,10 @@ Heartbeat: one line, integer epoch seconds, written by atomically replacing
 the file. Readers compute staleness from the file mtime, not the content
 (`now - mtime > stale_heartbeat_s`). The CLI never touches it.
 
-`state/away` holds the epoch when written; presence is the signal. `seen.tsv`
+`state/away` holds the epoch when written; presence is the signal.
+`state/away_sid` (CDT-535) holds the bare away endpoint sid — written by CLI
+`away on` and refreshed by `ask`/`send` while away is ON; the phone path
+never writes it. `seen.tsv`
 rows are `update_id<TAB>epoch`; keep at most 1000. All writes are tmp-plus-rename
 (`ir_record_tmp` + `ir_record_publish`), never partial in place.
 

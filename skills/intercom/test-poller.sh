@@ -534,11 +534,19 @@ else
   bad "AC14 not-due: sends=$(calls_count sendMessage)"
 fi
 
+run_cli_env() { # ENV=VAL SCRIPT ARG... — like test.sh's helper (suite-local copy)
+  local envs="$1"
+  shift
+  C_OUT=$(env "$envs" bash "$@" 2>"$ERRF")
+  C_RC=$?
+  C_ERR=$(cat "$ERRF")
+}
+
 # ---- AC19/AC20: away ON escalates immediately via the CLI-written flag --------------
 
 seed_paired "197372681"
 put_pending "main" "q_away" "urgent question" "$(date +%s)"
-run_cli "$INTERCOM" away on
+run_cli_env "INTERCOM_SID=main" "$INTERCOM" away on
 [ "$C_RC" -eq 0 ] || bad "away on via CLI failed: $C_ERR"
 ok_empty_result
 run_poller
@@ -619,7 +627,7 @@ fi
 # ---- AC18: away ON keeps draining the outbox every cycle ----------------------------
 
 seed_paired "197372681"
-run_cli "$INTERCOM" away on
+run_cli_env "INTERCOM_SID=main" "$INTERCOM" away on
 put_outbox "main" "away status update"
 ok_empty_result
 run_poller
@@ -687,22 +695,22 @@ else
   bad "CDT-512-C1 inbound one: rc=$W_RC out=[$W_OUT] want=[$want]"
 fi
 
-# CDT-529 supersedes the old mapped-always rule: sess-a/sess-b are mapped but
-# inactive (no unanswered pending), so both updates fall back to default_session.
+# CDT-535 sticky: sess-a/sess-b are mapped with zero unanswered pending, so
+# both updates route to their own sids — never default_session.
 seed_paired "197372681"
 cfg_edit "$STATE_ROOT/topics.json" '.["sess-a"] = {thread_id: 201, title: "sess-a"} | .["sess-b"] = {thread_id: 202, title: "sess-b"}'
 put_resp "getUpdates" "$(result_body \
   "$(upd_msg 300 197372681 "for a secret" 201)" \
   "$(upd_msg 301 197372681 "for b secret" 202)")"
 run_watch
-want="intercom: inbound sid=main path=$STATE_ROOT/spool/main/inbox"
+want="intercom: inbound sid=sess-a,sess-b path=$STATE_ROOT/spool/sess-a/inbox $STATE_ROOT/spool/sess-b/inbox"
 if [ "$W_RC" -eq 0 ] && [ "$W_OUT" = "$want" ] \
-  && [ "$(inbox_n main)" = "2" ] \
-  && [ "$(inbox_n sess-a)" = "0" ] && [ "$(inbox_n sess-b)" = "0" ] \
+  && [ "$(inbox_n sess-a)" = "1" ] && [ "$(inbox_n sess-b)" = "1" ] \
+  && [ "$(inbox_n main)" = "0" ] \
   && ! printf '%s' "$W_OUT" | grep -q 'secret'; then
-  ok "CDT-512-C1 (CDT-529 AC5/AC3) inbound two sids: inactive mapped topics fall back to default_session, no body dump"
+  ok "CDT-512-C1 (CDT-535 sticky) inbound two sids: mapped topics route to their own sid with zero pending, no body dump"
 else
-  bad "CDT-512-C1 inbound two: rc=$W_RC out=[$W_OUT] want=[$want]"
+  bad "CDT-512-C1 inbound two: rc=$W_RC out=[$W_OUT] want=[$want] a=$(inbox_n sess-a) b=$(inbox_n sess-b) main=$(inbox_n main)"
 fi
 
 # pre-existing inbox does not wake (stamp created first)
@@ -960,31 +968,150 @@ else
   bad "CDT-529 AC3 two: rc=$P_RC main=$(inbox_n main) warns=$warn_lines err=$P_ERR"
 fi
 
-# AC5 zero active: a mapped-but-inactive sid falls back per AC3 (default + warn)
+# CDT-535 sticky (supersedes the CDT-529 AC5 fallback): a mapped thread with
+# zero pending routes to its own sid — no warn, no default_session.
 seed_paired "197372681"
 cfg_edit "$STATE_ROOT/topics.json" '.["sess-a"] = {thread_id: 201, title: "sess-a"}'
-put_resp "getUpdates" "$(result_body "$(upd_msg 300 197372681 "to a stale topic" 201)")"
+put_resp "getUpdates" "$(result_body "$(upd_msg 300 197372681 "to a quiet topic" 201)")"
 run_poller
 warn_lines=$(printf '%s\n' "$P_ERR" | grep -c '^poller: thread 201 ' || true)
-if [ "$P_RC" -eq 0 ] && [ "$(inbox_n main)" = "1" ] && [ "$warn_lines" -eq 1 ] \
-  && [ "$(inbox_n sess-a)" = "0" ]; then
-  ok "CDT-529 AC5 mapped-but-inactive sid: default_session + one warn, never silent"
+if [ "$P_RC" -eq 0 ] && [ "$(inbox_n sess-a)" = "1" ] && [ "$(inbox_n main)" = "0" ] \
+  && [ "$warn_lines" -eq 0 ]; then
+  ok "CDT-535 sticky: mapped sid routes to its own inbox with zero pending (no warn, no default)"
 else
-  bad "CDT-529 AC5 inactive: rc=$P_RC main=$(inbox_n main) warns=$warn_lines err=$P_ERR"
+  bad "CDT-535 sticky zero-pending: rc=$P_RC a=$(inbox_n sess-a) main=$(inbox_n main) warns=$warn_lines err=$P_ERR"
 fi
 
-# AC5 + AC2: an inactive mapped thread follows the single active session (no warn)
+# CDT-529 AC5 theft regression (CDT-535): an inactive mapped thread is NOT
+# stolen by the single-active fallback — it routes to its own sid, silently.
 seed_paired "197372681"
 cfg_edit "$STATE_ROOT/topics.json" '.["sess-a"] = {thread_id: 201, title: "sess-a"}'
 put_pending "other" "q_o2" "other active" "$(date +%s)"
 put_resp "getUpdates" "$(result_body "$(upd_msg 300 197372681 "to a stale topic" 201)")"
 run_poller
-if [ "$P_RC" -eq 0 ] && [ "$(inbox_n other)" = "1" ] && [ "$(inbox_n main)" = "0" ] \
-  && [ "$(inbox_n sess-a)" = "0" ] \
+if [ "$P_RC" -eq 0 ] && [ "$(inbox_n sess-a)" = "1" ] && [ "$(inbox_n other)" = "0" ] \
+  && [ "$(inbox_n main)" = "0" ] \
   && ! printf '%s' "$P_ERR" | grep -q "unmapped"; then
-  ok "CDT-529 AC5 inactive mapped thread follows the single active session"
+  ok "CDT-529 AC5 theft regression: inactive mapped thread routes to its own sid, not the single active session"
 else
-  bad "CDT-529 AC5 active-fallback: rc=$P_RC other=$(inbox_n other) main=$(inbox_n main) err=$P_ERR"
+  bad "CDT-529 AC5 theft: rc=$P_RC a=$(inbox_n sess-a) other=$(inbox_n other) main=$(inbox_n main) err=$P_ERR"
+fi
+
+# ---- CDT-535: away endpoint routing (rule b5) and phone-side non-clobber ---------
+
+# away ON + sane away_sid: plain chat, the general topic, and an unmapped
+# thread all route to the away endpoint in one cycle.
+seed_paired "197372681"
+run_cli_env "INTERCOM_SID=walkie" "$INTERCOM" away on
+[ "$C_RC" -eq 0 ] || bad "CDT-535 away on setup failed: $C_ERR"
+put_resp "getUpdates" "$(result_body \
+  "$(upd_msg 300 197372681 "plain while away")" \
+  "$(upd_msg 301 197372681 "general while away" 100)" \
+  "$(upd_msg 302 197372681 "unmapped while away" 999)")"
+run_poller
+if [ "$P_RC" -eq 0 ] && [ "$(inbox_n walkie)" = "3" ] && [ "$(inbox_n main)" = "0" ] \
+  && [ "$(offset_val)" = "303" ]; then
+  ok "CDT-535 away ON + sane away_sid: plain/general/unmapped route to the away endpoint"
+else
+  bad "CDT-535 away route: rc=$P_RC walkie=$(inbox_n walkie) main=$(inbox_n main) err=$P_ERR"
+fi
+
+# (b5) beats the (c) single-active fallback: away ON + sane away_sid routes an
+# unmapped thread to the away endpoint even with exactly one active session.
+seed_paired "197372681"
+run_cli_env "INTERCOM_SID=walkie" "$INTERCOM" away on
+put_pending "solo" "q_b5c" "solo active" "$(date +%s)" true
+put_resp "getUpdates" "$(result_body "$(upd_msg 300 197372681 "unmapped beats solo" 999)")"
+run_poller
+if [ "$P_RC" -eq 0 ] && [ "$(inbox_n walkie)" = "1" ] && [ "$(inbox_n solo)" = "0" ] \
+  && [ "$(inbox_n main)" = "0" ]; then
+  ok "CDT-535 (b5) beats (c): unmapped thread routes to away_sid with exactly one active session"
+else
+  bad "CDT-535 b5-vs-c: rc=$P_RC walkie=$(inbox_n walkie) solo=$(inbox_n solo) main=$(inbox_n main) err=$P_ERR"
+fi
+
+# away ON: a mapped session topic is never stolen by the away rule (b5 sits
+# after the map hit).
+seed_paired "197372681"
+cfg_edit "$STATE_ROOT/topics.json" '.["sess-a"] = {thread_id: 201, title: "sess-a"}'
+run_cli_env "INTERCOM_SID=walkie" "$INTERCOM" away on
+put_resp "getUpdates" "$(result_body "$(upd_msg 300 197372681 "mapped while away" 201)")"
+run_poller
+if [ "$P_RC" -eq 0 ] && [ "$(inbox_n sess-a)" = "1" ] && [ "$(inbox_n walkie)" = "0" ] \
+  && [ "$(inbox_n main)" = "0" ]; then
+  ok "CDT-535 theft guarantee: mapped topic routes to its own sid even with away ON"
+else
+  bad "CDT-535 mapped-vs-away: rc=$P_RC a=$(inbox_n sess-a) walkie=$(inbox_n walkie) err=$P_ERR"
+fi
+
+# away ON + absent away_sid fails open: plain chat → default_session, an
+# unmapped thread → the single active session.
+seed_paired "197372681"
+run_cli_env "INTERCOM_SID=walkie" "$INTERCOM" away on
+rm -f "$STATE_ROOT/state/away_sid"
+put_pending "solo" "q_s535" "solo active" "$(date +%s)" true
+put_resp "getUpdates" "$(result_body \
+  "$(upd_msg 300 197372681 "plain, no endpoint")" \
+  "$(upd_msg 301 197372681 "unmapped, no endpoint" 999)")"
+run_poller
+if [ "$P_RC" -eq 0 ] && [ "$(inbox_n main)" = "1" ] && [ "$(inbox_n solo)" = "1" ] \
+  && [ "$(inbox_n walkie)" = "0" ]; then
+  ok "CDT-535 absent away_sid fails open to (a)/(c): plain → default, unmapped → solo"
+else
+  bad "CDT-535 absent: rc=$P_RC main=$(inbox_n main) solo=$(inbox_n solo) walkie=$(inbox_n walkie) err=$P_ERR"
+fi
+
+# away ON + insane away_sid fails open the same way — never a misroute.
+seed_paired "197372681"
+printf 'not a sid!\n' > "$STATE_ROOT/state/away_sid"
+printf 'epoch\n' > "$STATE_ROOT/state/away"
+put_resp "getUpdates" "$(result_body "$(upd_msg 300 197372681 "plain, insane endpoint")")"
+run_poller
+if [ "$P_RC" -eq 0 ] && [ "$(inbox_n main)" = "1" ] && [ "$(offset_val)" = "301" ]; then
+  ok "CDT-535 insane away_sid fails open to default_session"
+else
+  bad "CDT-535 insane: rc=$P_RC main=$(inbox_n main) err=$P_ERR"
+fi
+
+# Corrupt away_sid content with internal whitespace fails open — the reader
+# trims edges only, so "walkie talkie" never collapses into a phantom sid.
+seed_paired "197372681"
+printf 'epoch\n' > "$STATE_ROOT/state/away"
+printf 'walkie talkie\n' > "$STATE_ROOT/state/away_sid"
+put_resp "getUpdates" "$(result_body "$(upd_msg 300 197372681 "plain, corrupted endpoint")")"
+run_poller
+if [ "$P_RC" -eq 0 ] && [ "$(inbox_n main)" = "1" ] && [ "$(offset_val)" = "301" ] \
+  && [ ! -d "$STATE_ROOT/spool/walkietalkie" ]; then
+  ok "CDT-535 corrupt away_sid (internal whitespace) fails open — no phantom routing"
+else
+  bad "CDT-535 corrupt: rc=$P_RC main=$(inbox_n main) phantom=$([ -d "$STATE_ROOT/spool/walkietalkie" ] && echo yes || echo no) err=$P_ERR"
+fi
+
+# Edge whitespace is trimmed, not stripped: "  walkie  " routes to walkie.
+seed_paired "197372681"
+printf 'epoch\n' > "$STATE_ROOT/state/away"
+printf '  walkie  \n' > "$STATE_ROOT/state/away_sid"
+put_resp "getUpdates" "$(result_body "$(upd_msg 300 197372681 "plain, padded endpoint")")"
+run_poller
+if [ "$P_RC" -eq 0 ] && [ "$(inbox_n walkie)" = "1" ] && [ "$(inbox_n main)" = "0" ]; then
+  ok "CDT-535 edge-whitespace away_sid is trimmed and routes to the away endpoint"
+else
+  bad "CDT-535 padded: rc=$P_RC walkie=$(inbox_n walkie) main=$(inbox_n main) err=$P_ERR"
+fi
+
+# phone /away toggles the flag ONLY: it never writes, and /afk never removes,
+# state/away_sid (CDT-535 AC3).
+seed_paired "197372681"
+printf 'walkie\n' > "$STATE_ROOT/state/away_sid"
+put_resp "getUpdates" "$(result_body "$(upd_msg 100 197372681 "/away")")"
+run_poller
+put_resp "getUpdates" "$(result_body "$(upd_msg 101 197372681 "/afk")")"
+run_poller
+if [ "$P_RC" -eq 0 ] && [ ! -f "$STATE_ROOT/state/away" ] \
+  && [ "$(tr -d ' \t\r\n' < "$STATE_ROOT/state/away_sid" 2>/dev/null)" = "walkie" ]; then
+  ok "CDT-535 phone /away//afk toggle the flag only and never touch away_sid"
+else
+  bad "CDT-535 phone: rc=$P_RC away=$([ -f "$STATE_ROOT/state/away" ] && echo yes || echo no) sid=$(cat "$STATE_ROOT/state/away_sid" 2>/dev/null)"
 fi
 
 # ---- CDT-529: AC7 legacy topics.json, Q3 correlation miss, AC8 failure path ------

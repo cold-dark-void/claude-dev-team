@@ -45,6 +45,7 @@ HEARTBEAT_FILE="$STATE_DIR/heartbeat"
 SEEN_FILE="$STATE_DIR/seen.tsv"
 TOPIC_REJECT_FILE="$STATE_DIR/topic-reject.tsv"
 AWAY_FILE="$STATE_DIR/away"
+AWAY_SID_FILE="$STATE_DIR/away_sid"
 TOPICS_FILE="$ROOT/topics.json"
 CONFIG_FILE="$ROOT/config.json"
 
@@ -535,19 +536,36 @@ ir_active_sessions() {
   printf '%s\n' "$out"
 }
 
+# ir_away_sid — prints the away endpoint sid (CDT-535) when away is ON and
+# state/away_sid holds a sane bare sid; rc 1 otherwise. Read-only probe.
+ir_away_sid() {
+  [ -f "$AWAY_FILE" ] || return 1
+  local s
+  s=$(ir_away_sid_read) || return 1
+  ir_sane_sid "$s" || return 1
+  printf '%s\n' "$s"
+}
+
 # ir_route_inbound THREAD_ID — prints the sid; rc 1 = ignore-with-zero-
 # artifacts (only an unusable default_session or an insane final sid).
-# CDT-529 resolution order, first hit wins:
+# CDT-529 resolution order + CDT-535, first hit wins:
 #   (a) no thread_id (plain chat) → default_session; one Q3 warn when a
 #       non-default session holds an unanswered question (correlation miss);
-#       plain chat is never re-routed to a session.
-#   (b) thread mapped to an active session → that sid (AC1).
-#   (c) thread unmapped, or mapped to a sid with no unanswered pending →
-#       the single active session (AC2); zero or ≥2 active → default_session
-#       with one warn naming the thread id (AC3). Supersedes the
-#       CDT-512-C3 zero-artifacts ignore for unmapped thread ids.
+#       plain chat is never re-routed to an orchestrating session.
+#   (b) thread mapped to a sid → that sid unconditionally (topic-sticky,
+#       CDT-535): pending presence no longer gates a map hit, so a mapped
+#       thread with zero unanswered pending still routes to its own sid
+#       (supersedes the CDT-529 AC5 mapped-but-inactive fallback). The
+#       `general` entry still resolves to default_session.
+#   (b5) away ON + sane state/away_sid: plain chat, the general topic, and
+#       an unmapped thread id — everything that would otherwise land on
+#       default_session or the (c) fallback — route to the away endpoint
+#       (CDT-535). Unreachable for a mapped session topic, so mapped
+#       threads are never stolen.
+#   (c) thread unmapped → the single active session (AC2); zero or ≥2
+#       active → default_session with one warn naming the thread id (AC3).
 ir_route_inbound() {
-  local tid="$1" sid="" active s n_active=0
+  local tid="$1" sid="" active s n_active=0 away_sid=""
   if [ "$DEFAULT_SESSION_OK" -ne 1 ]; then
     warn "default_session unusable; ignoring inbound"
     return 1
@@ -555,13 +573,19 @@ ir_route_inbound() {
   active=$(ir_active_sessions) || active=""
   set -- $active
   n_active=$#
+  away_sid=$(ir_away_sid) || away_sid=""
   if [ -z "$tid" ]; then
-    for s in $active; do
-      [ "$s" != "$DEFAULT_SESSION" ] || continue
-      warn "plain chat arrived while session $s has an unanswered question (correlation miss)"
-      break
-    done
-    sid=$DEFAULT_SESSION
+    if [ -n "$away_sid" ]; then
+      # (b5) away ON: the walkie-talkie lands on the away endpoint.
+      sid=$away_sid
+    else
+      for s in $active; do
+        [ "$s" != "$DEFAULT_SESSION" ] || continue
+        warn "plain chat arrived while session $s has an unanswered question (correlation miss)"
+        break
+      done
+      sid=$DEFAULT_SESSION
+    fi
   else
     if [ -f "$TOPICS_FILE" ]; then
       sid=$(jq -r --arg tid "$tid" \
@@ -569,21 +593,30 @@ ir_route_inbound() {
         "$TOPICS_FILE" 2>/dev/null | head -n 1) || sid=""
     fi
     if [ "$sid" = "general" ]; then
-      sid=$DEFAULT_SESSION
+      # (b5) the walkie-talkie lands on the away endpoint when away is ON.
+      if [ -n "$away_sid" ]; then
+        sid=$away_sid
+      else
+        sid=$DEFAULT_SESSION
+      fi
     elif [ -n "$sid" ]; then
-      # (b) mapped to an active session (AC1); an inactive mapped sid falls
-      # through to (c) (AC5).
-      case " $active " in
-        *" $sid "*) printf '%s\n' "$sid" || return 1; return 0 ;;
-      esac
+      # (b) topic-sticky (CDT-535): a map hit routes to its sid always;
+      # pending presence no longer gates it (supersedes CDT-529 AC5).
+      if ir_sane_sid "$sid"; then
+        printf '%s\n' "$sid" || return 1
+        return 0
+      fi
       sid=""
+    elif [ -n "$away_sid" ]; then
+      # (b5) unmapped thread with away ON → the away endpoint.
+      sid=$away_sid
     fi
     if [ -z "$sid" ]; then
       if [ "$n_active" -eq 1 ]; then
         sid=${active%% *}
       else
         sid=$DEFAULT_SESSION
-        warn "thread $tid is unmapped or its session is inactive; $n_active active sessions — routed to $DEFAULT_SESSION"
+        warn "thread $tid is unmapped; $n_active active sessions — routed to $DEFAULT_SESSION"
       fi
     fi
   fi
@@ -690,7 +723,9 @@ ir_process_update() {
 
   # Reserved phone commands: toggle state/away, confirm in place, relay
   # nothing (AC17). The optional @botname suffix is how Telegram renders
-  # commands in groups.
+  # commands in groups. Phone-side toggles touch the flag ONLY: state/away_sid
+  # is CLI-owned (written by `intercom away on`, refreshed by ask/send) and is
+  # never written or removed here (CDT-535).
   if [[ "$text" =~ ^/(away|afk)(@[A-Za-z0-9_]*)?$ ]]; then
     if [ -f "$AWAY_FILE" ]; then
       rm -f "$AWAY_FILE" || warn "cannot remove $AWAY_FILE"
