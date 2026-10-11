@@ -219,6 +219,15 @@ elif [ "$EMBED_MODE" = "remote" ] && \
       ;;
   esac
 
+  # Qwen3 embedding models score higher when queries carry an instruction
+  # prefix; documents are embedded without one (skills/memory-store/embed-one.sh),
+  # so this prefix is applied on the recall side only.
+  case "$EMBED_MODEL" in
+    qwen3-embedding*)
+      EMBED_QUERY=$(printf 'Instruct: Given a search query, retrieve relevant memories that help answer the query\nQuery: %s' "$QUERY") ;;
+    *) EMBED_QUERY=$QUERY ;;
+  esac
+
   # Auth header via config file so the key is not on the curl argv.
   CURL_ARGS=(-sS --fail --connect-timeout 5 --max-time 30 --proto '=https,http' "$EMBED_URL" -H "Content-Type: application/json")
   CURL_CONFIG=""
@@ -230,7 +239,7 @@ elif [ "$EMBED_MODE" = "remote" ] && \
     trap 'rm -f -- "$CURL_CONFIG"' EXIT
   fi
 
-  BODY="{\"input\":[$(printf '%s' "$QUERY" | jq -Rs .)]}"
+  BODY="{\"input\":[$(printf '%s' "$EMBED_QUERY" | jq -Rs .)]}"
   BODY=$(printf '%s' "$BODY" | jq --arg m "$EMBED_MODEL" '. + {model: $m}')
   CURL_ARGS+=(-d "$BODY")
 
@@ -410,7 +419,9 @@ EOSQL
 - `lembed()` takes a **registered model name**, not a file path. Register the GGUF on the same `sqlite3` connection first: `INSERT INTO temp.lembed_models(name, model) SELECT 'mini', lembed_model_from_file('<gguf path>');`. Then call `lembed('mini', <text>)`. `temp.lembed_models` is per connection.
 - For remote embedding providers, the URL is read from the DB config (`embedding_url`).
   Model: `EMBEDDING_MODEL` env if set, else config `embedding_model`. Optional
-  `EMBEDDING_API_KEY` for authenticated providers.
+  `EMBEDDING_API_KEY` for authenticated providers. Qwen3 embedding models get an
+  instruction prefix on the query only (`Instruct: ...\nQuery: ...`); other models
+  send the raw query.
 - `jq` is required for remote embedding extraction and request building.
 - Vec0 virtual tables (`vec_memories_384`, `vec_memories_768`) are only accessible when
   the sqlite-vec extension is loaded. Always guard vec0 operations with an extension

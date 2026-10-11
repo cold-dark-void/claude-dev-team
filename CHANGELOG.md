@@ -6,6 +6,9 @@ Pre-written headings (release-train M5c, orchestrate version-sync tasks) are kep
 via skip-if-present when `/release` is given an explicit version — do not invent a
 second heading for the same version.
 
+### v1.22.3
+- **memory-recall: Qwen3 query instruction prefix** — `skills/memory-recall/SKILL.md` Step 4 (remote mode) now sends queries for `qwen3-embedding*` models with the `Instruct: ...\nQuery: ...` prefix Qwen3 embedding models are trained on; documents stay unprefixed (matching `embed-one.sh`), and every other model sends raw text. Measured on the 21-case paraphrase eval (`.claude/memory/eval/`): hit@3 17/21 → 21/21, hit@1 12/21 → 14/21.
+
 ### v1.22.2
 - **distill-commit roster accepts hook-written agents** — `skills/memory-store/distill-commit.py` now allows `agent='auto'` and `agent='claude'` in addition to the 7 behavioral agents. Both accumulate tier-0 rows via hooks/auto-capture, and the old roster check hard-rejected them (exit 64), forcing distillers onto hand-rolled SQL fallbacks. Unknown agents are still rejected; commit/rollback semantics unchanged (26/26 in `test-distill-validate.sh`).
 
