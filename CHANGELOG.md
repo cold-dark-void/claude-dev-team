@@ -6,6 +6,9 @@ Pre-written headings (release-train M5c, orchestrate version-sync tasks) are kep
 via skip-if-present when `/release` is given an explicit version — do not invent a
 second heading for the same version.
 
+### v1.22.4
+- **Step 8 fan-out fails closed on a failed ready-set (orchestrate-ready-set-rc-unchecked)** — the DAG-aware fan-out fence in `skills/orchestrate/steps/08-execute.md` now checks `dag-lib.sh ready-set`'s exit code and halts Step 8 with an explicit error instead of silently spawning on a possibly incomplete READY set (rc 2 = corrupt/unreadable task store per SPEC-017). rc 0 with an empty set stays "nothing ready"; per-file corrupt-skip warnings stay rc 0 (AC J).
+
 ### v1.22.3
 - **memory-recall: Qwen3 query instruction prefix** — `skills/memory-recall/SKILL.md` Step 4 (remote mode) now sends queries for `qwen3-embedding*` models with the `Instruct: ...\nQuery: ...` prefix Qwen3 embedding models are trained on; documents stay unprefixed (matching `embed-one.sh`), and every other model sends raw text. Measured on the 21-case paraphrase eval (`.claude/memory/eval/`): hit@3 17/21 → 21/21, hit@1 12/21 → 14/21.
 
