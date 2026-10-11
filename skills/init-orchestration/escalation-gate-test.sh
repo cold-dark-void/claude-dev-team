@@ -34,7 +34,14 @@ SKILL="$SCRIPT_DIR/SKILL.md"
 [ -f "$SKILL" ] || die "SKILL.md not found at $SKILL"
 
 # ---- Isolated fake repo ($MROOT) + isolated $TMPDIR for latches -------------
+# CDT-534 Q6: under the parallel runner the worker TMPDIR nests inside the
+# worker's .git, and the hook allowlists */.git/* before its out-of-worktree
+# BLOCK — fixture paths must not carry a .git component. Fall back to /tmp
+# (removed by the EXIT trap) when the caller's TMPDIR is nested that way.
 BASE=$(mktemp -d "${TMPDIR:-/tmp}/escgate-harness.XXXXXX") || die "mktemp failed"
+case $BASE in
+  */.git/*) rm -rf "$BASE"; BASE=$(mktemp -d /tmp/escgate-harness.XXXXXX) || die "mktemp failed" ;;
+esac
 BASE=$(realpath "$BASE")
 REPO="$BASE/repo"
 TESTTMP="$BASE/tmp"

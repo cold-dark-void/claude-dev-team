@@ -95,6 +95,10 @@ TMP=$(mktemp -d "${TMPDIR:-/tmp}/pdh-test.XXXXXX")
 # mktemp output, while the stanza's branch-1 emits `pwd` (logical, collapsed) —
 # fixture path literals must be in that same spelling to compare equal.
 TMP=$(CDPATH= cd -- "$TMP" && pwd)
+# CDT-534 Q6: under the parallel runner $TMP nests inside the worker clone, so
+# plugin-dir.sh's show-toplevel tier would win from every $TMP cwd; ceiling git
+# discovery at $TMP so the synthetic-HOME tiers under test are the ones taken.
+export GIT_CEILING_DIRECTORIES="$TMP"
 if [ -z "${TMP:-}" ] || [ ! -d "$TMP" ]; then
   echo "FATAL: mktemp -d failed — refusing to run (every rm -rf below is anchored on \$TMP)" >&2
   exit 70

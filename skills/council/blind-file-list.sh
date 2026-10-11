@@ -20,9 +20,11 @@ filter_excludes() {
     || true
 }
 
-# Fixed-string match. An unescaped regex would treat '.' as any character.
+# Path-component match: drop a segment that is exactly .git (start, middle
+# or end). A fixed-string '.git/' match would also drop x.git/y and
+# foo/.gitbar/x, which do not carry a .git component.
 drop_git() {
-  grep -vF '.git/' || true
+  sed -E '/(^|\/)\.git(\/|$)/d' || true
 }
 
 to_abs() {

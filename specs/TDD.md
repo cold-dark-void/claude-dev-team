@@ -33,7 +33,7 @@
 | SPEC-027 | /incident — DevOps-Led War-Room & Postmortem | DEPRECATED | retired; commands/incident.md and skills/incident/ removed; archived at specs/archive/ (CDT-294) |
 | SPEC-028 | `/fix-ticket` — Premise → Implement → Adversarial Refute | DEPRECATED | superseded by SPEC-014 `ticket` mode (CDT-301); archived at specs/archive/ (CDT-294) |
 | SPEC-029 | Debug Reopen Detector & Multi-Surface Done Gates | ACTIVE | skills/debug/SKILL.md, skills/debug/theme-status.sh, SPEC-014 checklist, .claude/debug/themes/ |
-| SPEC-030 | Smoke Harness and All-Suites Gate | ACTIVE | tools/smoke/run.sh, tools/smoke/smoke.py, tools/smoke/test.sh, tools/smoke/fixtures/, tools/smoke/README.md, tools/run-all-tests.sh, tools/run-all-tests-test.sh, tools/test-quarantine.txt, tests/lib/skip.sh, tests/lib/hermetic.sh, tests/lib/test.sh, .github/workflows/smoke.yml, skills/release/SKILL.md (Steps 4.10 and 4.13 only) |
+| SPEC-030 | Smoke Harness and All-Suites Gate | ACTIVE | tools/smoke/run.sh, tools/smoke/smoke.py, tools/smoke/test.sh, tools/smoke/fixtures/, tools/smoke/README.md, tools/run-all-tests.sh, tools/run-all-tests-test.sh, tools/run-all-tests-pool-test.sh, tools/test-quarantine.txt, tests/lib/skip.sh, tests/lib/hermetic.sh, tests/lib/test.sh, .github/workflows/smoke.yml, skills/release/SKILL.md (Steps 4.10 and 4.13 only), skills/orchestrate/steps/10-qa.md (all-suites invocation only) |
 | SPEC-031 | Escalation Gate & Universal Worktree Isolation | ACTIVE | skills/refactor/SKILL.md (contract home), skills/debug/SKILL.md, skills/review-and-commit/SKILL.md, skills/post-approve-polish/SKILL.md, skills/init-orchestration/SKILL.md (hook template) + check-hook-templates.sh, commands/setup.md, AGENTS.md |
 | SPEC-032 | CI Linter Parity Gate | ACTIVE | .github/workflows/smoke.yml (linter jobs only), skills/skill-lint/SKILL.md (CI-caller note only), skills/docs-drift/SKILL.md (CI-caller note only), skills/release/SKILL.md (referenced, unchanged) |
 | SPEC-033 | Shared Autopilot Policy Contract | ACTIVE | `skills/autopilot/*` (contract home SKILL.md); parse-flags / loc-exclude / append-card / read-cards / self-answer (CDT-223 M15/M16); citers orchestrate/kickoff/epic |
@@ -47,6 +47,7 @@
 
 | Date | Change |
 |------|--------|
+| 2026-10-10 | CDT-534: SPEC-030 R36–R38 opt-in `--jobs` pool; Step 4.13 / ubuntu `all-tests` / light-tier QA pass `--jobs 8`. SPEC-010 pointer updated. |
 | 2026-10-07 | CDT-527: SPEC-038 coverage adds `start-daemon.sh`; `/setup telegram` starts the daemon when Docker is available (`ir_docker_available`). |
 | 2026-10-07 | CDT-509: SPEC-038 coverage adds `daemon.sh`, `docker-compose.yml`, `Dockerfile`, `test-daemon.sh`, doctor `intercom.daemon`, and `docs/runbooks/setup-telegram.md` (phase-2 compose sidecar). |
 | 2026-10-03 | WP 7-A (CDT-294): SPEC-019/027/028 files archived under `specs/archive/` — Status lines kept, spec-lint skips the directory (fixtures-style), TDD rows kept with archive pointers. |

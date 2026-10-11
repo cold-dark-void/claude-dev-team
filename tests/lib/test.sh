@@ -98,18 +98,21 @@ hermetic_init
 echo "ROOT=$HERMETIC_ROOT"
 echo "TMPDIR=$TMPDIR"
 echo "HOME=$HOME"
+echo "CEIL=$GIT_CEILING_DIRECTORIES"
 ')
 RC=$?
 AFTER=$(ls -A "$PARENT" | wc -l)
 ROOTVAL=$(echo "$INFO" | sed -n 's/^ROOT=//p')
 TVAL=$(echo "$INFO" | sed -n 's/^TMPDIR=//p')
 HVAL=$(echo "$INFO" | sed -n 's/^HOME=//p')
+CEILVAL=$(echo "$INFO" | sed -n 's/^CEIL=//p')
 if [ "$RC" -eq 0 ] && [ -n "$ROOTVAL" ] && [ "$TVAL" = "$ROOTVAL/tmp" ] \
-   && [ "$HVAL" = "$ROOTVAL/home" ] && [ "$AFTER" -eq "$BEFORE" ] \
+   && [ "$HVAL" = "$ROOTVAL/home" ] && [ "$CEILVAL" = "$ROOTVAL" ] \
+   && [ "$AFTER" -eq "$BEFORE" ] \
    && [ ! -d "$ROOTVAL" ]; then
   pass
 else
-  fail "hermetic_init exit0: rc=$RC root=$ROOTVAL tmpdir=$TVAL home=$HVAL before=$BEFORE after=$AFTER"
+  fail "hermetic_init exit0: rc=$RC root=$ROOTVAL tmpdir=$TVAL home=$HVAL ceil=$CEILVAL before=$BEFORE after=$AFTER"
 fi
 
 # ---- hermetic_init: root gone after a non-zero exit ------------------------

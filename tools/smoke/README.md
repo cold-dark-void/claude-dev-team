@@ -95,6 +95,7 @@ reports pass, fail, timeout, quarantine and skip.
 bash tools/run-all-tests.sh              # discover and run every suite
 bash tools/run-all-tests.sh --root DIR   # scan and run from DIR instead of the cwd's repo root
 bash tools/run-all-tests.sh --list       # print discovered suite paths, one per line; run nothing
+bash tools/run-all-tests.sh --jobs 8     # run up to 8 suites at once
 bash tools/run-all-tests.sh -h           # usage
 ```
 
@@ -103,8 +104,24 @@ Discovery finds every path whose basename matches `test.sh`, `test-*.sh` or
 excludes any path with a `fixtures`, `.worktrees` or `node_modules` segment,
 and the runner itself.
 
-Each suite runs serially, in sorted order, as `bash <repo-relative-path>`
-with the repository root as its working directory.
+Each suite runs in sorted order as `bash <repo-relative-path>`. With the
+default pool size 1, suites run serially and the working directory is the
+repository root.
+
+### Worker pool (`--jobs`)
+
+Pass `--jobs N` to run up to `N` suites at once. `N` is a positive integer
+or the token `auto`. `auto` uses the processor count, capped at 8. The flag
+overrides the `RUN_ALL_TESTS_JOBS` environment variable, which accepts the
+same values. When you set neither, `N` is 1: the runner runs every suite
+serially. `--jobs 1` and an omitted flag give the same result.
+
+The release gate (`/release` Step 4.13), the light-tier QA gate, and the
+ubuntu `all-tests` CI job pass `--jobs 8`. The macOS CI job stays serial.
+
+When `N` is greater than 1, each suite runs in its own scratch checkout, so
+a suite cannot dirty the checkout the runner scans. See
+`specs/core/SPEC-030-smoke-harness-gate.md` (R36-R38).
 
 ### `RUN_ALL_TESTS_TIMEOUT`
 
@@ -133,13 +150,24 @@ The quarantine file is `tools/test-quarantine.txt` (repo-relative to
 whose first non-blank character is `#` are comments. Every other line is:
 
 ```
-<repo-relative suite path><whitespace><reason>
+<repo-relative suite path><whitespace><scope><whitespace><reason>
 ```
 
-Each reason must name the failing assertion or missing dependency, with a
-file:line or tool name. List only a suite measured red in CI — never copy an
-entry from a seed list, and never list a suite that a dedicated
-`smoke.yml` job already runs.
+The path must match a discovered suite exactly. `<scope>` is `all` or
+`macos`. An `all` entry quarantines the suite on every lane. A `macos`
+entry quarantines it only on the `--platform macos` lane. On the default
+lane the runner validates a `macos` entry and then ignores it, so the
+ubuntu lane runs every discovered suite unquarantined.
+
+The runner exits `64` and names the file and line when a line has no
+scope, an unknown scope, no reason, a path that discovery does not list,
+or a path listed twice.
+
+Each reason must name the failing assertion or the missing dependency, with
+a file:line or tool name. A `macos` reason must name the concrete macOS
+portability cause, for example `bash 3.2 lacks wait -n`. List only a suite
+measured red in CI — never copy an entry from a seed list, and never list a
+suite that a dedicated `smoke.yml` job already runs.
 
 A quarantined suite still runs. A FAIL, TIMEOUT, or working-tree-modified
 outcome is reported as `QUARANTINED` and does not affect the exit code. A
@@ -150,8 +178,10 @@ line, telling the operator to remove the stale entry.
 
 - `0` — no non-quarantined suite failed or timed out.
 - `1` — at least one non-quarantined suite failed or timed out.
-- `64` — usage error: an unknown argument, a `--root` that is not a git work
-  tree, an invalid `RUN_ALL_TESTS_TIMEOUT`, or a malformed quarantine file.
+- `64` — usage error: an unknown argument, a `--root` that is not a directory
+  or not a git work tree, an invalid `RUN_ALL_TESTS_TIMEOUT`, an invalid
+  `--jobs` / `RUN_ALL_TESTS_JOBS`, a bad `--platform` value, or a malformed
+  quarantine file.
 - `77` (per suite, not for the runner as a whole) — the autotools skip
   convention. A suite that exits `77` is reported `SKIP` and never blocks.
 

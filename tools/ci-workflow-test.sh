@@ -135,7 +135,8 @@ check_workflow() {
     fi
   fi
 
-  # --- B5: all-tests job has fetch-depth: 0 (suites read pinned base commits). ---
+  # --- B5: all-tests job has fetch-depth: 0 (suites read pinned base commits)
+  # --- and runs the pool (CDT-534, SPEC-030 R14/R15). ---
   local at_block
   at_block=$(awk '
     /^  all-tests:$/ { on=1; next }
@@ -146,6 +147,8 @@ check_workflow() {
     echo "FAIL: B5: no all-tests job found"
   elif ! printf '%s\n' "$at_block" | grep -qE 'fetch-depth:[[:space:]]*0([[:space:]]|$)'; then
     echo "FAIL: B5: all-tests job missing fetch-depth: 0"
+  elif ! printf '%s\n' "$at_block" | grep -qE 'run:[[:space:]]*bash tools/run-all-tests\.sh --jobs 8[[:space:]]*$'; then
+    echo "FAIL: B5: all-tests job does not run bash tools/run-all-tests.sh --jobs 8"
   fi
 
   # --- B6: the fence-exec job runs the harness (CDT-272). ---
@@ -189,6 +192,8 @@ check_workflow() {
     echo "FAIL: B8: macos job is continue-on-error (required gate per CDT-502)"
   elif ! printf '%s\n' "$mac_block" | grep -qE 'run:[[:space:]]*bash tools/run-all-tests\.sh --portable --platform macos[[:space:]]*$'; then
     echo "FAIL: B8: macos job does not run bash tools/run-all-tests.sh --portable --platform macos"
+  elif printf '%s\n' "$mac_block" | grep -qE -- '--jobs'; then
+    echo "FAIL: B8: macos job must not pass --jobs (R32; default jobs=1)"
   fi
 
   # --- B9: the hook-templates job runs the template gate (CDT-502). ---

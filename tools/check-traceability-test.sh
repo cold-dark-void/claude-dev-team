@@ -5,6 +5,12 @@ set -u
 HERE=$(cd "$(dirname "$0")" && pwd)
 CHECK="$HERE/check-traceability.sh"
 ROOT=$(mktemp -d "${TMPDIR:-/tmp}/trace-test.XXXXXX")
+# CDT-534 Q6: under the parallel runner the worker TMPDIR nests inside the
+# worker's .git, and check-traceability.sh excludes */.git/* paths — the
+# fixture tree must sit at a .git-free path (the EXIT trap removes it).
+case $ROOT in
+  */.git/*) rm -rf "$ROOT"; ROOT=$(mktemp -d /tmp/trace-test.XXXXXX) || exit 1 ;;
+esac
 trap 'rm -rf "$ROOT"' EXIT
 PASS=0
 FAIL=0

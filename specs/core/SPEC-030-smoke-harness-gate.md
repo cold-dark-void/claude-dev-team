@@ -4,7 +4,7 @@
 **Category**: core
 **Created**: 2026-07-21
 
-**Covers**: `tools/smoke/run.sh`, `tools/smoke/smoke.py`, `tools/smoke/test.sh`, `tools/smoke/fixtures/`, `tools/smoke/README.md`, `tools/run-all-tests.sh`, `tools/run-all-tests-test.sh`, `tools/test-quarantine.txt`, `tools/ci-workflow-test.sh`, `tools/fence-exec/run.sh`, `tools/fence-exec/fence-check.awk`, `tools/fence-exec/manifest.tsv`, `tools/fence-exec/test.sh`, `tools/fence-exec/fixtures/`, `skills/refactor/test-fences.sh`, `skills/retro-gate/test-retro-fences.sh`, `tests/lib/skip.sh`, `tests/lib/hermetic.sh`, `tests/lib/trailing-flag.sh`, `tests/lib/test.sh`, `skills/skill-lint/test-command-fences.sh`, `.github/workflows/smoke.yml`, `skills/release/SKILL.md` (Steps 4.10 and 4.13 only)
+**Covers**: `tools/smoke/run.sh`, `tools/smoke/smoke.py`, `tools/smoke/test.sh`, `tools/smoke/fixtures/`, `tools/smoke/README.md`, `tools/run-all-tests.sh`, `tools/run-all-tests-test.sh`, `tools/run-all-tests-pool-test.sh`, `tools/run-all-tests-pool.sh`, `tools/test-quarantine.txt`, `tools/ci-workflow-test.sh`, `tools/fence-exec/run.sh`, `tools/fence-exec/fence-check.awk`, `tools/fence-exec/manifest.tsv`, `tools/fence-exec/test.sh`, `tools/fence-exec/fixtures/`, `skills/refactor/test-fences.sh`, `skills/retro-gate/test-retro-fences.sh`, `tests/lib/skip.sh`, `tests/lib/hermetic.sh`, `tests/lib/trailing-flag.sh`, `tests/lib/test.sh`, `skills/skill-lint/test-command-fences.sh`, `.github/workflows/smoke.yml`, `skills/release/SKILL.md` (Steps 4.10 and 4.13 only), `skills/orchestrate/steps/10-qa.md` (all-suites invocation only)
 
 ## Overview
 
@@ -33,7 +33,7 @@ the gate contract lives here; `/release` hosts the invocation step.
 script's body (beyond an explicit opt-in `--help`/`--check` invocation where a script declares
 support). It is not runtime/behavioral verification of what a command *does*.
 
-**All-suites runner (WP 1-01, CDT-269).** The repo carries ~76 bash test suites
+**All-suites runner (WP 1-01, CDT-269; CDT-534).** The repo carries ~76 bash test suites
 (`test.sh`, `test-*.sh`, `*-test.sh`), but CI ran only the few wired as dedicated
 `smoke.yml` jobs. This spec also owns `tools/run-all-tests.sh`: one discovering runner that
 executes every suite, a reasoned quarantine file for the suites that are red in CI today,
@@ -41,6 +41,14 @@ a `smoke.yml` `all-tests` job, and `/release` Step 4.13. The contract home is th
 (not SPEC-010) because this spec already owns `smoke.yml`, the `tools/` test harnesses and
 the "gate contract here, `/release` hosts the step" pattern. SPEC-010 carries a one-line
 Step 4.13 pointer only. Smoke *parses* test scripts; the runner *runs* them.
+
+**Bounded worker pool (CDT-534).** The unadorned CLI stays serial (`jobs=1`) so a
+no-flag invocation is identity with the pre-CDT-534 runner. `--jobs N` /
+`RUN_ALL_TESTS_JOBS` opt in to a bounded pool. Ship-gate callers (`/release`
+Step 4.13, light-tier QA, ubuntu `all-tests`) pass `--jobs 8`. Isolation is a
+per-worker `git clone --local` scratch under the source `git-common-dir` (same
+filesystem as objects; `TMPDIR` is often another device). The source index file
+is never copied into a clone. Intra-suite parallelism is out of this ticket.
 
 **Skip protocol and hermetic suites (WP 1-02, CDT-270, CDT-419, W1-34, W1-35).** WP 1-01
 seeded the quarantine with six suites that were red in CI. WP 1-02 fixed them and emptied
@@ -151,8 +159,8 @@ shellcheck.
 ### All-suites runner — CLI
 
 - R1. MUST ship `tools/run-all-tests.sh` as a pure-subprocess bash CLI (bash, git and POSIX utilities only; no python3/node in the runner itself — suites MAY need them), runnable from any cwd
-- R2. MUST accept `--root DIR` (default: `git rev-parse --show-toplevel` of the cwd), `--list` (print the discovered suites, one per line, run nothing, exit 0) and `-h`/`--help` (usage on stdout, exit 0)
-- R3. MUST exit `0` when no non-quarantined suite fails or times out, `1` when at least one does, and `64` on usage error: an unknown argument, a `--root` that is not a directory or not a git work tree, an invalid `RUN_ALL_TESTS_TIMEOUT`, or a malformed quarantine file (R11)
+- R2. MUST accept `--root DIR` (default: `git rev-parse --show-toplevel` of the cwd), `--list` (print the discovered suites, one per line, run nothing, exit 0), `--jobs N` (R36), and `-h`/`--help` (usage on stdout, exit 0)
+- R3. MUST exit `0` when no non-quarantined suite fails or times out, `1` when at least one does, and `64` on usage error: an unknown argument, a `--root` that is not a directory or not a git work tree, an invalid `RUN_ALL_TESTS_TIMEOUT`, an invalid `--jobs` / `RUN_ALL_TESTS_JOBS` (R36), or a malformed quarantine file (R11)
 
 ### All-suites runner — discovery
 
@@ -161,14 +169,14 @@ shellcheck.
 
 ### All-suites runner — execution
 
-- R6. MUST run each suite as `bash <repo-relative-path>` with cwd = root and stdin from `/dev/null`, serially, in the R4 order; the suite inherits the runner's environment
-- R7. MUST enforce a per-suite wall-clock timeout of `RUN_ALL_TESTS_TIMEOUT` seconds (a positive integer; default `300`). On expiry it MUST send TERM to the suite's whole process group, then KILL after a 5 s grace, and record TIMEOUT. MUST NOT depend on GNU `timeout`/`gtimeout` (macOS lane, CDT-271)
+- R6. MUST run each discovered suite exactly once as `bash <repo-relative-path>` with stdin from `/dev/null`. When `jobs=1` (R36): cwd = `--root`, serially, in the R4 order; the suite inherits the runner's environment (identity with the pre-CDT-534 runner). When `jobs>1`: cwd = that suite's worker scratch (R37); at most N suites in flight (R38); the suite inherits the runner's environment except `HOME` and `TMPDIR`, which the runner sets to directories under the runner's `WORKDIR` (R39), never inside the worker clone. Discovery, quarantine validation and `--list` stay against `--root`
+- R7. MUST enforce a per-suite wall-clock timeout of `RUN_ALL_TESTS_TIMEOUT` seconds (a positive integer; default `300`). On expiry it MUST send TERM to the suite's whole process group, then KILL after a 5 s grace, and record TIMEOUT. MUST NOT depend on GNU `timeout`/`gtimeout` (macOS lane, CDT-271). The same watchdog applies to each in-flight suite when `jobs>1`
 - R8. MUST map suite results: exit `0` → PASS; exit `77` → SKIP (non-blocking; the autotools skip convention); timeout → TIMEOUT; any other exit → FAIL
-- R9. MUST snapshot `git status --porcelain --untracked-files=all` before and after each suite; a difference is a FAIL with reason `modified the working tree`, even on exit 0 (ignored paths are not compared). This makes the runner safe to run in the release checkout (Step 4.13)
+- R9. MUST snapshot `git status --porcelain --untracked-files=all` before and after each suite in that suite's cwd (`--root` when `jobs=1`; the worker scratch when `jobs>1`). A difference is a FAIL with reason `modified the working tree`, even on exit 0 (ignored paths are not compared). When `jobs>1` the runner MUST NOT invoke git against `--root` for the duration of any suite (no parent `index.lock`). This makes the runner safe to run in the release checkout (Step 4.13)
 
 ### All-suites runner — output
 
-- R10. MUST print one line per suite that starts with its status word and the path — `PASS|FAIL|TIMEOUT|QUARANTINED|SKIP <path>` — optionally followed by ` (<detail>)` (exit code, seconds, reason). After each FAIL, TIMEOUT or QUARANTINED line it MUST print the last 20 lines of the suite's combined output, each prefixed `    | `. The final line MUST be the summary `N suites: P passed, F failed, T timed out, Q quarantined, S skipped`. Warnings go to stderr with a `warn:` prefix
+- R10. MUST print one line per suite that starts with its status word and the path — `PASS|FAIL|TIMEOUT|QUARANTINED|SKIP <path>` — optionally followed by ` (<detail>)` (exit code, seconds, reason). After each FAIL, TIMEOUT or QUARANTINED line it MUST print the last 20 lines of the suite's combined output, each prefixed `    | `. MUST emit those per-suite lines in R4 order regardless of worker completion order (buffer a finished suite until every R4 predecessor has been printed; print a FAIL/TIMEOUT/QUARANTINED tail immediately after that suite's status line). The final line MUST be the summary `N suites: P passed, F failed, T timed out, Q quarantined, S skipped`. Warnings go to stderr with a `warn:` prefix
 
 ### All-suites runner — quarantine
 
@@ -178,13 +186,20 @@ shellcheck.
 
 ### All-suites runner — CI and release wiring
 
-- R14. `.github/workflows/smoke.yml` MUST add a job `all-tests` (`runs-on: ubuntu-latest`, `actions/checkout`, `bash tools/run-all-tests.sh`) that fails iff the runner exits non-zero. Existing job ids MUST stay unchanged (branch-protection check names)
-- R15. `/release` MUST run `bash tools/run-all-tests.sh` as Step 4.13 "All-suites gate", after Step 4.12, in the release checkout. A non-zero exit MUST block commit and tag (the Step 4.10 contract). The wiring change MUST land with the live tree exiting 0 under the seeded quarantine
+- R14. `.github/workflows/smoke.yml` MUST add a job `all-tests` (`runs-on: ubuntu-latest`, `actions/checkout`, `bash tools/run-all-tests.sh --jobs 8`) that fails iff the runner exits non-zero. Existing job ids MUST stay unchanged (branch-protection check names). The `macos` job command stays `bash tools/run-all-tests.sh --portable --platform macos` with no `--jobs` (R32; default `jobs=1`)
+- R15. `/release` MUST run `bash tools/run-all-tests.sh --jobs 8` as Step 4.13 "All-suites gate", after Step 4.12, in the release checkout. Light-tier QA (`skills/orchestrate/steps/10-qa.md`) MUST pass the same `--jobs 8`. A non-zero exit MUST block commit and tag (the Step 4.10 contract). The wiring change MUST land with the live tree exiting 0 under the seeded quarantine
 
 ### All-suites runner — suite hygiene
 
-- R16. A discovered suite MUST NOT leave tracked or untracked-not-ignored changes in the checkout it runs from. A bite-test that needs a "live tree" MUST inject into a scratch copy of the checkout (for example `skills/docs-drift/test.sh` T6/T7), never into the checkout itself — an interrupted or timed-out run would leave the release tree mutated. A suite MUST NOT write under the real `$MROOT/.claude/` (the main checkout's gitignored state, which R9 cannot see): a suite that exercises an engine that resolves `$MROOT` from `git rev-parse --git-common-dir` MUST run that engine from a `mktemp -d` git repo. A suite MUST NOT leave files in the caller's `TMPDIR` and MUST NOT read or write the real `HOME`; a suite that runs engines which create temp files or read HOME-rooted state MUST call `hermetic_init` (R20) before any other work. The runner does not enforce these rules (R9 compares non-ignored paths only); suite design and review do
-- R17. `tools/run-all-tests-test.sh` MUST prove, on mktemp git trees via `--root`: a new `*-test.sh` is run (tracked and untracked-not-ignored); `test.sh` and `test-*.sh` are run; `fixtures/`, `.worktrees/`, `node_modules/` and non-matching names are not; sorted order; PASS-only → exit 0; FAIL → exit 1; TIMEOUT with a small `RUN_ALL_TESTS_TIMEOUT` → exit 1, fast, no surviving grandchild process; exit 77 → SKIP, exit 0; quarantined FAIL → exit 0; quarantined PASS → `warn:`; each R11 malformed case → exit 64; each R3 usage case → exit 64; an R9 dirtying suite → FAIL. On the live repo it MUST assert that no `tools/test-quarantine.txt` entry is run by a dedicated `smoke.yml` job. For the scope column (CDT-502) it MUST also prove: a `macos`-scoped entry with `--platform macos` reports a red suite `QUARANTINED` (exit 0) and a passing suite `PASS` + `warn:`; the same entry without `--platform macos` does not quarantine — a red suite exits 1 and a passing suite prints no `warn:`; an unknown scope, a missing scope field and a duplicated path each exit 64
+- R16. A discovered suite MUST NOT leave tracked or untracked-not-ignored changes in the checkout it runs from. A bite-test that needs a "live tree" MUST inject into a scratch copy of the checkout (for example `skills/docs-drift/test.sh` T6/T7), never into the checkout itself — an interrupted or timed-out run would leave the release tree mutated. A suite MUST NOT write under the real `$MROOT/.claude/` (the main checkout's gitignored state, which R9 cannot see): a suite that exercises an engine that resolves `$MROOT` from `git rev-parse --git-common-dir` MUST run that engine from a `mktemp -d` git repo. A suite MUST NOT leave files in the caller's `TMPDIR` and MUST NOT read or write the real `HOME`; a suite that runs engines which create temp files or read HOME-rooted state MUST call `hermetic_init` (R20) before any other work. When `jobs>1` the runner supplies a private `HOME`/`TMPDIR` under its `WORKDIR` (R39), not inside the worker clone, so a hermetic root is not nested under the clone's `.git/`. The runner does not otherwise enforce these rules (R9 compares non-ignored paths only); suite design and review do
+- R17. `tools/run-all-tests-test.sh` MUST prove, on mktemp git trees via `--root`: a new `*-test.sh` is run (tracked and untracked-not-ignored); `test.sh` and `test-*.sh` are run; `fixtures/`, `.worktrees/`, `node_modules/` and non-matching names are not; sorted order; PASS-only → exit 0; FAIL → exit 1; TIMEOUT with a small `RUN_ALL_TESTS_TIMEOUT` → exit 1, fast, no surviving grandchild process; exit 77 → SKIP, exit 0; quarantined FAIL → exit 0; quarantined PASS → `warn:`; each R11 malformed case → exit 64; each R3 usage case → exit 64; an R9 dirtying suite → FAIL. On the live repo it MUST assert that no `tools/test-quarantine.txt` entry is run by a dedicated `smoke.yml` job. For the scope column (CDT-502) it MUST also prove: a `macos`-scoped entry with `--platform macos` reports a red suite `QUARANTINED` (exit 0) and a passing suite `PASS` + `warn:`; the same entry without `--platform macos` does not quarantine — a red suite exits 1 and a passing suite prints no `warn:`; an unknown scope, a missing scope field and a duplicated path each exit 64. For CDT-534 (R36–R39) it MUST also prove: each R36 usage-64 shape; `jobs=1` (flag, env, or omitted) outcome-identical with the omitted-flag run on the same tree (status words, paths, exit code); `--jobs 2` emits in R4 order when the R4-first suite is slower; FAIL tails are byte-identical to `jobs=1` for the same failing suite; two dirtying suites at `--jobs 2` each FAIL `modified the working tree` and leave `--root` porcelain unchanged; a planted release-state `--root` (HEAD = merge-base, index+worktree = tip, one untracked `??`) is reproduced in the worker (same porcelain shape, `git show HEAD:` vs `git show :` vs worktree bytes); TIMEOUT grandchild kill still holds at `--jobs 2`; quarantined FAIL and exit-77 SKIP are unchanged at `--jobs 2`; the runner text contains no `wait -n`, no `xargs -P`, and no `nproc`. Round 2 (R37–R39) it MUST also prove: a planted `git rm` of a tracked file is absent from the worker index and worktree; a planted `git mv` shows the new path cached and the old path gone; two suites that share a worker — the first writes an ignored `.claude/` file and commits a dummy commit — leave the second suite with seed HEAD and no leftover ignored file; a `macos`-scoped quarantine entry at `--jobs 2 --platform macos` still reports `QUARANTINED`; `--portable --jobs 2` still runs only the portable subset; a PATH git shim logs no `git -C <root>` (the `--root`) while suites run at `--jobs 2`; the new overlay/hygiene/scheduler bites FAIL against `git show master:tools/run-all-tests.sh` (or an equivalent checkout of master's runner) and PASS against this tree's runner. The round-2 pool-era bites and the red-then-green receipt live in `tools/run-all-tests-pool-test.sh` (`tools/run-all-tests-test.sh` is at its 1000-line cap)
+
+### All-suites runner — jobs, scratches, pool (CDT-534)
+
+- R36. `--jobs N` and `RUN_ALL_TESTS_JOBS` select the pool size. `N` is a positive integer, or the token `auto`. The flag overrides the env when both are set. When both are omitted, `N=1`. `auto` is `min(processors, 8)` where processors is `getconf _NPROCESSORS_ONLN`, else `sysctl -n hw.ncpu`, else `1`. MUST NOT call `nproc`. Trailing `--jobs` with no value, `--jobs=` with an empty value, `N=0`, a non-integer, or an env value that is none of a positive integer / `auto` / empty (empty env counts as omitted) MUST exit 64 before any suite runs. `--jobs 1` MUST take the R6 identity path (no worker scratch)
+- R37. When `jobs>1` the runner MUST give each in-flight suite a private git checkout that reproduces `--root`'s HEAD, index, worktree bytes for cached paths, and untracked-not-ignored files, including staged deletions and renames. Worker directories MUST live under `$(git -C <root> rev-parse --git-common-dir)/run-all-tests.<unique>/` so `git clone --local` hardlinks stay on the same filesystem as the object store (`mktemp` under `$TMPDIR` is often another device and then `--local` fails with `Invalid cross-device link`). Recipe: one seed `git clone --local` of `--root`; copy `git ls-files -z --cached` bytes from `--root` into the seed; `git add` those cached paths in the seed (a `while read -d ''` loop or `git add --pathspec-from-file` + `--pathspec-file-nul`; MUST NOT `git add -A`, which would stage untracked); remove from the seed every path in the seed's own `git ls-files -z` that is not in that cached list (`git rm -q --cached -- <path>` and delete the worktree file) so a `git rm` or `git mv` in the release-state index is not left behind from the clone of HEAD; copy `git ls-files -z --others --exclude-standard` into the seed without adding. MUST NOT copy the source index file into the clone (a worktree index is not a clone index). N workers start as copies of the seed. Remove the scratch tree on EXIT. A worker's `git rev-parse --git-common-dir` MUST be that worker's `.git`, not the parent's. When `jobs=1` MUST NOT create a scratch
+- R38. The pool MUST keep at most N suite process groups in flight. A wrapper records each suite's exit in `rc.<k>` under the runner `WORKDIR`. The scheduler MUST poll those files and start the next suite on any free worker as soon as a slot's `rc.<k>` exists (free-worker dispatch). It MUST NOT wait on the oldest in-flight pid before dispatching into a free slot. Finished output is held until R10 can print it in R4 order. MUST NOT use `wait -n`, GNU `timeout`/`gtimeout`, `xargs -P`, or `flock`. Each in-flight suite keeps its R7 watchdog. `--portable` and `--platform macos` compose with `--jobs`; they do not force `N=1`. Intra-suite parallelism is out of scope
+- R39. Worker reuse MUST restore seed state before the next suite on that worker: `git clean -qfdx` (the seed has no ignored files; `-x` drops `.claude/` and other ignored leftovers), reset `HEAD` to the seed SHA, and restore refs and `config` from the seed, then the R37 index + cached/others bytes. A suite that commits, checks out, or writes ignored files MUST NOT change the next suite's view. When `jobs>1`, `HOME` and `TMPDIR` MUST be directories under the runner `WORKDIR`, outside the worker clone (only the clone lives under git-common-dir, for `--local` hardlinks). MUST NOT nest `HOME`/`TMPDIR` inside the worker worktree
 
 ### All-suites runner — skip protocol and hermetic helpers
 
@@ -230,14 +245,14 @@ shellcheck.
 - SHOULD complete a full no-argument smoke scan of this repo in under 15 seconds
 - SHOULD emit `FAIL` reasons specific enough to locate the defect without opening the file (e.g. the `bash -n` line number, the missing frontmatter field name)
 - SHOULD support a `--json` flag emitting per-target results as a JSON array for future tooling
-- SHOULD keep a full `tools/run-all-tests.sh` run under 10 minutes on the CI runner (measured 2026-09-25: ~120 s on the host, ~100 s in a CI-like environment)
+- SHOULD keep a full `tools/run-all-tests.sh` run under 10 minutes on the CI runner (measured 2026-10-10: 207 s median on the host with `--jobs 8`; 2026-09-25 serial ~120 s on a smaller suite set)
 
 ## MUST NOT
 
 - The smoke harness MUST NOT execute a discovered Surface's bash blocks or a script's mutating body — static parse only, except the declared `--help`/`--check` opt-in. Running a fence belongs to the fence-exec harness (R26, R30), and only through a manifest suite
 - MUST NOT hardcode the kept-Surface list — discovery is dynamic against the live tree
 - MUST NOT auto-fix a failing Surface (report-only; fixes are authored and reviewed like any change)
-- The runner MUST NOT run suites in parallel (suites share `$MROOT/.claude/` state), MUST NOT retry a failed suite, and MUST NOT count a quarantined outcome as passed in its summary
+- The runner MUST NOT retry a failed suite, MUST NOT count a quarantined outcome as passed in its summary, MUST NOT call `nproc`, MUST NOT use `wait -n`, GNU `timeout`/`gtimeout`, `xargs -P`, or `flock`, MUST NOT copy a source (worktree) index file into a clone, MUST NOT invoke git against `--root` while a `jobs>1` suite is running, MUST NOT create a worker scratch when `jobs=1`, MUST NOT wait on the oldest in-flight pid before dispatching into a free slot, MUST NOT nest `HOME`/`TMPDIR` inside the worker clone, and MUST NOT restore a reused worker with `git clean -fd` (no `-x`) or without resetting HEAD/refs/config to the seed
 
 ## Out of Scope
 
@@ -280,6 +295,9 @@ shellcheck.
 - [ ] `bash tools/ci-workflow-test.sh` exits 0 (R28, rule B6 and its two bites)
 - [ ] `bash tools/ci-workflow-test.sh` asserts B8 required-lane and B9 hook-templates with their bites (R34); the `macos` job line reads `bash tools/run-all-tests.sh --portable --platform macos` with no `continue-on-error`
 - [ ] `bash tools/run-all-tests-test.sh` covers the R17 scope-column bites: `macos` entry + `--platform macos` quarantines, the same entry on the default lane does not, unknown/missing scope and duplicate path exit 64
+- [ ] `bash tools/run-all-tests-test.sh` covers the CDT-534 R36–R39 bites: `--jobs` usage 64; `jobs=1` identity; `--jobs 2` R4 order, verbatim FAIL tails, isolated R9, release-state overlay, timeout grandchild, quarantine, SKIP; runner text has no `wait -n` / `xargs -P` / `nproc`
+- [ ] `bash tools/run-all-tests-pool-test.sh` covers the round-2 bites: `git rm` and `git mv` overlay; worker-leak (ignored file + commit) on a reused worker; macos-scope and `--portable` at `--jobs 2`; PATH git shim against `--root` (with an intercepting-control); red-then-green vs master's runner (df9e10b), skipped with a NOTE when the object is absent
+- [ ] `jobs=1` (no flag) on this repo matches a saved serial outcome; `--jobs 8` on this repo exits 0 and leaves `--root` porcelain unchanged
 - [ ] With a planted shellcheck finding grafted into a template copy, the gate exits 1 naming the template; with shellcheck removed from PATH the gate exits 0 with the fail-open note; `skills/init-orchestration/test-hook-templates-exec.sh` exits 0 with shellcheck present and 77 without it (R33, R35)
 - [ ] `grep -n 'shellcheck disable=' skills/init-orchestration/SKILL.md commands/tdd-gate.md` — every match carries a one-line reason; the gate fails on a bare disable (R33)
 
@@ -479,10 +497,46 @@ Child of `### CDT-502` M3.1/M3.2/C3.3/C3.4 (Linear CDT-507; CDT-508 closes via t
 
 Resolved scope notes: OQ1 — the full rewrite is pre-committed; there is no fallback branch (the carry-line form would leave ~177 fences broken and defeat C3.3); the delta is recorded per AC13. OQ2 — the partial is the byte SoT with the extended C5 gate as enforcement; `sync-includes.py` gains no grammar change (its agent regions are first-fence-class and untouched in shape — `skills/agent-memory/protocol.md`'s tier-3 fix re-expands through the existing mechanism). OQ3 — the tier-2 rename-park gap (`marketplaces/*/` matching `cold-dark-void.cdt502-parked`) is OUT of this child; the orchestrator files it separately — C5 may include only the docs Park-B wording fix if it touches files this child already owns. OQ4 — the partial lives at `skills/lib/pdh-later-fence.sh`; the equal-VER lock is dev-team-first (a two-level preference keeps `…/cold-dark-void/dev-team/` above the edge channel at equal `<VER>`). The three tier-3 hardcodings change together in both canonical texts and in all four `plugin-dir.sh` sites. The baseline counts are the PM's fence-aware count at `32fa33c`; the rewrite re-derives the inventory mechanically and the AC3 gate + AC11 suite own completeness — a drifted count fails a gate, not a review. The parent `### CDT-502` section and rules R1-R35 are untouched by the implementation. `tools/transcript-mirror-poc.sh` is untouchable. The 7 behavioral agents' managed-inline regions re-expand via `sync-includes.py` — no hand edits.
 
+### CDT-534
+
+- **AC1.** For a fixed tree and quarantine file, `--jobs 1`, omitted `--jobs`, and `RUN_ALL_TESTS_JOBS=1` produce the same per-suite PASS/FAIL/SKIP/TIMEOUT/QUARANTINED outcome and the same exit code (0/1/64) as each other. Every discovered suite runs exactly once.
+  Verify: bash tools/run-all-tests-test.sh
+- **AC2.** Per-suite result lines emit in R4 (sorted suite-path) order at `--jobs 2` even when the R4-first suite is slower. FAIL tails are the last 20 lines of that suite's combined output, each prefixed `    | `, byte-identical to `jobs=1` for the same failing suite.
+  Verify: bash tools/run-all-tests-test.sh
+- **AC3.** At most N suites run at once. `--jobs 4` on a fixture of 8 slow suites never has 5 process groups in flight. Omitted flag / empty env → N=1. `--jobs auto` is `min(processors, 8)` via `getconf _NPROCESSORS_ONLN` then `sysctl -n hw.ncpu` then 1. Flag overrides env.
+  Verify: bash tools/run-all-tests-test.sh
+- **AC4.** Two dirtying suites at `--jobs 2` each FAIL with `modified the working tree`. `--root` porcelain is identical before and after. A sibling that does not dirty PASSes. Parent `index.lock` is never held by a worker.
+  Verify: bash tools/run-all-tests-test.sh
+- **AC5.** `RUN_ALL_TESTS_TIMEOUT` at `--jobs 2` still TERMs the suite process group at the deadline, KILLs after 5 s, reports TIMEOUT (or QUARANTINED), exits 1, and leaves no grandchild.
+  Verify: bash tools/run-all-tests-test.sh
+- **AC6.** R11/R12 quarantine (scope column, `--platform macos`, stale-PASS `warn:`) is unchanged at `--jobs 2`.
+  Verify: bash tools/run-all-tests-test.sh
+- **AC7.** Exit 77 is SKIP, non-blocking, and counted in the summary at `--jobs 2`.
+  Verify: bash tools/run-all-tests-test.sh
+- **AC8.** A planted `--root` with HEAD = merge-base, index+worktree = tip, and one untracked `??` is reproduced in the worker: `git show HEAD:`, `git show :`, and worktree bytes match the source; untracked stays `??` (not staged).
+  Verify: bash tools/run-all-tests-test.sh
+- **AC9.** [process] Three consecutive clean full runs of `bash tools/run-all-tests.sh --jobs 8` on the Linux dev machine finish in ≤ 240 s wall each (≥ 2× vs the 412 s best observed serial). Median is recorded on the PR. No CI timing assert.
+- **AC10.** No new deps. The runner is bash + git + POSIX/coreutils. `--portable` and `--platform macos` compose with `--jobs`. The runner text contains no `wait -n`, `xargs -P`, or `nproc`.
+  Verify: bash tools/run-all-tests-test.sh
+- **AC11.** Single CLI: `tools/run-all-tests.sh`. `/release` Step 4.13, light-tier QA (`skills/orchestrate/steps/10-qa.md`), and ubuntu `all-tests` invoke `bash tools/run-all-tests.sh --jobs 8`. The macos job line is unchanged.
+  Verify: bash tools/run-all-tests-test.sh
+- **AC12.** `tools/run-all-tests-test.sh` covers R36–R39 (bounded concurrency, R4 order, verbatim FAIL tails, timeout grandchild, no cross-suite tree races, quarantine, SKIP, release-state overlay including `git rm`/`git mv`, worker-leak, `--portable --jobs 2`, macos-scope at `--jobs 2`, index.lock shim) with a red-then-green artifact: those new bites FAIL against master's `tools/run-all-tests.sh` and PASS against this tree. The pool-era bites and the red-then-green receipt live in `tools/run-all-tests-pool-test.sh` (the sibling is at its 1000-line cap).
+  Verify: bash tools/run-all-tests-pool-test.sh
+- **AC13.** Two suites that share a worker at `--jobs 2`: the first writes an ignored `.claude/` file and creates a dummy commit. The second suite sees the seed HEAD (not the dummy commit) and no leftover ignored file.
+  Verify: bash tools/run-all-tests-pool-test.sh
+- **AC14.** At `--jobs 2`, a PATH git shim that logs every `git` invocation records no `git -C <root>` (the planted `--root`) while suites are running. `--portable --jobs 2` still runs only the portable subset. A `macos`-scoped quarantine entry at `--jobs 2 --platform macos` still reports `QUARANTINED`.
+  Verify: bash tools/run-all-tests-pool-test.sh
+- **AC15.** At `--jobs 2`, the release-state overlay reproduces staged removals and renames in the worker: a planted `git rm` of a tracked file is absent from the worker index and worktree; a planted `git mv` shows the new path cached and the old path gone.
+  Verify: bash tools/run-all-tests-pool-test.sh
+
 ## Version History
 
 | Date | Change |
 |------|--------|
+| 2026-10-10 | CDT-534 T11: round-2 bite split — pool-era bites (R37 `git rm`/`git mv` overlay, R39 reused-worker leak with ignored file + stray ref + dummy commit, AC14 macos-scope / `--portable` / PATH git shim at `--jobs 2`, AC12 red-then-green receipt vs master's runner `df9e10b`) move to a new `tools/run-all-tests-pool-test.sh` because `tools/run-all-tests-test.sh` is at its 1000-line cap; AC8/AC12/AC13/AC14 Verify lines point there. `skills/council/blind-file-list.sh` now filters `.git` as a path component (not a substring; `x.git/y`, `foo/.gitbar/x` survive) with bite cases. The T5 suite patches the HOME/TMPDIR relocation obviated are reverted (wrap-ticket ceiling, fence-exec printed_path, smoke root9 ceiling); the `hermetic_init` ceiling stays (R21 asserts it). |
+| 2026-10-10 | CDT-534 replan round 2 (DRI): R37 overlay drops seed paths not in `--root`'s cached list (`git rm` / `git mv`). R38 free-worker dispatch via `rc.<k>` polling (drop wait-on-oldest). New R39: `clean -qfdx` + HEAD/refs/config restore; `HOME`/`TMPDIR` under runner `WORKDIR`, outside the clone. R6/R16/MUST NOT aligned. `### CDT-534` AC8/AC12 extended; AC13 worker-leak; AC14 shim/portable/macos-scope at `--jobs 2`. |
+| 2026-10-10 | CDT-534 replan: AC9 wall budget 120 s → ≤ 240 s (≥ 2× vs 412 s best serial). T8 measured 207/210/196 s median 207 s at `--jobs 8`. Intra-suite tail remains Q4 follow-up. |
+| 2026-10-10 | CDT-534: opt-in bounded pool. R6/R9/R10/R14/R15 amended; R36–R38 add `--jobs` / `RUN_ALL_TESTS_JOBS` (default N=1), per-worker `git clone --local` scratches under git-common-dir, FIFO `wait <pid>` pool. MUST NOT parallel clause replaced (retry / quarantine-as-pass / `wait -n` / `xargs -P` / `nproc` / parent git during `jobs>1` / copy source index). Ubuntu `all-tests` and `/release` Step 4.13 pass `--jobs 8`. New `### CDT-534` ACs. Intra-suite parallelism out of scope. |
 | 2026-10-05 | CDT-502: the `macos` job becomes a required gate (R32: `macos-latest`, no `continue-on-error`, `timeout-minutes: 20`, `--portable --platform macos`; branch-protection flip recorded on the ticket). Quarantine entries gain a scope column (`all` / `macos`, R11-R13, R17 bites): a `macos`-scoped entry quarantines only on the macOS lane, so the ubuntu lane keeps executing every quarantined suite unquarantined. The hook-template gate is shellcheck-strict when shellcheck is present (R33: findings fail, absent → fail-open note; `HOOK_TEMPLATE_SHELLCHECK_STRICT` retired; suppressions need a one-line reason) and a new `hook-templates` CI job runs it (R34, rule B9; B8 rewritten required, old bites inverted). R35 owns the CDT-290 closure evidence and the planted-finding real-shellcheck test. New `### CDT-502` acceptance criteria. CDT-271 is superseded by this ticket; CDT-274's 10-minute job budget is intentionally exceeded for `macos` (sanctioned by CDT-502). |
 
 | 2026-10-02 | CDT-371: the README command-index check is docs-drift D2 (`cmd-index`), not D1. `worktree-lib-test.sh` uses `mktemp` under `TMPDIR`. |
@@ -503,7 +557,7 @@ Resolved scope notes: OQ1 — the full rewrite is pre-committed; there is no fal
 - SPEC-003 — agent role system; source of the five agent frontmatter fields and the Tier table (not enforced here).
 - SPEC-013 — council template-var drift gate precedent (gate owned by domain spec, hosted by `/release`).
 - CDT-46 — v1.0 stability-contract epic; this gate is the W0 "deterministic behavioral gate / verified core" criterion. CONTEXT.md defines the Surface and Deprecation-stub glossary terms this spec relies on.
-- CDT-269 — one discovering runner for all suites (this spec's runner sections). CDT-270 / CDT-419 — skip protocol and hermetic suites (R16, R18–R21). CDT-271 / CDT-274 — macOS lane and job budgets; CDT-271's informational lane is superseded by CDT-502's required `macos` job (R32), and CDT-274's 10-minute budget is exceeded for `macos` only (R22).
+- CDT-269 — one discovering runner for all suites (this spec's runner sections). CDT-270 / CDT-419 — skip protocol and hermetic suites (R16, R18–R21). CDT-271 / CDT-274 — macOS lane and job budgets; CDT-271's informational lane is superseded by CDT-502's required `macos` job (R32), and CDT-274's 10-minute budget is exceeded for `macos` only (R22). CDT-534 — opt-in `--jobs` pool (R36–R39); serial default preserved.
 - SPEC-021 — skill-bash lint gate; the fence-exec harness runs on its fence parser (`fence-scan.awk`) and scan set (`scan-set.sh`), and skill-lint C6 guards `PDH` and `EXT_DIR`. SPEC-021 holds C1-C6 and C8-C10 (C8 idiom hazards and C9 command-fence arguments landed in WP 2-02); C7 stays reserved for WP 6-03.
 - SPEC-015 — refactor workflow; owns the Step 1b path guard that CDT-356 fixed. `skills/refactor/test-fences.sh` is the fence-exec suite for it (R27).
 - CDT-272 — fence-exec harness; CDT-356 — `/refactor` Step 1b path guard. WP 2-01 (`wp-2-01-fence-harness`) ships both. WP 2-10 (CDT-324) removed the `commands/retro.md` exclusions from `tools/fence-exec/manifest.tsv`.

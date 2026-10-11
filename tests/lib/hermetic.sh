@@ -4,7 +4,9 @@
 #   hermetic_init     Creates one mktemp -d root under the caller's TMPDIR
 #                     (default /tmp), exports HERMETIC_ROOT (that root),
 #                     TMPDIR=$HERMETIC_ROOT/tmp and HOME=$HERMETIC_ROOT/home
-#                     (both created), unsets XDG_CONFIG_HOME, exports fixed
+#                     (both created), unsets XDG_CONFIG_HOME, ceilings git
+#                     directory discovery at HERMETIC_ROOT
+#                     (GIT_CEILING_DIRECTORIES), exports fixed
 #                     GIT_AUTHOR_NAME/GIT_AUTHOR_EMAIL/GIT_COMMITTER_NAME/
 #                     GIT_COMMITTER_EMAIL values, and installs
 #                     `trap hermetic_cleanup EXIT`.
@@ -24,6 +26,12 @@ hermetic_init() {
   export TMPDIR="$HERMETIC_ROOT/tmp"
   export HOME="$HERMETIC_ROOT/home"
   mkdir -p "$TMPDIR" "$HOME"
+  # Ceiling git discovery at the hermetic root (CDT-534 Q6): under the
+  # parallel runner the worker TMPDIR nests inside the worker clone, so
+  # "not a repo" fixtures would otherwise ascend into the worker repo.
+  # Fixtures that git-init themselves are still found: the ceiling sits
+  # above them.
+  export GIT_CEILING_DIRECTORIES="$HERMETIC_ROOT"
   unset XDG_CONFIG_HOME
   export GIT_AUTHOR_NAME="hermetic"
   export GIT_AUTHOR_EMAIL="hermetic@example.invalid"

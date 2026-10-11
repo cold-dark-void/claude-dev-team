@@ -129,7 +129,7 @@ jobs:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
           fetch-depth: 0  # suites read pinned base commits (git show <sha>:path)
-      - run: bash tools/run-all-tests.sh
+      - run: bash tools/run-all-tests.sh --jobs 8
 
   # CDT-502 — required macOS gate (SPEC-030 R32); quarantine: tools/test-quarantine.txt
   macos:

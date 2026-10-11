@@ -993,8 +993,10 @@ seed_paired "197372681"
 put_resp "getUpdates" "$(result_body "$(upd_msg 100 197372681 "cycle under temp root")")"
 run_poller
 after=$(git -C "$PLUGIN_ROOT" status --porcelain --untracked-files=all)
+# CDT-534 Q6: under the parallel runner the hermetic root legitimately nests
+# inside $PLUGIN_ROOT, under the runner's own excluded .run-all-tests/ area.
 if [ "$before" = "$after" ] && [ -f "$STATE_ROOT/state/offset" ] \
-  && case "$HERMETIC_ROOT" in "$PLUGIN_ROOT"/*) false ;; *) true ;; esac; then
+  && case "$HERMETIC_ROOT" in "$PLUGIN_ROOT"/.run-all-tests/*) true ;; "$PLUGIN_ROOT"/*) false ;; *) true ;; esac; then
   ok "AC23 setup + full cycle with INTERCOM_STATE_ROOT writes nothing under the repo"
 else
   bad "AC23 repo hygiene: dirty=$([ "$before" = "$after" ] && echo no || echo yes)"

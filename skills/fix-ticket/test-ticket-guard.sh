@@ -67,7 +67,10 @@ else
   bad "slug accepted ../x ($out)"
 fi
 
-if bash "$GUARD" check-worktree "$neg" >/dev/null 2>"$neg/err"; then
+# CDT-534 Q6: under the parallel runner $neg nests inside the worker clone, so
+# git discovery would ascend into it; ceiling the ascent to keep $neg non-git.
+if GIT_CEILING_DIRECTORIES="$(CDPATH= cd -- "$neg/.." && pwd -P)" \
+     bash "$GUARD" check-worktree "$neg" >/dev/null 2>"$neg/err"; then
   bad "check-worktree accepted a non-git directory"
 else
   if grep -q 'not a git worktree' "$neg/err"; then

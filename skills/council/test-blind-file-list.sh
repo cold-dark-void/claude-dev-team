@@ -132,14 +132,38 @@ else
   bad "untracked target did not list z.txt"
 fi
 
-# An unescaped regex '.git/' matches 'Xgit/'. Fixed string must keep this path.
+# An unescaped regex '.git/' would match 'Xgit/'; the component match keeps it.
 mkdir -p "$WT/loose/fooXgit"
 printf 'g\n' >"$WT/loose/fooXgit/bar.txt"
 loose2=$(cd "$WT" && bash "$HELPER" loose | canon_list) || loose2=""
 if grep -qF 'fooXgit/bar.txt' <<<"$loose2"; then
-  ok "fixed-string .git filter kept fooXgit/bar.txt"
+  ok "component .git filter kept fooXgit/bar.txt"
 else
   bad "filter dropped fooXgit/bar.txt"
+fi
+
+# CDT-534: the filter matches .git as a path COMPONENT. A component that
+# merely contains .git as a substring (x.git, .gitbar) is a real path and
+# must survive; a genuine .git component is still dropped.
+mkdir -p "$WT/loose/x.git" "$WT/loose/foo/.gitbar" "$WT/loose/sub/.git"
+printf 'n1\n' >"$WT/loose/x.git/kept.txt"
+printf 'n2\n' >"$WT/loose/foo/.gitbar/kept.txt"
+printf 'n3\n' >"$WT/loose/sub/.git/dropped.txt"
+loose3=$(cd "$WT" && bash "$HELPER" loose | canon_list) || loose3=""
+if grep -qF 'x.git/kept.txt' <<<"$loose3"; then
+  ok "component filter kept x.git/kept.txt (substring, not a .git component)"
+else
+  bad "filter dropped x.git/kept.txt"
+fi
+if grep -qF 'foo/.gitbar/kept.txt' <<<"$loose3"; then
+  ok "component filter kept foo/.gitbar/kept.txt"
+else
+  bad "filter dropped foo/.gitbar/kept.txt"
+fi
+if grep -qF 'sub/.git/dropped.txt' <<<"$loose3"; then
+  bad "filter kept a real .git component path"
+else
+  ok "component filter dropped sub/.git/dropped.txt"
 fi
 
 set +e

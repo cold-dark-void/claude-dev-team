@@ -6,6 +6,9 @@ Pre-written headings (release-train M5c, orchestrate version-sync tasks) are kep
 via skip-if-present when `/release` is given an explicit version — do not invent a
 second heading for the same version.
 
+### v1.22.1
+- **Opt-in --jobs worker pool for run-all-tests.sh (release gates ~2-4x faster), SPEC-030 R36-R39** — default stays serial (`jobs=1`); `--jobs N` / `RUN_ALL_TESTS_JOBS` run suites in isolated `git clone --local` workers with restore and R4 emit order (R37–R39). `/release` Step 4.13 uses `--jobs 8`. Evidence: `.claude/cdt-534-ship-evidence.txt`.
+
 ### v1.22.0
 - **Intercom walkie-talkie: the session half is wired (CDT-535)** — topic-sticky inbound routing: a `topics.json`-mapped thread now routes to its sid on every cycle, pending or not (the reply-theft case; CDT-529 AC5 rewritten, AC6a restored). New `state/away_sid` walkie-talkie endpoint: CLI `intercom away on` pins the session's sid atomically (phone `/away` toggles the flag only), `ask`/`send` refresh it while away is ON, and away-ON plain-chat/General/unmapped inbound routes to it — mapped topics are never stolen; absent/insane/corrupt `away_sid` fails open. New `intercom read [--sid S] [--ack]` verb drains a session inbox into `spool/<sid>/consumed/` via tmp+rename. New away-gated `skills/intercom/inbox-watch.sh` session monitor (stamp-compare only; no token, no poller, no sole-consumer lock). Agent pickup protocol documented in SKILL.md + `/away`/`/afk`; doctor `intercom.away` probes `away_sid` without false WARN. New CLI verb and routing default-behavior change → minor.
 

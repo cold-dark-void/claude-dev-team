@@ -50,7 +50,7 @@ Quality gates and shipping. The review-and-commit skill delegates to the adversa
 - **Step 4.7 — Hook-template gate (CDT-54 / CDT-46-C8).** Historical dual-copy Step 4.7 (`check-hook-templates.sh` requiring byte-identity between package-tracked live `.claude/hooks/*.sh` and init-orch templates) is **retired or reduced**. After CDT-54: hook bodies SoT = `skills/init-orchestration` templates only (SPEC-002/SPEC-005); live hooks are generated+gitignored. `/release` MUST NOT hard-fail solely because package-tracked live hooks are absent. Any residual Step 4.7 check MUST be template-internal only (e.g. extractability / hygiene of fenced bodies) and MUST NOT require dual-copy live files. The reduced gate is this MUST. CDT-54 Task 2 has landed. Do not treat the dual-copy check as open work. Since CDT-502 the gate is shellcheck-strict when shellcheck is present (findings fail; absent → fail-open note): contract in SPEC-030 R33, CI hosting in SPEC-030 R34.
 - **Step 4.6 — Council template-variable drift-check.** `/release` MUST run `skills/council/check-template-vars.sh`. A non-zero exit MUST block commit and tag. The variable contract stays in SPEC-013. This bullet is the release-hosting pointer only.
 - **Step 4.12 — PDH stanza harness.** `/release` MUST run `bash skills/plugin-dir-test.sh`. A non-zero exit MUST block commit and tag. The stanza contract stays in SPEC-002. This bullet is the release-hosting pointer only.
-- **Step 4.13 — All-suites gate (WP 1-01, CDT-269).** `/release` MUST run `bash tools/run-all-tests.sh` as Step 4.13, after Step 4.12, in the release checkout. A non-zero exit MUST block commit and tag (same contract as Step 4.10). Runner, quarantine and suite-hygiene contract: SPEC-030 R1–R17. This bullet is the release-hosting pointer only; MUST NOT restate the runner contract here.
+- **Step 4.13 — All-suites gate (WP 1-01, CDT-269; CDT-534).** `/release` MUST run `bash tools/run-all-tests.sh --jobs 8` as Step 4.13, after Step 4.12, in the release checkout. A non-zero exit MUST block commit and tag (same contract as Step 4.10). Runner, quarantine, suite-hygiene and jobs-pool contract: SPEC-030 R1–R17, R36–R38. This bullet is the release-hosting pointer only; MUST NOT restate the runner contract here.
 
 ### Staged-path hard gate (CDT-189)
 
@@ -266,7 +266,7 @@ Goal: a deterministic, LLM-free docs-consistency gate for `/release` — a struc
 - [ ] Staged-path hard gate: `bash skills/release/test.sh` exits 0; foreign staged → exit 1, lists every foreign path, no commit/tag/push
 - [ ] Step 5 wiring: `check-staged-paths.sh` after intentional `git add`, before `git commit` in `skills/release/SKILL.md`
 - [ ] Ship-history gate: `check-ship-history.sh` D1–D4 fixtures green; `/release` + end-state + orchestrate Step 11/12 cite H without forking predicate; autopilot dirty → exact halt phrase, no Done
-- [ ] All-suites gate: Step 4.13 present in `skills/release/SKILL.md`; `bash tools/run-all-tests.sh` exits 0 on the release checkout
+- [ ] All-suites gate: Step 4.13 present in `skills/release/SKILL.md`; `bash tools/run-all-tests.sh --jobs 8` exits 0 on the release checkout
 - [ ] Fold-commit subject (CDT-533): `lead-summary.sh` fixtures green; Step 5 names the helper and `--check` before `git commit`; `push-release.sh` D2 mismatch does not push
 
 ## Open Questions
@@ -296,6 +296,7 @@ Format and rules: SPEC-033 M14(g) and M14(h). Each ticket that ships through M14
 
 | Date | Change |
 |------|--------|
+| 2026-10-10 | CDT-534: Step 4.13 pointer runs `bash tools/run-all-tests.sh --jobs 8`; contract SPEC-030 R1–R17, R36–R38. |
 | 2026-10-08 | CDT-533: fold-commit subject from CHANGELOG lead. New R4 `lead-summary.sh`; H6.2 pre-commit `--check --cached`; R3 pre-push D2 (`--print` skips); D2 lead extraction is that CLI (no second normalizer in `check-ship-history.sh`). `### CDT-533` ACs A–E. |
 | 2026-10-02 | CDT-371 / CDT-391: the release bump is the version pair. Steps 4.6 and 4.12 are named. CDT-54 Task 2 is landed. Review does not spawn 5 sub-agents. Covers includes `skills/docs-drift/`. |
 | 2026-10-01 | WP 3-05 (W2-43): `/review-and-commit` is `/council --diff --tier full` plus optional pre-steps and the commit gate. The user-facing headings live only in `skills/council/templates/legacy-review.md`. |
