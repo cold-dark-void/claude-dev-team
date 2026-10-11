@@ -256,13 +256,17 @@ cmd_safe_to_delete() {
     esac
   done
   [ -n "$branch" ] || usage
+  if git remote get-url origin >/dev/null 2>&1; then
+    have_origin=1
+    # Self-heal a stale origin/HEAD before resolving the base (backlog
+    # git-safety-resolve-base-stale-origin-head): resolve-base never
+    # contacts the network (SPEC-025 M17 item 9), so the one
+    # network-active caller refreshes it. Best-effort; failure is silent.
+    git remote set-head origin --auto >/dev/null 2>&1 || :
+  fi
   if ! BASE=$(resolve_base); then
     printf 'unresolvable base\n'
     exit 1
-  fi
-
-  if git remote get-url origin >/dev/null 2>&1; then
-    have_origin=1
   fi
 
   classify_candidate "$branch" "$BASE" "$have_origin"
@@ -278,13 +282,15 @@ cmd_prune() {
   [ -n "$T" ] || usage
   local base name have_origin=0 err rc
 
+  if git remote get-url origin >/dev/null 2>&1; then
+    have_origin=1
+    # Same origin/HEAD self-heal as safe-to-delete — see the comment there.
+    git remote set-head origin --auto >/dev/null 2>&1 || :
+  fi
+
   if ! base=$(resolve_base); then
     printf 'remote prune failed: unresolvable base\n'
     exit 0
-  fi
-
-  if git remote get-url origin >/dev/null 2>&1; then
-    have_origin=1
   fi
 
   if [ "$DRY" != "1" ] && [ "$have_origin" != "1" ]; then

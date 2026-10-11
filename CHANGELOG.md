@@ -6,6 +6,9 @@ Pre-written headings (release-train M5c, orchestrate version-sync tasks) are kep
 via skip-if-present when `/release` is given an explicit version — do not invent a
 second heading for the same version.
 
+### v1.22.8
+- **prune-remote self-heals a stale origin/HEAD (git-safety-resolve-base-stale-origin-head)** — decision recorded: `git-safety.sh resolve-base` stays network-free (SPEC-025 M17 item 9 unchanged), and the one network-active consumer now refreshes `origin/HEAD` (`git remote set-head origin --auto`, best-effort, silent failure) after its origin check and before `resolve-base`, in both `safe-to-delete` and `prune`. A stale/renamed `origin/HEAD` no longer poisons the base order's first arm after any fetch-bearing run; the safe-failure mode of other local callers is documented. Regression test forges a dangling symref and asserts the refresh; prune-remote suite 120/120.
+
 ### v1.22.7
 - **worktree-lib refuses non-git directories on every lock-stamping path (worktree-lib-ensure-lock-paths-non-git, worktree-lib-register-non-git-dir)** — previously only the no-lock `ensure` path checked (WP 1-06); the FRESH steal path could stamp a lock on a plain directory and the STALE reclaim read `$MROOT`'s dirty state via git walk-up, while `register` adopted any plain directory as a worktree. All three now fail closed through the shared `is_git_worktree` helper (exit 1, stderr names the directory, no lock written). SPEC-016 `ensure`/`register` semantics, both exit-code tables, AC F and the lib header updated; test fixtures converted to real worktrees with three new refusal cases. Suite 205/205.
 

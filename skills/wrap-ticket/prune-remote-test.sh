@@ -652,6 +652,25 @@ echo "== AC I no copy of the base order =="
 assert_file_nomatch "prune-remote.sh has no copy of the base order" "$PRUNE" 'origin/master origin/main master main'
 assert_file_match "prune-remote.sh delegates to git-safety.sh resolve-base" "$PRUNE" 'GIT_SAFETY.*resolve-base'
 
+# ---- backlog git-safety-resolve-base-stale-origin-head ----------------------
+# A stale origin/HEAD (target renamed away) must be refreshed best-effort by
+# the network-active caller before resolve-base runs, so the base order's
+# first arm points at the remote's actual default branch.
+echo "== stale origin/HEAD self-heal =="
+SHF="$TMP/shf"; SHF_BARE="$TMP/shf-bare.git"
+work_repo "$SHF" "$SHF_BARE"
+git -C "$SHF_BARE" branch -q -m master main-rename 2>/dev/null || git -C "$SHF_BARE" branch -q main-rename master
+git -C "$SHF" fetch -q origin
+# forge a stale symref: origin/HEAD -> refs/remotes/origin/gone-branch
+git -C "$SHF" update-ref --no-deref refs/remotes/origin/HEAD "$(git -C "$SHF" rev-parse origin/master)" 2>/dev/null || true
+git -C "$SHF" symbolic-ref refs/remotes/origin/HEAD refs/remotes/origin/gone-branch
+run_in "$SHF" safe-to-delete feat/CDT-200 >/dev/null 2>&1
+if git -C "$SHF" symbolic-ref -q refs/remotes/origin/HEAD | grep -q 'main-rename\|master'; then
+  PASS=$((PASS + 1)); echo "  ok  stale origin/HEAD refreshed to the remote default"
+else
+  FAIL=$((FAIL + 1)); echo "  FAIL stale origin/HEAD not refreshed: $(git -C "$SHF" symbolic-ref -q refs/remotes/origin/HEAD || echo none)"
+fi
+
 echo
 echo "PASS=$PASS FAIL=$FAIL"
 if [ "$FAIL" -ne 0 ]; then
