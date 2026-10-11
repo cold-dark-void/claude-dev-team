@@ -630,6 +630,52 @@ else
   fail_msg "W1-56 concurrent index rows missing"
 fi
 
+# ---- backlog council-task-path-evidence-bundles-not-rendered ----------------
+# The report body must render every unstruck bundle (tid heading + raw blob),
+# and the all-struck pathology must show the strikes plus the placeholder.
+PLAN_B="$TMP/plan-bundles.json"
+jq '.output_shape="verdict[]" | .preset="generic" | .scope="claim" | .slug="bundle-render" | .scope_arg="named claim"' \
+  "$FIX/plan-finding.json" > "$PLAN_B"
+EVID_TWO="$TMP/evidence-two.json"
+cat >"$EVID_TWO" <<'EOF'
+[{"tool_use_id":"t-one","raw_blob":"BUNDLE-ONE raw body","file_line":"a.js:1","reproducible_command":"true"},
+ {"tool_use_id":"t-two","raw_blob":"BUNDLE-TWO raw body","file_line":"b.js:2","reproducible_command":""}]
+EOF
+JUDGE_OK="$TMP/judge-bundles-ok.json"
+cat >"$JUDGE_OK" <<'EOF'
+{"verdicts":[{"claim_id":"c1","claim":"named claim","verdict":"VERIFIED","confidence":80,"evidence_blob":"BUNDLE-ONE","tool_use_id":"t-one"}],"struck_lines":[]}
+EOF
+REPORT_B="$TMP/report-bundles.md"
+(cd "$REPO" && bash "$ENGINE" finalize --plan-file "$PLAN_B" --evidence-file "$EVID_TWO" \
+  --judge-output "$JUDGE_OK" --task-id BUNDLE-RENDER --report-out "$REPORT_B") >/dev/null 2>&1
+grep_file "bundle t-one heading rendered" '### `t-one`' "$REPORT_B"
+grep_file "bundle t-two heading rendered" '### `t-two`' "$REPORT_B"
+grep_file "bundle t-one raw blob rendered" 'BUNDLE-ONE raw body' "$REPORT_B"
+if section "$REPORT_B" "## Evidence Bundles" | grep -qF '_No evidence bundles._'; then
+  fail_msg "placeholder shown while bundles exist"
+else
+  ok "placeholder absent when bundles render"
+fi
+
+EVID_ALLBAD="$TMP/evidence-allbad.json"
+cat >"$EVID_ALLBAD" <<'EOF'
+[{"raw_blob":"no tid here","file_line":"c.js:3"},
+ {"tool_use_id":null,"raw_blob":"null tid","file_line":"c.js:4"}]
+EOF
+JUDGE_B2="$TMP/judge-bundles-bad.json"
+cat >"$JUDGE_B2" <<'EOF'
+{"verdicts":[{"claim_id":"c1","claim":"named claim","verdict":"UNVERIFIED","confidence":0}],"struck_lines":[]}
+EOF
+REPORT_B2="$TMP/report-bundles-bad.md"
+(cd "$REPO" && bash "$ENGINE" finalize --plan-file "$PLAN_B" --evidence-file "$EVID_ALLBAD" \
+  --judge-output "$JUDGE_B2" --task-id BUNDLE-ALLBAD --report-out "$REPORT_B2") >/dev/null 2>&1
+grep_file "all-struck shows the strike line" 'evidence bundle missing tool_use_id (file_line=c.js:3)' "$REPORT_B2"
+if section "$REPORT_B2" "## Evidence Bundles" | grep -qF '_No evidence bundles._'; then
+  ok "placeholder shown when every bundle is struck"
+else
+  fail_msg "placeholder missing on the all-struck report"
+fi
+
 # ---- Summary -----------------------------------------------------------------
 echo
 echo "PASS=$pass FAIL=$fail"

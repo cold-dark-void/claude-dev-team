@@ -6,6 +6,9 @@ Pre-written headings (release-train M5c, orchestrate version-sync tasks) are kep
 via skip-if-present when `/release` is given an explicit version — do not invent a
 second heading for the same version.
 
+### v1.22.10
+- **finalize fixture test locks bundle rendering + strike accounting (council-task-path-evidence-bundles-not-rendered)** — investigation found the renderer correct and the WP 1-04 "_No evidence bundles._" report caused by the pre-CDT-178 producer shape (investigator bundles without `tool_use_id`, all struck). The missing finalize fixture test now asserts both behaviors: mixed-valid bundles render their `### \`<tid>\`` headings and raw-blob bodies with no placeholder, and an all-struck evidence file shows the `evidence bundle missing tool_use_id (file_line=…)` strike plus the placeholder. Suite 96/96; no product-code change.
+
 ### v1.22.9
 - **council finalize keeps --report-out out of linked worktrees (council-report-out-absolute-path)** — a relative `--report-out` now resolves under `$MROOT` (the git common-dir parent) instead of the cwd, so an orchestrator running from a worktree no longer writes the M14 report into `.worktrees/<slug>/.claude/council/` where `/wrap-ticket` deletes it; an explicit path under `.worktrees/` exits 64. `/council` documents both rules. Two new f27 cases (cwd-independence + refusal).
 
