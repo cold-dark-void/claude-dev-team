@@ -155,6 +155,9 @@ tree on child wrap), re-implement kickoff/orchestrate WT lifecycle, or fork
 | All children completed + `release_bump` set | **B.7** seal once: squash-stage → one `/release <bump>` → `sealed=true` (C5) |
 | Seal failure (B.7 post-stage) | Bare `seal --abort` (stash then reset if it refuses via `--force`); `sealed` stays false; no partial tag/push (C5/CDT-170) |
 | Seal abort (clean main or seal-owned stage) | Bare `seal --abort`; resets seal-owned staging; exit 0. Other dirt → exit **1**, WIP preserved — `--force` = stash then reset for an intentional wipe (CDT-170) |
+| Seal died mid-squash (unmerged index, no `seal_stage`) | `seal --abort` exits **1** naming the recovery: resolve by hand (`git status` → finish the merge or `git merge --abort` / `git reset --hard` after confirming nothing to keep), then re-run `seal --abort`. The stash route refuses unmerged entries, so `--force` is not a way out (backlog seal-abort-unmerged-index-no-recovery) |
+| Partial release (commit or tag landed, a later `/release` step failed, **nothing pushed**) | Delete the local tag (`git tag -d vX`), `git reset --hard` to the pre-release SHA (the fold commit's parent — `/release` Step 0.5's `SHIP_START`, held in that session's state; the tag snapshot itself is cleared on any halt), re-run the one `seal`-driven `/release <bump>`. `sealed` stays false throughout; never fold a second release commit onto a half-landed one (backlog epic-seal-partial-release-recovery) |
+| Partial release **pushed** | Stop — remote tag delete plus a shared-branch reset is a human decision, not a recipe |
 | No `release_bump` at end | No epic seal path (C5) |
 | No ready children | Report rollup; stop cleanly |
 | Confirm handoff = n | Exit; child stays pending (or revert in_progress if already set — prefer confirm **before** set-status) |

@@ -1104,7 +1104,15 @@ _seal_restore_or_die() {
   local rc=$?
   set -e
   if [ "$rc" -eq 0 ]; then
-    [ -n "$restore_epic_id" ] && _seal_null_stage "$restore_epic_id"
+    # The "master restored" confirmation MUST reach the operator even when
+    # the EPICS_LOCK write inside _seal_null_stage fails (backlog
+    # seal-restore-lock-write-loses-message): nulling a stale seal_stage is
+    # best-effort here, the restore itself already succeeded.
+    if [ -n "$restore_epic_id" ]; then
+      if ! _seal_null_stage "$restore_epic_id"; then
+        printf 'seal: warning: could not null the stale seal_stage (lock/state write failed) — the state file may still list it; clear it by hand or on the next successful seal\n' >&2
+      fi
+    fi
     die 1 "$ok_msg"
   else
     die 1 "$refused_msg"
@@ -1167,24 +1175,36 @@ cmd_seal() {
         # once edits have already moved into a stash. X2: route the reset
         # itself through the git-safety primitive (never inline
         # `reset --hard`) so it also drops SQUASH_MSG.
-        local stash_name before_stash after_stash head_now stash_created=0
+        # M2/X2: `git stash create` builds the stash commit WITHOUT touching
+        # refs/stash, so a concurrent session's stash push can never be
+        # misattributed to this abort (the old before/after refs/stash
+        # compare could). `git stash store -m` then records exactly our
+        # SHA. Empty create output = no tracked edits (same M2 semantics as
+        # before). Untracked-only dirt still creates no stash.
+        local stash_name stash_sha stash_created=0
         stash_name="epic-seal-${epic_id}-$(date -u +%Y%m%dT%H%M%SZ)"
-        before_stash=$(git -C "$main" rev-parse -q --verify refs/stash 2>/dev/null || true)
-        if ! git -C "$main" stash push -m "$stash_name" >/dev/null 2>&1; then
-          die 1 "seal: stash failed — refuse abort; nothing changed"
+        # A failed create (unmerged entries, index error) is refused, not
+        # treated as "no local changes" — SPEC-025: a failed stash must exit
+        # 1 and change nothing, never fall through to the reset.
+        if ! stash_sha=$(git -C "$main" stash create 2>/dev/null); then
+          die 1 "seal: stash create failed (unmerged entries or index error?) — refuse abort; nothing changed (resolve the index first, then re-run seal --abort)"
         fi
-        after_stash=$(git -C "$main" rev-parse -q --verify refs/stash 2>/dev/null || true)
-        [ -n "$after_stash" ] && [ "$after_stash" != "$before_stash" ] && stash_created=1
+        if [ -n "$stash_sha" ]; then
+          if ! git -C "$main" stash store -m "$stash_name" "$stash_sha" >/dev/null 2>&1; then
+            die 1 "seal: stash store failed — refuse abort; nothing changed"
+          fi
+          stash_created=1
+        fi
         head_now=$(git -C "$main" rev-parse HEAD)
         if ! bash "$GIT_SAFETY" -C "$main" safe-reset --clean-at "$head_now"; then
           if [ "$stash_created" -eq 1 ]; then
-            die 1 "seal: stash push saved $after_stash ($stash_name) but the reset was refused — edits are in that stash; recover by hand"
+            die 1 "seal: stash push saved $stash_sha ($stash_name) but the reset was refused — edits are in that stash; recover by hand"
           else
             die 1 "seal: no tracked edits were stashed and the reset was refused — nothing changed; recover by hand"
           fi
         fi
         if [ "$stash_created" -eq 1 ]; then
-          printf 'seal: edits saved in stash %s (%s) — stash then reset\n' "$after_stash" "$stash_name" >&2
+          printf 'seal: edits saved in stash %s (%s) — stash then reset\n' "$stash_sha" "$stash_name" >&2
         else
           printf 'seal: no tracked edits to stash (%s) — reset only\n' "$stash_name" >&2
         fi
@@ -1204,11 +1224,21 @@ cmd_seal() {
           && bash "$GIT_SAFETY" -C "$main" safe-reset --stage "$sbase" "$stree"; then
           : # reset the seal-owned stage
         else
+          # backlog seal-abort-unmerged-index-no-recovery: an unmerged index
+          # (seal killed mid-squash) needs its own recovery text — stash
+          # push/store refuses unmerged entries, so the stash route is not
+          # the way out.
+          if [ -n "$(git -C "$main" ls-files --unmerged 2>/dev/null | head -1)" ]; then
+            die 1 "seal: main has unmerged index entries (a seal died mid-squash?) — the stash route refuses unmerged entries, so resolve the index by hand first: inspect with 'git -C $main status', finish the merge ('git -C $main merge --continue' or commit) or discard it ('git -C $main merge --abort' when mid-merge, else 'git -C $main reset --hard' after confirming nothing to keep), then re-run seal --abort"
+          fi
           die 1 "seal: main working tree dirty — refuse abort (not the seal-owned stage; to keep edits and reset: --abort --force = stash then reset)"
         fi
       fi
-      # seal_stage no longer describes reality once we act on --abort; null it.
-      _seal_null_stage "$epic_id"
+      # seal_stage no longer describes reality once we act on --abort; null
+      # it (best-effort — the reset already happened; a lock failure must
+      # not abort the script before the result JSON is printed).
+      _seal_null_stage "$epic_id" || \
+        printf 'seal: warning: could not null the stale seal_stage (lock/state write failed) — clear it by hand or on the next successful seal\n' >&2
     fi
     # ensure sealed remains false (do not flip true)
     if [ "$SEAL_SEALED" = "true" ]; then

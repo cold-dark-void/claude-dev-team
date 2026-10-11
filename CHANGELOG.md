@@ -6,6 +6,9 @@ Pre-written headings (release-train M5c, orchestrate version-sync tasks) are kep
 via skip-if-present when `/release` is given an explicit version — do not invent a
 second heading for the same version.
 
+### v1.22.11
+- **Seal recovery batch (seal-force-stash-ref-race, seal-restore-lock-write-loses-message, seal-abort-unmerged-index-no-recovery, epic-seal-partial-release-recovery)** — `--abort --force` builds the stash with `git stash create` + `git stash store -m` (race-free: a concurrent session's stash can no longer be misattributed; a failed create now refuses per SPEC-025 instead of falling through to the reset); both `seal_stage`-nulling sites are best-effort so the "master restored" confirmation always reaches the operator after a successful restore; an unmerged index (seal died mid-squash) gets a targeted recovery message instead of the generic dirty refusal; the `/epic` seal-failure table gains documented recovery rows for the mid-squash state and for a partial release (unpushed: delete tag + reset to the fold parent + re-run; pushed: stop, human decision). Seal suites 102/102 + 949/949.
+
 ### v1.22.10
 - **finalize fixture test locks bundle rendering + strike accounting (council-task-path-evidence-bundles-not-rendered)** — investigation found the renderer correct and the WP 1-04 "_No evidence bundles._" report caused by the pre-CDT-178 producer shape (investigator bundles without `tool_use_id`, all struck). The missing finalize fixture test now asserts both behaviors: mixed-valid bundles render their `### \`<tid>\`` headings and raw-blob bodies with no placeholder, and an all-struck evidence file shows the `evidence bundle missing tool_use_id (file_line=…)` strike plus the placeholder. Suite 96/96; no product-code change.
 
