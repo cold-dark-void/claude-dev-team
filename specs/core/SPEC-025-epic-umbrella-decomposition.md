@@ -333,6 +333,10 @@ Execution mode walks the DAG: each ready child (all dependencies completed) is h
 
 ---
 
+| 2026-10-10 | epic-lib-dag-lib-missing-rc1: AC K amended — `check-cycle` exits 2 (was 1) when `dag-lib.sh` is missing; rc 1 stays reserved for "cycle found" (SPEC-017). Test W3-37 flipped to the new contract. |
+
+---
+
 | 2026-10-02 | CDT-371 / CDT-391 / CDT-413: L5 is interactive mode only. Autopilot continuation stays M7. The PM-mandatory lesson is `skills/orchestrate/steps/08-execute.md`. Covers is a header line. |
 | 2026-09-30 | **WP 1-09 (`wp-1-09-epic-seal`; CDT-305, CDT-350, CDT-315, CDT-322, CDT-414, CDT-404, rv-w2-34, rv-w3-37):** M14 item 10 — a release-bump `--autopilot` token over a null `release_bump` exits 64 on resume (seal-intent is never session-only). Item 12 — `EPIC_ALLOW_SEAL_RELEASE=1` counts only while `seal_stage` is non-null. Item 13 — seal resolves the default branch through `resolve-base`, runs the dirty gate on the checkout as it is, and refuses (exit 1) unless HEAD is that branch (it never switches branches); `EPIC_SEAL_RELEASE_HOOK` runs only with `EPIC_TEST_MODE=1`. Item 6 and item 14 — the `--autopilot` docs say seal-intent, not unused or independent. New item 15 (active-parent lookup, scoped `mark-done`, one-jq `waves`, one ready-set rule, Step 0.4 exit codes) and item 16 (`reroute-epic` inside `/epic`). M15 — `sync-apply` pulls status forward only. `ensure-integration-worktree` and `ensure-ticket-worktree` never exit 0 when `worktree-lib` fails. New `### wp-1-09-epic-seal` AC subsection. Status stays ACTIVE. |
 | 2026-09-28 | **WP 1-08 (`wp-1-08-autopilot-state`; rv-w1-58):** M14 illegal combos gain near-miss spellings of `--worktree` / `--release` (`--work*` / `--rel*` that are not the exact flags) → exit 64, zero side effects. Other flag families still pass through (M14 item 6); the parser split is unchanged. |
@@ -445,7 +449,7 @@ Format and rules: SPEC-033 M14(g) and M14(h). Each ticket that ships through M14
   Verify: bash skills/epic/test.sh
 - **J.** `waves` output is unchanged on these fixtures: diamond, cycle, unknown dependency, duplicated dependency, self-dependency, no children and string-sorted ids. One `waves` call starts the same number of `jq` processes (at most 3) for a 4-child epic and for a 12-child epic. `epic-lib.sh` holds one `select(.status == "pending")` ready-set definition, and `ready-set` and `show` list the same ready ids.
   Verify: bash skills/epic/test.sh
-- **K.** `check-cycle` exits 1 for a self-loop and a three-node cycle, 0 for a diamond, an unknown dependency and an empty array, 2 for invalid JSON and a missing file, 64 with no argument, and 1 when `dag-lib.sh` is missing.
+- **K.** `check-cycle` exits 1 for a self-loop and a three-node cycle, 0 for a diamond, an unknown dependency and an empty array, 2 for invalid JSON and a missing file, 64 with no argument, and 2 when `dag-lib.sh` is missing (an environment failure is never the cycle rc 1; SPEC-017 reserves rc 1 for "cycle found").
   Verify: bash skills/epic/test.sh
 - **L.** The SKILL Step 0.4 fence, run as extracted against a stub `epic-lib.sh` whose `resolve-resume-flags` exits 64, 1, 2 or 7, exits with that same code.
   Verify: bash skills/epic/test.sh

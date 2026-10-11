@@ -269,6 +269,14 @@ OUT=$(EPIC_ROOT="$TMPROOT" bash "$LIB" check-cycle "$ACYC" 2>&1)
 RC=$?
 [ "$RC" -eq 0 ] && pass || fail "acyclic check-cycle want 0 got $RC out=$OUT"
 
+# backlog epic-lib-dag-lib-missing-rc1: a missing dag-lib.sh is an
+# environment failure, not a cycle — it must exit 2, never the cycle rc 1.
+set +e
+OUT=$(EPIC_ROOT="$TMPROOT" EPIC_DAG_LIB="$TMPROOT/no-such-dag-lib.sh" bash "$LIB" check-cycle "$ACYC" 2>&1)
+RC=$?
+[ "$RC" -eq 2 ] && pass || fail "missing dag-lib want exit 2 got $RC out=$OUT"
+echo "$OUT" | grep -q 'dag-lib not found' && pass || fail "missing dag-lib message missing: $OUT"
+
 # also direct dag-lib (AC14 — external reuse)
 set +e
 bash "$DAG" check-cycle "$CYC" >/dev/null 2>&1
@@ -2467,10 +2475,11 @@ w9cyc 0 '[]'
 w9cyc 2 'not json'
 w9 2 check-cycle "$W9_ROOT/no-such-file.json"
 w9 64 check-cycle
-set +e
+# backlog epic-lib-dag-lib-missing-rc1: a missing dag-lib is an environment
+# failure, not a cycle — it exits 2, never the cycle rc 1.
 OUT=$(cd "$W9_ROOT" && EPIC_ROOT="$W9_ROOT" EPIC_DAG_LIB="$W9_ROOT/no-such-dag-lib.sh" bash "$LIB" check-cycle "$W9_ROOT/no-such-file.json" 2>&1)
 RC=$?
-[ "$RC" -eq 1 ] && pass || fail "w109 W3-37 missing dag-lib must exit 1 (rc=$RC out=$OUT)"
+[ "$RC" -eq 2 ] && pass || fail "w109 W3-37 missing dag-lib must exit 2 (rc=$RC out=$OUT)"
 
 # --- T4 / W3-37: SKILL Step 0.4 passes the tool's own exit code through.
 # The fence runs against a stub plugin root whose epic-lib.sh answers `exists`

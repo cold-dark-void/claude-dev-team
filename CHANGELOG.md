@@ -6,6 +6,9 @@ Pre-written headings (release-train M5c, orchestrate version-sync tasks) are kep
 via skip-if-present when `/release` is given an explicit version — do not invent a
 second heading for the same version.
 
+### v1.22.6
+- **epic check-cycle: a missing dag-lib exits 2, not the cycle rc (epic-lib-dag-lib-missing-rc1)** — `cmd_check_cycle` died with rc 1 when `dag-lib.sh` was absent, indistinguishable from "a cycle was found" (SPEC-017) to callers that map rc 1. It now exits 2 (environment failure) with the same message; both check-cycle test blocks updated to the new contract. Epic suite 949/949.
+
 ### v1.22.5
 - **dag-lib ready-set flags partly-valid JSON task files (dag-lib-fallback-partial-json)** — `load_ready_docs` no longer trusts a record-count match alone: the fast pass now requires exactly one record per expected file (per-file `group_by(.f)` count compare), and the per-file fallback slurps with `jq -s` so a file with zero (whitespace-only) or 2+ (concatenated) top-level JSON values routes to a `__BAD__` warning naming the file instead of passing through silently. Files after a bad one still load; valid files still fan out. New J12–J17 cases; suite 81/81.
 

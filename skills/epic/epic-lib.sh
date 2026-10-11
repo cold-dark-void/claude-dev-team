@@ -1513,7 +1513,9 @@ cmd_ready_set() {
 cmd_check_cycle() {
   local src="${1:-}"
   [ -n "$src" ] || die 64 "check-cycle: missing <json-file|->"
-  [ -f "$DAG_LIB" ] || die 1 "dag-lib not found: $DAG_LIB"
+  # rc 1 means "a cycle was found" (SPEC-017); a missing dag-lib is an
+  # environment failure and exits 2 so callers never misread it as a cycle.
+  [ -f "$DAG_LIB" ] || die 2 "dag-lib not found: $DAG_LIB"
   # thin wrapper — no reimplemented DFS
   bash "$DAG_LIB" check-cycle "$src"
 }
