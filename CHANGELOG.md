@@ -6,6 +6,9 @@ Pre-written headings (release-train M5c, orchestrate version-sync tasks) are kep
 via skip-if-present when `/release` is given an explicit version — do not invent a
 second heading for the same version.
 
+### v1.22.2
+- **distill-commit roster accepts hook-written agents** — `skills/memory-store/distill-commit.py` now allows `agent='auto'` and `agent='claude'` in addition to the 7 behavioral agents. Both accumulate tier-0 rows via hooks/auto-capture, and the old roster check hard-rejected them (exit 64), forcing distillers onto hand-rolled SQL fallbacks. Unknown agents are still rejected; commit/rollback semantics unchanged (26/26 in `test-distill-validate.sh`).
+
 ### v1.22.1
 - **Opt-in --jobs worker pool for run-all-tests.sh (release gates ~2-4x faster), SPEC-030 R36-R39** — default stays serial (`jobs=1`); `--jobs N` / `RUN_ALL_TESTS_JOBS` run suites in isolated `git clone --local` workers with restore and R4 emit order (R37–R39). `/release` Step 4.13 uses `--jobs 8`. Evidence: `.claude/cdt-534-ship-evidence.txt`.
 

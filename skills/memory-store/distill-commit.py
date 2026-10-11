@@ -11,7 +11,19 @@ import os
 import sqlite3
 import sys
 
-ROSTER = {"pm", "tech-lead", "ic5", "ic4", "devops", "qa", "ds"}
+# Behavioral roster plus the hook-written agents ('auto' captures, 'claude'
+# session notes). Both accumulate tier-0 rows and must be distillable.
+ROSTER = {
+    "pm",
+    "tech-lead",
+    "ic5",
+    "ic4",
+    "devops",
+    "qa",
+    "ds",
+    "auto",
+    "claude",
+}
 
 
 def main(argv):
