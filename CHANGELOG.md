@@ -6,6 +6,9 @@ Pre-written headings (release-train M5c, orchestrate version-sync tasks) are kep
 via skip-if-present when `/release` is given an explicit version — do not invent a
 second heading for the same version.
 
+### v1.22.7
+- **worktree-lib refuses non-git directories on every lock-stamping path (worktree-lib-ensure-lock-paths-non-git, worktree-lib-register-non-git-dir)** — previously only the no-lock `ensure` path checked (WP 1-06); the FRESH steal path could stamp a lock on a plain directory and the STALE reclaim read `$MROOT`'s dirty state via git walk-up, while `register` adopted any plain directory as a worktree. All three now fail closed through the shared `is_git_worktree` helper (exit 1, stderr names the directory, no lock written). SPEC-016 `ensure`/`register` semantics, both exit-code tables, AC F and the lib header updated; test fixtures converted to real worktrees with three new refusal cases. Suite 205/205.
+
 ### v1.22.6
 - **epic check-cycle: a missing dag-lib exits 2, not the cycle rc (epic-lib-dag-lib-missing-rc1)** — `cmd_check_cycle` died with rc 1 when `dag-lib.sh` was absent, indistinguishable from "a cycle was found" (SPEC-017) to callers that map rc 1. It now exits 2 (environment failure) with the same message; both check-cycle test blocks updated to the new contract. Epic suite 949/949.
 

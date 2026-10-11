@@ -88,8 +88,10 @@ fi
 mask_age_col() { printf '%s\n' "$1" | awk -F ' \\| ' '{ OFS=" | "; $4="<age>"; print }'; }
 assert_eq "list == status (age column masked)" "$(mask_age_col "$LIST_OUT")" "$(mask_age_col "$OUT")"
 
-echo "== T4 register ok / missing =="
-mkdir -p .worktrees/reg-slug
+echo "== T4 register ok / missing / non-git =="
+# register requires a real git worktree (git walks up to $MROOT from a plain
+# dir, so the old plain-dir fixture adopted a non-worktree as a worktree).
+git worktree add --detach .worktrees/reg-slug >/dev/null 2>&1 || die "worktree add reg-slug failed"
 ROUT=$(run_lib register reg-slug 2>"$ERR_TMP"); RRC=$?
 assert_eq "register ok exit 0" "$RRC" "0"
 assert_eq "register prints path" "$ROUT" "$TMP/.worktrees/reg-slug"
@@ -110,6 +112,28 @@ if git rev-parse --verify --quiet refs/heads/feat/reg-slug >/dev/null 2>&1; then
 else
   PASS=$((PASS + 1)); echo "  ok  register no branch"
 fi
+# backlog worktree-lib-register-non-git-dir: a plain directory is refused.
+mkdir -p .worktrees/reg-plain
+RPOUT=$(run_lib register reg-plain 2>"$ERR_TMP"); RPRC=$?
+assert_eq "register plain-dir exit 1" "$RPRC" "1"
+assert_eq "register plain-dir empty stdout" "$RPOUT" ""
+assert_contains "register plain-dir stderr" "$(cat "$ERR_TMP" 2>/dev/null || true)" "not a git worktree"
+if [ -f ".worktrees/reg-plain/.wt-lock" ]; then
+  FAIL=$((FAIL + 1)); echo "  FAIL register plain-dir must not write .wt-lock"
+else
+  PASS=$((PASS + 1)); echo "  ok  register plain-dir wrote no .wt-lock"
+fi
+# backlog worktree-lib-ensure-lock-paths-non-git: FRESH steal and STALE
+# reclaim on a locked non-git dir are refused before any lock write.
+mkdir -p .worktrees/reg-fresh-plain .worktrees/reg-stale-plain
+printf '%s %s\n' "$NOW" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" > .worktrees/reg-fresh-plain/.wt-lock
+printf '%s %s\n' "$OLD" "2020-01-01T00:00:00Z" > .worktrees/reg-stale-plain/.wt-lock
+FPOUT=$(printf 'steal\n' | run_lib ensure reg-fresh-plain 2>"$ERR_TMP"); FPRC=$?
+assert_eq "ensure FRESH plain-dir exit 1" "$FPRC" "1"
+assert_contains "ensure FRESH plain-dir stderr" "$(cat "$ERR_TMP" 2>/dev/null || true)" "not a git worktree"
+SPOUT=$(run_lib ensure reg-stale-plain 2>"$ERR_TMP"); SPRC=$?
+assert_eq "ensure STALE plain-dir exit 1" "$SPRC" "1"
+assert_contains "ensure STALE plain-dir stderr" "$(cat "$ERR_TMP" 2>/dev/null || true)" "not a git worktree"
 
 ROUT=$(run_lib register missing-slug 2>"$ERR_TMP"); RRC=$?
 assert_eq "register missing exit 1" "$RRC" "1"

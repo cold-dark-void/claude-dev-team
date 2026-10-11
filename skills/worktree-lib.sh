@@ -20,7 +20,8 @@
 # and no live task references the slug; otherwise refuses with exit 1. sweep
 # proposes STALE worktrees with no live task (never deletes). ensure also refuses
 # an existing $MROOT/.worktrees/<slug> directory that is not itself a git
-# worktree (no-lock path only; WP 1-06, SPEC-016).
+# worktree — on every path, lock or no lock (WP 1-06 + the 2026-10-10 lock-path
+# amendment, SPEC-016). register has the same requirement.
 #
 # release never adds a force flag when it removes a worktree (WP 1-06):
 # a failed remove exits 1 and keeps the directory, the branch and its
@@ -242,8 +243,8 @@ is_worktree_dirty() {
 
 # is_git_worktree <wt>
 # exit 0 if <wt> is itself a git worktree (its own toplevel resolves to <wt>,
-# not to some ancestor such as $MROOT). Used only by ensure's no-lock +
-# existing-directory branch (WP 1-06, SPEC-016): the exit code of a bare
+# not to some ancestor such as $MROOT). Used by every ensure path that
+# returns an existing directory and by register: the exit code of a bare
 # `git -C <wt> rev-parse ...` is not enough for a plain directory under
 # $MROOT/.worktrees/, because git walks up and finds $MROOT.
 is_git_worktree() {
@@ -278,6 +279,13 @@ cmd_ensure() {
   local branch="feat/$slug"
 
   if [ -f "$lock" ]; then
+    # A lock on a directory that is not a git worktree must never be
+    # refreshed (FRESH steal or STALE reclaim) — the WP 1-06 no-lock guard
+    # covers only the no-lock branch. Fail closed on both lock paths.
+    if [ -d "$wt" ] && ! is_git_worktree "$wt"; then
+      echo "ensure: $wt holds a lock but is not a git worktree — refusing to stamp or reclaim" >&2
+      exit 1
+    fi
     read_lock_state "$lock"
     local fresh="$LOCK_FRESH" age="$LOCK_AGE" lock_iso="$LOCK_ISO"
 
@@ -635,6 +643,14 @@ cmd_register() {
 
   if [ ! -d "$wt" ]; then
     echo "register: worktree not found: $wt" >&2
+    exit 1
+  fi
+
+  # A plain directory under .worktrees/ is not a worktree (git walks up to
+  # $MROOT) — register would otherwise stamp a lock that later ensure runs
+  # treat as an adoptable worktree (WP 1-06 / SPEC-016).
+  if ! is_git_worktree "$wt"; then
+    echo "register: $wt exists but is not a git worktree" >&2
     exit 1
   fi
 
