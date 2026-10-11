@@ -96,5 +96,34 @@ else
   bad "completion line: $(grep 'Completion time' "$TMP/notime.md")"
 fi
 
+# backlog council-report-out-absolute-path: a relative --report-out resolves
+# under $MROOT (never the cwd), and a path inside a linked worktree is refused.
+REPO_WT="$TMP/repo-wt"
+mkdir -p "$REPO_WT"
+git init -q "$REPO_WT"
+mkdir -p "$REPO_WT/linked-wt"
+(
+  cd "$REPO_WT/linked-wt" || exit 1
+  bash "$ENGINE" finalize --plan-file "$TMP/plan-keep.json" \
+    --evidence-file "$FIX/evidence.json" --judge-output "$FIX/judge.json" \
+    --report-out rel-report.md >/dev/null 2>&1
+)
+if [ -f "$REPO_WT/rel-report.md" ] && [ ! -e "$REPO_WT/linked-wt/rel-report.md" ]; then
+  ok "relative --report-out resolves under MROOT, not the cwd"
+else
+  bad "relative --report-out landed at $REPO_WT/rel-report.md and not in the cwd"
+fi
+set +e
+WERR="$(cd "$REPO_WT" && "$BASH_BIN" "$ENGINE" finalize --plan-file "$TMP/plan-keep.json" \
+  --evidence-file "$FIX/evidence.json" --judge-output "$FIX/judge.json" \
+  --report-out "$REPO_WT/.worktrees/some-wt/r.md" 2>&1 >/dev/null)"
+WRC=$?
+set -e
+if [ "$WRC" -eq 64 ] && printf '%s\n' "$WERR" | grep -q 'not live inside a linked worktree'; then
+  ok "report-out inside a linked worktree is refused (64)"
+else
+  bad "worktree report-out rc=$WRC err=$WERR"
+fi
+
 if [ "$fail" -eq 0 ]; then echo "ALL PASS"; else echo "FAILURES PRESENT"; fi
 exit "$fail"

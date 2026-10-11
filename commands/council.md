@@ -1566,6 +1566,9 @@ Tier-1 reverse-validation: none (severed — clusters are findings)
   sidecar. `--report-out <path>` is unaffected by this reservation — an
   explicit `--report-out` writes to the exact given path and MAY overwrite
   it on a repeat run (SPEC-013 Phase 6 "Report no-overwrite" exception).
+  A **relative** `--report-out` resolves under `$MROOT` (the git common-dir
+  parent), never the cwd, and a path inside a linked worktree exits 64 —
+  a report written into a worktree is deleted by `/wrap-ticket`.
 
 ## Rules
 

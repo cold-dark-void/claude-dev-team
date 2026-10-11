@@ -36,6 +36,24 @@ cmd_finalize() {
   if [ -z "$verification_mode" ]; then
     verification_mode="full"
   fi
+
+  # A relative --report-out resolves under $MROOT (the git common-dir
+  # parent), never the cwd — an orchestrator running from a linked worktree
+  # would otherwise write the report into that worktree and /wrap-ticket
+  # deletes it (backlog council-report-out-absolute-path). A path inside a
+  # linked worktree is refused outright.
+  if [ -n "$report_out" ]; then
+    case "$report_out" in
+      /*) : ;;
+      *)  report_out="$MROOT/${report_out#./}" ;;
+    esac
+    case "$report_out" in
+      "$MROOT"/.worktrees | "$MROOT"/.worktrees/*)
+        echo "engine.sh: --report-out must not live inside a linked worktree ($report_out) — pass a path under \$MROOT/.claude/council/" >&2
+        exit 64
+        ;;
+    esac
+  fi
   case "$verification_mode" in
     full|self-verified) ;;
     *)

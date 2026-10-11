@@ -6,6 +6,9 @@ Pre-written headings (release-train M5c, orchestrate version-sync tasks) are kep
 via skip-if-present when `/release` is given an explicit version — do not invent a
 second heading for the same version.
 
+### v1.22.9
+- **council finalize keeps --report-out out of linked worktrees (council-report-out-absolute-path)** — a relative `--report-out` now resolves under `$MROOT` (the git common-dir parent) instead of the cwd, so an orchestrator running from a worktree no longer writes the M14 report into `.worktrees/<slug>/.claude/council/` where `/wrap-ticket` deletes it; an explicit path under `.worktrees/` exits 64. `/council` documents both rules. Two new f27 cases (cwd-independence + refusal).
+
 ### v1.22.8
 - **prune-remote self-heals a stale origin/HEAD (git-safety-resolve-base-stale-origin-head)** — decision recorded: `git-safety.sh resolve-base` stays network-free (SPEC-025 M17 item 9 unchanged), and the one network-active consumer now refreshes `origin/HEAD` (`git remote set-head origin --auto`, best-effort, silent failure) after its origin check and before `resolve-base`, in both `safe-to-delete` and `prune`. A stale/renamed `origin/HEAD` no longer poisons the base order's first arm after any fetch-bearing run; the safe-failure mode of other local callers is documented. Regression test forges a dangling symref and asserts the refresh; prune-remote suite 120/120.
 
