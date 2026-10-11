@@ -243,21 +243,33 @@ RSJQEOF
 # The fallback isolates each file: a read/parse failure on one file becomes
 # its own "__BAD__" record and never drops the files after it.
 load_ready_docs() {
-  local fast_json fast_rc fast_count
+  local fast_json fast_rc fast_count per_file actual expected
   fast_json=$(jq -n -c '[inputs | {f: input_filename, doc: .}]' "$@" 2>/dev/null) && fast_rc=0 || fast_rc=$?
   if [ "$fast_rc" -eq 0 ]; then
     fast_count=$(printf '%s' "$fast_json" | jq 'length' 2>/dev/null) && : || fast_count=-1
     if [ "$fast_count" -eq "$#" ]; then
-      printf '%s' "$fast_json"
-      return 0
+      # A concatenated-values or whitespace-only file can still make the
+      # record count match the file count. Require exactly one record per
+      # expected file before trusting the fast pass; any mismatch falls
+      # through to the isolating per-file fallback.
+      per_file=$(printf '%s' "$fast_json" | jq -r 'group_by(.f) | map("\(.[0].f):\(length)") | .[]' 2>/dev/null) && : || per_file=""
+      actual=$(printf '%s\n' "$per_file" | sort)
+      expected=$(printf '%s:1\n' "$@" | sort)
+      if [ "$actual" = "$expected" ]; then
+        printf '%s' "$fast_json"
+        return 0
+      fi
     fi
   fi
 
-  local f
+  local f out
   { for f in "$@"; do
-      if ! jq -c --arg f "$f" '{f: $f, doc: .}' -- "$f" 2>/dev/null; then
-        jq -n -c --arg f "$f" '{f: $f, doc: "__BAD__"}'
-      fi
+      # jq -s slurps the whole file: exactly one top-level value is a valid
+      # task record. Zero values (whitespace-only) or 2+ (concatenated JSON)
+      # route to "__BAD__" so the record count always matches the file count.
+      out=$(jq -cs --arg f "$f" 'if length == 1 then [ {f: $f, doc: .[0]} ] else [ {f: $f, doc: "__BAD__"} ] end | .[]' -- "$f" 2>/dev/null) \
+        && printf '%s\n' "$out" \
+        || jq -n -c --arg f "$f" '{f: $f, doc: "__BAD__"}'
     done
   } | jq -n -c '[inputs]'
 }

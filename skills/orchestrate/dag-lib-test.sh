@@ -267,6 +267,30 @@ if [ "$RC" -eq 0 ]; then pass; else fail "J9 ready-set with unreadable file rc=$
 assert_contains "J10 later file still ready" "$OUT" "Z-after"
 assert_contains "J11 warning names the unreadable file" "$(cat "$STDERR_F")" "A-unreadable.json"
 
+# CDT backlog dag-lib-fallback-partial-json: a file with zero (whitespace-only)
+# or 2+ (concatenated) top-level JSON values must route to "__BAD__" with a
+# warning naming the file, and never drop the files after it.
+REPO_J5="$HERMETIC_ROOT/repo-j5"
+mkdir -p "$REPO_J5/.claude/tasks"
+git init -q "$REPO_J5"
+git -C "$REPO_J5" config user.email t@example.invalid
+git -C "$REPO_J5" config user.name t
+git -C "$REPO_J5" commit -q --allow-empty -m init
+TASKS_J5="$REPO_J5/.claude/tasks"
+write_task "$TASKS_J5/B-multi.json" "B-multi" pending '[]'
+printf '   \n\t \n' > "$TASKS_J5/C-ws.json"
+printf '{"task_id":"D-concat","status":"pending","depends_on":[]}\n{"task_id":"D2","status":"pending","depends_on":[]}\n' > "$TASKS_J5/D-concat.json"
+write_task "$TASKS_J5/Z-after.json" "Z-after" pending '[]'
+
+RC=0
+OUT=$(cd "$REPO_J5" && bash "$DAG" ready-set 2>"$STDERR_F") || RC=$?
+if [ "$RC" -eq 0 ]; then pass; else fail "J12 ready-set with partly-valid JSON files rc=$RC"; fi
+assert_contains "J13 whitespace-only file warned as bad" "$(cat "$STDERR_F")" "C-ws.json"
+assert_contains "J14 concatenated-values file warned as bad" "$(cat "$STDERR_F")" "D-concat.json"
+assert_contains "J15 later file still ready past bad files" "$OUT" "Z-after"
+if printf '%s' "$OUT" | grep -q 'D-concat'; then fail "J16 concatenated file not treated as a task"; else pass; fi
+if printf '%s' "$OUT" | grep -q 'B-multi'; then pass; else fail "J17 valid file before bad files still ready"; fi
+
 # The completed set spans every readable file, so a dep completed under a
 # different issue still frees an in-scope task.
 REPO_J4="$HERMETIC_ROOT/repo-j4"

@@ -6,6 +6,9 @@ Pre-written headings (release-train M5c, orchestrate version-sync tasks) are kep
 via skip-if-present when `/release` is given an explicit version — do not invent a
 second heading for the same version.
 
+### v1.22.5
+- **dag-lib ready-set flags partly-valid JSON task files (dag-lib-fallback-partial-json)** — `load_ready_docs` no longer trusts a record-count match alone: the fast pass now requires exactly one record per expected file (per-file `group_by(.f)` count compare), and the per-file fallback slurps with `jq -s` so a file with zero (whitespace-only) or 2+ (concatenated) top-level JSON values routes to a `__BAD__` warning naming the file instead of passing through silently. Files after a bad one still load; valid files still fan out. New J12–J17 cases; suite 81/81.
+
 ### v1.22.4
 - **Step 8 fan-out fails closed on a failed ready-set (orchestrate-ready-set-rc-unchecked)** — the DAG-aware fan-out fence in `skills/orchestrate/steps/08-execute.md` now checks `dag-lib.sh ready-set`'s exit code and halts Step 8 with an explicit error instead of silently spawning on a possibly incomplete READY set (rc 2 = corrupt/unreadable task store per SPEC-017). rc 0 with an empty set stays "nothing ready"; per-file corrupt-skip warnings stay rc 0 (AC J).
 
