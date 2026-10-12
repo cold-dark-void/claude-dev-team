@@ -21,6 +21,7 @@ hermetic_init
 
 RESOLVE_MD="$ROOT/skills/orchestrate/steps/00-resolve.md"
 CROSS_CUTTING="$ROOT/skills/orchestrate/steps/cross-cutting.md"
+SKILL="$ROOT/skills/autopilot/SKILL.md"
 RESUME="$ROOT/skills/autopilot/resume-state.sh"
 BUDGET="$ROOT/skills/autopilot/budget-check.sh"
 APPEND="$ROOT/skills/autopilot/append-card.sh"
@@ -48,6 +49,19 @@ if grep -qi 'already breached' "$CROSS_CUTTING" \
   pass "cross-cutting.md states the already-breached BC6-halt / no-re-mint rule"
 else
   fail "cross-cutting.md missing the already-breached BC6-halt / no-re-mint rule"
+fi
+
+# ---- Static: skills/autopilot/SKILL.md carries the M9a approval-wait rule
+# (operational copy must not drift from SPEC-033 M9a — bc6-counts-permission-wait).
+if grep -qF 'approval-wait:' "$SKILL" \
+  && grep -qF 'MUST NOT count toward BC6' "$SKILL" \
+  && grep -qF 'resume-state.sh --accumulated' "$SKILL" \
+  && grep -qF '00-resolve.md' "$SKILL" \
+  && grep -qi 'run_id` stays\|run_id stays\|run_id` is unchanged' "$SKILL" \
+  && grep -qi 'hard stop for ..active' "$SKILL"; then
+  pass "SKILL.md carries the M9a approval-wait exclusion (operational copy in sync)"
+else
+  fail "SKILL.md missing the M9a approval-wait exclusion (drift from SPEC-033 M9a)"
 fi
 
 # ---- Extract the re-mint fence (C6) -----------------------------------------

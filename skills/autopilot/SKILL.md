@@ -287,6 +287,28 @@ stand unchanged for `/kickoff` and `/epic` Mode A. `/orchestrate` MAY auto-tune 
 **M9b**. Auto-tune MUST NOT apply to `/kickoff` or `/epic` Mode A. Breaching either cap
 trips **BC6**.
 
+### M9a — approval wait is excluded from BC6 (SPEC-033 M9a; user decision 2026-09-28)
+
+Time a live `/orchestrate` autopilot run spends blocked on a human approval — a
+refused tool call, a permission prompt, or any other in-run "wait for the user" —
+MUST NOT count toward BC6. Before it blocks, the orchestrator writes an
+`approval-wait:` halt card through the `self-answer.md` §3f freeze recipe:
+`decision=halt`, `decided_by=auto`, `blocking_condition` 1 (3 when the refused
+action is destructive, M6.3), `gate` = the last gate this run answered
+(`scope-confirm` or `plan-approve`; `scope-confirm` before the first gate; never
+`ship-choice`), the current `run_id` and ITER, and a `rationale` starting with
+`approval-wait:`; `budget.wall_clock_s` is the **active time up to the wait**
+(`skills/orchestrate/steps/cross-cutting.md` § "Approval wait under autopilot"
+owns the field set). If that card's `budget-check.sh` call already reports a
+breach, the card is a **BC6 halt** instead and no re-mint follows. On the
+human's reply, the `00-resolve.md` re-mint fence re-mints
+`run_start_epoch = now − resume-state.sh --accumulated` (the M9a synthetic
+epoch); `run_id` stays. No wait card follows ship-choice card #1 (BC6 is not
+evaluated after it). `/kickoff` and `/epic` Mode A are unchanged. BC6 remains a
+hard stop for **active** time: this excludes human wait time only, and a run
+that never waits keeps the old measure. No card field, gate value, `type`, or
+ninth BC is added.
+
 ### M9b — `/orchestrate` auto-tune (SPEC-033 AC9)
 
 Cite SPEC-033 AC9. Do not fork the table. `budget.tier` is not `--tier` and is not

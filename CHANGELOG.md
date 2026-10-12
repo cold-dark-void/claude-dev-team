@@ -6,6 +6,9 @@ Pre-written headings (release-train M5c, orchestrate version-sync tasks) are kep
 via skip-if-present when `/release` is given an explicit version — do not invent a
 second heading for the same version.
 
+### v1.23.0
+- **BC6 wall clock: approval-wait time is excluded (bc6-counts-permission-wait)** — operational-copy sync, no rule change: SPEC-033 M9a's approval-wait exclusion (WP 1-08, user decision 2026-09-28) was absent from `skills/autopilot/SKILL.md`, the one operational copy (M12), so an orchestrator that skips the orchestrate-step protocol counted approval-wait time toward BC6 (observed on WP 1-15: 38248 s vs 10800 cap, ~7.5 h idle). SKILL.md gains the M9a subsection mirroring the spec (wait cards BC1/BC3, active-time `wall_clock_s`, re-mint via `--accumulated`, breach-at-wait → BC6 halt with no re-mint, hard stop for active time); a static drift-guard in `test-bc6-approval-wait.sh` fails if the subsection or its key phrases are removed; SPEC-033 gains a dated Version-History row. Suite 11/0; contract-prose 19/0; ship-gate-guardrails 69/0.
+
 ### v1.22.24
 - **run-all-tests keeps the full output of failed pool suites (cdt-545)** — a red suite under `--jobs` now has its complete `out.$k` moved to `${TMPDIR:-/tmp}/run-all-tests-failed.<timestamp>.<pid>/` (FAIL, TIMEOUT and QUARANTINED alike) instead of being deleted after the 20-line tail, so a flake pins its own failing assertions; the keep-dir path is named on stderr, green runs create nothing, jobs=1 is untouched, and the dir lives outside the worker scratch so cleanup never reaps it. Regression cases P12/P13 in `run-all-tests-pool-test.sh` (P12 bites pre-fix). Closes the CDT-545 flake-hunt gap: 6 rounds with no repro left no artifact; now one red run is self-documenting.
 
