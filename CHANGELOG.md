@@ -6,6 +6,9 @@ Pre-written headings (release-train M5c, orchestrate version-sync tasks) are kep
 via skip-if-present when `/release` is given an explicit version — do not invent a
 second heading for the same version.
 
+### v1.22.16
+- **TaskCompleted META_SCAN fails closed on interpreter failure (wp-1-10-task-completed-meta-scan-fail-open)** — the hook template's `|| printf "false"` fallback is gone: a non-zero interpreter rc or empty scan output now exits 2 with `META_SCAN failed` on stderr instead of silently passing the council gate. Exec suite gains a failing-interpreter case; SPEC-002 gains the hard-fail entry, the held-open-stdin EOF-wait note, and the stop-review best-effort drain line. Pair repair: the v1.22.15 fold missed staging plugin.json — this release sets the pair to 1.22.16 so both surfaces match.
+
 ### v1.22.15
 - **End-state attestation window closes; safe-reset --clean-at attests the recorded staged tree (end-state-attestation-window)** — `safe-reset --clean-at` gains an optional `<expected_tree>`: autopilot §4 fingerprints the squash-staged index with `git write-tree` right after the squash and §6.5 passes it, so the land-abort cleanup refuses (no reset, halt for a human) when the index or the working tree has since drifted from it — a tracked edit a user lands on main during a concurrent `/release` run is never discarded. Single-argument callers (§4 squash-conflict path, seal) are unchanged. Documented outcome: on a `/release` abort after Step 3 the version-pair edits are themselves tracked drift, so the cleanup halts for a human instead of auto-restoring. Tests: git-safety 101/101, end-state-safety 50/50 (new I4 refusal case). Specs: SPEC-025 M17, SPEC-033.
 

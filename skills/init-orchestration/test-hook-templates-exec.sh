@@ -152,6 +152,30 @@ yes x 2>/dev/null | head -c 1100000 > "$WORK/a3.stdin"
 check_rc "A: >1MiB stdin rc" "$?" "2"
 check_contains "A: >1MiB stdin stderr" "$WORK/a3.err" "cannot read hook stdin"
 
+# CDT-541 / wp-1-10 Step 10b: an interpreter failure at META_SCAN must not
+# read as "no candidate requires council" — the gate exits 2 with a reason.
+# The stub fails only on the META_SCAN argv shape (-c script TASK_ID
+# CANDIDATES...: $3 is a bare task id, neither a path nor .json), so the
+# earlier stdin/task-id python calls still run the real interpreter.
+PY_FARM="$WORK/cdt541-pyfarm"
+mkdir -p "$PY_FARM"
+REAL_PY=$(PATH="$GRAFT_PATH" command -v python3)
+{
+  echo '#!/usr/bin/env bash'
+  echo 'if [ "$#" -ge 3 ]; then'
+  echo '  case "$3" in'
+  echo '    */*|*.json) ;;'
+  echo '    *) echo "cdt541: interpreter failure" >&2; exit 70 ;;'
+  echo '  esac'
+  echo 'fi'
+  printf 'exec "%s" "$@"\n' "$REAL_PY"
+} > "$PY_FARM/python3"
+chmod +x "$PY_FARM/python3"
+( cd "$A_REPO" && unset CLAUDE_TASK_ID && PATH="$PY_FARM:$GRAFT_PATH" "$BASH_BIN" "$TC_HOOK" < "$WORK/a1.stdin" \
+  > "$WORK/a5.out" 2>"$WORK/a5.err" )
+check_rc "A: META_SCAN interpreter failure rc" "$?" "2"
+check_contains "A: META_SCAN failure stderr" "$WORK/a5.err" "META_SCAN failed"
+
 SECONDS=0
 ( cd "$A_REPO" && unset CLAUDE_TASK_ID && "$BASH_BIN" "$TC_HOOK" < /dev/null \
   > "$WORK/a4.out" 2>"$WORK/a4.err" )
