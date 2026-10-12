@@ -285,6 +285,22 @@ check "run: all suites passing exits 0" is_rc 0
 run_h run --root "$M" --manifest "$M/stale.tsv"
 check "run: a static finding fails the run (no suite output needed)" is_rc 1
 
+# run: SPEC-030 R8/R19 — a suite that exits 77 (missing tool, root uid) is a SKIP
+{
+  mrow exclude F4 commands/doc.md "outside a function" 2 doc-all "both steps"
+  mrow suite commands/doc.md "Step 1: Do it" tests/test-77.sh "runs step 1, skips on a missing tool"
+} > "$M/run-skip.tsv"
+printf '#!/usr/bin/env bash\n# Step 1: Do it\nexit 77\n' > "$M/tests/test-77.sh"
+run_h run --root "$M" --manifest "$M/run-skip.tsv"
+check "run: a suite that exits 77 is reported as SKIP" out_has "SKIP suite tests/test-77.sh"
+check "run: a skipped suite does not fail the run" is_rc 0
+check "run: the skipped suite is not counted as failed" out_has "1 suites, 0 failed"
+
+# run: FENCE_EXEC_TIMEOUT=0 means no cap in GNU timeout, so reject it with 64
+FENCE_EXEC_TIMEOUT=0 run_h run --root "$M" --manifest "$M/run-ok.tsv"
+check "timeout: FENCE_EXEC_TIMEOUT=0 exits 64" is_rc 64
+check "timeout: zero is rejected with the usage message" out_has "FENCE_EXEC_TIMEOUT must be a positive integer"
+
 # ---------------------------------------------------------------------------
 # Mutants: switch one rule off in a private copy of the harness. The planted
 # positives must disappear, which shows each test above depends on its rule.

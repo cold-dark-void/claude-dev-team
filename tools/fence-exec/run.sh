@@ -264,6 +264,7 @@ rc=0
 # ---- run: manifest suites --------------------------------------------------
 TMO="${FENCE_EXEC_TIMEOUT:-300}"
 case "$TMO" in ''|*[!0-9]*) die64 "FENCE_EXEC_TIMEOUT must be a positive integer" ;; esac
+[ "$TMO" -gt 0 ] || die64 "FENCE_EXEC_TIMEOUT must be a positive integer"
 ran=""
 n_suite=0
 n_fail=0
@@ -289,6 +290,8 @@ $sp"
   src=$?
   if [ "$src" -eq 0 ]; then
     echo "PASS suite $sp"
+  elif [ "$src" -eq 77 ]; then
+    echo "SKIP suite $sp"   # SPEC-030 R8/R19: a missing tool or root uid, not a failure
   else
     n_fail=$((n_fail + 1))
     echo "FAIL suite $sp (rc=$src)"

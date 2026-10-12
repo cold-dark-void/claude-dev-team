@@ -6,6 +6,9 @@ Pre-written headings (release-train M5c, orchestrate version-sync tasks) are kep
 via skip-if-present when `/release` is given an explicit version — do not invent a
 second heading for the same version.
 
+### v1.22.21
+- **fence-exec run treats a suite exit 77 as SKIP and rejects a zero FENCE_EXEC_TIMEOUT (fence-exec-run-exit-77-skip)** — the `run` subcommand's suite loop now maps rc 77 to `SKIP suite <path>` (SPEC-030 R8/R19: missing tool or root uid) instead of FAIL; every other non-zero rc stays FAIL. `FENCE_EXEC_TIMEOUT=0` is rejected with exit 64 (GNU `timeout 0` means no cap) instead of silently running uncapped. Test suite gains a hermetic exit-77 stub and a zero-timeout rejection case (122/0); SPEC-030 R26 states the mapping.
+
 ### v1.22.20
 - **dag-lib test skips its root-unsafe permission cases (dag-lib-test-root-skip)** — J9–J11 (chmod-000 unreadable-file handling) are guarded with the SPEC-030 R18 per-case skip idiom: under uid 0 the guard subshell exits 77 so the case body is skipped with a clear SKIP line while the pass/fail counters stay intact (78/78 + 3 skips under a root shim vs 81/81 as a normal user). The non-root path is a wrap-and-indent-only diff — REPO_J3 setup, the chmod-000/644 pair, and every other case are unchanged. Siblings green: router-static 32, task-store 81, ticket-class 8, epic 952.
 
