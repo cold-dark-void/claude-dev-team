@@ -6,6 +6,9 @@ Pre-written headings (release-train M5c, orchestrate version-sync tasks) are kep
 via skip-if-present when `/release` is given an explicit version — do not invent a
 second heading for the same version.
 
+### v1.22.12
+- **tdd-gate validates session_id before it names a file (wp-1-10-tdd-gate-session-id-path)** — the hook template now accepts only `[A-Za-z0-9_-]` for the hook-input `session_id` and falls back to the fixed bucket name `untrusted` on any other value, so a crafted `session_id` can no longer inject a path separator into `COUNTER_FILE`. Exec suite gains case T (traversal session_id stays in the sanitized bucket and increments it across attempts; a well-formed id keeps its own bucket). Verified on-host by running the extracted hook (suite SKIPs here — no shellcheck).
+
 ### v1.22.11
 - **Seal recovery batch (seal-force-stash-ref-race, seal-restore-lock-write-loses-message, seal-abort-unmerged-index-no-recovery, epic-seal-partial-release-recovery)** — `--abort --force` builds the stash with `git stash create` + `git stash store -m` (race-free: a concurrent session's stash can no longer be misattributed; a failed create now refuses per SPEC-025 instead of falling through to the reset); both `seal_stage`-nulling sites are best-effort so the "master restored" confirmation always reaches the operator after a successful restore; an unmerged index (seal died mid-squash) gets a targeted recovery message instead of the generic dirty refusal; the `/epic` seal-failure table gains documented recovery rows for the mid-squash state and for a partial release (unpushed: delete tag + reset to the fold parent + re-run; pushed: stop, human decision). Seal suites 102/102 + 949/949.
 

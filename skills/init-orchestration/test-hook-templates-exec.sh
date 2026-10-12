@@ -463,6 +463,65 @@ check_contains "G: tdd-gate failure names commands/tdd-gate.md" "$WORK/g1.err" "
 check_not_contains "G: tdd-gate failure does not blame SKILL.md" "$WORK/g1.err" "for 'tdd-gate' from SKILL.md"
 
 ######################################################################
+# CDT-538 — tdd-gate session_id is validated before it names a file
+######################################################################
+
+T_TMP="$WORK/case-t/tmp"
+T_REPO="$WORK/case-t/repo"
+mkdir -p "$T_TMP" "$T_REPO/src"
+
+run_tdd() { # run_tdd TMPDIR SESSION_ID OUT ERR
+  printf '%s' "{\"tool_name\":\"Write\",\"tool_input\":{\"file_path\":\"$T_REPO/src/foo.ts\"},\"session_id\":\"$2\"}" \
+    > "$WORK/case-t/stdin.json"
+  ( cd "$T_REPO" && PATH="$GRAFT_PATH" TMPDIR="$1" "$BASH_BIN" "$WORK/hooks/tdd-gate.sh" \
+    < "$WORK/case-t/stdin.json" > "$3" 2>"$4" )
+}
+
+# session_id with a path separator must not name the counter file: the
+# sanitized fallback counter is used instead and no '..' file is created.
+run_tdd "$T_TMP" "../x" "$WORK/case-t/t1.out" "$WORK/case-t/t1.err"
+check_rc "T: traversal session_id rc (1st attempt = hint)" "$?" "0"
+if ls "$T_TMP" | grep -q '^tdd-gate-untrusted-'; then
+  pass
+else
+  fail "T: sanitized fallback counter missing (got: $(ls "$T_TMP" | tr '\n' ' '))"
+fi
+if ls "$T_TMP" | grep -Fq '..'; then
+  fail "T: counter file name contains '..'"
+else
+  pass
+fi
+if ls "$WORK/case-t" 2>/dev/null | grep -Eq '^(x|\.\.)'; then
+  fail "T: unsanitized session_id escaped the counter directory"
+else
+  pass
+fi
+# Same sanitized bucket on a second run (graduated counter still works).
+run_tdd "$T_TMP" "../x" "$WORK/case-t/t2.out" "$WORK/case-t/t2.err"
+check_rc "T: traversal session_id 2nd run rc (warning)" "$?" "0"
+if [ "$(cat "$T_TMP"/tdd-gate-untrusted-* 2>/dev/null)" = "2" ]; then
+  pass
+else
+  fail "T: second attempt did not increment the sanitized counter"
+fi
+
+# A well-formed session_id keeps its bucket.
+T_TMP2="$WORK/case-t/tmp2"
+mkdir -p "$T_TMP2"
+run_tdd "$T_TMP2" "01a12844-1589-7033-8bf7-76959da613c9" "$WORK/case-t/t3.out" "$WORK/case-t/t3.err"
+check_rc "T: well-formed session_id rc" "$?" "0"
+if ls "$T_TMP2" | grep -q '^tdd-gate-01a12844-1589-7033-8bf7-76959da613c9-'; then
+  pass
+else
+  fail "T: well-formed session_id bucket missing (got: $(ls "$T_TMP2" | tr '\n' ' '))"
+fi
+if ls "$T_TMP2" | grep -q '^tdd-gate-untrusted-'; then
+  fail "T: well-formed session_id wrongly sanitized"
+else
+  pass
+fi
+
+######################################################################
 # CDT-502 (SPEC-030 R33/R35, AC2/AC3): the template shellcheck pass is
 # strict when shellcheck is present — findings fail rc 1 naming every
 # offending template with the full findings output; a bare

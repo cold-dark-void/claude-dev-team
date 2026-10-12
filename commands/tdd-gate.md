@@ -180,6 +180,11 @@ esac
 if [ "$FOUND_TEST" = "false" ]; then
   # Graduated enforcement: hint (1st) → warning (2nd) → block (3rd+)
   SESSION_ID=$(echo "$INPUT" | python3 -c "import sys,json; print(json.load(sys.stdin).get('session_id','unknown'))" 2>/dev/null || echo "unknown")
+  # session_id is untrusted hook input. Allow only [A-Za-z0-9_-] so it can
+  # never inject a path separator into COUNTER_FILE.
+  case "$SESSION_ID" in
+    ""|*[!A-Za-z0-9_-]*) SESSION_ID="untrusted" ;;
+  esac
   FILE_HASH=$(echo "$FILE_PATH" | python3 -c "import sys,hashlib; print(hashlib.md5(sys.stdin.read().strip().encode()).hexdigest()[:8])" 2>/dev/null || echo "unknown")
   COUNTER_FILE="${TMPDIR:-/tmp}/tdd-gate-${SESSION_ID}-${FILE_HASH}"
 
