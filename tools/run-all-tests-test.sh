@@ -42,7 +42,7 @@ OUT=""
 ERR=""
 RC=0
 
-TMP=$(mktemp -d "${TMPDIR:-/tmp}/run-all-tests-test.XXXXXX")
+TMP=$(mktemp -d "${TMPDIR:-/tmp}/run-all-tests-test.XXXXXX"); export TMPDIR="$TMP" # CDT-545: keep-dirs from failing --jobs cases land in the cleaned $TMP
 trap 'rm -rf "$TMP"' EXIT
 
 # pass/fail/run_runner/expect_*/expect_no_process/new_root and the suite
@@ -785,7 +785,7 @@ run_runner --root "$R29" --jobs 2
 J2_RC_29=$RC
 J2_OUT_29=$OUT
 expect_exit 1 "case29 --jobs 2 fails the failing suite"
-if [ "$J1_RC_29" = "$J2_RC_29" ] && [ "$J1_OUT_29" = "$J2_OUT_29" ]; then pass; else
+if [ "$J1_RC_29" = "$J2_RC_29" ] && [ "$J1_OUT_29" = "$(printf '%s\n' "$J2_OUT_29" | grep -vF 'kept full output')" ]; then pass; else  # CDT-545: the pool path adds one kept-output info line (stderr) the serial path never prints
   fail "case29 --jobs 2 output differs from --jobs 1: [$J2_OUT_29] vs [$J1_OUT_29]"
 fi
 if printf '%s\n' "$J2_OUT_29" | grep -qF 'FAIL a-fail-test.sh (exit 4)'; then pass; else

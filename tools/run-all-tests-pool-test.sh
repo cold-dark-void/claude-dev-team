@@ -28,7 +28,7 @@ OUT=""
 ERR=""
 RC=0
 
-TMP=$(mktemp -d "${TMPDIR:-/tmp}/run-all-tests-pool-test.XXXXXX")
+TMP=$(mktemp -d "${TMPDIR:-/tmp}/run-all-tests-pool-test.XXXXXX"); export TMPDIR="$TMP" # CDT-545: keep-dirs land in the cleaned $TMP, not the host's
 trap 'rm -rf "$TMP"' EXIT
 
 . "$REPO_ROOT/tests/lib/run-all-tests-harness.sh"
@@ -378,6 +378,62 @@ pkill -f -- "$TOK11" 2>/dev/null
 sleep 0.3
 chmod -R u+rwx "$P11"/.git/run-all-tests.* 2>/dev/null
 rm -rf "$P11"/.git/run-all-tests.*
+
+# Case P12 (CDT-545): a red suite under the pool leaves its FULL out.$k in a
+# persistent keep-dir under $TMP (outside the scratch, so it is still there
+# after the runner's cleanup) and the runner names the kept path on stderr.
+# The marker line is printed first of 30: the 20-line failure tail cannot
+# contain it, so finding it in the kept file proves full-output retention.
+# The passing suite must leave no entry.
+P12=$(new_root)
+cat > "$P12/z-red-test.sh" <<'EOF'
+#!/usr/bin/env bash
+echo 'ASSERT_FAIL: expected 42 got 99'
+i=1
+while [ "$i" -le 29 ]; do
+  echo "filler line $i"
+  i=$((i + 1))
+done
+exit 1
+EOF
+ok_suite > "$P12/a-ok-test.sh"
+git -C "$P12" add -A
+rm -rf "$TMP"/run-all-tests-failed.*
+
+run_runner_split --root "$P12" --jobs 2
+expect_exit 1 "caseP12 red pool run fails"
+expect_out "FAIL z-red-test.sh (exit 1)" "caseP12 red suite reported"
+P12_KEEP=$(ls -d "$TMP"/run-all-tests-failed.* 2>/dev/null | head -1)
+if [ -n "$P12_KEEP" ] && [ "$(ls -d "$TMP"/run-all-tests-failed.* 2>/dev/null | wc -l)" -eq 1 ]; then pass; else
+  fail "caseP12 exactly one keep-dir expected: [$P12_KEEP]"
+fi
+if [ -f "$P12_KEEP/z-red-test.sh.out" ]; then pass; else
+  fail "caseP12 kept output missing for the failed suite: $P12_KEEP"
+fi
+if grep -qF 'ASSERT_FAIL: expected 42 got 99' "$P12_KEEP/z-red-test.sh.out"; then pass; else
+  fail "caseP12 kept output lacks the first-line failing assertion (not the full output)"
+fi
+if [ ! -e "$P12_KEEP/a-ok-test.sh.out" ] && [ "$(ls "$P12_KEEP" | wc -l)" -eq 1 ]; then pass; else
+  fail "caseP12 keep-dir holds an entry for a passing suite: $(ls "$P12_KEEP")"
+fi
+if echo "$ERR" | grep -qF "kept full output for z-red-test.sh: $P12_KEEP/z-red-test.sh.out"; then pass; else
+  fail "caseP12 runner did not name the kept path on stderr: $ERR"
+fi
+if echo "$OUT" | grep -qF 'kept full output'; then
+  fail "caseP12 kept-output notice leaked onto stdout (breaks R10 byte-identity)"
+else pass; fi
+rm -rf "$P12_KEEP"
+
+# Case P13 (CDT-545): a fully green pool run creates no keep-dir at all.
+P13=$(new_root)
+ok_suite > "$P13/a-green-one-test.sh"
+ok_suite > "$P13/b-green-two-test.sh"
+git -C "$P13" add -A
+run_runner --root "$P13" --jobs 2
+expect_exit 0 "caseP13 green pool run passes"
+if ls -d "$TMP"/run-all-tests-failed.* >/dev/null 2>&1; then
+  fail "caseP13 green run created a keep-dir: $(ls -d "$TMP"/run-all-tests-failed.*)"
+else pass; fi
 
 # Case P7 (CDT-534 AC12): red-then-green receipt. The rm/mv/leak/restore
 # trees are re-run against the round-1 runner (9a61f6b -- has --jobs, but
