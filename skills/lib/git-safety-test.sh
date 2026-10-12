@@ -150,6 +150,40 @@ gs "$WORK/im_unmerged" is-merged "deadbeefdeadbeefdeadbeefdeadbeefdeadbeef" "mas
 assert_eq "is-merged: unresolvable ref -> fail closed (1)" "1" "$?"
 
 
+# --- evil merge: unique change inside a merge commit (CDT-544) ---------------
+# feat sits at the fork point, master moves on, and feat's tip becomes a
+# merge commit carrying unique content no commit records. Plain git cherry
+# prints no '+' (merge commits are ignored) — the old L2 read that as merged
+# and safe-delete-branch could delete the branch. A merge tip must be
+# decided on the tree.
+
+d="$WORK/evil_merged"; new_repo "$d"
+printf 'base\n' > "$d/f.txt"; commit_all "$d" "c0"
+( cd "$d" && git branch feat ) >/dev/null 2>&1
+printf 'base\ngmaster\n' > "$d/f.txt"; commit_all "$d" "B"
+( cd "$d" && git checkout -q feat ) >/dev/null 2>&1
+( cd "$d" && git merge --no-ff --no-commit master ) >/dev/null 2>&1
+printf 'base\ngmaster\nevil\n' > "$d/f.txt"
+( cd "$d" && git add f.txt && git commit -q -m "evil merge" ) >/dev/null 2>&1
+# Precondition: the tip really is a merge commit.
+assert_eq "evil-merge: fixture tip has 2 parents" "2" "$(($(git -C "$d" rev-list --parents -n 1 feat | wc -w) - 1))"
+# Precondition: plain git cherry prints no '+' (the old-L2 trap).
+assert_eq "evil-merge: fixture cherry plus count is 0" "0" "$(git -C "$d" cherry master feat | grep -c '^+' || true)"
+gs "$d" is-merged feat master
+assert_eq "evil-merge: unique change inside merge tip -> 1" "1" "$?"
+
+# Control: the same shape with no extra content — a clean merge tip whose
+# tree equals the fork point's tree is merged.
+d="$WORK/clean_merge_tip"; new_repo "$d"
+printf 'base\n' > "$d/f.txt"; commit_all "$d" "c0"
+( cd "$d" && git branch feat ) >/dev/null 2>&1
+printf 'base\ngmaster\n' > "$d/f.txt"; commit_all "$d" "B"
+( cd "$d" && git checkout -q feat ) >/dev/null 2>&1
+( cd "$d" && git merge --no-ff -m "clean merge" master ) >/dev/null 2>&1
+assert_eq "evil-merge: clean fixture tip has 2 parents" "2" "$(($(git -C "$d" rev-list --parents -n 1 feat | wc -w) - 1))"
+gs "$d" is-merged feat master
+assert_eq "evil-merge: clean merge tip with no unique content -> 0" "0" "$?"
+
 d="$WORK/im_notarepo"; mkdir -p "$d"
 gs "$d" is-merged HEAD HEAD; assert_eq "is-merged: not a repo -> fail closed (1)" "1" "$?"
 

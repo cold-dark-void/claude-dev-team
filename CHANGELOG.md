@@ -6,6 +6,9 @@ Pre-written headings (release-train M5c, orchestrate version-sync tasks) are kep
 via skip-if-present when `/release` is given an explicit version — do not invent a
 second heading for the same version.
 
+### v1.22.18
+- **git-safety is-merged refuses an evil merge hidden in a merge tip (git-safety-is-merged-cherry-skips-merges)** — `git cherry` ignores merge commits, so a branch whose tip is a merge carrying unique content printed an empty `+` count and the M17 L2 early merged verdict fired. `is-merged` now counts the tip's parents: a non-merge tip keeps the L2 cherry verdict; a merge tip is decided on the tree (fork-point tree equality exits 0, otherwise the L3 synthetic cherry). Real merge-tip fixtures prove the refusal and the clean-merge control; suite 106/106, seal-safety 102/102, epic 952/952. SPEC-025 M17 item 4 + AC A/B amended.
+
 ### v1.22.17
 - **worktree-lib dirty check fails closed on a git error (worktree-lib-dirty-check-swallows-git-errors)** — `is_worktree_dirty` treated a `git status` failure (corrupt index, missing gitdir, permission) as a clean tree, so `release` and the `ensure` STALE reclaim continued past uncommitted user edits. The helper now prints the git error to stderr, treats the tree as dirty, and both callers refuse. Kept as a direct `git status` in the lib (no git-safety dependency). New T5b regression uses an unreadable per-worktree index; suite 211/211. SPEC-016 dirty definition + version history amended.
 

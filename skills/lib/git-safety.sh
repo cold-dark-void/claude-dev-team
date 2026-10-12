@@ -96,13 +96,26 @@ cmd_is_merged() {
     return 0
   fi
 
-  local cherry_out cherry_rc cherry_plus
-  cherry_out=$(git cherry "$base" "$ref" 2>/dev/null)
-  cherry_rc=$?
-  if [ "$cherry_rc" -eq 0 ]; then
-    cherry_plus=$(printf '%s\n' "$cherry_out" | { grep -c '^+' || true; })
-    if [ "${cherry_plus:-0}" -eq 0 ]; then
-      return 0
+  # git cherry ignores merge commits, so when <ref>'s tip is itself a merge
+  # the '+' count below is empty even when the merge's tree carries unique
+  # content (an "evil merge", CDT-544) — the early merged verdict would then
+  # bypass the synthetic-tree check. A merge tip skips L2's early return and
+  # is decided on the tree instead.
+  local parents nparents
+  parents=$(git rev-list --parents -n 1 "$ref" 2>/dev/null)
+  if [ -z "$parents" ]; then
+    return 1
+  fi
+  nparents=$(( $(printf '%s' "$parents" | wc -w) - 1 ))
+  if [ "$nparents" -le 1 ]; then
+    local cherry_out cherry_rc cherry_plus
+    cherry_out=$(git cherry "$base" "$ref" 2>/dev/null)
+    cherry_rc=$?
+    if [ "$cherry_rc" -eq 0 ]; then
+      cherry_plus=$(printf '%s\n' "$cherry_out" | { grep -c '^+' || true; })
+      if [ "${cherry_plus:-0}" -eq 0 ]; then
+        return 0
+      fi
     fi
   fi
 
@@ -113,6 +126,13 @@ cmd_is_merged() {
   local tree
   tree=$(git rev-parse --verify --quiet "${ref}^{tree}" 2>/dev/null)
   [ -n "$tree" ] || return 1
+
+  # CDT-544: a merge tip whose tree equals the fork point's tree introduced
+  # nothing unique — merged without the synthetic cherry (whose empty diff
+  # would otherwise read as a '+').
+  if [ "$nparents" -ge 2 ] && git diff --quiet "$mb" "$tree" 2>/dev/null; then
+    return 0
+  fi
 
   local synth
   synth=$(GIT_AUTHOR_NAME=git-safety GIT_AUTHOR_EMAIL=git-safety@invalid \
