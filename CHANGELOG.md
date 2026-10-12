@@ -6,6 +6,9 @@ Pre-written headings (release-train M5c, orchestrate version-sync tasks) are kep
 via skip-if-present when `/release` is given an explicit version — do not invent a
 second heading for the same version.
 
+### v1.24.1
+- **CI-gate test reds fixed: caseP11 path grep is physical-path-proof; security-scan drops the pipefail SIGPIPE race (cdt-555)** — the pool bite-test's scratch-path assertion now matches an OS-agnostic `.git/run-all-tests.XXXXXX` substring (macOS names the physical /private/var path; same class as the CDT-553 finalize fix), and all six `printf | grep -q` sites in `security-scan/test.sh` (under `set -uo pipefail`) became here-string greps — a fast `grep -q` exit mid-write could yield SIGPIPE 141 and fail a matching assert (the timing flake behind v1.22.23/24's CI reds). Suites: pool 66/0 (red-proofed), security-scan 16/0.
+
 ### v1.24.0
 - **Spec Validation/Test checkbox syntax retired; APPROVED = claims with evidence (spec-validation-checkboxes-mass-rewrite)** — SPEC-008 redefines the required `## Validation` section (validation claims, plain bullets, each with its own evidence: test run, command output, or linked artifact) and adds a MUST NOT for `- [ ]`/`- [x]` under `## Validation`/`## Test`; `check-format.sh` enforces the retirement with a section-scoped gate (indented and `*` bullets included) while still failing a spec with no Validation section. All 35 `specs/core/` specs migrated — 655 claim lines (311 Validation + 259 Test unchecked, 57 + 28 checked) — with the transform verified byte-exact against the old text. Emitters (`spec-skeleton`, `modes/create|generate`), `docs/runbooks/specs.md`, and the spec-lint/test suites updated (8/0 check-format bites incl. 2 retirement cases, spec-lint 9/0, category 15/0). Open-Questions checklists, `specs/archive/`, and the WP 1-15 "checkbox state is never evidence" rule are untouched by design.
 

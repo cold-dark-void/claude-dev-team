@@ -366,7 +366,10 @@ fi
 if echo "$OUT" | grep -qF "warn: scratch directory not removed"; then
   fail "caseP11 warn leaked onto stdout"
 else pass; fi
-if echo "$ERR" | grep -qE "$P11/.git/run-all-tests\.[A-Za-z0-9]{6}"; then pass; else
+# Match the scratch name only (CDT-555): macOS names the physical path
+# (/private/var/...) in the warn line, so grepping the logical $P11 prefix
+# misses it. '.git/run-all-tests.<6 chars>' matches both forms.
+if echo "$ERR" | grep -qE '\.git/run-all-tests\.[A-Za-z0-9]{6}'; then pass; else
   fail "caseP11 warning does not name the scratch path: $ERR"
 fi
 if ls -d "$P11"/.git/run-all-tests.* >/dev/null 2>&1; then pass; else

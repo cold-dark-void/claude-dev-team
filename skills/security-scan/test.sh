@@ -48,7 +48,7 @@ D=$(out_dir)
 [ "$RC" -eq 0 ] && pass_line "exit 0 with no scanner installed" || fail_line "exit $RC: $OUT"
 case "$D" in "$TMPDIR"/*) pass_line "the output directory is under TMPDIR" ;; *) fail_line "output directory [$D] is not under TMPDIR [$TMPDIR]" ;; esac
 BASE=$(basename -- "$D")
-if printf '%s\n' "$BASE" | grep -Eq '^dev-team-security-scan\.[A-Za-z0-9]{6}$'; then
+if grep -Eq '^dev-team-security-scan\.[A-Za-z0-9]{6}$' <<<"$BASE"; then
   pass_line "the output directory has a random mktemp name"
 else
   fail_line "output directory name [$BASE] is not dev-team-security-scan.<6 random characters>"
@@ -72,18 +72,18 @@ mk_targets() { # mk_targets <n> — prints n file names t1..tn
 }
 # shellcheck disable=SC2046
 scan $(mk_targets 45)
-if printf '%s\n' "$OUT" | grep -q '^TARGETS: truncated to the first 40 of 45'; then
+if grep -q '^TARGETS: truncated to the first 40 of 45' <<<"$OUT"; then
   pass_line "45 targets: the summary says 40 of 45 were scanned"
 else
   fail_line "45 targets: no truncation line in: $OUT"
 fi
 # shellcheck disable=SC2046
 scan $(mk_targets 41)
-printf '%s\n' "$OUT" | grep -q '^TARGETS: truncated to the first 40 of 41' && pass_line "41 targets: 40 of 41" || fail_line "41 targets: no truncation line"
+grep -q '^TARGETS: truncated to the first 40 of 41' <<<"$OUT" && pass_line "41 targets: 40 of 41" || fail_line "41 targets: no truncation line"
 # control: 40 targets fit, so there is nothing to report
 # shellcheck disable=SC2046
 scan $(mk_targets 40)
-if printf '%s\n' "$OUT" | grep -q '^TARGETS:'; then
+if grep -q '^TARGETS:' <<<"$OUT"; then
   fail_line "control: 40 targets printed a truncation line"
 else
   pass_line "control: 40 targets print no truncation line"
@@ -93,7 +93,7 @@ fi
 # ---- SECURITY_SCAN=0 runs nothing -----------------------------------------
 RC=0
 OUT=$(SECURITY_SCAN=0 PATH="$FARM" "$BASH_BIN" "$SCAN" 2>&1) || RC=$?
-printf '%s\n' "$OUT" | grep -q 'SECURITY_SCAN=0' && [ "$RC" -eq 0 ] \
+grep -q 'SECURITY_SCAN=0' <<<"$OUT" && [ "$RC" -eq 0 ] \
   && pass_line "SECURITY_SCAN=0 short-circuits" || fail_line "SECURITY_SCAN=0: rc=$RC out=$OUT"
 
 # ---- staged + untracked paths, from a subdirectory, with a failing semgrep -
@@ -118,7 +118,7 @@ OUT=$(cd "$REPO/sub" && SECURITY_SCAN_STUB_LOG="$STUB_LOG" PATH="$FARM" "$BASH_B
 [ "$RC" -eq 0 ] && pass_line "stub semgrep scan exits 0 (fail-open)" || fail_line "stub scan exit $RC"
 grep -q 'staged-file.txt' "$STUB_LOG" && pass_line "staged file was passed to semgrep" || fail_line "staged file missing from $(cat "$STUB_LOG")"
 grep -q 'untracked-file.txt' "$STUB_LOG" && pass_line "untracked file was passed to semgrep" || fail_line "untracked file missing from $(cat "$STUB_LOG")"
-printf '%s\n' "$OUT" | grep -q 'SEMGREP: FAILED' && pass_line "offline semgrep shows FAILED" || fail_line "no FAILED status: $OUT"
+grep -q 'SEMGREP: FAILED' <<<"$OUT" && pass_line "offline semgrep shows FAILED" || fail_line "no FAILED status: $OUT"
 
 # ---- clean removes the private temp dir -----------------------------------
 RC=0
