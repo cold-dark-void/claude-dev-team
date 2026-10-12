@@ -85,14 +85,14 @@ Helpers (subprocess only, never sourced): `skills/retro-gate/trial-meta.sh` (par
 
 ## Validation
 
-- [ ] All 7 agent `.md` files contain directives loading block after path resolution
-- [ ] Non-behavioral agent files do NOT contain a directives loading block (SPEC-003)
-- [ ] `/adjust-agent` with no args shows 7-row dashboard
-- [ ] `/adjust-agent pm "use Gherkin"` creates/updates `.claude/memory/pm/directives.md`
-- [ ] Running same adjustment twice produces identical file content (idempotent)
-- [ ] Deleting `directives.md` causes zero errors on next agent session start
-- [ ] `/adjust-agent <agent> --apply <prompt>` writes directives on no-conflict; refuses with non-zero exit on conflict
-- [x] Directive A/B trial loop (M1–M8) implemented — helpers + `/retro` + `/adjust-agent` wiring (CDV-200); fixture tests in `skills/retro-gate/trial-meta-test.sh` and `trial-review-test.sh`
+- All 7 agent `.md` files contain directives loading block after path resolution
+- Non-behavioral agent files do NOT contain a directives loading block (SPEC-003)
+- `/adjust-agent` with no args shows 7-row dashboard
+- `/adjust-agent pm "use Gherkin"` creates/updates `.claude/memory/pm/directives.md`
+- Running same adjustment twice produces identical file content (idempotent)
+- Deleting `directives.md` causes zero errors on next agent session start
+- `/adjust-agent <agent> --apply <prompt>` writes directives on no-conflict; refuses with non-zero exit on conflict
+- Directive A/B trial loop (M1–M8) implemented — helpers + `/retro` + `/adjust-agent` wiring (CDV-200); fixture tests in `skills/retro-gate/trial-meta-test.sh` and `trial-review-test.sh`
 
 ## Open Questions
 

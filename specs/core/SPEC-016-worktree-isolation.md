@@ -251,16 +251,16 @@ Caller contract (unchanged): exit `1` → surface stderr and halt; exit `2` → 
 
 ## Validation
 
-- [ ] `skills/worktree-lib.sh` exists and is executable as a subprocess CLI
-- [ ] `.worktrees/` is in `$MROOT/.gitignore`
-- [ ] `AGENTS.md` has a "Worktree Protocol" section pointing to SPEC-016
-- [ ] `orchestrate` Step 3 calls `worktree-lib.sh ensure`
-- [ ] `wrap-ticket` Step 6 calls `worktree-lib.sh release`
-- [ ] `wrap-ticket` ticket-ID greps are anchored
-- [ ] Parallel `git worktree` operations are forbidden by the MUST NOT in this spec (not by a missing AGENTS.md sentence)
-- [ ] `status`/`list`/`register`/`sweep` subcommands exist on the **lib** (CDV-189)
-- [ ] `commands/worktree.md` is reduce-to-release only; listing is `/status worktree` (CDT-46-C4)
-- [ ] Proposed extension 'Worktree lifecycle hooks' remains DRAFT until provider redesign + promotion
+- `skills/worktree-lib.sh` exists and is executable as a subprocess CLI
+- `.worktrees/` is in `$MROOT/.gitignore`
+- `AGENTS.md` has a "Worktree Protocol" section pointing to SPEC-016
+- `orchestrate` Step 3 calls `worktree-lib.sh ensure`
+- `wrap-ticket` Step 6 calls `worktree-lib.sh release`
+- `wrap-ticket` ticket-ID greps are anchored
+- Parallel `git worktree` operations are forbidden by the MUST NOT in this spec (not by a missing AGENTS.md sentence)
+- `status`/`list`/`register`/`sweep` subcommands exist on the **lib** (CDV-189)
+- `commands/worktree.md` is reduce-to-release only; listing is `/status worktree` (CDT-46-C4)
+- Proposed extension 'Worktree lifecycle hooks' remains DRAFT until provider redesign + promotion
 
 ## Open Questions
 

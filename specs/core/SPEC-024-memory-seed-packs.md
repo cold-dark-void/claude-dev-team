@@ -77,20 +77,20 @@ The pack is a **transport format, not a second memory system**. Everything about
 
 ## Validation
 
-- [x] Spec reviewed and promoted to ACTIVE
-- [ ] Round-trip demo passes: machine-A export → machine-B clone + `/setup team` → agent answers a seeded-fact question
-- [ ] A real export of this repo's memories passes human review: no absolute paths, secrets, or session UUIDs in the pack
-- [x] `/setup team --refresh` on a repo with a pack adds zero duplicate rows (bite-test M6 in `skills/memory-store/test-seed-pack.sh`)
-- [x] Import performs no filesystem operation outside `.claude/memory/seed/` or `$MROOT/.claude/memory/<roster-agent>/` for a pack whose manifest key or trailer `agent=` is not a roster agent (e.g. a `../`-traversal name): an outside-tree sentinel is neither read nor written, the rejection is counted in `rejected` with a roster-naming warning, and the run still exits 0 (M12 cases (a)/(b) in `skills/memory-store/test-seed-pack.sh`)
-- [x] Import refuses to traverse a symlink planted at a pack file, at a fallback agent directory, or at its `lessons.md` — the symlink target is left untouched (M12 cases (c)/(d) in `skills/memory-store/test-seed-pack.sh`)
-- [x] SPEC-007 carries a one-line forward reference to the M5 host-script tier-write carve-out
-- [x] SPEC-005 documents the import step's position in the `/setup team` sequence
-- [x] A pack-supplied agent id cannot reach a SQL string or a filesystem path unvalidated (CDT-176 regression cases in `skills/memory-store/test-seed-pack.sh`)
-- [x] Cross-agent trailer (`agent=` ≠ filename stem) is rejected with no insert under either agent, both ids named in the warning, exit 0 — SQLite and fallback (M13 / CDT-193 cases in `skills/memory-store/test-seed-pack.sh`)
-- [x] Matching trailer still imports; partial-file (match + mismatch) yields `imported≥1` and `rejected≥1` (M13)
-- [x] Manifest key with newline or TAB is rejected at parse; file-level content-hash is not skipped; valid sibling still imports; exit 0 (M12/CDT-194 — `test-seed-pack.sh`)
-- [x] Empty/missing `content_hash` on a roster-valid key rejects the file (`rejected++`), no free pass; exit 0 (M8/CDT-194)
-- [x] Symlink rejection warning names symlink, not roster (M12 wording)
+- Spec reviewed and promoted to ACTIVE
+- Round-trip demo passes: machine-A export → machine-B clone + `/setup team` → agent answers a seeded-fact question
+- A real export of this repo's memories passes human review: no absolute paths, secrets, or session UUIDs in the pack
+- `/setup team --refresh` on a repo with a pack adds zero duplicate rows (bite-test M6 in `skills/memory-store/test-seed-pack.sh`)
+- Import performs no filesystem operation outside `.claude/memory/seed/` or `$MROOT/.claude/memory/<roster-agent>/` for a pack whose manifest key or trailer `agent=` is not a roster agent (e.g. a `../`-traversal name): an outside-tree sentinel is neither read nor written, the rejection is counted in `rejected` with a roster-naming warning, and the run still exits 0 (M12 cases (a)/(b) in `skills/memory-store/test-seed-pack.sh`)
+- Import refuses to traverse a symlink planted at a pack file, at a fallback agent directory, or at its `lessons.md` — the symlink target is left untouched (M12 cases (c)/(d) in `skills/memory-store/test-seed-pack.sh`)
+- SPEC-007 carries a one-line forward reference to the M5 host-script tier-write carve-out
+- SPEC-005 documents the import step's position in the `/setup team` sequence
+- A pack-supplied agent id cannot reach a SQL string or a filesystem path unvalidated (CDT-176 regression cases in `skills/memory-store/test-seed-pack.sh`)
+- Cross-agent trailer (`agent=` ≠ filename stem) is rejected with no insert under either agent, both ids named in the warning, exit 0 — SQLite and fallback (M13 / CDT-193 cases in `skills/memory-store/test-seed-pack.sh`)
+- Matching trailer still imports; partial-file (match + mismatch) yields `imported≥1` and `rejected≥1` (M13)
+- Manifest key with newline or TAB is rejected at parse; file-level content-hash is not skipped; valid sibling still imports; exit 0 (M12/CDT-194 — `test-seed-pack.sh`)
+- Empty/missing `content_hash` on a roster-valid key rejects the file (`rejected++`), no free pass; exit 0 (M8/CDT-194)
+- Symlink rejection warning names symlink, not roster (M12 wording)
 
 ---
 

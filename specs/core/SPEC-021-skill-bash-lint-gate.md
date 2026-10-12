@@ -92,43 +92,43 @@ Out of Scope.
 
 ## Test
 
-- [x] Defect fixture per check class (C1, C2, C3, C4) → exit 1, finding line names the correct check-id and source line number
-- [x] C5 defect fixture: a stanza with one mutated byte (e.g. `sort -V` → bare `sort`) → exit 1 naming `C5` and the first differing column
-- [x] C5 whitespace tolerance: the same canonical stanza indented 2 and 4 spaces (both occur live) → no finding
-- [x] C5 vacuous-gate guard: SPEC-002 absent or its fenced block unparseable → non-zero with a distinct "canonical stanza not resolvable" message, never a silent pass
-- [x] C5 live-tree baseline: no-arg run over the real tree reports zero C5 findings. The v1.3.0 count of 110 emissions across 26 files is historical. C5 checks byte-identity, not that count.
-- [x] C5 heading anchor: a SPEC-002 holding decoy fenced bash blocks both before and after the canonical section still resolves the canonical stanza (a "first fenced block in the file" anchor would compare every emission against the decoy and still exit 0 — vacuous, and invisible)
-- [x] C5 second emission class (CDT-502-C5): fixture `c5-later-fence-drift.md` (a wrapper line carrying the pre-CDT-508 tier-3 arm) → exit 1 naming `C5` with the first differing column, the genuine C3 waiver not suppressing it, a `# lint-ok: C3,C5` copy counted not printed; the managed partial itself passes; wrapper lines at 2/4-space indent → no finding; a missing, empty or ambiguous partial (`skills/lib/pdh-later-fence.sh` absent, 0 or 2 `PDH=` lines) → loud "canonical later-fence text not resolvable", never a silent pass
-- [x] C6 fixture `c6-assign-before-use.md`: planted positives (MEMDB from `$MROOT` before MROOT; MEMDB tested before `MEMDB=`; PLUGIN_DIR; a read in an unquoted heredoc body) → exit 1 naming `C6` and the source line; a `# lint-ok: C6` waiver is counted, not printed; negatives (correct order, same-line assign, `export`, `${NAME:=…}`, single quotes, comments, quoted heredoc, a longer name, a block that never assigns the name) → no C6 finding
-- [x] C6 resolver names (WP 2-01): fixture `c6-resolver-names.md` plants a `$PDH` read before its assignment (line 6) and an `$EXT_DIR` read before its assignment (line 15) → exit 1, two `[C6]` lines that name the variable, a waived `$PDH` read at line 23 counted in `--json`; correct order, `export`, `:=`, quotes, comments, a longer name and a block that never assigns the name → no C6 finding. One parser: `fence-state.awk` holds no fence-opener match, `check-skill-bash.sh` holds no `discover()`, and the same grep finds the match in `fence-scan.awk`
-- [x] C10 fixture `c10-waiver-placement.md`: a waiver after `\`; `\` plus a trailing space; a comment line inside a continuation; `# lint-ok:` inside a double quote; `#` inside a double-quoted and a single-quoted `sqlite3` SQL argument → six C10 findings; the correct forms (waiver above the command, waiver after a closed quote, `#` in `'#tag'`, `${#x}`, heredoc SQL, a `#` after the `sqlite3` command ended) → none; a `# lint-ok: C10` waiver does not hide a C10 finding
-- [x] C8 fixture `c8-idioms.md` (WP 2-02): planted positives for each of the six sub-rules (grep -c with an echo 0 fallback, a `$$` temp path, a bare `/tmp/` path, a brace in a `${VAR:-…}` default, a "Stop here" comment without an exit, destructive git) → exit 1, 17 `[C8]` lines at the source lines; a `# lint-ok: C8` waiver is counted, not printed; negatives (`wc`, `stat` and `jq` fallbacks, quoted and commented text, `${TMPDIR:-/tmp}`, `--tmpfs /tmp`, `${A:-${B}}`, a Stop here with an exit, `git branch -d`, `git clean -n`) → no C8 finding; a `# lint-ok: C3` waiver above a planted hit does not hide it
-- [x] C9 fixture `c9-args.md` (WP 2-02): copied into a `commands/` directory → 10 `[C9]` lines (top-level `$@`, `${1:-}`, `${@:2}`, `$#`, `$1`; a read before `set --`; a read after a function closed; unquoted `$ARGUMENTS` twice and an unquoted heredoc body); the same file under `skills/` → exit 0; negatives (after `set --`, function bodies, `${#arr[@]}`, `$0 $$ $? $!`, single quotes, comments, the quoted heredoc convention, `"$ARGUMENTS"`) → none
-- [x] Live tree (WP 2-02): `check-skill-bash.sh --json` holds no C8 and no C9 entry, waived or not
-- [x] Command fences (WP 2-02): `skills/skill-lint/test-command-fences.sh` runs the Step 1 and Step 2 fences of `/audit`, `/compact-transcript`, `/doctor`, `/status`, `/setup` (team Step 0 and models), `/memory export`, `/worktree release`, `/adjust-agent` (Step 7 and the dashboard) and `/retro` (Step 1 and Step 2a) in fresh shells with a sample that holds spaces and `*`: each word arrives intact; an empty directives file gives one `0`; `/retro --all --host grok` with no Grok session prints its error; the planted old `|| echo 0` text fails each count case
-- [x] Merged report: a file with one C4 and one C6 finding prints both and `2 findings, 0 waived`; `--json` holds both; a broken `awk` exits 1 naming `fence-state`; no-arg discovery reports C6 and C10 planted in `commands/`, `skills/**`, `agents/` and `AGENTS.md` and skips the fixtures directory
-- [x] Clean fixture → exit 0, no findings
-- [x] Fixture with a `# lint-ok: C3` waiver on the offending line → exit 0, summary reports 1 waived
-- [x] Waiver for C3 on a line that also trips C2 → C2 finding still reported (exit 1)
-- [x] No-argument form discovers a defect planted in each of `commands/`, `skills/`, `agents/`, and `AGENTS.md` (coverage bite-test — every globbed dir proven, per the P1-5B default-files lesson)
-- [x] Explicit file-list form scans only the named files
-- [x] `!=` comparison, `if ! cmd`, `[ ! -f ]`, and `#!` shebang inside a bash block → no C2 finding (false-positive guard)
-- [x] Uncaptured heredoc sqlite3 with leading PRAGMA → no C4 finding; captured `$(sqlite3 "PRAGMA busy_timeout=5000; SELECT ...")` → C4 finding
-- [x] Full no-arg run on this repo exits 0 after the initial fix/waive pass
-- [ ] `/release` dry run with an injected C1 defect → release blocked at the gate step
-- [x] Fixtures dir excluded from no-arg discovery
-- [x] All explicit paths missing/unreadable → exit 64
-- [x] Unreadable among valid paths → warn + scan rest
-- [x] `declare`/`local`/`readonly` count as C1 defs
-- [x] Info string `bash foo` treated as bash fence
+- Defect fixture per check class (C1, C2, C3, C4) → exit 1, finding line names the correct check-id and source line number
+- C5 defect fixture: a stanza with one mutated byte (e.g. `sort -V` → bare `sort`) → exit 1 naming `C5` and the first differing column
+- C5 whitespace tolerance: the same canonical stanza indented 2 and 4 spaces (both occur live) → no finding
+- C5 vacuous-gate guard: SPEC-002 absent or its fenced block unparseable → non-zero with a distinct "canonical stanza not resolvable" message, never a silent pass
+- C5 live-tree baseline: no-arg run over the real tree reports zero C5 findings. The v1.3.0 count of 110 emissions across 26 files is historical. C5 checks byte-identity, not that count.
+- C5 heading anchor: a SPEC-002 holding decoy fenced bash blocks both before and after the canonical section still resolves the canonical stanza (a "first fenced block in the file" anchor would compare every emission against the decoy and still exit 0 — vacuous, and invisible)
+- C5 second emission class (CDT-502-C5): fixture `c5-later-fence-drift.md` (a wrapper line carrying the pre-CDT-508 tier-3 arm) → exit 1 naming `C5` with the first differing column, the genuine C3 waiver not suppressing it, a `# lint-ok: C3,C5` copy counted not printed; the managed partial itself passes; wrapper lines at 2/4-space indent → no finding; a missing, empty or ambiguous partial (`skills/lib/pdh-later-fence.sh` absent, 0 or 2 `PDH=` lines) → loud "canonical later-fence text not resolvable", never a silent pass
+- C6 fixture `c6-assign-before-use.md`: planted positives (MEMDB from `$MROOT` before MROOT; MEMDB tested before `MEMDB=`; PLUGIN_DIR; a read in an unquoted heredoc body) → exit 1 naming `C6` and the source line; a `# lint-ok: C6` waiver is counted, not printed; negatives (correct order, same-line assign, `export`, `${NAME:=…}`, single quotes, comments, quoted heredoc, a longer name, a block that never assigns the name) → no C6 finding
+- C6 resolver names (WP 2-01): fixture `c6-resolver-names.md` plants a `$PDH` read before its assignment (line 6) and an `$EXT_DIR` read before its assignment (line 15) → exit 1, two `[C6]` lines that name the variable, a waived `$PDH` read at line 23 counted in `--json`; correct order, `export`, `:=`, quotes, comments, a longer name and a block that never assigns the name → no C6 finding. One parser: `fence-state.awk` holds no fence-opener match, `check-skill-bash.sh` holds no `discover()`, and the same grep finds the match in `fence-scan.awk`
+- C10 fixture `c10-waiver-placement.md`: a waiver after `\`; `\` plus a trailing space; a comment line inside a continuation; `# lint-ok:` inside a double quote; `#` inside a double-quoted and a single-quoted `sqlite3` SQL argument → six C10 findings; the correct forms (waiver above the command, waiver after a closed quote, `#` in `'#tag'`, `${#x}`, heredoc SQL, a `#` after the `sqlite3` command ended) → none; a `# lint-ok: C10` waiver does not hide a C10 finding
+- C8 fixture `c8-idioms.md` (WP 2-02): planted positives for each of the six sub-rules (grep -c with an echo 0 fallback, a `$$` temp path, a bare `/tmp/` path, a brace in a `${VAR:-…}` default, a "Stop here" comment without an exit, destructive git) → exit 1, 17 `[C8]` lines at the source lines; a `# lint-ok: C8` waiver is counted, not printed; negatives (`wc`, `stat` and `jq` fallbacks, quoted and commented text, `${TMPDIR:-/tmp}`, `--tmpfs /tmp`, `${A:-${B}}`, a Stop here with an exit, `git branch -d`, `git clean -n`) → no C8 finding; a `# lint-ok: C3` waiver above a planted hit does not hide it
+- C9 fixture `c9-args.md` (WP 2-02): copied into a `commands/` directory → 10 `[C9]` lines (top-level `$@`, `${1:-}`, `${@:2}`, `$#`, `$1`; a read before `set --`; a read after a function closed; unquoted `$ARGUMENTS` twice and an unquoted heredoc body); the same file under `skills/` → exit 0; negatives (after `set --`, function bodies, `${#arr[@]}`, `$0 $$ $? $!`, single quotes, comments, the quoted heredoc convention, `"$ARGUMENTS"`) → none
+- Live tree (WP 2-02): `check-skill-bash.sh --json` holds no C8 and no C9 entry, waived or not
+- Command fences (WP 2-02): `skills/skill-lint/test-command-fences.sh` runs the Step 1 and Step 2 fences of `/audit`, `/compact-transcript`, `/doctor`, `/status`, `/setup` (team Step 0 and models), `/memory export`, `/worktree release`, `/adjust-agent` (Step 7 and the dashboard) and `/retro` (Step 1 and Step 2a) in fresh shells with a sample that holds spaces and `*`: each word arrives intact; an empty directives file gives one `0`; `/retro --all --host grok` with no Grok session prints its error; the planted old `|| echo 0` text fails each count case
+- Merged report: a file with one C4 and one C6 finding prints both and `2 findings, 0 waived`; `--json` holds both; a broken `awk` exits 1 naming `fence-state`; no-arg discovery reports C6 and C10 planted in `commands/`, `skills/**`, `agents/` and `AGENTS.md` and skips the fixtures directory
+- Clean fixture → exit 0, no findings
+- Fixture with a `# lint-ok: C3` waiver on the offending line → exit 0, summary reports 1 waived
+- Waiver for C3 on a line that also trips C2 → C2 finding still reported (exit 1)
+- No-argument form discovers a defect planted in each of `commands/`, `skills/`, `agents/`, and `AGENTS.md` (coverage bite-test — every globbed dir proven, per the P1-5B default-files lesson)
+- Explicit file-list form scans only the named files
+- `!=` comparison, `if ! cmd`, `[ ! -f ]`, and `#!` shebang inside a bash block → no C2 finding (false-positive guard)
+- Uncaptured heredoc sqlite3 with leading PRAGMA → no C4 finding; captured `$(sqlite3 "PRAGMA busy_timeout=5000; SELECT ...")` → C4 finding
+- Full no-arg run on this repo exits 0 after the initial fix/waive pass
+- `/release` dry run with an injected C1 defect → release blocked at the gate step
+- Fixtures dir excluded from no-arg discovery
+- All explicit paths missing/unreadable → exit 64
+- Unreadable among valid paths → warn + scan rest
+- `declare`/`local`/`readonly` count as C1 defs
+- Info string `bash foo` treated as bash fence
 
 ## Validation
 
-- [x] All bite-tests above pass (each gate class proven to bite, not just run clean)
-- [x] C5 lands green: live tree reports zero C5 findings at wiring time, and the check is proven to bite via the mutated-byte fixture
-- [x] Initial adoption pass complete: live tree scans clean; every waiver reviewed as genuinely safe
-- [x] Gate step is `/release` Step 4.8 in `skills/release/SKILL.md`. It has shipped. It is not an open wiring task.
-- [x] Spec reviewed and promoted to ACTIVE
+- All bite-tests above pass (each gate class proven to bite, not just run clean)
+- C5 lands green: live tree reports zero C5 findings at wiring time, and the check is proven to bite via the mutated-byte fixture
+- Initial adoption pass complete: live tree scans clean; every waiver reviewed as genuinely safe
+- Gate step is `/release` Step 4.8 in `skills/release/SKILL.md`. It has shipped. It is not an open wiring task.
+- Spec reviewed and promoted to ACTIVE
 
 ## Acceptance criteria
 

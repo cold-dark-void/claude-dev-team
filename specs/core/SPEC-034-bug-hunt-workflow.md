@@ -439,47 +439,47 @@ repo/worktree root:
 
 ## Validation
 
-- [ ] **AC1** — Spec path `specs/core/SPEC-034-bug-hunt-workflow.md`; Status DRAFT; bug-hunt
+- **AC1** — Spec path `specs/core/SPEC-034-bug-hunt-workflow.md`; Status DRAFT; bug-hunt
       title; category core; See also 013/009/014/025/017
-- [ ] **AC2** — `/bug-hunt`; optional path (default project root); `--severity-floor`
+- **AC2** — `/bug-hunt`; optional path (default project root); `--severity-floor`
       `critical|warning|nitpick`; flag omitted → default `nitpick` (M3); loud fail on invalid
       (M1–M5)
-- [ ] **AC3** — Stages 1–4; locks: materialize proceed, start fix-phase 0, between fix phases;
+- **AC3** — Stages 1–4; locks: materialize proceed, start fix-phase 0, between fix phases;
       NOT between discover↔refute (M6–M9)
-- [ ] **AC4** — Confirmed fields: locator, severity, description, evidence, status=confirmed;
+- **AC4** — Confirmed fields: locator, severity, description, evidence, status=confirmed;
       candidates may be candidate|refuted; only confirmed materializes (M10–M13)
-- [ ] **AC5** — Non-goals: not `/debug` replacement; no auto-fix/auto-advance across locks;
+- **AC5** — Non-goals: not `/debug` replacement; no auto-fix/auto-advance across locks;
       no parallel ticket lifecycle (M27–M29, N1–N2, N5, N7)
-- [ ] **AC6** — Compose SPEC-013, SPEC-009 `/backlog`, `/orchestrate` and/or `/epic` (M16–M19)
-- [ ] **AC7** — Phase-done metrics for discover, refute, materialize, handoff (M20–M23)
-- [ ] **AC8** — Open Questions empty or product-only residual; closed OQ1–5 live in MUST
-- [ ] **AC9** — User-visible: findings plan, bh-quality backlog items, phase handoff templates,
+- **AC6** — Compose SPEC-013, SPEC-009 `/backlog`, `/orchestrate` and/or `/epic` (M16–M19)
+- **AC7** — Phase-done metrics for discover, refute, materialize, handoff (M20–M23)
+- **AC8** — Open Questions empty or product-only residual; closed OQ1–5 live in MUST
+- **AC9** — User-visible: findings plan, bh-quality backlog items, phase handoff templates,
       hunt resume identity; process under `.claude/` uncommitted (M24–M25)
-- [ ] **AC10** — When-to-use matrix covers `/bug-hunt`, `/debug`, `/council --blind`,
+- **AC10** — When-to-use matrix covers `/bug-hunt`, `/debug`, `/council --blind`,
       `/backlog`, `/epic`, `/orchestrate` (M26)
-- [ ] **AC11** — Below-floor never materialize by default; discover MAY list dropped (M14–M15)
-- [ ] **AC12** — OOS: implement/fix inside discover–refute; silent mass-create; auto-start next
+- **AC11** — Below-floor never materialize by default; discover MAY list dropped (M14–M15)
+- **AC12** — OOS: implement/fix inside discover–refute; silent mass-create; auto-start next
       fix phase; replacing `/debug ticket` (M30, M35–M37, N1, N6)
-- [ ] **AC13** — Stages 1–2 runtime: report under `.claude/bug-hunt/` (M31); confirmed-actionable
+- **AC13** — Stages 1–2 runtime: report under `.claude/bug-hunt/` (M31); confirmed-actionable
       = confirmed ∧ ≥floor (M32); discover = SPEC-013 blind compose (M33); refute = ≥2
       investigators per candidate, no leftover candidate (M34)
-- [ ] **AC14** — Stage 3 runtime: load json preferred / report fallback, loud fail both missing
+- **AC14** — Stage 3 runtime: load json preferred / report fallback, loud fail both missing
       (M38); plan path `…-plan.md` before any backlog create (M39); SPEC-009 programmatic
       write-back + bidirectional linkage + bh-quality body (M40); proceed flag or typed token;
       idempotent re-materialize; zero-actionable → 0 creates (M41); no re-S1/S2, no stage-4/fix
       (N10–N11)
-- [ ] **AC15** — Stage 4 runtime: load C3 `-plan.md`; phaseable = materialized|skipped_linked +
+- **AC15** — Stage 4 runtime: load C3 `-plan.md`; phaseable = materialized|skipped_linked +
       slug (M42); severity bands critical→warning→nitpick, omit empty, renumber 0..N (M43);
       phase-plan + handoff-phase-N with template fields + hunt_stem/plan_path (M44); route
       orchestrate default / epic iff phase_count≥2 ∧ item_count≥2 (M45); lock `--start-phase <n>`
       or typed `start-phase-<n>` (M46); exit metrics closed_count / residual_criticals=0 / signoff
       (M47); M23 full + zero path; emit-only (M48); N12–N13 walls
-- [ ] **OQ1 lock** — Severity enum `critical|warning|nitpick`; July HIGH→critical,
+- **OQ1 lock** — Severity enum `critical|warning|nitpick`; July HIGH→critical,
       MEDIUM→warning, LOW→nitpick (M13)
-- [ ] **OQ2 lock** — Path optional; default project root (M2)
-- [ ] **OQ3 lock** — Explicit proceed before materialize (M8)
-- [ ] **OQ4 lock** — Handoff `/orchestrate` default; `/epic` multi-wave multi-ticket DAG (M18)
-- [ ] **OQ5 lock** — Advanced Live note only; not C1 ship bar (Overview + S4)
+- **OQ2 lock** — Path optional; default project root (M2)
+- **OQ3 lock** — Explicit proceed before materialize (M8)
+- **OQ4 lock** — Handoff `/orchestrate` default; `/epic` multi-wave multi-ticket DAG (M18)
+- **OQ5 lock** — Advanced Live note only; not C1 ship bar (Overview + S4)
 
 ---
 

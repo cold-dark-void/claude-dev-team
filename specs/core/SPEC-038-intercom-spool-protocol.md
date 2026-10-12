@@ -1430,141 +1430,141 @@ cycle; the CDT-529 ACs pin it.
 
 ## Test
 
-- [ ] Token file written 0600 with 700 parent; repo stays clean (AC1)
-- [ ] Unpaired cycle creates zero artifacts; non-allowlisted id ignored
+- Token file written 0600 with 700 parent; repo stays clean (AC1)
+- Unpaired cycle creates zero artifacts; non-allowlisted id ignored
       with zero artifacts beside a normal relay (AC2)
-- [ ] Token sentinel absent from every written file and from curl argv (AC4)
-- [ ] `/setup slack` zero-write stub (AC5)
-- [ ] Thread-mapped delivery, no cross-delivery with two sids; General
+- Token sentinel absent from every written file and from curl argv (AC4)
+- `/setup slack` zero-write stub (AC5)
+- Thread-mapped delivery, no cross-delivery with two sids; General
       routes to the default session and replies return to General (AC6)
-- [ ] Summary + single-file longread above threshold; single message below (AC9)
-- [ ] no typing on pickup; typing immediately before sendMessage (AC10)
-- [ ] Topic auto-create on first outbound/escalation (AC11)
-- [ ] Stale heartbeat: queue + offline notice on resume; kill/restart with no
+- Summary + single-file longread above threshold; single message below (AC9)
+- no typing on pickup; typing immediately before sendMessage (AC10)
+- Topic auto-create on first outbound/escalation (AC11)
+- Stale heartbeat: queue + offline notice on resume; kill/restart with no
       reprocessed update_id, backlog relayed, dedupe holds (AC12)
-- [ ] Escalation once per pending question; fires when expired while down;
+- Escalation once per pending question; fires when expired while down;
       answer cancels and relays as `answer` (AC14)
-- [ ] Away toggle from CLI and phone on one persisted flag; away ON drains
+- Away toggle from CLI and phone on one persisted flag; away ON drains
       proactively and escalates pending once; OFF restores timer (AC17)
-- [ ] bash/jq/curl only; graceful jq/curl absence message (AC21)
-- [ ] Second poller exits 75, mutates nothing; invalid offset refuses; 409 exits 4 (AC22)
-- [ ] `INTERCOM_STATE_ROOT` reroute keeps the repo untouched (AC23)
-- [ ] Two-member config fixture parses and processes; default ships one member (AC25)
-- [ ] `watch.sh` and `poller.sh` are one-shot bash; shebang/interpreter scan
+- bash/jq/curl only; graceful jq/curl absence message (AC21)
+- Second poller exits 75, mutates nothing; invalid offset refuses; 409 exits 4 (AC22)
+- `INTERCOM_STATE_ROOT` reroute keeps the repo untouched (AC23)
+- Two-member config fixture parses and processes; default ships one member (AC25)
+- `watch.sh` and `poller.sh` are one-shot bash; shebang/interpreter scan
       covers the wrapper; no resident loop (CDT-512-C1 AC1)
-- [ ] Paired idle: heartbeat mtime advances, offset unchanged, adapter
+- Paired idle: heartbeat mtime advances, offset unchanged, adapter
       stdout empty; unpaired: no heartbeat, no fetch (CDT-512-C1 AC2)
-- [ ] Session-facing stdout only on new allowlisted inbox or poller
+- Session-facing stdout only on new allowlisted inbox or poller
       exit ∉ {0,75}; wake grammar token-free with sid + inbox path
       (CDT-512-C1 AC3)
-- [ ] Failure wake edge-triggered; inbound wake every new-inbox cycle
+- Failure wake edge-triggered; inbound wake every new-inbox cycle
       (CDT-512-C1 AC4)
-- [ ] Setup arming block ≤ 4 KiB, absolute `watch.sh`, Grok silent
+- Setup arming block ≤ 4 KiB, absolute `watch.sh`, Grok silent
       watcher + Claude CronCreate-if-zero-parent-turn; CronCreate not sole
       (CDT-512-C1 AC5)
-- [ ] Sentinel absent from poller/adapter/setup paths; adapter does not
+- Sentinel absent from poller/adapter/setup paths; adapter does not
       pass the token (CDT-512-C1 AC6)
-- [ ] No `watch-intercom.sh` in the plugin tree; nothing shipped under
+- No `watch-intercom.sh` in the plugin tree; nothing shipped under
       `~/.grok/long-running-background-tasks/` (CDT-512-C1 AC7)
-- [ ] Member name defaults to `$USER`, never a personal name; empty USER
+- Member name defaults to `$USER`, never a personal name; empty USER
       requires a name (CDT-512-C2 AC1)
-- [ ] Pairing with `message_thread_id` seeds `topics.json` general and
+- Pairing with `message_thread_id` seeds `topics.json` general and
       calls `editForumTopic`; without it writes `{}` (CDT-512-C3 AC1/AC2)
-- [ ] Unmapped thread + empty or only-general map relays to
+- Unmapped thread + empty or only-general map relays to
       `default_session`; session-topic map stays fail-closed (CDT-512-C3 AC3/AC4)
-- [ ] Bot `from_id` and empty-text forum service messages create zero
+- Bot `from_id` and empty-text forum service messages create zero
       inbox and do not answer pending (CDT-512-C3 AC5/AC6)
-- [ ] Existing `state/` dir is chmod 700 (CDT-512-C3 AC7)
-- [ ] BotFather preamble before the token prompt; token never printed
+- Existing `state/` dir is chmod 700 (CDT-512-C3 AC7)
+- BotFather preamble before the token prompt; token never printed
       (CDT-512-C2 AC2)
-- [ ] `commands/setup.md` agent rules: no shared bot from memory (CDT-512-C2 AC3)
-- [ ] Operator runbook + README pointer; no Bot API read receipts
+- `commands/setup.md` agent rules: no shared bot from memory (CDT-512-C2 AC3)
+- Operator runbook + README pointer; no Bot API read receipts
       (CDT-512-C2 AC4/AC8)
-- [ ] Topics on/off both supported; `is_forum=false` is not an error
+- Topics on/off both supported; `is_forum=false` is not an error
       (CDT-512-C2 AC6/AC7)
-- [ ] Mode-600 `bot_token` reuse vs replace; reuse never prints the token
+- Mode-600 `bot_token` reuse vs replace; reuse never prints the token
       (CDT-512-C4 AC1)
-- [ ] Pairing long-polls 30s without a piped Enter; empty queue exits 1
+- Pairing long-polls 30s without a piped Enter; empty queue exits 1
       with no state beyond the token file (CDT-512-C4 AC2)
-- [ ] Setup never instructs pasting the token into chat (CDT-512-C4 AC3)
-- [ ] `commands/setup.md` documents the agent pairing wait (CDT-512-C4 AC4)
-- [ ] Pickup sends no typing; outbox drain types once immediately before
+- Setup never instructs pasting the token into chat (CDT-512-C4 AC3)
+- `commands/setup.md` documents the agent pairing wait (CDT-512-C4 AC4)
+- Pickup sends no typing; outbox drain types once immediately before
       `sendMessage`; no typing-keepalive loop (CDT-512-C5 AC1–AC5)
-- [ ] Token file mounted read-only; sentinel absent from image/env/argv
+- Token file mounted read-only; sentinel absent from image/env/argv
       (CDT-509 AC1)
-- [ ] State bind-mount; repo and host stacks untouched (CDT-509 AC2)
-- [ ] Spool contract byte-stable; additive daemon assets only (CDT-509 AC3)
-- [ ] Sole getUpdates consumer; second start 75 or 409/exit 4 (CDT-509 AC4)
-- [ ] Zero-session inbound lands in spool within one long-poll (CDT-509 AC5)
-- [ ] Topic map / walkie-talkie / fail-closed unmapped (CDT-509 AC6)
-- [ ] Escalation sweep 24/7; away-immediate; answer cancels (CDT-509 AC7)
-- [ ] Away file survives container restart (CDT-509 AC8)
-- [ ] No pickup typing; no keepalive in the daemon (CDT-509 AC9)
-- [ ] Setup daemon-mode iff heartbeat fresh AND compose running (CDT-509 AC10;
+- State bind-mount; repo and host stacks untouched (CDT-509 AC2)
+- Spool contract byte-stable; additive daemon assets only (CDT-509 AC3)
+- Sole getUpdates consumer; second start 75 or 409/exit 4 (CDT-509 AC4)
+- Zero-session inbound lands in spool within one long-poll (CDT-509 AC5)
+- Topic map / walkie-talkie / fail-closed unmapped (CDT-509 AC6)
+- Escalation sweep 24/7; away-immediate; answer cancels (CDT-509 AC7)
+- Away file survives container restart (CDT-509 AC8)
+- No pickup typing; no keepalive in the daemon (CDT-509 AC9)
+- Setup daemon-mode iff heartbeat fresh AND compose running (CDT-509 AC10;
       doctor/liveness — CDT-527 AC3 supersedes the hb conjunct for setup mode)
-- [ ] `daemon.sh` loops `poller.sh`; does not hold `poller.lock` across cycles (CDT-509 AC4/AC5)
-- [ ] Image digest-pinned; no hermetic pull; non-root (CDT-509 AC11)
-- [ ] probe.sh pre-deploy; suites never call it (CDT-509 AC12)
-- [ ] Docker available iff CLI + compose v2 + `docker info`; inspect only
+- `daemon.sh` loops `poller.sh`; does not hold `poller.lock` across cycles (CDT-509 AC4/AC5)
+- Image digest-pinned; no hermetic pull; non-root (CDT-509 AC11)
+- probe.sh pre-deploy; suites never call it (CDT-509 AC12)
+- Docker available iff CLI + compose v2 + `docker info`; inspect only
       (CDT-527 AC1)
-- [ ] Docker missing: C1 `watch.sh` arming + one missing-check line, rc 0
+- Docker missing: C1 `watch.sh` arming + one missing-check line, rc 0
       (CDT-527 AC2)
-- [ ] Identity running: daemon mode, no second consumer, heartbeat optional
+- Identity running: daemon mode, no second consumer, heartbeat optional
       (CDT-527 AC3)
-- [ ] Daemon down: TTY-less Y starts helper; n keeps C1; uid 0 / up-fail
+- Daemon down: TTY-less Y starts helper; n keeps C1; uid 0 / up-fail
       fall back to C1 on pairing path (CDT-527 AC4)
-- [ ] `start-daemon.sh`: host uid:gid, refuse uid 0, token `:ro`,
+- `start-daemon.sh`: host uid:gid, refuse uid 0, token `:ro`,
       `compose -p intercom up -d --build`; daemon mode after up (CDT-527 AC5)
-- [ ] `poller.lock` held: start-daemon exit 75, no C1 re-arm (CDT-527 AC6)
-- [ ] `--start-daemon` + remaining args forwarded; unpaired fail-closed
+- `poller.lock` held: start-daemon exit 75, no C1 re-arm (CDT-527 AC6)
+- `--start-daemon` + remaining args forwarded; unpaired fail-closed
       (CDT-527 AC7)
-- [ ] Hermetic never pull/run a real image; probe not invoked (CDT-527 AC8)
-- [ ] setup.md / SKILL.md / runbook document start vs C1 (CDT-527 AC9)
-- [ ] Mapped topic + active sid routes to that sid's inbox (CDT-529 AC1)
-- [ ] Unmapped thread + exactly one active session routes there (CDT-529 AC2)
-- [ ] Unmapped thread + zero/≥2 active → `default_session` + one warn line
+- Hermetic never pull/run a real image; probe not invoked (CDT-527 AC8)
+- setup.md / SKILL.md / runbook document start vs C1 (CDT-527 AC9)
+- Mapped topic + active sid routes to that sid's inbox (CDT-529 AC1)
+- Unmapped thread + exactly one active session routes there (CDT-529 AC2)
+- Unmapped thread + zero/≥2 active → `default_session` + one warn line
       naming the thread id (CDT-529 AC3)
-- [ ] Pending record carries `route: {sid, thread_id}` from the single
+- Pending record carries `route: {sid, thread_id}` from the single
       creation write; back-fill on the escalated send (CDT-529 AC4/AC6)
-- [ ] Mapped sid routes to its own inbox always — sticky, zero pending
+- Mapped sid routes to its own inbox always — sticky, zero pending
       included, never silent (CDT-529 AC5 as superseded by CDT-535)
-- [ ] Legacy `topics.json` (no route fields) routes unchanged (CDT-529 AC7)
-- [ ] Plain chat always `default_session`; correlation-miss warn only when a
+- Legacy `topics.json` (no route fields) routes unchanged (CDT-529 AC7)
+- Plain chat always `default_session`; correlation-miss warn only when a
       non-default sid has a pending question (CDT-529 Q3)
-- [ ] createForumTopic failure path and its warn unchanged (CDT-529 AC8)
-- [ ] `ir_resolve_outbound` contract unchanged; existing outbound tests pass
+- createForumTopic failure path and its warn unchanged (CDT-529 AC8)
+- `ir_resolve_outbound` contract unchanged; existing outbound tests pass
       (CDT-529 AC10)
-- [ ] Mapped thread routes to its own sid always — zero pending included,
+- Mapped thread routes to its own sid always — zero pending included,
       no warn, no default fallback (CDT-535 AC1; supersedes CDT-529 AC5)
-- [ ] Away ON + sane `away_sid`: plain chat / general / unmapped →
+- Away ON + sane `away_sid`: plain chat / general / unmapped →
       `away_sid`; mapped thread never stolen; absent/insane `away_sid`
       fails open (CDT-535 AC5)
-- [ ] `away on` pins `away_sid`; phone `/away` never clobbers it; `away
+- `away on` pins `away_sid`; phone `/away` never clobbers it; `away
       off` keeps it; `ask`/`send` refresh it while away ON and never
       create it while OFF (CDT-535 AC2/AC3/AC4)
-- [ ] `intercom read` prints qid/kind/text in filename order; `--ack`
+- `intercom read` prints qid/kind/text in filename order; `--ack`
       moves records to `consumed/` idempotently; `--sid` override; empty
       inbox rc 0; unknown flag rc 2 (CDT-535 AC6/AC7)
-- [ ] `inbox-watch.sh`: stamp on first run, one grammar line per new
+- `inbox-watch.sh`: stamp on first run, one grammar line per new
       batch, pre-existing records silent, away-off exit 0, no token /
       bridge / lock contact (CDT-535 AC8)
-- [ ] Doctor probes `away_sid` only when away is ON; stale `away_sid`
+- Doctor probes `away_sid` only when away is ON; stale `away_sid`
       with away off is not a finding (CDT-535 AC10)
 
 ## Validation
 
-- [ ] Spec reviewed against CDT-501 ACs 1–25 (PM final, 2026-10-05), the
+- Spec reviewed against CDT-501 ACs 1–25 (PM final, 2026-10-05), the
       2026-10-03 brainstorm decision log, CDT-509 ACs 1–13 (PM kickoff,
       2026-10-07), CDT-527 ACs 1–10 (PM scope, 2026-10-07), and CDT-529
       ACs 1–10 (PM confirmed, 2026-10-08)
-- [ ] `probe.sh` remains operator-only (CDT-527 AC8); not a setup or
+- `probe.sh` remains operator-only (CDT-527 AC8); not a setup or
       merge gate. Operator may run it before a first live start.
-- [ ] Hermetic suites green with no network; `tools/run-all-tests.sh` exit 0
-- [ ] skill-lint, smoke, docs-drift clean; spec-lint covers findings cleared
+- Hermetic suites green with no network; `tools/run-all-tests.sh` exit 0
+- skill-lint, smoke, docs-drift clean; spec-lint covers findings cleared
       when T2–T8 land the covered paths
-- [ ] Release bump minor (new `/away`, `/afk` surfaces) for CDT-501; CDT-509
+- Release bump minor (new `/away`, `/afk` surfaces) for CDT-501; CDT-509
       is patch (no new `commands/*.md`)
-- [ ] Operator approved the pinned digest before any `docker pull` (CDT-509);
+- Operator approved the pinned digest before any `docker pull` (CDT-509);
       CDT-527 TTY-less Y / `--start-daemon` is that approval for the alpine digest
 
 ## Open questions

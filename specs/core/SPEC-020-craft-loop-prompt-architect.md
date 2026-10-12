@@ -136,30 +136,30 @@ at creation; no contradictory requirements).
 
 ## Test
 
-- [ ] Craft a trivial 2-iteration program and run its printed `/loop` invocation: the
+- Craft a trivial 2-iteration program and run its printed `/loop` invocation: the
       journal receives 2 schema-conformant entries and the loop ends via the stop
       condition
-- [ ] Force a user-decision blocker mid-loop: a decision card appears under
+- Force a user-decision blocker mid-loop: a decision card appears under
       `Decisions needed` and the loop continues (or ends BLOCKED) without guessing
-- [ ] Craft with an already-used program name: command offers overwrite/rename/refine
-- [ ] `refine` on a journaled run: produces a taxonomy-based diagnosis, applies an
+- Craft with an already-used program name: command offers overwrite/rename/refine
+- `refine` on a journaled run: produces a taxonomy-based diagnosis, applies an
       approved edit, and appends a `## Revisions` entry
-- [ ] `refine` on a program with no journal: asks the user for an account instead of
+- `refine` on a program with no journal: asks the user for an account instead of
       failing
-- [ ] `list` shows the crafted program with the correct open-decision count
-- [ ] Both shipped examples pass all 6 quality-checklist items
-- [ ] `commands/craft-loop.md` and `skills/craft-loop/SKILL.md` carry valid YAML
+- `list` shows the crafted program with the correct open-decision count
+- Both shipped examples pass all 6 quality-checklist items
+- `commands/craft-loop.md` and `skills/craft-loop/SKILL.md` carry valid YAML
       frontmatter
-- [ ] `retire <name>` on an approved program flips `status:` to `retired`; a
+- `retire <name>` on an approved program flips `status:` to `retired`; a
       second retire is a no-op; `list` hides it and `list --all` shows it
-- [ ] A journal over 200 lines is compacted on the next firing with all open
+- A journal over 200 lines is compacted on the next firing with all open
       decision cards preserved
 - SPEC-020/T1 — list mode excludes journal, findings, and ledger companions, and both doors name themselves `craft-loop`. Verify: bash skills/craft-loop/test-list-exclude.sh
 - SPEC-020/T2 (rv-w3-28) — check-program.sh accepts all shipped examples and rejects a broken fixture; journal-stats.sh reports iterations and open decisions. Verify: bash skills/craft-loop/test.sh
 
 ## Validation
 
-- [x] Spec reviewed and promoted to ACTIVE
+- Spec reviewed and promoted to ACTIVE
 
 ## Version History
 

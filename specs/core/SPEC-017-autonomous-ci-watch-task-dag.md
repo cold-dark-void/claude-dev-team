@@ -346,14 +346,14 @@ The router loads only the current step file plus `cross-cutting.md`
 
 ## Validation
 
-- [ ] CI mode detection probes `.github/workflows/` first
-- [ ] Local-test mode detects at least: package.json test script, Makefile test target, go.mod, pytest markers
-- [ ] `none` mode produces no cron and no notification
-- [ ] Fixer retry counter resets between ticket runs (stored in cron metadata, not globally)
-- [ ] task-store.sh `create` accepts optional `depends_on` arg; backward compat confirmed
-- [ ] /kickoff circular dep check fires before any TaskCreate call
-- [ ] /orchestrate fans out ≥2 unblocked tasks simultaneously on a ticket with parallel work
-- [ ] /standup READY/WAITING computed from task store, not prose
+- CI mode detection probes `.github/workflows/` first
+- Local-test mode detects at least: package.json test script, Makefile test target, go.mod, pytest markers
+- `none` mode produces no cron and no notification
+- Fixer retry counter resets between ticket runs (stored in cron metadata, not globally)
+- task-store.sh `create` accepts optional `depends_on` arg; backward compat confirmed
+- /kickoff circular dep check fires before any TaskCreate call
+- /orchestrate fans out ≥2 unblocked tasks simultaneously on a ticket with parallel work
+- /standup READY/WAITING computed from task store, not prose
 
 ---
 

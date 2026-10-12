@@ -98,14 +98,14 @@ The command is **read-only by default** — it diagnoses and recommends, it neve
 
 ## Validation
 
-- [x] Spec reviewed and promoted to ACTIVE
-- [x] Default run proven read-only on a real initialized project (snapshot diff clean)
-- [x] All optional deps absent → zero FAILs (WARN-with-impact only)
-- [x] Exit-code contract (`0`/`1`/`2`/`64`) verified end-to-end
-- [x] `--json` output parses with `jq` and is stable across two unchanged runs
-- [x] Expected hook set single-sourced from `skills/init-orchestration` (no duplicated list inside `/doctor`)
-- [x] `--fix` allowlist reviewed item-by-item against the M7 safety criteria
-- [ ] Backlog item `.claude/backlog/doctor-install-diagnostics.md` closed via `/backlog close` (at merge)
+- Spec reviewed and promoted to ACTIVE
+- Default run proven read-only on a real initialized project (snapshot diff clean)
+- All optional deps absent → zero FAILs (WARN-with-impact only)
+- Exit-code contract (`0`/`1`/`2`/`64`) verified end-to-end
+- `--json` output parses with `jq` and is stable across two unchanged runs
+- Expected hook set single-sourced from `skills/init-orchestration` (no duplicated list inside `/doctor`)
+- `--fix` allowlist reviewed item-by-item against the M7 safety criteria
+- Backlog item `.claude/backlog/doctor-install-diagnostics.md` closed via `/backlog close` (at merge)
 
 ---
 

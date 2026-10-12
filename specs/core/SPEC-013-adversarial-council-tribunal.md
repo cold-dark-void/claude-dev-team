@@ -714,40 +714,40 @@ degradation marker — never invent a second string. Distinct from CDV-197
 
 ## Validation
 
-- [ ] `skills/council/` skill exists with engine protocol documented
-- [ ] `commands/council.md` exists as a thin wrapper calling the engine
-- [ ] `skills/review-and-commit/SKILL.md` refactored to call the engine with `preset: diff-mode` (SPEC-010 updated via `/spec update`)
-- [ ] `skills/council/flavors/` directory contains: paranoid-ic, jaded-senior, yolo-ic, plus the 5 review-and-commit specialists
-- [ ] `agents/council-judge.md` exists with `tools: ""` and judges evidence-only (no self-loaded cortex/memory; any `tech-lead` cortex calibration is optional engine-prepended context, not a required load path); engine invokes `council-judge` (not `tech-lead`) for Phase 5
-- [ ] Verdict taxonomy enforced structurally (not free-form)
-- [ ] Feedback memory auto-write verified on `FABRICATED ≥70` and `UNVERIFIED ≥85`
-- [ ] `.claude/council/` directory added to `.gitignore` conventions
-- [ ] SPEC-012 updated with `/retro` → `/council` integration hint
-- [ ] SPEC-009 updated with `requires_council: true` TaskCompleted gate flag
-- [ ] SPEC-010 updated to reflect `/review-and-commit` delegation to council engine
-- [ ] Settings keys `council.feedback.fabricated_min` and `council.feedback.unverified_min` documented in `/memory config` or equivalent
-- [ ] `.claude/council/index.json` exists after any task-bound run and is written atomically (tmp + rename)
-- [ ] `task_id` field appears in report frontmatter and `--<task_id>` suffix appears in filename when a run is task-bound
-- [ ] `CLAUDE_TASK_ID` env var fallback produces the same binding as the `--task-id` flag
-- [ ] TaskCompleted gate queries `index.json` only (no filename scans) and applies the dual-shape confidence rule (SPEC-002 / CDT-122)
-- [ ] Index confidence normalization (CDT-181): non-int JSON number max conf floors to int 0–100; index stores int|null only; task-bound finalize does not exit 6 solely for non-int conf; automated test covers float max conf
-- [ ] `skills/council/prompts/cross-reviewer.md` exists; council.md Phase 2.5 block describes N cross-reviewers spawned with per-reviewer shuffled labels, self-exclusion, Borda-ranked bundle output to Phase 4 and Phase 5, bottom-quartile WEAK_EVIDENCE flagging, and bypass recorded when < 3 investigators
-- [ ] Spawn-failure degradation: `engine.sh finalize --verification-mode self-verified` writes marker `self-verified — refuters unavailable` + frontmatter `verification_mode`; default/full omits banner; protocol in SKILL.md + commands
-- [ ] `--why` (CDV-206): preflight with `--why` emits `why: true` + `why_detail` (`preset`, `flavors`, `phase3_specialist`, `claim_budget`, `preset_source`); without flag `why` is not true and no debug section; `commands/council.md` Step 5 prints short labeled block after summary; no verdict impact, no raw prompt dumps
-- [ ] Phase 3 domain specialist (CDV-209): `phases.3_domain_specialist.deferred==false`; `topic-classifier.md` present; council.md classifies → pull devops/ds/qa/pm at conf ≥ 0.75, cap 1/run, skip weak match + diff-mode; before Phase 2.5; `why_detail.phase3_specialist` runtime strings; Test 8
-- [ ] Token usage (CDV-204): finalize `--tokens-file` prints `Tokens:` (or `Tokens (partial):`) when usable; omits when missing/unavailable/zeros; optional FM `tokens_total`/`tokens_by_phase`; `commands/council.md` best-effort collect + pass-through; index.json unchanged
-- [x] Plan scope (CDV-208): `--plan <path>` preflight path-check exit 2 / live exit 0; `plan-extractor.md` + fixture; Test 20
-- [x] From-retro scope (CDV-212): anchor files at `$MROOT/.claude/retro/anchors/<id>.json`; missing → exit 2; present → Phase 1 skip + `resolved_claim`; exit 3 deferred removed; Test 21
-- [ ] Council tiering (CDT-126): `council_tier ∈ skip|light|full` with `skip` never auto-selected (DRI flag only) and **per-surface** legal vocabularies stated explicitly — `/orchestrate` accepts all three (`skip` short-circuits: no `/council`, no engine run, no report), `/council` and `engine.sh` accept only `light|full` and MUST hard-fail on `skip` rather than coerce it, and the `index.json` row is the one surface carrying all three (a `skip` row written by the short-circuiting caller through the same owning writer, empty `report_path`, null confidences); `light` = exactly 2 distinct-flavor investigators + Phase 5 Judge, Phase 3/Phase 4 skipped; Phase 4 spawn MUST scoped to runs in which Phase 4 runs, Phase 5 brief inputs and Phase 6 report briefs Phase-4-conditional (no synthesized/stubbed briefs), Phase 2.5 bypass targets the next phase that runs; `full` behaviorally unchanged (same phases/flavors/prompts/stdout — *not* byte-identical artifacts: frontmatter + index rows gain the two additive keys on every run, ungraded `full` recording a default `grading_reason`); `verification_mode` still a two-value enum (not folded); bands + 5 structural critical-area signals with the fan-in probe running in both the clear-low (cap 5) and middle (cap 20) bands; grading fails closed to `full` with the failure in `grading_reason`; `council_tier`/`grading_reason` in report frontmatter and `index.json` rows; Workflow path `full`-only via existing fallback seam
-- [ ] Blind-review scope (CDT-46-C3): `/council --blind` as mutually exclusive scope; parity `--teams|--lenses|--target`; N unconstrained + M lens parallel fan-out → semantic clustering → Tier 1/2/3; Tier-1 emit as findings with **no** recursive `/council`; `--no-council` removed; `/council --blind` is a flag of `commands/council.md` (no stub file); Test 22
-- [ ] Test 1–11 pass against the implementation
-- [x] Proposed extension 'Council-on-Workflow execution path' implemented and promoted (CDV-196; Tests 12–19)
-- [ ] Test 12–19 (Council-on-Workflow) pass against the implementation
-- [ ] Test 20 (plan scope) pass against the implementation
-- [ ] Test 21 (from-retro scope) pass against the implementation
-- [ ] Test 22 (blind-review scope) pass against the implementation
-- [ ] Report no-overwrite (WP 1-14): report + sidecar never overwritten via `cmd_report_path`; `-<N>` only on collision; finalize reserves atomically; `--report-out` exact; Test 23
-- [ ] M14 per-AC split (WP 1-14): `m14-ac-split.sh`; `plan.claims[]` consumed verbatim on both paths; exit 8 fail-closed; non-M14 plan unchanged; Tests 24–25
+- `skills/council/` skill exists with engine protocol documented
+- `commands/council.md` exists as a thin wrapper calling the engine
+- `skills/review-and-commit/SKILL.md` refactored to call the engine with `preset: diff-mode` (SPEC-010 updated via `/spec update`)
+- `skills/council/flavors/` directory contains: paranoid-ic, jaded-senior, yolo-ic, plus the 5 review-and-commit specialists
+- `agents/council-judge.md` exists with `tools: ""` and judges evidence-only (no self-loaded cortex/memory; any `tech-lead` cortex calibration is optional engine-prepended context, not a required load path); engine invokes `council-judge` (not `tech-lead`) for Phase 5
+- Verdict taxonomy enforced structurally (not free-form)
+- Feedback memory auto-write verified on `FABRICATED ≥70` and `UNVERIFIED ≥85`
+- `.claude/council/` directory added to `.gitignore` conventions
+- SPEC-012 updated with `/retro` → `/council` integration hint
+- SPEC-009 updated with `requires_council: true` TaskCompleted gate flag
+- SPEC-010 updated to reflect `/review-and-commit` delegation to council engine
+- Settings keys `council.feedback.fabricated_min` and `council.feedback.unverified_min` documented in `/memory config` or equivalent
+- `.claude/council/index.json` exists after any task-bound run and is written atomically (tmp + rename)
+- `task_id` field appears in report frontmatter and `--<task_id>` suffix appears in filename when a run is task-bound
+- `CLAUDE_TASK_ID` env var fallback produces the same binding as the `--task-id` flag
+- TaskCompleted gate queries `index.json` only (no filename scans) and applies the dual-shape confidence rule (SPEC-002 / CDT-122)
+- Index confidence normalization (CDT-181): non-int JSON number max conf floors to int 0–100; index stores int|null only; task-bound finalize does not exit 6 solely for non-int conf; automated test covers float max conf
+- `skills/council/prompts/cross-reviewer.md` exists; council.md Phase 2.5 block describes N cross-reviewers spawned with per-reviewer shuffled labels, self-exclusion, Borda-ranked bundle output to Phase 4 and Phase 5, bottom-quartile WEAK_EVIDENCE flagging, and bypass recorded when < 3 investigators
+- Spawn-failure degradation: `engine.sh finalize --verification-mode self-verified` writes marker `self-verified — refuters unavailable` + frontmatter `verification_mode`; default/full omits banner; protocol in SKILL.md + commands
+- `--why` (CDV-206): preflight with `--why` emits `why: true` + `why_detail` (`preset`, `flavors`, `phase3_specialist`, `claim_budget`, `preset_source`); without flag `why` is not true and no debug section; `commands/council.md` Step 5 prints short labeled block after summary; no verdict impact, no raw prompt dumps
+- Phase 3 domain specialist (CDV-209): `phases.3_domain_specialist.deferred==false`; `topic-classifier.md` present; council.md classifies → pull devops/ds/qa/pm at conf ≥ 0.75, cap 1/run, skip weak match + diff-mode; before Phase 2.5; `why_detail.phase3_specialist` runtime strings; Test 8
+- Token usage (CDV-204): finalize `--tokens-file` prints `Tokens:` (or `Tokens (partial):`) when usable; omits when missing/unavailable/zeros; optional FM `tokens_total`/`tokens_by_phase`; `commands/council.md` best-effort collect + pass-through; index.json unchanged
+- Plan scope (CDV-208): `--plan <path>` preflight path-check exit 2 / live exit 0; `plan-extractor.md` + fixture; Test 20
+- From-retro scope (CDV-212): anchor files at `$MROOT/.claude/retro/anchors/<id>.json`; missing → exit 2; present → Phase 1 skip + `resolved_claim`; exit 3 deferred removed; Test 21
+- Council tiering (CDT-126): `council_tier ∈ skip|light|full` with `skip` never auto-selected (DRI flag only) and **per-surface** legal vocabularies stated explicitly — `/orchestrate` accepts all three (`skip` short-circuits: no `/council`, no engine run, no report), `/council` and `engine.sh` accept only `light|full` and MUST hard-fail on `skip` rather than coerce it, and the `index.json` row is the one surface carrying all three (a `skip` row written by the short-circuiting caller through the same owning writer, empty `report_path`, null confidences); `light` = exactly 2 distinct-flavor investigators + Phase 5 Judge, Phase 3/Phase 4 skipped; Phase 4 spawn MUST scoped to runs in which Phase 4 runs, Phase 5 brief inputs and Phase 6 report briefs Phase-4-conditional (no synthesized/stubbed briefs), Phase 2.5 bypass targets the next phase that runs; `full` behaviorally unchanged (same phases/flavors/prompts/stdout — *not* byte-identical artifacts: frontmatter + index rows gain the two additive keys on every run, ungraded `full` recording a default `grading_reason`); `verification_mode` still a two-value enum (not folded); bands + 5 structural critical-area signals with the fan-in probe running in both the clear-low (cap 5) and middle (cap 20) bands; grading fails closed to `full` with the failure in `grading_reason`; `council_tier`/`grading_reason` in report frontmatter and `index.json` rows; Workflow path `full`-only via existing fallback seam
+- Blind-review scope (CDT-46-C3): `/council --blind` as mutually exclusive scope; parity `--teams|--lenses|--target`; N unconstrained + M lens parallel fan-out → semantic clustering → Tier 1/2/3; Tier-1 emit as findings with **no** recursive `/council`; `--no-council` removed; `/council --blind` is a flag of `commands/council.md` (no stub file); Test 22
+- Test 1–11 pass against the implementation
+- Proposed extension 'Council-on-Workflow execution path' implemented and promoted (CDV-196; Tests 12–19)
+- Test 12–19 (Council-on-Workflow) pass against the implementation
+- Test 20 (plan scope) pass against the implementation
+- Test 21 (from-retro scope) pass against the implementation
+- Test 22 (blind-review scope) pass against the implementation
+- Report no-overwrite (WP 1-14): report + sidecar never overwritten via `cmd_report_path`; `-<N>` only on collision; finalize reserves atomically; `--report-out` exact; Test 23
+- M14 per-AC split (WP 1-14): `m14-ac-split.sh`; `plan.claims[]` consumed verbatim on both paths; exit 8 fail-closed; non-M14 plan unchanged; Tests 24–25
 
 ---
 

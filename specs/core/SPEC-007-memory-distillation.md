@@ -76,11 +76,11 @@ The memory compression and lifecycle management layer. Compresses raw tier-0 mem
 
 ## Validation
 
-- [ ] After distillation: tier-0 source memories have `archived=TRUE`
-- [ ] After distillation: tier-1 digests exist with `distilled_from` referencing source IDs
-- [ ] Promoted memories have `tier=2, type='core'`
-- [ ] `/memory stats` output contains no memory text content
-- [ ] Lock cleared after successful distillation
+- After distillation: tier-0 source memories have `archived=TRUE`
+- After distillation: tier-1 digests exist with `distilled_from` referencing source IDs
+- Promoted memories have `tier=2, type='core'`
+- `/memory stats` output contains no memory text content
+- Lock cleared after successful distillation
 
 ## Open Questions
 

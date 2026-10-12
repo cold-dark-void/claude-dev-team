@@ -163,11 +163,11 @@ Everything needed to get the dev-team running in a new or existing project. Incl
 
 ## Validation
 
-- [ ] `sqlite3 .claude/memory/memory.db "SELECT COUNT(*) FROM memories"` returns > 0 after `/setup team`
-- [ ] All 7 directories exist under `.claude/memory/`
-- [ ] Cortex files differ across agents (diff any two)
-- [ ] settings.json is valid JSON after `/setup orchestration` merge
-- [ ] `bash skills/init-orchestration/test-sweep-legacy-orphans.sh` exits 0
+- `sqlite3 .claude/memory/memory.db "SELECT COUNT(*) FROM memories"` returns > 0 after `/setup team`
+- All 7 directories exist under `.claude/memory/`
+- Cortex files differ across agents (diff any two)
+- settings.json is valid JSON after `/setup orchestration` merge
+- `bash skills/init-orchestration/test-sweep-legacy-orphans.sh` exits 0
 
 ## Open Questions
 

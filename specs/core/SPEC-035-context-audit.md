@@ -71,27 +71,27 @@ hygiene. Skill splits and handoff packet fields are separate workstreams
 
 ## Test
 
-- [ ] Inventory on a fixture with user-global, parent, project, and directives
+- Inventory on a fixture with user-global, parent, project, and directives
       files lists each layer (M3, M4)
-- [ ] Apply rejects a finding with empty or passages-only evidence (M6)
-- [ ] Apply refuses `skills/**` and `commands/**` targets (M7)
-- [ ] Command/skill/docs/cli text does not ship a stack-rebuild alias (M1)
-- [ ] `skills/audit/SKILL.md` is under 40960 bytes and documents the 30KB WARN
+- Apply rejects a finding with empty or passages-only evidence (M6)
+- Apply refuses `skills/**` and `commands/**` targets (M7)
+- Command/skill/docs/cli text does not ship a stack-rebuild alias (M1)
+- `skills/audit/SKILL.md` is under 40960 bytes and documents the 30KB WARN
       threshold (M8)
-- [ ] `--from-session` invokes `skills/transcript-parse/hosts.py` locate (M9)
-- [ ] `--from-session --json` stdout is parseable JSON only; locate is on stderr (M9)
-- [ ] Inventory includes `~/.grok/AGENTS.md` when present (M4)
-- [ ] Directives MROOT comes from `--cwd`, not the invoker process cwd (M4)
-- [ ] Apply refuses a symlink whose `realpath` is under `skills/**` (M7)
-- [ ] Bare inventory leaves fixture hashes unchanged (M2)
-- [ ] `--all` exits 64 (M3)
+- `--from-session` invokes `skills/transcript-parse/hosts.py` locate (M9)
+- `--from-session --json` stdout is parseable JSON only; locate is on stderr (M9)
+- Inventory includes `~/.grok/AGENTS.md` when present (M4)
+- Directives MROOT comes from `--cwd`, not the invoker process cwd (M4)
+- Apply refuses a symlink whose `realpath` is under `skills/**` (M7)
+- Bare inventory leaves fixture hashes unchanged (M2)
+- `--all` exits 64 (M3)
 
 ## Validation
 
-- [x] Spec reviewed against CDT-200 ACs
-- [x] `bash skills/audit/test.sh` green
-- [x] docs-drift + skill-lint clean on new files
-- [x] Status promoted to ACTIVE after land
+- Spec reviewed against CDT-200 ACs
+- `bash skills/audit/test.sh` green
+- docs-drift + skill-lint clean on new files
+- Status promoted to ACTIVE after land
 
 ## Version History
 

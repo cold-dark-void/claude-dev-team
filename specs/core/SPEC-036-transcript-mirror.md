@@ -559,172 +559,172 @@ verbatim. Channel sidecar taxonomy stays `thinking | tool_result | injection`.
 
 ## Test
 
-- [ ] `bash skills/spec-tooling/check-format.sh specs/core/SPEC-036-transcript-mirror.md` exits 0
-- [ ] Store under `TRANSCRIPT_MIRROR_ROOT/<sid>/` has `main.md`, three sidecar
+- `bash skills/spec-tooling/check-format.sh specs/core/SPEC-036-transcript-mirror.md` exits 0
+- Store under `TRANSCRIPT_MIRROR_ROOT/<sid>/` has `main.md`, three sidecar
       dirs, `meta`, `cursor`; `@refs` are relative (M2)
-- [ ] Test run does not create `$HOME/.claude/transcript/` entries (M2)
-- [ ] Unregistered invocation (no stdin, no flags) creates no store dirs (M3)
-- [ ] Recorder exit code is 0 on jq failure; `cursor` unchanged when append
+- Test run does not create `$HOME/.claude/transcript/` entries (M2)
+- Unregistered invocation (no stdin, no flags) creates no store dirs (M3)
+- Recorder exit code is 0 on jq failure; `cursor` unchanged when append
       fails; `.errors.log` gains a line (M4)
-- [ ] Stop/SessionEnd with non-empty `agent_id` / `agentType` are v1
+- Stop/SessionEnd with non-empty `agent_id` / `agentType` are v1
       no-ops: no nest dir, parent sid dir sha256 unchanged (M4, AC1, AC4)
-- [ ] SubagentStop creates `<sid>/agents/<id>/` with M2 layout even when
+- SubagentStop creates `<sid>/agents/<id>/` with M2 layout even when
       parent `main.md` is missing; nest `meta` has `parent: <sid>` (M4a, AC2)
-- [ ] SubagentStop source is `agent_transcript_path` else `transcript_path`;
+- SubagentStop source is `agent_transcript_path` else `transcript_path`;
       MUST NOT M5a-reconstruct; missing file: no nest, exit 0 (M4a, AC2b, AC10)
-- [ ] Bad `agent_id` (`..`, `/`, empty after sanitize) creates no nest
+- Bad `agent_id` (`..`, `/`, empty after sanitize) creates no nest
       and does not write outside `<sid>/agents/` (M4a, AC2c)
-- [ ] Parent `main.md` has exactly one `> @agents/<A>/main.md`; commute
+- Parent `main.md` has exactly one `> @agents/<A>/main.md`; commute
       SubagentStop↔parent Stop; spawn-adjacent or trailing (M4a, AC3)
-- [ ] Parent rebuild preserves `agents/` and re-emits nest-refs (M6, AC7)
-- [ ] `--agent` CLI writes the nest; no-args/`--sid` sync does not
+- Parent rebuild preserves `agents/` and re-emits nest-refs (M6, AC7)
+- `--agent` CLI writes the nest; no-args/`--sid` sync does not
       invent `agents/` (M4a, M10, AC8)
-- [ ] SubagentStop `reason=other` still flushes (M4a, AC10)
-- [ ] Nest-ref is not a fourth sidecar kind; M5a tests still green (M7, AC9)
-- [ ] Claude `transcript_path` and Grok `updates.jsonl` → sibling
+- SubagentStop `reason=other` still flushes (M4a, AC10)
+- Nest-ref is not a fourth sidecar kind; M5a tests still green (M7, AC9)
+- Claude `transcript_path` and Grok `updates.jsonl` → sibling
       `chat_history.jsonl`; both stdin casings parse (M5)
-- [ ] Missing Grok reconstructed file is a silent no-op (M5, AC2: no
+- Missing Grok reconstructed file is a silent no-op (M5, AC2: no
       urlencode file; no matching `.cwd`+file; `.cwd` matches but file
       missing; decoy `.cwd`; ghost-cwd)
-- [ ] Long-cwd Stop reconstruct (`jq @uri` encoding >255 bytes; no
+- Long-cwd Stop reconstruct (`jq @uri` encoding >255 bytes; no
       urlencode-named dir; short bucket; `.cwd` = abs cwd; unique
       Meaning-channel string): exit 0, no `decision: block`, `main.md`
       contains the string, cursor source-path is resolved
       `chat_history.jsonl` (M5a AC1)
-- [ ] Long-cwd SessionEnd with empty `transcript_path` flushes the same
+- Long-cwd SessionEnd with empty `transcript_path` flushes the same
       fixture (M5a AC1)
-- [ ] Short-cwd Grok + Claude unchanged; decoy slug+hash for another cwd
+- Short-cwd Grok + Claude unchanged; decoy slug+hash for another cwd
       not selected; `updates.jsonl` → sibling `chat_history.jsonl`
       unchanged (M5a AC3)
-- [ ] `hosts.locate("grok", sid, cwd, sessions_dir=…)` returns the AC1
+- `hosts.locate("grok", sid, cwd, sessions_dir=…)` returns the AC1
       `.cwd` file and `None` for AC2; N matching `.cwd`+file →
       lexical-min; short-cwd suite green (M5a AC5, AC6)
-- [ ] Opted-in `transcript-sync --check` prints the long-cwd sid (M5a AC5)
-- [ ] Stop `reason=other` no-ops; SessionEnd with that reason still flushes (M5)
-- [ ] Claude uuid cursor: re-run is idempotent; two ticks = one-shot bytes (M6)
-- [ ] Grok rewind (truncate JSONL before last identity) rebuilds with no
+- Opted-in `transcript-sync --check` prints the long-cwd sid (M5a AC5)
+- Stop `reason=other` no-ops; SessionEnd with that reason still flushes (M5)
+- Claude uuid cursor: re-run is idempotent; two ticks = one-shot bytes (M6)
+- Grok rewind (truncate JSONL before last identity) rebuilds with no
       duplicate `## user` / `## assistant` blocks (M6)
-- [ ] Grok identity is not line-index-only: inserting a line before the
+- Grok identity is not line-index-only: inserting a line before the
       cursor record does not duplicate already-mirrored text (M6)
-- [ ] Wrappers and `synthetic_reason` land in `injection/`; tool_use in
+- Wrappers and `synthetic_reason` land in `injection/`; tool_use in
       `tool_result/`; empty thinking gets a placeholder (M7)
-- [ ] Consecutive `@tool_result` refs collapse; `@thinking` only after
+- Consecutive `@tool_result` refs collapse; `@thinking` only after
       `## assistant` (M8)
-- [ ] Child with `forkedFrom.sessionId` writes `parent:` and does not
+- Child with `forkedFrom.sessionId` writes `parent:` and does not
       re-copy parent-mirrored identities when parent dir exists (M9)
-- [ ] `transcript-sync --sid` on a fixture never touched by Stop creates
+- `transcript-sync --sid` on a fixture never touched by Stop creates
       a correct mirror; `--check` exits 0 (M10, M11)
-- [ ] No-args sync with a registered settings fixture locates a
+- No-args sync with a registered settings fixture locates a
       never-mirrored cwd session (M10)
-- [ ] Two cwd-bucket sessions (older never mirrored, newer already has a
+- Two cwd-bucket sessions (older never mirrored, newer already has a
       sid dir): no-args MUST create the older sid; newest-only locate
       MUST fail this test (M10 AC1)
-- [ ] Dual-host: Claude `*.jsonl` in the project dir AND Grok
+- Dual-host: Claude `*.jsonl` in the project dir AND Grok
       `chat_history.jsonl` in the cwd bucket; no-args creates both sids
       when opted-in (M10 AC13)
-- [ ] `--check` without `--sid` lists ALL cwd-bucket sessions; MUST NOT
+- `--check` without `--sid` lists ALL cwd-bucket sessions; MUST NOT
       list a store sid whose source is outside those buckets (M11 AC11)
-- [ ] No sid dir and no `.errors.log` line → `--check status=missing`
+- No sid dir and no `.errors.log` line → `--check status=missing`
       (M11 AC8)
-- [ ] `freshness.sh check` exit 9 → `--check status=in-progress`; sync
+- `freshness.sh check` exit 9 → `--check status=in-progress`; sync
       MUST NOT write that sid; doctor MUST NOT WARN (M10, M11 AC10)
-- [ ] SessionEnd stdin for sid S with no prior Stop / no sid dir flushes
+- SessionEnd stdin for sid S with no prior Stop / no sid dir flushes
       S immediately (ignore `reason`), exit 0, no `decision: block`,
       that sid only (M5 AC2)
-- [ ] Unregistered no-args MUST NOT create new sid dirs (M10)
-- [ ] Recorder/sync/doctor PRs: `git grep` does not modify
+- Unregistered no-args MUST NOT create new sid dirs (M10)
+- Recorder/sync/doctor PRs: `git grep` does not modify
       `commands/handoff.md`, `precompact-capture.sh`, init-orch `HOOKS=`,
       or doctor `EXPECTED_HOOK_` (M3, M12). `skills/handoff/` MAY change
       only under SPEC-018 M3f as a **read** of `main.md` / `--check`
       (CDT-216); MUST NOT change M8 cache schema or PreCompact
-- [ ] CDT-216 consume: `--check --sid` `status=ok` is the only handoff
+- CDT-216 consume: `--check --sid` `status=ok` is the only handoff
       read gate; cursor is not `leaf_uuid` (SPEC-018 Test 40)
-- [ ] C7 hit: `--check --sid` `status=ok` → writes
+- C7 hit: `--check --sid` `status=ok` → writes
       `$TRANSCRIPT_MIRROR_ROOT/<sid>.meaning-tail.md`; stdout is that
       absolute path; exit 0 (M14)
-- [ ] C7 miss: status `lag` / `missing` / `in-progress`, no line, helper
+- C7 miss: status `lag` / `missing` / `in-progress`, no line, helper
       absent, empty after strip, unresolvable live sid → exit non-zero, no
       tail file created or updated, stderr names status or reason; MUST NOT
       exit 0 (M14)
-- [ ] C7 store isolation: after hit, `main.md` sha256, `cursor`, sidecar
+- C7 store isolation: after hit, `main.md` sha256, `cursor`, sidecar
       trees, `agents/` byte-identical (M14, AC2)
-- [ ] C7 strip: fixture with `# transcript mirror`, `> @tool_result/…`,
+- C7 strip: fixture with `# transcript mirror`, `> @tool_result/…`,
       `> @agents/…` → tail has no title and no `^>\s*@` lines; first line
       is `## user` or `## assistant` (M14, AC7)
-- [ ] C7 cap: `wc -c` of tail `<= 32768`; newest heading present; newest
+- C7 cap: `wc -c` of tail `<= 32768`; newest heading present; newest
       block alone > cap still `<= 32768` (M14, AC7)
-- [ ] C7 overwrite idempotent: second hit with unchanged `main.md` → same
+- C7 overwrite idempotent: second hit with unchanged `main.md` → same
       tail sha256 (M14)
-- [ ] C7 recorder/sync: planted `*.meaning-tail.md` sha256 unchanged after
+- C7 recorder/sync: planted `*.meaning-tail.md` sha256 unchanged after
       Stop tick and after `transcript-sync --sid`; neither creates a tail
       (M12, M14)
-- [ ] C7 rebuild: planted sibling tail sha256 unchanged after sid-dir
+- C7 rebuild: planted sibling tail sha256 unchanged after sid-dir
       rebuild (M6, M14)
-- [ ] C7 tests do not create `$HOME/.claude/transcript/` entries (M2, M14)
-- [ ] C7 glossary: `git grep -i` on command/docs/skill/CHANGELOG does not
+- C7 tests do not create `$HOME/.claude/transcript/` entries (M2, M14)
+- C7 glossary: `git grep -i` on command/docs/skill/CHANGELOG does not
       call `main.md` or `meaning-tail.md` an STM packet or compact seed (M1)
-- [ ] C7 docs: transcript-mirror page points compact `@`-attach at
+- C7 docs: transcript-mirror page points compact `@`-attach at
       `/compact-transcript`; does not recommend `@main.md` as the compact
       attach; README Advanced + `docs/README.md` index `/compact-transcript`;
       `docs/commands/compact-transcript.md` exists and is linked (M1, M14)
-- [ ] C7 handoff identity: SPEC-018 Test 40 T1.3 still has no
+- C7 handoff identity: SPEC-018 Test 40 T1.3 still has no
       `spine_origin`; no new `/handoff` flags (M12, AC4, AC6)
-- [ ] C7 bump-class: `commands/compact-transcript.md` added + patch version
+- C7 bump-class: `commands/compact-transcript.md` added + patch version
       → `check-bump-class.sh` exits 1; + minor → 0 (SPEC-010 B1–B6, AC5)
-- [ ] M15 miss: `--check` not `ok` / no line / helper missing → exit 1,
+- M15 miss: `--check` not `ok` / no line / helper missing → exit 1,
       store byte-identical; no-args / unknown flags → 64 (M15, AC3, AC10)
-- [ ] M15 oversized: meaning payload `wc -c` > 8192 → summary in `main.md`,
+- M15 oversized: meaning payload `wc -c` > 8192 → summary in `main.md`,
       exactly one `> @verbatim/TNNNNNN.txt`, file bytes equal pre-replacement
       payload; undersized untouched (M15, AC4, AC5, AC6)
-- [ ] M15 idempotent re-invoke: second overlay with same `main.md` →
+- M15 idempotent re-invoke: second overlay with same `main.md` →
       byte-identical store; already-replaced not eligible (M15, AC4)
-- [ ] M15 restore: `--restore TNNNNNN` splices payload, drops `@verbatim/`
+- M15 restore: `--restore TNNNNNN` splices payload, drops `@verbatim/`
       for that turn only, deletes that turn's `.txt`/`.sum`, updates
       `cursor` field 3; no LLM (M15, AC7)
-- [ ] M15 cursor: overlay updates `main-sha256` only; next Stop appends
+- M15 cursor: overlay updates `main-sha256` only; next Stop appends
       verbatim with no duplicate headings and no rebuild (M15, AC8)
-- [ ] M15 rebuild: `verbatim/` and sibling Meaning tail survive; overlay
+- M15 rebuild: `verbatim/` and sibling Meaning tail survive; overlay
       re-applies without LLM; `cursor` sha256 matches post-reapply
       `main.md` (M15, AC9)
-- [ ] M15 zero eligible → exit 0, byte-identical; per-turn stub fail →
+- M15 zero eligible → exit 0, byte-identical; per-turn stub fail →
       that turn verbatim, no placeholder (M15, AC10)
-- [ ] M15 MUST NOT touch `*.meaning-tail.md`; M14 + Test 40 still green;
+- M15 MUST NOT touch `*.meaning-tail.md`; M14 + Test 40 still green;
       M7 sidecar dirs remain exactly `thinking` / `tool_result` /
       `injection` (M15, AC11, AC12, AC16)
-- [ ] M15 nests OUT: `agents/*/main.md` unchanged; no nest invented
+- M15 nests OUT: `agents/*/main.md` unchanged; no nest invented
       (M15, AC13)
-- [ ] M15 glossary: `git grep -i` on skill/docs/CHANGELOG does not call
+- M15 glossary: `git grep -i` on skill/docs/CHANGELOG does not call
       `main.md`, overlay, `verbatim/`, or meaning-tail an STM packet,
       compact seed, or Channel sidecar (M15, AC14)
-- [ ] M15 bump-class: no new `commands/*.md` + patch →
+- M15 bump-class: no new `commands/*.md` + patch →
       `check-bump-class.sh` exits 0 (SPEC-010 B1–B6, AC15)
-- [ ] M15 recorder does not call Python; `reapply-overlay.sh` has no
+- M15 recorder does not call Python; `reapply-overlay.sh` has no
       `python3` (M15, AC1, AC17)
 
 ## Validation
 
-- [x] Spec reviewed against CDT-220 ACs (OQ1 Option A locked)
-- [x] Spec amended against CDT-221 ACs (doctor lag in; all cwd-bucket
+- Spec reviewed against CDT-220 ACs (OQ1 Option A locked)
+- Spec amended against CDT-221 ACs (doctor lag in; all cwd-bucket
       sessions; `--check` SoT)
-- [x] Spec amended against CDT-218 ACs (M5a dual-engine `.cwd` locate;
+- Spec amended against CDT-218 ACs (M5a dual-engine `.cwd` locate;
       CDT-218 OUT dropped)
-- [x] Spec amended against CDT-217 ACs (M4a SubagentStop agent nest;
+- Spec amended against CDT-217 ACs (M4a SubagentStop agent nest;
       Stop agent-key no-op stays; OQ2/OQ5/OQ7 locked)
-- [ ] `bash skills/transcript-mirror/test.sh` green
-- [ ] `bash skills/transcript-parse/hosts-grok-locate-test.sh` green
-- [ ] `bash skills/transcript-mirror/transcript-sync-test.sh` green
-- [ ] `bash skills/doctor/test.sh` green (`transcript.mirror_lag`)
-- [ ] docs-drift + skill-lint clean on touched files
-- [ ] Status promoted to ACTIVE after land
-- [ ] CDT-216 M12 carve-out: handoff reads `main.md` only via SPEC-018 M3f;
+- `bash skills/transcript-mirror/test.sh` green
+- `bash skills/transcript-parse/hosts-grok-locate-test.sh` green
+- `bash skills/transcript-mirror/transcript-sync-test.sh` green
+- `bash skills/doctor/test.sh` green (`transcript.mirror_lag`)
+- docs-drift + skill-lint clean on touched files
+- Status promoted to ACTIVE after land
+- CDT-216 M12 carve-out: handoff reads `main.md` only via SPEC-018 M3f;
       recorder / M4a / M5a / PreCompact / M8 schema unchanged
-- [x] Spec amended against CDT-215 ACs (M1 C7 carve-out; M12 consumer
+- Spec amended against CDT-215 ACs (M1 C7 carve-out; M12 consumer
       carve-out; M14 meaning-tail; Test 40 unchanged)
-- [ ] `bash skills/transcript-mirror/compact-transcript-test.sh` green
-- [ ] `bash skills/handoff/mirror-spine-test.sh` green (Test 40 T1.3)
-- [x] Spec amended against CDT-214 ACs (M15 overlay; `verbatim/` dir;
+- `bash skills/transcript-mirror/compact-transcript-test.sh` green
+- `bash skills/handoff/mirror-spine-test.sh` green (Test 40 T1.3)
+- Spec amended against CDT-214 ACs (M15 overlay; `verbatim/` dir;
       skill CLI; no new `commands/*.md`; taxonomy closed)
-- [ ] `bash skills/transcript-mirror/summarize-transcript-test.sh` green
+- `bash skills/transcript-mirror/summarize-transcript-test.sh` green
 
 ## Version History
 

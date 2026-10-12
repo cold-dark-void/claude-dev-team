@@ -210,22 +210,22 @@ The full gate contract — edit go-ahead, ticket-weight routing, workstream spli
 
 ## Validation
 
-- [ ] `/refactor` loads AGENTS.md and relevant specs before touching anything
-- [ ] Design problem statement (what/why/what-achieved) appears before any file is modified (default mode)
-- [ ] Skill proceeds without asking user **for the approach decision (§ 2.2)** when one clear approach exists — the Escalation gate's edit go-ahead (§ 2.2a.3) is still asked on that run
-- [ ] Options presented and approval waited when scope is ambiguous
-- [ ] Characterization tests written and confirmed passing on original code when coverage is thin
-- [ ] All tests pass after refactor before completion language
-- [ ] Self-calibration checklist emitted verbatim before any "done" claim, including the three Escalation-gate items
-- [ ] `inline` subcommand skips design statement and the **approach** approval gate, keeps coverage check and the full Escalation gate (edit go-ahead included)
-- [ ] Escalation to `/kickoff` includes all 4 required context fields
-- [ ] No feature or bug-fix changes mixed into refactor commit
-- [ ] Escalation gate runs inline (2.2→2.3 default, after 3.1 inline); edit go-ahead asked every run
-- [ ] Both modes work inside `.worktrees/<slug>`; no current-branch edit or commit path remains
-- [ ] Worktree calls use the SPEC-016 PDH-resolved form with slug sanitization and exit-code handling
-- [ ] Squash-merge-after-review exit remains available alongside the PR exit
-- [ ] Plan-file exemption requires a ticket-id reference; no timestamp logic present
-- [ ] Gate text appears exactly once (contract home); siblings cite only
+- `/refactor` loads AGENTS.md and relevant specs before touching anything
+- Design problem statement (what/why/what-achieved) appears before any file is modified (default mode)
+- Skill proceeds without asking user **for the approach decision (§ 2.2)** when one clear approach exists — the Escalation gate's edit go-ahead (§ 2.2a.3) is still asked on that run
+- Options presented and approval waited when scope is ambiguous
+- Characterization tests written and confirmed passing on original code when coverage is thin
+- All tests pass after refactor before completion language
+- Self-calibration checklist emitted verbatim before any "done" claim, including the three Escalation-gate items
+- `inline` subcommand skips design statement and the **approach** approval gate, keeps coverage check and the full Escalation gate (edit go-ahead included)
+- Escalation to `/kickoff` includes all 4 required context fields
+- No feature or bug-fix changes mixed into refactor commit
+- Escalation gate runs inline (2.2→2.3 default, after 3.1 inline); edit go-ahead asked every run
+- Both modes work inside `.worktrees/<slug>`; no current-branch edit or commit path remains
+- Worktree calls use the SPEC-016 PDH-resolved form with slug sanitization and exit-code handling
+- Squash-merge-after-review exit remains available alongside the PR exit
+- Plan-file exemption requires a ticket-id reference; no timestamp logic present
+- Gate text appears exactly once (contract home); siblings cite only
 
 ---
 

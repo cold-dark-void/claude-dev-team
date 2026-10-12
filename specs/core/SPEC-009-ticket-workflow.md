@@ -525,26 +525,26 @@ only other content is `set -u` and a subprocess entry point that calls
 
 ## Validation
 
-- [ ] Brainstorm output saved to `.claude/plans/<date>-brainstorm-<slug>.md`
-- [ ] Kickoff produces spec + task graph
-- [ ] Kickoff creates/reuses a worktree (bare `<TICKET-ID>` slug) before the PM/TL spawn and commits spec/plan/CONTEXT.md inside `$WT_PATH` on `feat/<TICKET-ID>` — never on master/current branch
-- [ ] Kickoff leaves the worktree in place (no `release`) and prints `$WT_PATH` + branch + resume line
-- [ ] Orchestrate creates PR within counted LOC caps (M15 exclusion; specs/tests still exempt)
-- [ ] `--max-loc` parse: omit → JSON `max_loc` null; `n`/`unbound` accepted; malformed → exit 64 before pipeline start (`bash skills/autopilot/test.sh`)
-- [ ] `docs/commands/orchestrate.md` Flags table documents `--max-loc=<n|unbound>`
-- [ ] Orchestrate router lists `--max-loc=<n|unbound>`; SKILL.md ≤80 lines
-- [ ] Standup correctly identifies READY vs WAITING tasks
-- [ ] Wrap-ticket extracts 3-8 specific learnings
-- [ ] Ship closes backlog write-through; Linear In Review on PR-stop / Done on master-land; wrap Done safety net; no staging `.claude/backlog*` into product commits
-- [ ] `/backlog reconcile` is idempotent (second run is a no-op) and degrades cleanly with Linear absent
-- [ ] `/backlog add` on an existing slug produces no silent duplicate index row
-- [ ] `bash skills/backlog/test.sh` passes
-- [ ] `bash skills/backlog/reconcile-test.sh` and `bash skills/release-train/test.sh` pass (WP 1-04 lock, root, verdict and atomic-write cases)
-- [ ] Brainstorm Step 4c offers backlog/Linear write-back; a filed Linear description is self-contained (no bare local-file pointer)
-- [ ] `/orchestrate --tier` parse: omit → JSON `tier` null; `light|standard|full` accepted; malformed → exit 64 before pipeline start (`bash skills/autopilot/test.sh`)
-- [ ] `--tier` identity: `standard`/`full` run today's Step 0–12; omit auto-sizes at Step 2; `light` runs the light path; SPEC-033 gates unchanged
-- [ ] Orchestrate router lists `--tier` + per-tier table (light = scoper-planner / skip DAG / one IC4 / single-pass TL / no council default / wrap-lite); SKILL.md ≤80 lines; no `commands/orchestrate.md` (`bash skills/orchestrate/router-static-test.sh`)
-- [ ] `docs/commands/orchestrate.md` Flags table documents `--tier` (pipeline cost tier; auto-size; independent of `--council-tier`)
+- Brainstorm output saved to `.claude/plans/<date>-brainstorm-<slug>.md`
+- Kickoff produces spec + task graph
+- Kickoff creates/reuses a worktree (bare `<TICKET-ID>` slug) before the PM/TL spawn and commits spec/plan/CONTEXT.md inside `$WT_PATH` on `feat/<TICKET-ID>` — never on master/current branch
+- Kickoff leaves the worktree in place (no `release`) and prints `$WT_PATH` + branch + resume line
+- Orchestrate creates PR within counted LOC caps (M15 exclusion; specs/tests still exempt)
+- `--max-loc` parse: omit → JSON `max_loc` null; `n`/`unbound` accepted; malformed → exit 64 before pipeline start (`bash skills/autopilot/test.sh`)
+- `docs/commands/orchestrate.md` Flags table documents `--max-loc=<n|unbound>`
+- Orchestrate router lists `--max-loc=<n|unbound>`; SKILL.md ≤80 lines
+- Standup correctly identifies READY vs WAITING tasks
+- Wrap-ticket extracts 3-8 specific learnings
+- Ship closes backlog write-through; Linear In Review on PR-stop / Done on master-land; wrap Done safety net; no staging `.claude/backlog*` into product commits
+- `/backlog reconcile` is idempotent (second run is a no-op) and degrades cleanly with Linear absent
+- `/backlog add` on an existing slug produces no silent duplicate index row
+- `bash skills/backlog/test.sh` passes
+- `bash skills/backlog/reconcile-test.sh` and `bash skills/release-train/test.sh` pass (WP 1-04 lock, root, verdict and atomic-write cases)
+- Brainstorm Step 4c offers backlog/Linear write-back; a filed Linear description is self-contained (no bare local-file pointer)
+- `/orchestrate --tier` parse: omit → JSON `tier` null; `light|standard|full` accepted; malformed → exit 64 before pipeline start (`bash skills/autopilot/test.sh`)
+- `--tier` identity: `standard`/`full` run today's Step 0–12; omit auto-sizes at Step 2; `light` runs the light path; SPEC-033 gates unchanged
+- Orchestrate router lists `--tier` + per-tier table (light = scoper-planner / skip DAG / one IC4 / single-pass TL / no council default / wrap-lite); SKILL.md ≤80 lines; no `commands/orchestrate.md` (`bash skills/orchestrate/router-static-test.sh`)
+- `docs/commands/orchestrate.md` Flags table documents `--tier` (pipeline cost tier; auto-size; independent of `--council-tier`)
 
 ## Open Questions
 

@@ -515,30 +515,30 @@ indefinitely (origin findings: `skills/refactor/SKILL.md` release-fail-skips-dis
 
 ## Validation
 
-- [ ] Gate is a numbered inline step in `/refactor` (both modes), not an appendix
-- [ ] Edit go-ahead asked on every run; approach auto-pick behavior unchanged
-- [ ] Ticket-weight routing uses the canonical `WHY INLINE REJECTED` set unmodified
-- [ ] Workstream-split check applies all three glossary criteria
-- [ ] Split check runs every run; a confirmed split routes to `/epic` even when bounded
-- [ ] Both modes create/reuse a worktree; no current-branch edit path remains
-- [ ] Worktree calls use the SPEC-016 PDH-resolved form; `AGENTS.md` drift corrected
-- [ ] Squash-merge-after-review exit remains available alongside the PR exit
-- [ ] Plan-file exemption requires a ticket-id reference; no timestamp logic present
-- [ ] Auto-chain reaches `/kickoff` in-session; one confirm authorizes through PR
-- [ ] Hook WARN/BLOCK levels behave per T8/T9; fail-open per T11
-- [ ] Hook reads `notebook_path // file_path` and keys latch state on `agent_id`
-- [ ] Honest-limits language present in skill text and `/setup` disclosure
-- [ ] New hook added to `check-hook-templates.sh` HOOKS; shebang is first non-empty line
-- [ ] `PreToolUse` array append rule defined; coexists with `/tdd-gate`
-- [ ] Gate text appears exactly once (contract home); siblings cite only
-- [ ] Marker armed only on the escalate-and-auto-chain route; bounded + emit-and-stop runs unarmed; wiring block writes no marker (T17)
-- [ ] Exactly one success-path disarm at handoff completion; TTL is backstop only; no scattered happy-path disarms; debug arms/disarms nothing (T18)
-- [ ] Tamper-surface carve-out blocks hook/settings/marker writes when armed; doc exemption retained (T19)
-- [ ] Warn-latch path is session-scoped (T20) and symlink-hardened (T21)
-- [ ] `debug` and `review-and-commit` reconciled to arm-on-escalate; no divergent copies
-- [ ] `.claude/escalation-gate/` present in `.gitignore` process-trackers block
-- [ ] init-orch Step 3 fallback-ask names all three hooks (settings + bash-compress + escalation-gate)
-- [ ] Spec reviewed and promoted to ACTIVE
+- Gate is a numbered inline step in `/refactor` (both modes), not an appendix
+- Edit go-ahead asked on every run; approach auto-pick behavior unchanged
+- Ticket-weight routing uses the canonical `WHY INLINE REJECTED` set unmodified
+- Workstream-split check applies all three glossary criteria
+- Split check runs every run; a confirmed split routes to `/epic` even when bounded
+- Both modes create/reuse a worktree; no current-branch edit path remains
+- Worktree calls use the SPEC-016 PDH-resolved form; `AGENTS.md` drift corrected
+- Squash-merge-after-review exit remains available alongside the PR exit
+- Plan-file exemption requires a ticket-id reference; no timestamp logic present
+- Auto-chain reaches `/kickoff` in-session; one confirm authorizes through PR
+- Hook WARN/BLOCK levels behave per T8/T9; fail-open per T11
+- Hook reads `notebook_path // file_path` and keys latch state on `agent_id`
+- Honest-limits language present in skill text and `/setup` disclosure
+- New hook added to `check-hook-templates.sh` HOOKS; shebang is first non-empty line
+- `PreToolUse` array append rule defined; coexists with `/tdd-gate`
+- Gate text appears exactly once (contract home); siblings cite only
+- Marker armed only on the escalate-and-auto-chain route; bounded + emit-and-stop runs unarmed; wiring block writes no marker (T17)
+- Exactly one success-path disarm at handoff completion; TTL is backstop only; no scattered happy-path disarms; debug arms/disarms nothing (T18)
+- Tamper-surface carve-out blocks hook/settings/marker writes when armed; doc exemption retained (T19)
+- Warn-latch path is session-scoped (T20) and symlink-hardened (T21)
+- `debug` and `review-and-commit` reconciled to arm-on-escalate; no divergent copies
+- `.claude/escalation-gate/` present in `.gitignore` process-trackers block
+- init-orch Step 3 fallback-ask names all three hooks (settings + bash-compress + escalation-gate)
+- Spec reviewed and promoted to ACTIVE
 
 ---
 

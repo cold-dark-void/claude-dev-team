@@ -249,22 +249,22 @@ Execution mode walks the DAG: each ready child (all dependencies completed) is h
 
 ## Validation
 
-- [x] Spec reviewed and promoted to ACTIVE
-- [ ] Real umbrella decomposed: every child carries all five M1 fields
-- [x] Cycle in the proposed DAG halts decomposition before any persistence *(lib + dag-lib bite-tests)*
-- [x] Epic survives a session restart — resume at next ready child, no re-decomposition *(exists/show/init-refuse bite-tests; protocol in SKILL)*
-- [ ] Linear-absent run completes cleanly with local write-through only *(protocol; manual)*
-- [ ] Linear Project create/link on approve + `linear_project_id` recorded; fail-open on project failure *(CDT-64; protocol + test.sh schema; live MCP manual)*
-- [x] PM kickoff observed on every child in a full epic run (no skip path exists) *(grep gate in protocol; no skip flag)*
-- [x] `/standup` epic rollup reflects `state.json`, not prose *(Step 5.5 + rollup bite-tests)*
-- [x] No epic-child records in `.claude/tasks/`; child IDs carry the `-C<n>` infix *(ID scheme tests)*
-- [x] `dag-lib.sh check-cycle` reused literally (no duplicated cycle-detection code) *(wrapper + grep gate)*
-- [ ] Between-child context boundary default-on for multi-child Mode B (M13 / CDT-127)
-- [ ] Mechanical STM-shaped seed from state.json; fail-closed validation (M13.3–M13.4)
-- [ ] Optional `last_seed_path` + `outcome_summary`; status remains sole SoT (M6 additive)
-- [ ] Guardrail secondary documents 400k / 50% window; forces boundary (M13.5)
-- [ ] AC2 ε=0.5 measurement note (dogfood/manual until free telemetry)
-- [ ] CDT-126 non-goal note present; M11/M7/M8 preserved under boundary
+- Spec reviewed and promoted to ACTIVE
+- Real umbrella decomposed: every child carries all five M1 fields
+- Cycle in the proposed DAG halts decomposition before any persistence *(lib + dag-lib bite-tests)*
+- Epic survives a session restart — resume at next ready child, no re-decomposition *(exists/show/init-refuse bite-tests; protocol in SKILL)*
+- Linear-absent run completes cleanly with local write-through only *(protocol; manual)*
+- Linear Project create/link on approve + `linear_project_id` recorded; fail-open on project failure *(CDT-64; protocol + test.sh schema; live MCP manual)*
+- PM kickoff observed on every child in a full epic run (no skip path exists) *(grep gate in protocol; no skip flag)*
+- `/standup` epic rollup reflects `state.json`, not prose *(Step 5.5 + rollup bite-tests)*
+- No epic-child records in `.claude/tasks/`; child IDs carry the `-C<n>` infix *(ID scheme tests)*
+- `dag-lib.sh check-cycle` reused literally (no duplicated cycle-detection code) *(wrapper + grep gate)*
+- Between-child context boundary default-on for multi-child Mode B (M13 / CDT-127)
+- Mechanical STM-shaped seed from state.json; fail-closed validation (M13.3–M13.4)
+- Optional `last_seed_path` + `outcome_summary`; status remains sole SoT (M6 additive)
+- Guardrail secondary documents 400k / 50% window; forces boundary (M13.5)
+- AC2 ε=0.5 measurement note (dogfood/manual until free telemetry)
+- CDT-126 non-goal note present; M11/M7/M8 preserved under boundary
 
 ---
 

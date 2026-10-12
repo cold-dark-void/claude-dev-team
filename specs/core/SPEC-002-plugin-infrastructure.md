@@ -327,10 +327,10 @@ Measured at **v1.18.2: 50 caller files, 207 emissions, all byte-identical** (`gr
 
 ## Validation
 
-- [ ] `python3 -c "import json; json.load(open('.claude-plugin/plugin.json'))"` succeeds
-- [ ] `python3 -c "import json; json.load(open('.claude-plugin/marketplace.json'))"` succeeds
-- [ ] Version in plugin.json == version in CHANGELOG.md changelog heading (ignoring `v` prefix); marketplace.json has no required version field
-- [ ] The task-completed hook body is the init-orchestration template (`skills/init-orchestration/check-hook-templates.sh --extract task-completed`). A package-tracked `.claude/hooks/task-completed.sh` is not required.
+- `python3 -c "import json; json.load(open('.claude-plugin/plugin.json'))"` succeeds
+- `python3 -c "import json; json.load(open('.claude-plugin/marketplace.json'))"` succeeds
+- Version in plugin.json == version in CHANGELOG.md changelog heading (ignoring `v` prefix); marketplace.json has no required version field
+- The task-completed hook body is the init-orchestration template (`skills/init-orchestration/check-hook-templates.sh --extract task-completed`). A package-tracked `.claude/hooks/task-completed.sh` is not required.
 
 ## Open Questions
 

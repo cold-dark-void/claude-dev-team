@@ -266,55 +266,55 @@ shellcheck.
 
 ## Test
 
-- [ ] Clean Surface fixture (valid frontmatter + a syntactically valid bash fence) → PASS, exit 0
-- [ ] Broken-frontmatter fixture (missing `description`) → FAIL naming the missing field, exit 1
-- [ ] Unparseable-YAML frontmatter fixture → FAIL, exit 1
-- [ ] Broken-bash-fence fixture (fence fails `bash -n`) → FAIL naming the source line range, exit 1
-- [ ] Broken engine-script fixture (`.sh` fails `bash -n`) → FAIL naming the script, exit 1
-- [ ] Surface with valid frontmatter and zero bash blocks → PASS (pure-prompt command)
-- [ ] Engine script declaring `--help` → invoked only under `--invoke-flags`; non-zero `--help` exit is a FAIL; script not declaring the flag is bash-n-only, never invoked
-- [ ] Agent fixtures: clean → PASS; missing `effort` → FAIL naming `effort`; bad `model` → FAIL naming the value; block-sequence `tools` → PASS
-- [ ] Broken githook fixture and broken test-script fixture → FAIL naming the file, exit 1
-- [ ] No-arg `--root` run on a mktemp tree discovers agents, sub-docs, githooks and test scripts (each broken one FAILs); `fixtures/` paths are never checked
-- [ ] Explicit target-list form checks only the named paths
-- [ ] All explicit targets missing/unreadable → exit 64; a readable + an unreadable target → warn + check the readable one
-- [ ] Full no-arg run on this repo exits 0 after the adoption pass (live tree clean)
-- [ ] Harness uses `mktemp -d`/`$TMPDIR` only — a run under the sandbox and a run on a clean-checkout CI runner produce identical PASS/FAIL sets (no `/tmp` hardcoding)
-- [ ] `.github/workflows/smoke.yml` triggers on both push and pull_request to master and propagates the harness exit code
-- [ ] `/release` dry run with an injected broken fixture on the tree → release blocked at Step 4.10
-- [ ] `bash tools/run-all-tests-test.sh` exits 0 (every R17 case)
-- [ ] `bash tools/run-all-tests.sh` on this repo exits 0 with an empty quarantine; no `FAIL`/`TIMEOUT`/`QUARANTINED` lines; a `SKIP` line only for an R19 cause
-- [ ] `bash tests/lib/test.sh` exits 0 (every R21 and R31 case)
-- [ ] As root (`unshare -r`, where available): `skills/metrics/test.sh` case 4 and `skills/transcript-mirror/test.sh` M4 print `SKIP:` and the suites exit 0
-- [ ] With `sqlite3` absent from `PATH`: `skills/memory-store/test-migrate.sh`, `skills/memory-store/test-seed-pack.sh` and `skills/validate-memory/test-reconcile.sh` exit 77
-- [ ] A full runner run leaves the caller's `TMPDIR`, the real `HOME` and `$MROOT/.claude/` unchanged (R16)
-- [ ] `git status --porcelain` in the checkout is identical before and after a full runner run
-- [ ] `bash tools/fence-exec/test.sh` exits 0 (every R29 case)
-- [ ] `bash tools/fence-exec/run.sh` on this repo exits 0 and prints no `commands/retro.md` exclusion (WP 2-10 removed the two `wp-2-10-retro-scheduled` rows)
-- [ ] `bash skills/refactor/test-fences.sh` and `bash skills/retro-gate/test-retro-fences.sh` exit 0 (R27)
-- [ ] `bash tools/ci-workflow-test.sh` exits 0 (R28, rule B6 and its two bites)
-- [ ] `bash tools/ci-workflow-test.sh` asserts B8 required-lane and B9 hook-templates with their bites (R34); the `macos` job line reads `bash tools/run-all-tests.sh --portable --platform macos` with no `continue-on-error`
-- [ ] `bash tools/run-all-tests-test.sh` covers the R17 scope-column bites: `macos` entry + `--platform macos` quarantines, the same entry on the default lane does not, unknown/missing scope and duplicate path exit 64
-- [ ] `bash tools/run-all-tests-test.sh` covers the CDT-534 R36–R39 bites: `--jobs` usage 64; `jobs=1` identity; `--jobs 2` R4 order, verbatim FAIL tails, isolated R9, release-state overlay, timeout grandchild, quarantine, SKIP; runner text has no `wait -n` / `xargs -P` / `nproc`
-- [ ] `bash tools/run-all-tests-pool-test.sh` covers the round-2 bites: `git rm` and `git mv` overlay; worker-leak (ignored file + commit) on a reused worker; macos-scope and `--portable` at `--jobs 2`; PATH git shim against `--root` (with an intercepting-control); red-then-green vs master's runner (df9e10b), skipped with a NOTE when the object is absent
-- [ ] `jobs=1` (no flag) on this repo matches a saved serial outcome; `--jobs 8` on this repo exits 0 and leaves `--root` porcelain unchanged
-- [ ] With a planted shellcheck finding grafted into a template copy, the gate exits 1 naming the template; with shellcheck removed from PATH the gate exits 0 with the fail-open note; `skills/init-orchestration/test-hook-templates-exec.sh` exits 0 with shellcheck present and 77 without it (R33, R35)
-- [ ] `grep -n 'shellcheck disable=' skills/init-orchestration/SKILL.md commands/tdd-gate.md` — every match carries a one-line reason; the gate fails on a bare disable (R33)
+- Clean Surface fixture (valid frontmatter + a syntactically valid bash fence) → PASS, exit 0
+- Broken-frontmatter fixture (missing `description`) → FAIL naming the missing field, exit 1
+- Unparseable-YAML frontmatter fixture → FAIL, exit 1
+- Broken-bash-fence fixture (fence fails `bash -n`) → FAIL naming the source line range, exit 1
+- Broken engine-script fixture (`.sh` fails `bash -n`) → FAIL naming the script, exit 1
+- Surface with valid frontmatter and zero bash blocks → PASS (pure-prompt command)
+- Engine script declaring `--help` → invoked only under `--invoke-flags`; non-zero `--help` exit is a FAIL; script not declaring the flag is bash-n-only, never invoked
+- Agent fixtures: clean → PASS; missing `effort` → FAIL naming `effort`; bad `model` → FAIL naming the value; block-sequence `tools` → PASS
+- Broken githook fixture and broken test-script fixture → FAIL naming the file, exit 1
+- No-arg `--root` run on a mktemp tree discovers agents, sub-docs, githooks and test scripts (each broken one FAILs); `fixtures/` paths are never checked
+- Explicit target-list form checks only the named paths
+- All explicit targets missing/unreadable → exit 64; a readable + an unreadable target → warn + check the readable one
+- Full no-arg run on this repo exits 0 after the adoption pass (live tree clean)
+- Harness uses `mktemp -d`/`$TMPDIR` only — a run under the sandbox and a run on a clean-checkout CI runner produce identical PASS/FAIL sets (no `/tmp` hardcoding)
+- `.github/workflows/smoke.yml` triggers on both push and pull_request to master and propagates the harness exit code
+- `/release` dry run with an injected broken fixture on the tree → release blocked at Step 4.10
+- `bash tools/run-all-tests-test.sh` exits 0 (every R17 case)
+- `bash tools/run-all-tests.sh` on this repo exits 0 with an empty quarantine; no `FAIL`/`TIMEOUT`/`QUARANTINED` lines; a `SKIP` line only for an R19 cause
+- `bash tests/lib/test.sh` exits 0 (every R21 and R31 case)
+- As root (`unshare -r`, where available): `skills/metrics/test.sh` case 4 and `skills/transcript-mirror/test.sh` M4 print `SKIP:` and the suites exit 0
+- With `sqlite3` absent from `PATH`: `skills/memory-store/test-migrate.sh`, `skills/memory-store/test-seed-pack.sh` and `skills/validate-memory/test-reconcile.sh` exit 77
+- A full runner run leaves the caller's `TMPDIR`, the real `HOME` and `$MROOT/.claude/` unchanged (R16)
+- `git status --porcelain` in the checkout is identical before and after a full runner run
+- `bash tools/fence-exec/test.sh` exits 0 (every R29 case)
+- `bash tools/fence-exec/run.sh` on this repo exits 0 and prints no `commands/retro.md` exclusion (WP 2-10 removed the two `wp-2-10-retro-scheduled` rows)
+- `bash skills/refactor/test-fences.sh` and `bash skills/retro-gate/test-retro-fences.sh` exit 0 (R27)
+- `bash tools/ci-workflow-test.sh` exits 0 (R28, rule B6 and its two bites)
+- `bash tools/ci-workflow-test.sh` asserts B8 required-lane and B9 hook-templates with their bites (R34); the `macos` job line reads `bash tools/run-all-tests.sh --portable --platform macos` with no `continue-on-error`
+- `bash tools/run-all-tests-test.sh` covers the R17 scope-column bites: `macos` entry + `--platform macos` quarantines, the same entry on the default lane does not, unknown/missing scope and duplicate path exit 64
+- `bash tools/run-all-tests-test.sh` covers the CDT-534 R36–R39 bites: `--jobs` usage 64; `jobs=1` identity; `--jobs 2` R4 order, verbatim FAIL tails, isolated R9, release-state overlay, timeout grandchild, quarantine, SKIP; runner text has no `wait -n` / `xargs -P` / `nproc`
+- `bash tools/run-all-tests-pool-test.sh` covers the round-2 bites: `git rm` and `git mv` overlay; worker-leak (ignored file + commit) on a reused worker; macos-scope and `--portable` at `--jobs 2`; PATH git shim against `--root` (with an intercepting-control); red-then-green vs master's runner (df9e10b), skipped with a NOTE when the object is absent
+- `jobs=1` (no flag) on this repo matches a saved serial outcome; `--jobs 8` on this repo exits 0 and leaves `--root` porcelain unchanged
+- With a planted shellcheck finding grafted into a template copy, the gate exits 1 naming the template; with shellcheck removed from PATH the gate exits 0 with the fail-open note; `skills/init-orchestration/test-hook-templates-exec.sh` exits 0 with shellcheck present and 77 without it (R33, R35)
+- `grep -n 'shellcheck disable=' skills/init-orchestration/SKILL.md commands/tdd-gate.md` — every match carries a one-line reason; the gate fails on a bare disable (R33)
 
 ## Validation
 
-- [ ] All bite-tests pass (each broken fixture proven to FAIL; clean fixture proven to PASS — the gate is shown to bite, not merely run clean)
-- [ ] Initial adoption pass complete: live tree passes clean under the no-arg form
-- [ ] CI workflow runs green on a push to master and on a PR (Actions enabled on origin)
-- [ ] Gate step added to `skills/release/SKILL.md` (Step 4.10) and exercised by one real release
-- [x] Spec reviewed and promoted DRAFT → ACTIVE
-- [ ] `all-tests` job green on the first PR or push that carries it; its QUARANTINED set equals the `tools/test-quarantine.txt` entries (none reported `PASS` + `warn:`)
-- [ ] Step 4.13 present in `skills/release/SKILL.md` and exercised by one real release
-- [ ] `fence-exec` CI job green on the first push or pull request that carries it (R28)
-- [ ] `bash tools/fence-exec/run.sh` exits 0 on the live tree: no unexcluded finding, no `commands/retro.md` exclusion, the manifest suites pass
-- [ ] `hook-templates` CI job green on the first push or pull request that carries it (R34); the ubuntu `all-tests` lane stays green with the strict gate (R35)
-- [ ] `macos` job green on the same CI run with no `continue-on-error` and zero `QUARANTINED` lines beyond the justified `macos`-scoped entries; the ubuntu lane of the same run shows every `macos`-scoped suite PASS (R32, R12)
-- [ ] Branch-protection record on the ticket: `macos` in the required status checks (or the recorded missing-admin-rights blocker) (R32)
+- All bite-tests pass (each broken fixture proven to FAIL; clean fixture proven to PASS — the gate is shown to bite, not merely run clean)
+- Initial adoption pass complete: live tree passes clean under the no-arg form
+- CI workflow runs green on a push to master and on a PR (Actions enabled on origin)
+- Gate step added to `skills/release/SKILL.md` (Step 4.10) and exercised by one real release
+- Spec reviewed and promoted DRAFT → ACTIVE
+- `all-tests` job green on the first PR or push that carries it; its QUARANTINED set equals the `tools/test-quarantine.txt` entries (none reported `PASS` + `warn:`)
+- Step 4.13 present in `skills/release/SKILL.md` and exercised by one real release
+- `fence-exec` CI job green on the first push or pull request that carries it (R28)
+- `bash tools/fence-exec/run.sh` exits 0 on the live tree: no unexcluded finding, no `commands/retro.md` exclusion, the manifest suites pass
+- `hook-templates` CI job green on the first push or pull request that carries it (R34); the ubuntu `all-tests` lane stays green with the strict gate (R35)
+- `macos` job green on the same CI run with no `continue-on-error` and zero `QUARANTINED` lines beyond the justified `macos`-scoped entries; the ubuntu lane of the same run shows every `macos`-scoped suite PASS (R32, R12)
+- Branch-protection record on the ticket: `macos` in the required status checks (or the recorded missing-admin-rights blocker) (R32)
 
 ## Acceptance criteria
 

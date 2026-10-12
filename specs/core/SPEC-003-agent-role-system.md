@@ -116,13 +116,13 @@ Alongside the 7 behavioral agents the plugin ships **non-behavioral roster agent
 
 ## Validation
 
-- [ ] Each agent .md has `name`, `description`, `tools`, `model`, `effort` in frontmatter
-- [ ] All 12 Tier table rows match the shipped frontmatter exactly
-- [ ] `finder` / `debugger` are read-only and memory-less
-- [ ] Role boundaries are enforced in agent behavioral rules
-- [ ] TDD gate exemption for config/docs is explicit in IC5 and IC4 agent definitions
-- [ ] Directives file uses sequential numbering after holistic rewrite
-- [ ] Copy-extract Role Boundaries MUST is present; Test greps match the canonical tokens
+- Each agent .md has `name`, `description`, `tools`, `model`, `effort` in frontmatter
+- All 12 Tier table rows match the shipped frontmatter exactly
+- `finder` / `debugger` are read-only and memory-less
+- Role boundaries are enforced in agent behavioral rules
+- TDD gate exemption for config/docs is explicit in IC5 and IC4 agent definitions
+- Directives file uses sequential numbering after holistic rewrite
+- Copy-extract Role Boundaries MUST is present; Test greps match the canonical tokens
 
 ## Open Questions
 

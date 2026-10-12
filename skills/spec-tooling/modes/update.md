@@ -43,7 +43,7 @@ Ask the user:
 Make the requested changes to the spec file:
 - Update MUST requirements as needed
 - Update Test section if test steps change
-- Update Validation checkboxes if needed
+- Update Validation claims if needed (each claim carries its evidence — checkbox syntax under Validation/Test is retired and fails `check-format.sh`)
 - **Always add a Version History entry** with today's date and change description
 
 #### Step 4.5: Code Alignment Warning

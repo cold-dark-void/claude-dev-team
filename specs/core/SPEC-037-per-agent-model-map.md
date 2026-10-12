@@ -492,81 +492,81 @@ amendment, and the surface retirement land as separate tickets.
 
 ## Test
 
-- [ ] File absent and empty `agents` object → empty stdout, no stderr, exit 0 (M3)
-- [ ] Valid `agents.pm` string → trimmed stdout, exit 0 (M4)
-- [ ] Partial map: listed agent emits; omitted agent empty (M4)
-- [ ] Unparseable JSON, non-object `agents`, null/non-string/empty value, `jq`
+- File absent and empty `agents` object → empty stdout, no stderr, exit 0 (M3)
+- Valid `agents.pm` string → trimmed stdout, exit 0 (M4)
+- Partial map: listed agent emits; omitted agent empty (M4)
+- Unparseable JSON, non-object `agents`, null/non-string/empty value, `jq`
       missing from PATH → empty stdout, matching M6 prefix, exit 0 (M6)
-- [ ] Unknown key (typo) warns M7 and does not block other keys (M7)
-- [ ] `distiller` / `project-init` argv always empty; key present still M7-warns (M8)
-- [ ] `qa` valid string emits and prints M9 adversarial warning (M9)
-- [ ] Local beats repo beats global for the same agent (M11)
-- [ ] Partial maps compose across layers (M11)
-- [ ] Bad local value (null/empty) + good repo → repo string + M6 warn (M11)
-- [ ] Unparseable local + good repo → repo string + unparseable warn (M11)
-- [ ] Absent local, present repo → repo (M11)
-- [ ] All layers absent → empty, no warn (M3)
-- [ ] Local + repo `models.json` at MROOT → local wins; `DEVTEAM_MODEL_pm`
+- Unknown key (typo) warns M7 and does not block other keys (M7)
+- `distiller` / `project-init` argv always empty; key present still M7-warns (M8)
+- `qa` valid string emits and prints M9 adversarial warning (M9)
+- Local beats repo beats global for the same agent (M11)
+- Partial maps compose across layers (M11)
+- Bad local value (null/empty) + good repo → repo string + M6 warn (M11)
+- Unparseable local + good repo → repo string + unparseable warn (M11)
+- Absent local, present repo → repo (M11)
+- All layers absent → empty, no warn (M3)
+- Local + repo `models.json` at MROOT → local wins; `DEVTEAM_MODEL_pm`
       ignored (M11)
-- [ ] Worktree/subdir `.claude/dev-team/models.local.json` ignored when
+- Worktree/subdir `.claude/dev-team/models.local.json` ignored when
       git-common-dir MROOT has a different file (M1)
-- [ ] Missing argv → exit 64 + usage line (M5)
-- [ ] Resolver does not create the file or parent dirs (M10)
-- [ ] Stdout/stderr split: model never on stderr; warnings never on stdout (M4)
-- [ ] `spawn-site-test.sh` greps `resolve-model.sh` at every M13 ∪ M16 site (M15)
-- [ ] `spawn-site-test.sh` greps host-reject retry prose at those sites (M14)
-- [ ] Positive M16 sites: `skills/kickoff/SKILL.md`, `skills/epic/SKILL.md`,
+- Missing argv → exit 64 + usage line (M5)
+- Resolver does not create the file or parent dirs (M10)
+- Stdout/stderr split: model never on stderr; warnings never on stdout (M4)
+- `spawn-site-test.sh` greps `resolve-model.sh` at every M13 ∪ M16 site (M15)
+- `spawn-site-test.sh` greps host-reject retry prose at those sites (M14)
+- Positive M16 sites: `skills/kickoff/SKILL.md`, `skills/epic/SKILL.md`,
       `skills/debug/SKILL.md`, `skills/fix-ticket/SKILL.md`,
       `skills/council/SKILL.md`, `commands/council.md`,
       `skills/bug-hunt/SKILL.md` contain `resolve-model.sh` (M16)
-- [ ] Negative: `commands/handoff.md` and `skills/handoff/` have no
+- Negative: `commands/handoff.md` and `skills/handoff/` have no
       `resolve-model.sh` (M16)
-- [ ] All 12 `agents/*.md` `model:` AND `effort:` lines match the SPEC-003 § Tier table (M12)
-- [ ] `finder` / `debugger` resolve a mapped model and never gain `Write` / `Edit` (M12)
-- [ ] `bash skills/spec-tooling/check-format.sh specs/core/SPEC-037-per-agent-model-map.md` exits 0
-- [ ] `write-model.sh set` writes only local `models.local.json`; repo/global unchanged (M18)
-- [ ] `write-model.sh list` prints 10 M8 names + local path; empty resolve → `Tier default` (M18)
-- [ ] `write-model.sh list` calls `resolve-model.sh` (repo string wins when local omits) (M18)
-- [ ] Unknown agent / empty string / bad argv → exit 64 + usage; extra argv ignored (M18)
-- [ ] Unparseable existing local → set/unset refuse, exit 1, file unchanged (M18)
-- [ ] `qa` / `council-judge` set emits M9 warn and writes (M18)
-- [ ] `/setup` usage lists `models`; unknown sub still MUST NOT mutate (M20)
-- [ ] `/adjust-agent` documents `--model` / `--model-unset` before Step 5 (M21)
-- [ ] `/doctor --only models.map`: no files SKIP; valid PASS; unparseable/unknown/bad/jq-missing/M9 WARN; never FAIL (M19)
-- [ ] `/doctor --fix` does not rewrite the map (M19)
-- [ ] `spawn-site-test.sh` still forbids production `.sh` redirect onto `models.local.json` except `write-model.sh` (M18)
-- [ ] Absent `effort` / empty `effort` object → empty `--effort` stdout, no warn (M22)
-- [ ] Valid `effort.ic4=high` → stdout `high`, exit 0 (M23)
-- [ ] `effort.ic4= HIGH ` → stdout `high` (trim+lowercase) (M23)
-- [ ] Bad effort value (null / non-string / empty / not in allowlist) → M25 prefix, fall through (M25)
-- [ ] `effort` not an object → skip effort on that layer, still resolve `agents` (M25)
-- [ ] Unparseable JSON on `--effort` → whole-layer skip, existing M6 path prefix (M25)
-- [ ] Per-field first-hit fixture: local model + repo effort compose; inverse (M25)
-- [ ] Unknown `effort` key M7-warns; other effort keys still resolve (M25)
-- [ ] `distiller` / `project-init` `--effort` always empty (M25)
-- [ ] `qa` valid effort emits + M9; empty effort for `qa` does not M9 (M26)
-- [ ] Default `resolve-model.sh <agent>` still matches pre-CDT-229 model contract (M24)
-- [ ] `resolve-model.sh <agent> --effort` ignores the flag (model emit) (M24)
-- [ ] `--effort` missing agent → exit 64 + `usage: resolve-model.sh --effort <agent>` (M24)
-- [ ] `write-model.sh set-effort` writes only local `effort`; does not drop `agents` (M18)
-- [ ] `write-model.sh set` does not drop `effort` (M18)
-- [ ] Invalid effort token / unknown agent on set-effort → 64, no write (M18)
-- [ ] `list` prints model (`Tier default`) and effort (`inherited`) via resolver (M18)
-- [ ] `/doctor --only models.map`: effort-only file is present (not SKIP); bad token WARN; never FAIL (M19)
-- [ ] `spawn-site-test.sh` greps `resolve-model.sh --effort` and `host rejected effort` at every M13 ∪ M16 site (M29)
-- [ ] `spawn-site-test.sh` asserts `effort:` frontmatter is PRESENT and Tier-table-matching on all 12 agents, and carries no assertion that it is absent (M12 / M29)
-- [ ] `resolve-model.sh finder` / `resolve-model.sh debugger` emit a mapped string and are not unknown-agent (M8)
-- [ ] `write-model.sh list` prints 10 mappable names including `finder` and `debugger` (M8 / M18)
-- [ ] `/doctor --only models.map` accepts `finder` / `debugger` keys without an unknown-key WARN (M8 / M19)
-- [ ] All three M8 enforcement points (`resolve-model.sh`, `write-model.sh`, `doctor.sh`) carry the identical mappable set (M8)
+- All 12 `agents/*.md` `model:` AND `effort:` lines match the SPEC-003 § Tier table (M12)
+- `finder` / `debugger` resolve a mapped model and never gain `Write` / `Edit` (M12)
+- `bash skills/spec-tooling/check-format.sh specs/core/SPEC-037-per-agent-model-map.md` exits 0
+- `write-model.sh set` writes only local `models.local.json`; repo/global unchanged (M18)
+- `write-model.sh list` prints 10 M8 names + local path; empty resolve → `Tier default` (M18)
+- `write-model.sh list` calls `resolve-model.sh` (repo string wins when local omits) (M18)
+- Unknown agent / empty string / bad argv → exit 64 + usage; extra argv ignored (M18)
+- Unparseable existing local → set/unset refuse, exit 1, file unchanged (M18)
+- `qa` / `council-judge` set emits M9 warn and writes (M18)
+- `/setup` usage lists `models`; unknown sub still MUST NOT mutate (M20)
+- `/adjust-agent` documents `--model` / `--model-unset` before Step 5 (M21)
+- `/doctor --only models.map`: no files SKIP; valid PASS; unparseable/unknown/bad/jq-missing/M9 WARN; never FAIL (M19)
+- `/doctor --fix` does not rewrite the map (M19)
+- `spawn-site-test.sh` still forbids production `.sh` redirect onto `models.local.json` except `write-model.sh` (M18)
+- Absent `effort` / empty `effort` object → empty `--effort` stdout, no warn (M22)
+- Valid `effort.ic4=high` → stdout `high`, exit 0 (M23)
+- `effort.ic4= HIGH ` → stdout `high` (trim+lowercase) (M23)
+- Bad effort value (null / non-string / empty / not in allowlist) → M25 prefix, fall through (M25)
+- `effort` not an object → skip effort on that layer, still resolve `agents` (M25)
+- Unparseable JSON on `--effort` → whole-layer skip, existing M6 path prefix (M25)
+- Per-field first-hit fixture: local model + repo effort compose; inverse (M25)
+- Unknown `effort` key M7-warns; other effort keys still resolve (M25)
+- `distiller` / `project-init` `--effort` always empty (M25)
+- `qa` valid effort emits + M9; empty effort for `qa` does not M9 (M26)
+- Default `resolve-model.sh <agent>` still matches pre-CDT-229 model contract (M24)
+- `resolve-model.sh <agent> --effort` ignores the flag (model emit) (M24)
+- `--effort` missing agent → exit 64 + `usage: resolve-model.sh --effort <agent>` (M24)
+- `write-model.sh set-effort` writes only local `effort`; does not drop `agents` (M18)
+- `write-model.sh set` does not drop `effort` (M18)
+- Invalid effort token / unknown agent on set-effort → 64, no write (M18)
+- `list` prints model (`Tier default`) and effort (`inherited`) via resolver (M18)
+- `/doctor --only models.map`: effort-only file is present (not SKIP); bad token WARN; never FAIL (M19)
+- `spawn-site-test.sh` greps `resolve-model.sh --effort` and `host rejected effort` at every M13 ∪ M16 site (M29)
+- `spawn-site-test.sh` asserts `effort:` frontmatter is PRESENT and Tier-table-matching on all 12 agents, and carries no assertion that it is absent (M12 / M29)
+- `resolve-model.sh finder` / `resolve-model.sh debugger` emit a mapped string and are not unknown-agent (M8)
+- `write-model.sh list` prints 10 mappable names including `finder` and `debugger` (M8 / M18)
+- `/doctor --only models.map` accepts `finder` / `debugger` keys without an unknown-key WARN (M8 / M19)
+- All three M8 enforcement points (`resolve-model.sh`, `write-model.sh`, `doctor.sh`) carry the identical mappable set (M8)
 
 ## Validation
 
-- [ ] Spec reviewed against CDT-222 + CDT-226 + CDT-227 + CDT-228 ACs
-- [ ] Spec reviewed against CDT-229 ACs (effort sibling map)
-- [ ] Bite-tests green without a live LLM
-- [ ] `/orchestrate` and remaining named-roster spawn templates call the resolver
-- [x] Status promoted DRAFT → ACTIVE (WP 5-06, CDT-304). The map and the effort writer are shipped.
+- Spec reviewed against CDT-222 + CDT-226 + CDT-227 + CDT-228 ACs
+- Spec reviewed against CDT-229 ACs (effort sibling map)
+- Bite-tests green without a live LLM
+- `/orchestrate` and remaining named-roster spawn templates call the resolver
+- Status promoted DRAFT → ACTIVE (WP 5-06, CDT-304). The map and the effort writer are shipped.
 
 ## Version History
 

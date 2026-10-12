@@ -258,16 +258,16 @@ Goal: a deterministic, LLM-free docs-consistency gate for `/release` — a struc
 
 ## Validation
 
-- [ ] Review of clean code produces no critical findings
-- [ ] Review of code with obvious bug produces critical finding with file:line
-- [ ] Release with no commits since tag reports "Nothing to release"
-- [ ] After release: plugin.json and CHANGELOG.md versions match
-- [ ] Docs drift gate: `bash skills/docs-drift/test.sh` exits 0; live tree `check-docs-drift.sh` exits 0; Step 4.9 present in `skills/release/SKILL.md`
-- [ ] Staged-path hard gate: `bash skills/release/test.sh` exits 0; foreign staged → exit 1, lists every foreign path, no commit/tag/push
-- [ ] Step 5 wiring: `check-staged-paths.sh` after intentional `git add`, before `git commit` in `skills/release/SKILL.md`
-- [ ] Ship-history gate: `check-ship-history.sh` D1–D4 fixtures green; `/release` + end-state + orchestrate Step 11/12 cite H without forking predicate; autopilot dirty → exact halt phrase, no Done
-- [ ] All-suites gate: Step 4.13 present in `skills/release/SKILL.md`; `bash tools/run-all-tests.sh --jobs 8` exits 0 on the release checkout
-- [ ] Fold-commit subject (CDT-533): `lead-summary.sh` fixtures green; Step 5 names the helper and `--check` before `git commit`; `push-release.sh` D2 mismatch does not push
+- Review of clean code produces no critical findings
+- Review of code with obvious bug produces critical finding with file:line
+- Release with no commits since tag reports "Nothing to release"
+- After release: plugin.json and CHANGELOG.md versions match
+- Docs drift gate: `bash skills/docs-drift/test.sh` exits 0; live tree `check-docs-drift.sh` exits 0; Step 4.9 present in `skills/release/SKILL.md`
+- Staged-path hard gate: `bash skills/release/test.sh` exits 0; foreign staged → exit 1, lists every foreign path, no commit/tag/push
+- Step 5 wiring: `check-staged-paths.sh` after intentional `git add`, before `git commit` in `skills/release/SKILL.md`
+- Ship-history gate: `check-ship-history.sh` D1–D4 fixtures green; `/release` + end-state + orchestrate Step 11/12 cite H without forking predicate; autopilot dirty → exact halt phrase, no Done
+- All-suites gate: Step 4.13 present in `skills/release/SKILL.md`; `bash tools/run-all-tests.sh --jobs 8` exits 0 on the release checkout
+- Fold-commit subject (CDT-533): `lead-summary.sh` fixtures green; Step 5 names the helper and `--check` before `git commit`; `push-release.sh` D2 mismatch does not push
 
 ## Open Questions
 

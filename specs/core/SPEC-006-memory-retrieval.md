@@ -84,11 +84,11 @@ The query layer for agent memories. Provides three search strategies (semantic v
 
 ## Validation
 
-- [ ] Search with DB + extensions returns semantic results
-- [ ] Search with DB but no extensions returns keyword results
-- [ ] Search with no DB returns grep results
-- [ ] Archived memories excluded from all three modes
-- [ ] Recall output includes session IDs that can be used with `claude --resume`
+- Search with DB + extensions returns semantic results
+- Search with DB but no extensions returns keyword results
+- Search with no DB returns grep results
+- Archived memories excluded from all three modes
+- Recall output includes session IDs that can be used with `claude --resume`
 
 ## Open Questions
 

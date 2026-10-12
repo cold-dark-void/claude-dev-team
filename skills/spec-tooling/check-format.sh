@@ -20,8 +20,13 @@
 #   5. `## Overview` section
 #   6. `## MUST` section with ≥1 bullet point (any `- `/`* ` line within the section)
 #   7. `## Test` section
-#   8. `## Validation` section with ≥1 `- [ ]` / `- [x]` checkbox
+#   8. `## Validation` section with ≥1 validation claim (plain `- ` bullet)
 #   9. `## Version History` section with a `| Date | Change |` table header
+#
+# Retired-syntax gate (SPEC-008, 2026-10-12): a `- [ ]` / `- [x]` line under
+# ## Validation or ## Test fails the check — the checkbox syntax is retired
+# (checkbox state is never evidence, WP 1-15). Checkboxes elsewhere (e.g.
+# ## Open Questions) are unaffected.
 
 set -euo pipefail
 
@@ -70,17 +75,35 @@ fi
 # 7. Test
 grep -Eq '^## Test[[:space:]]*$' "$specfile" || missing+=("## Test section")
 
-# 8. Validation section + at least one checkbox INSIDE that section.
-#    A checkbox under Open Questions must not satisfy Validation (CDT-273).
+# 8. Validation section + at least one validation claim INSIDE that section.
+#    SPEC-008 (2026-10-12): the checkbox requirement is retired — a claim is a
+#    plain `- ` bullet that carries its evidence. A bullet under Open Questions
+#    must not satisfy Validation (CDT-273).
 if grep -Eq '^## Validation[[:space:]]*$' "$specfile"; then
   awk '
     /^## Validation[[:space:]]*$/ { in_sec=1; next }
     in_sec && /^## / { in_sec=0 }
-    in_sec && /^- \[[ xX]\] / { found=1 }
+    in_sec && /^[-*] / { found=1 }
     END { exit(found ? 0 : 1) }
-  ' "$specfile" || missing+=("## Validation section (no '- [ ]' checkbox)")
+  ' "$specfile" || missing+=("## Validation section (no validation claim bullet)")
 else
   missing+=("## Validation section")
+fi
+
+# Retired-syntax gate: a `- [ ]` / `- [x]` line (any indent, `-` or `*` bullet)
+# under ## Validation or ## Test fails the check, so the retired checkbox
+# syntax cannot silently return. A `### ` subsection heading does not reset
+# the section scope — only the next `## ` heading does.
+if awk '
+    /^## Test[[:space:]]*$/ { sec=1; next }
+    /^## Validation[[:space:]]*$/ { sec=1; next }
+    /^## / { sec=0 }
+    sec && /^[[:space:]]*[-*][[:space:]]*\[[ xX]\]/ { found=1 }
+    END { exit(found ? 1 : 0) }
+  ' "$specfile"; then
+  :
+else
+  missing+=("retired checkbox line under ## Validation / ## Test (SPEC-008: syntax retired; use plain claim bullets with evidence)")
 fi
 
 # 9. Version History section + table header INSIDE that section.

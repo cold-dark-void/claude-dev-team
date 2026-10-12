@@ -62,7 +62,7 @@ Latency bound.
 
 ## Validation
 
-- [ ] reviewed
+- reviewed; evidence: category gate run attached
 
 ## Version History
 

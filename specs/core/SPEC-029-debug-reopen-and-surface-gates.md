@@ -174,15 +174,15 @@ agents actually execute S.1 — nothing hook-enforces it yet.
 
 ## Validation
 
-- [ ] SPEC-008 format: Overview, MUST/SHOULD/MUST NOT, Test, Validation, Version History
-- [ ] skill-lint clean on `skills/debug/SKILL.md` (C1–C4)
-- [ ] `theme-status.sh derive` never empty; force-check isolation keyword works
-- [ ] `count-prior` uses distinct days, not `wc -l`
-- [ ] User override path documented in skill S.1b and logged
-- [ ] TDD.md index row after SPEC-028 (numeric order)
-- [x] Dogfooded on describer via Grok `/dev-team:debug` (2026-07-16): Generate queue source-hash fix `d866c54`; queue thumb identity-reuse `8dfd578`; S.1 theme status exercised (force/override paths still residual)
-- [ ] check-format passes for this file
-- [ ] FM-5 explicitly out of scope (not gateable)
+- SPEC-008 format: Overview, MUST/SHOULD/MUST NOT, Test, Validation, Version History
+- skill-lint clean on `skills/debug/SKILL.md` (C1–C4)
+- `theme-status.sh derive` never empty; force-check isolation keyword works
+- `count-prior` uses distinct days, not `wc -l`
+- User override path documented in skill S.1b and logged
+- TDD.md index row after SPEC-028 (numeric order)
+- Dogfooded on describer via Grok `/dev-team:debug` (2026-07-16): Generate queue source-hash fix `d866c54`; queue thumb identity-reuse `8dfd578`; S.1 theme status exercised (force/override paths still residual)
+- check-format passes for this file
+- FM-5 explicitly out of scope (not gateable)
 
 ---
 

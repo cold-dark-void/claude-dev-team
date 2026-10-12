@@ -1541,7 +1541,7 @@ Format and rules: M14(g) and M14(h). Each ticket that ships through M14 has one
 
 ## Validation
 
-- [x] The acceptance subsections above name the suite that covers each rule
+- The acceptance subsections above name the suite that covers each rule
 
 ## Version History
 

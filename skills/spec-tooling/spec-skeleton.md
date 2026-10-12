@@ -57,11 +57,11 @@ LEAK-SAFE FENCE CONTRACT (P1-1B hazard guard):
 
 ## Test
 
-- [ ] <one concrete check verifying a MUST requirement above>
+- <one concrete check verifying a MUST requirement above>
 
 ## Validation
 
-- [ ] Spec reviewed and promoted to ACTIVE
+- <one validation claim, with its evidence: test run, command output, or linked artifact>
 
 ## Version History
 

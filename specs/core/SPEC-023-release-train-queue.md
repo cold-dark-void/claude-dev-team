@@ -88,12 +88,12 @@ The train is a **sequencer, not a releaser**. It owns queue state, ordering, slo
 
 ## Validation
 
-- [x] Spec reviewed and promoted to ACTIVE
-- [ ] Live two-branch case (`feat/spec-020-craft-loop` + `feat/spec-021-skill-lint`, or successors) lands via the train with zero hand-resolved conflicts in the four enumerated classes
-- [ ] A deliberately conflicting third branch blocks cleanly: master never observed half-merged, queue state resumable
-- [ ] `--dry-run` output reviewed by the user before the first real train run
-- [x] SPEC-010 carries a forward-reference to this spec (skip-if-present + cross-ref, CDV-181)
-- [ ] Backlog item `.claude/backlog/release-train-queue.md` closed via `/backlog close` once shipped
+- Spec reviewed and promoted to ACTIVE
+- Live two-branch case (`feat/spec-020-craft-loop` + `feat/spec-021-skill-lint`, or successors) lands via the train with zero hand-resolved conflicts in the four enumerated classes
+- A deliberately conflicting third branch blocks cleanly: master never observed half-merged, queue state resumable
+- `--dry-run` output reviewed by the user before the first real train run
+- SPEC-010 carries a forward-reference to this spec (skip-if-present + cross-ref, CDV-181)
+- Backlog item `.claude/backlog/release-train-queue.md` closed via `/backlog close` once shipped
 
 ## Locked for v1
 

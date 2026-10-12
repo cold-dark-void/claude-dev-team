@@ -67,13 +67,13 @@ These 9 checks enforce the **SPEC-008 Spec Format contract** (see `specs/core/SP
 - [ ] Has `## Overview` section
 - [ ] Has `## MUST` section with bullet points
 - [ ] Has `## Test` section with concrete steps
-- [ ] Has `## Validation` section with checkboxes
+- [ ] Has `## Validation` section with validation claims (each claim carries its evidence — test run, command output, or linked artifact)
 - [ ] Has `## Version History` table
 
 ##### Content Quality
 - [ ] MUST requirements are concrete (not vague)
 - [ ] Test cases are actionable (not placeholders like "TBD")
-- [ ] Validation checkboxes exist
+- [ ] No retired checkbox syntax (`- [ ]` / `- [x]`) under Validation/Test (SPEC-008: claims with evidence; checkbox state is never evidence)
 
 ##### Index Integrity (TDD.md)
 - [ ] All spec files are listed in the `## Spec Index` table (canonical columns: `| ID | Title | Status | Coverage |`)

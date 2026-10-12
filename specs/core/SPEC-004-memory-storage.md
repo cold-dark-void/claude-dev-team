@@ -98,14 +98,14 @@ The write-path persistence layer for agent memories. Handles dual-mode storage (
 
 ## Validation
 
-- [ ] `sqlite3 .claude/memory/memory.db "SELECT value FROM config WHERE key='schema_version'"` returns `"4"` after fresh `schema.sql` apply
-- [ ] v3 fixture + migrate → `"4"` with no data loss on pre-seeded rows
-- [ ] Migrated memories have tier=0, archived=false (v1→v2 path)
-- [ ] context.md files remain untouched after migration
-- [ ] No .md source files deleted if any INSERT failed
-- [ ] With `embedding_mode=remote`, a model name containing an apostrophe (e.g. `o'brien-embed`) yields `embedding_meta.model = o'brien-embed` verbatim, a matching `vec_memories_<dims>` row, and an updated `config.embedding_dimensions` — no orphaned vector row (CDT-164)
+- `sqlite3 .claude/memory/memory.db "SELECT value FROM config WHERE key='schema_version'"` returns `"4"` after fresh `schema.sql` apply
+- v3 fixture + migrate → `"4"` with no data loss on pre-seeded rows
+- Migrated memories have tier=0, archived=false (v1→v2 path)
+- context.md files remain untouched after migration
+- No .md source files deleted if any INSERT failed
+- With `embedding_mode=remote`, a model name containing an apostrophe (e.g. `o'brien-embed`) yields `embedding_meta.model = o'brien-embed` verbatim, a matching `vec_memories_<dims>` row, and an updated `config.embedding_dimensions` — no orphaned vector row (CDT-164)
 
-- [ ] `bash skills/memory-store/test-embed-lembed.sh` exits 0: the model is registered before every `lembed('mini', …)` call, no call passes a path, and a failed embed leaves one line in `.claude/memory/.errors.log` (WP 1-13, CDT-262)
+- `bash skills/memory-store/test-embed-lembed.sh` exits 0: the model is registered before every `lembed('mini', …)` call, no call passes a path, and a failed embed leaves one line in `.claude/memory/.errors.log` (WP 1-13, CDT-262)
 
 ## Open Questions
 

@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # Bite for tools/spec-lint.sh (CDT-273).
-# A checkbox that sits only under Open Questions must fail format.
-# Backwards dates, a missing Covers path, and "SPEC-N line M" must fail too.
-# A clean mini tree must exit 0.
+# An empty Validation section must fail format; retired checkbox syntax is
+# gated by check-format.sh. Backwards dates, a missing Covers path, and
+# "SPEC-N line M" must fail too. A clean mini tree must exit 0.
 set -u
 HERE=$(cd "$(dirname "$0")" && pwd)
 REPO=$(cd "$HERE/.." && pwd)
@@ -48,7 +48,7 @@ Clean.
 
 ## Validation
 
-- [x] reviewed
+- reviewed; evidence: format gate run attached
 
 ## Version History
 
@@ -109,7 +109,7 @@ OUT=$(bash "$LINT" --root "$BASE/bad" 2>&1)
 RC=$?
 [ "$RC" -eq 1 ] && pass "bad tree exits 1" || fail "bad tree rc=$RC want 1"
 printf '%s\n' "$OUT" | grep -q '\[format\]' \
-  && pass "format names the section-scoped checkbox" || fail "no [format]: $OUT"
+  && pass "format names the empty Validation section" || fail "no [format]: $OUT"
 printf '%s\n' "$OUT" | grep -q '\[history\]' \
   && pass "history names the broken date order" || fail "no [history]: $OUT"
 printf '%s\n' "$OUT" | grep -q '\[covers\]' \

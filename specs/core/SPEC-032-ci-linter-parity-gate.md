@@ -68,20 +68,20 @@ SPEC-021 and SPEC-010 respectively, and `/release` behavior is untouched.
 
 ## Test
 
-- [ ] With a seeded C1–C10 skill-bash violation on a branch, the `skill-lint` CI job exits
+- With a seeded C1–C10 skill-bash violation on a branch, the `skill-lint` CI job exits
       non-zero and reports a failing check; the `docs-drift` job still runs.
-- [ ] With a seeded D1–D10 docs-drift violation, the `docs-drift` CI job exits non-zero; the
+- With a seeded D1–D10 docs-drift violation, the `docs-drift` CI job exits non-zero; the
       `skill-lint` job still runs.
-- [ ] On a clean tree, both linter jobs and the smoke job pass (exit 0), and appear as three
+- On a clean tree, both linter jobs and the smoke job pass (exit 0), and appear as three
       distinct checks.
-- [ ] A finding suppressed by a valid `# lint-ok:` / `<!-- drift-ok: -->` waiver does not fail
+- A finding suppressed by a valid `# lint-ok:` / `<!-- drift-ok: -->` waiver does not fail
       the corresponding CI job (parity with `/release`).
-- [ ] `git diff` shows `skills/release/SKILL.md` and both linter scripts/`.py` backends
+- `git diff` shows `skills/release/SKILL.md` and both linter scripts/`.py` backends
       unchanged.
 
 ## Validation
 
-- [x] Spec reviewed and promoted to ACTIVE
+- Spec reviewed and promoted to ACTIVE
 
 ## Open Questions
 

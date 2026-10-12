@@ -111,12 +111,12 @@ On top of the ledger sits an **advisory** routing policy: at orchestrate task-as
 
 ## Validation
 
-- [x] Spec reviewed and promoted to ACTIVE (CDV-185)
-- [x] Helpers + orchestrate instrumentation land with bite-tests green (`skills/metrics/{emit-outcome,outcome-rates,test}.sh` PASS=25; orchestrate Step-7 advisory + stint-end emit blocks present)
-- [ ] One real orchestration run emits well-formed records from stint terminals (accepted after QA, escalated; council_overturns derived from index)
-- [ ] Advisory observed with numeric rationale on a seeded ledger; cold-start silence verified on a thin ledger
-- [x] No silent-reroute path exists — printed advisory + explicit acceptance is the only route changer (orchestrate Step-7 advisory text; static tag default)
-- [x] Display duties remain with CDV-187 / `/status metrics` (no rendering added here)
+- Spec reviewed and promoted to ACTIVE (CDV-185)
+- Helpers + orchestrate instrumentation land with bite-tests green (`skills/metrics/{emit-outcome,outcome-rates,test}.sh` PASS=25; orchestrate Step-7 advisory + stint-end emit blocks present)
+- One real orchestration run emits well-formed records from stint terminals (accepted after QA, escalated; council_overturns derived from index)
+- Advisory observed with numeric rationale on a seeded ledger; cold-start silence verified on a thin ledger
+- No silent-reroute path exists — printed advisory + explicit acceptance is the only route changer (orchestrate Step-7 advisory text; static tag default)
+- Display duties remain with CDV-187 / `/status metrics` (no rendering added here)
 
 ---
 

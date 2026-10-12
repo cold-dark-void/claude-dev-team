@@ -18,11 +18,11 @@ repeated lookups stay consistent within a single process lifetime.
 
 ## Test
 
-- [ ] Verify a malformed config path returns an error and is never cached
+- Verify a malformed config path returns an error and is never cached
 
 ## Validation
 
-- [ ] Spec reviewed and promoted to ACTIVE
+- Spec reviewed and promoted to ACTIVE
 
 ## SHOULD
 

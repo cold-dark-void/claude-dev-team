@@ -240,27 +240,27 @@ Defines the `/debug` skill — the bug-handling equivalent of `/brainstorm`. Own
 
 ## Validation
 
-- [ ] `/debug` loads AGENTS.md and relevant specs before touching anything
-- [ ] Root cause statement identifies what/why/layer before any file is modified
-- [ ] Scope decision written before any fix code
-- [ ] Failing test confirmed failing before fix is implemented (reproducible bugs)
-- [ ] Self-calibration checklist emitted before completion language
-- [ ] All tests pass before "done" language appears
-- [ ] Same-pattern detection triggers refactor path (not multi-site patch)
-- [ ] Spec alignment check runs in `full` mode, skipped in `patch` mode
-- [ ] Spec-gap classification produces `/spec update` handoff without asking user
-- [ ] Escalation to `/kickoff` (or `/epic` on a confirmed split) includes structured context (4 required fields)
-- [ ] `arch` subcommand always escalates (`/kickoff`, or `/epic` on a confirmed split), never fixes inline
-- [ ] Escalate-path (full) and arch-mode split checks run before the handoff; confirmed split → `/epic`, non-split → `/kickoff` unchanged
-- [ ] Blockers produce exactly one specific question
-- [ ] No test suite → warning + reproduction scenario document
-- [ ] Refactor committed before fix when refactor path chosen
-- [ ] `commands/debug.md` thin host ships; first-token modes include `ticket`
-- [ ] `/debug ticket` missing args → usage, no spawn; no commit/version on green path
-- [ ] Ticket mode uses `commands/debug.md` and `skills/fix-ticket/`. There is no separate host command for that old name.
-- [ ] The `ticket`-mode premise spawn names `dev-team:debugger`; `full`/`patch`/`arch` root-cause phases assert no named-roster spawn at all (M16 site 3)
-- [ ] `debugger` is read-only, memory-less, and falls back to `ic5` on host-reject
-- [ ] `--agent ic4|ic5` still selects the implementer only and rejects `debugger`
+- `/debug` loads AGENTS.md and relevant specs before touching anything
+- Root cause statement identifies what/why/layer before any file is modified
+- Scope decision written before any fix code
+- Failing test confirmed failing before fix is implemented (reproducible bugs)
+- Self-calibration checklist emitted before completion language
+- All tests pass before "done" language appears
+- Same-pattern detection triggers refactor path (not multi-site patch)
+- Spec alignment check runs in `full` mode, skipped in `patch` mode
+- Spec-gap classification produces `/spec update` handoff without asking user
+- Escalation to `/kickoff` (or `/epic` on a confirmed split) includes structured context (4 required fields)
+- `arch` subcommand always escalates (`/kickoff`, or `/epic` on a confirmed split), never fixes inline
+- Escalate-path (full) and arch-mode split checks run before the handoff; confirmed split → `/epic`, non-split → `/kickoff` unchanged
+- Blockers produce exactly one specific question
+- No test suite → warning + reproduction scenario document
+- Refactor committed before fix when refactor path chosen
+- `commands/debug.md` thin host ships; first-token modes include `ticket`
+- `/debug ticket` missing args → usage, no spawn; no commit/version on green path
+- Ticket mode uses `commands/debug.md` and `skills/fix-ticket/`. There is no separate host command for that old name.
+- The `ticket`-mode premise spawn names `dev-team:debugger`; `full`/`patch`/`arch` root-cause phases assert no named-roster spawn at all (M16 site 3)
+- `debugger` is read-only, memory-less, and falls back to `ic5` on host-reject
+- `--agent ic4|ic5` still selects the implementer only and rejects `debugger`
 
 ---
 

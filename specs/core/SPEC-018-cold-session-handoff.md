@@ -283,21 +283,21 @@ Goal: the slash command is a small parent stub. `mode=direct` mines off the pare
 
 ## Validation
 
-- [ ] Cold retroactive handoff produces STM packet file + core print
-- [ ] Warm spine-mines live JSONL (no freeform dual path)
-- [ ] Shared engine: 1 merged miner + git + LLM-free assemble
-- [ ] State now mechanical; quotes inline; no tool dumps
-- [ ] State now includes Product surfaces + Open ship gaps (cold/warm/light); assemble refuses packets missing either heading
-- [ ] Single-section event render; no Pointers index; optional Where we are omit-on-invalid (CDT-201)
-- [ ] Cache outside memory.db; M9 cold; warm mid-write carve-out scoped
-- [ ] Supersedes on re-capture; timestamped filenames
-- [ ] PreCompact still spine rescue only; fail-open
-- [ ] Docs: compact seed framing; no Linear dual-write; no compact-replacement claim
-- [ ] Internal legacy inject-brief / multi-extractor references swept from SPEC, skill, command, docs, tests
-- [ ] Spawn model tiers (M3e): in-session chunk + annotation Task `model: haiku`; miner inherits session unless `HANDOFF_MINER_MODEL` / `--miner-model`; canonical `fast|balanced|max` resolve at miner-actor spawn (detached = background agent `model:`); parent stub session tier; `HANDOFF_SPINE_TOKENS` default 120000
-- [ ] M10c light: warm-only, no cache write, markers, supersedes draft, defense gates
-- [ ] Detached orchestrator (M19): stub ≤12100 bytes; parent prepare then branch on `plan.mode`; `mode=direct` one background agent Reads skill from disk, IS miner (+ annotation if bare warm), no nested Task; chunked / no-spawn-host → in-session parallel map; discover-before-delegate; no new flags; engines frozen except M3f
-- [ ] Mirror spine consume (M3f): `--check status=ok` MAY feed stripped `main.md`; absence/not-ok/fork/delta/`--full` JSONL identity; `leaf_uuid` stays assembled tip; `plan.spine_origin` only on hit; no CLI flags; PreCompact + M8 schema + `discover-warm.sh` + `leafrule.py` unchanged
+- Cold retroactive handoff produces STM packet file + core print
+- Warm spine-mines live JSONL (no freeform dual path)
+- Shared engine: 1 merged miner + git + LLM-free assemble
+- State now mechanical; quotes inline; no tool dumps
+- State now includes Product surfaces + Open ship gaps (cold/warm/light); assemble refuses packets missing either heading
+- Single-section event render; no Pointers index; optional Where we are omit-on-invalid (CDT-201)
+- Cache outside memory.db; M9 cold; warm mid-write carve-out scoped
+- Supersedes on re-capture; timestamped filenames
+- PreCompact still spine rescue only; fail-open
+- Docs: compact seed framing; no Linear dual-write; no compact-replacement claim
+- Internal legacy inject-brief / multi-extractor references swept from SPEC, skill, command, docs, tests
+- Spawn model tiers (M3e): in-session chunk + annotation Task `model: haiku`; miner inherits session unless `HANDOFF_MINER_MODEL` / `--miner-model`; canonical `fast|balanced|max` resolve at miner-actor spawn (detached = background agent `model:`); parent stub session tier; `HANDOFF_SPINE_TOKENS` default 120000
+- M10c light: warm-only, no cache write, markers, supersedes draft, defense gates
+- Detached orchestrator (M19): stub ≤12100 bytes; parent prepare then branch on `plan.mode`; `mode=direct` one background agent Reads skill from disk, IS miner (+ annotation if bare warm), no nested Task; chunked / no-spawn-host → in-session parallel map; discover-before-delegate; no new flags; engines frozen except M3f
+- Mirror spine consume (M3f): `--check status=ok` MAY feed stripped `main.md`; absence/not-ok/fork/delta/`--full` JSONL identity; `leaf_uuid` stays assembled tip; `plan.spine_origin` only on hit; no CLI flags; PreCompact + M8 schema + `discover-warm.sh` + `leafrule.py` unchanged
 
 ---
 

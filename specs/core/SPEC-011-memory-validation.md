@@ -203,21 +203,21 @@ Cross-references agent memories against the live codebase to detect and resolve 
 
 ## Validation
 
-- [ ] `/memory validate` with a memory referencing a deleted file archives it with `archive_reason='stale'`
-- [ ] `/memory validate` with all-clean memories reports "0 archived, 0 rewritten"
-- [ ] `validated_at` column exists after schema migration
-- [ ] `archive_reason` column exists after schema migration
-- [ ] `validation_log` table exists after schema migration
-- [ ] `schema_version` = "3" after migration
-- [ ] `--deep` rebuilds a digest whose sources have `archive_reason='stale'`
-- [ ] `/memory distill` output shows validation step before distillation
-- [ ] Rewritten memory retains original tier value
-- [ ] Second run with no codebase changes: zero archives, zero rewrites
-- [ ] `--reconcile` with seeded cross-agent contradiction reports `contradictory` + verbatim quotes
-- [ ] `--reconcile --report-only` leaves `reconcile_log` empty and no archives
-- [ ] `schema_version` = "4" after migrate-v4; `reconcile_log` exists
-- [ ] Interactive `pick-survivor` sets `archive_reason='reconciled'` on loser only
-- [ ] `deep-audit` prints `/council` suggestion without archiving
+- `/memory validate` with a memory referencing a deleted file archives it with `archive_reason='stale'`
+- `/memory validate` with all-clean memories reports "0 archived, 0 rewritten"
+- `validated_at` column exists after schema migration
+- `archive_reason` column exists after schema migration
+- `validation_log` table exists after schema migration
+- `schema_version` = "3" after migration
+- `--deep` rebuilds a digest whose sources have `archive_reason='stale'`
+- `/memory distill` output shows validation step before distillation
+- Rewritten memory retains original tier value
+- Second run with no codebase changes: zero archives, zero rewrites
+- `--reconcile` with seeded cross-agent contradiction reports `contradictory` + verbatim quotes
+- `--reconcile --report-only` leaves `reconcile_log` empty and no archives
+- `schema_version` = "4" after migrate-v4; `reconcile_log` exists
+- Interactive `pick-survivor` sets `archive_reason='reconciled'` on loser only
+- `deep-audit` prints `/council` suggestion without archiving
 
 ---
 

@@ -264,25 +264,25 @@ Helpers (pure bash, co-located under `skills/retro-gate/`):
 
 ## Validation
 
-- [ ] `commands/retro.md` exists with valid YAML frontmatter (`name`, `description`)
-- [ ] `/retro` on the latest smooth session exits in < 5s with no subagent spawned
-- [ ] `/retro` on a deliberately frustrating test session produces ≥ 1 cited proposal
-- [ ] Team-agent proposals go through `/adjust-agent <agent>` (verified by conflict-detection output from SPEC-001 flow)
-- [ ] Claude proposals append to `$MROOT/.claude/memory/claude/lessons.md` (file exists after run)
-- [ ] `/retro --all` reports only repeat patterns (manually verified across ≥ 2 sessions)
-- [ ] `/retro --why` prints matched friction signals
-- [ ] `/retro --auto` applies proposals without prompting
-- [ ] `/kickoff` and `/orchestrate` print the `Consider: /retro` hint after a frustrating test run
-- [ ] No modifications to `AGENTS.md`, `~/.claude/CLAUDE.md`, or any code files after any `/retro` run
-- [ ] Live friction ledger implemented (M1–M7): handler, hybrid gate path, init-orch wiring, rotation, fail-open
-- [ ] CDV-184 S3 fixtures still pass
-- [ ] **AC1** Scheduled report file written under `$MROOT/.claude/retro/scheduled-*.md` for `--all --auto` (incl. empty/smooth)
-- [ ] **AC2** Filter 1 + Filter 2 unchanged on scheduled path (static + harness)
-- [ ] **AC3** Full `--auto` semantics preserved; conflicts surface as MANUAL_FOLLOWUP in report
-- [ ] **AC4** Schedule scaffold runbook present (CronCreate primary + OS cron fallback); opt-in only
-- [ ] **AC5** Optional `AGENT_WEBHOOK_URL` fail-open only (no CDV-210 sink)
-- [ ] **AC7** `scheduled.lock` TTL 2h blocks concurrent second run; cleared on exit
-- [ ] **CDT-156** Multi-host: `--host` + Grok locate/normalize; Claude score regression green; Grok friction fixture `passed:true`; SPEC + transcript-parse SKILL boundary updated
+- `commands/retro.md` exists with valid YAML frontmatter (`name`, `description`)
+- `/retro` on the latest smooth session exits in < 5s with no subagent spawned
+- `/retro` on a deliberately frustrating test session produces ≥ 1 cited proposal
+- Team-agent proposals go through `/adjust-agent <agent>` (verified by conflict-detection output from SPEC-001 flow)
+- Claude proposals append to `$MROOT/.claude/memory/claude/lessons.md` (file exists after run)
+- `/retro --all` reports only repeat patterns (manually verified across ≥ 2 sessions)
+- `/retro --why` prints matched friction signals
+- `/retro --auto` applies proposals without prompting
+- `/kickoff` and `/orchestrate` print the `Consider: /retro` hint after a frustrating test run
+- No modifications to `AGENTS.md`, `~/.claude/CLAUDE.md`, or any code files after any `/retro` run
+- Live friction ledger implemented (M1–M7): handler, hybrid gate path, init-orch wiring, rotation, fail-open
+- CDV-184 S3 fixtures still pass
+- **AC1** Scheduled report file written under `$MROOT/.claude/retro/scheduled-*.md` for `--all --auto` (incl. empty/smooth)
+- **AC2** Filter 1 + Filter 2 unchanged on scheduled path (static + harness)
+- **AC3** Full `--auto` semantics preserved; conflicts surface as MANUAL_FOLLOWUP in report
+- **AC4** Schedule scaffold runbook present (CronCreate primary + OS cron fallback); opt-in only
+- **AC5** Optional `AGENT_WEBHOOK_URL` fail-open only (no CDV-210 sink)
+- **AC7** `scheduled.lock` TTL 2h blocks concurrent second run; cleared on exit
+- **CDT-156** Multi-host: `--host` + Grok locate/normalize; Claude score regression green; Grok friction fixture `passed:true`; SPEC + transcript-parse SKILL boundary updated
 
 ---
 

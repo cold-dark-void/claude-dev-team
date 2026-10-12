@@ -99,7 +99,7 @@ Brief description.
 Concrete test steps to verify each MUST.
 
 ## Validation
-- [ ] Checkbox items for manual verification
+- <one validation claim, with its evidence: test run, command output, or linked artifact>
 
 ## Version History
 | Date | Change |
