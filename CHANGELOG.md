@@ -6,6 +6,9 @@ Pre-written headings (release-train M5c, orchestrate version-sync tasks) are kep
 via skip-if-present when `/release` is given an explicit version — do not invent a
 second heading for the same version.
 
+### v1.22.23
+- **run-all-tests verifies scratch removal and warns when a suite child pins cwd (cdt-554)** — the EXIT-trap cleanup routes WORKDIR and the R37 worker scratch through a new `remove_dir_verified()` (one rm, up to 3 one-second retries, then a stderr `$PROG: warn:` naming the surviving path); the run's exit code never changes over hygiene (a suite's untracked grandchild holding cwd previously left a full `.git/run-all-tests.XXXXXX` scratch behind, silently). Orphan killing is deliberately skipped — grandchildren are untracked, and a blind process-group sweep could hit unrelated host processes. Regression caseP11 in `run-all-tests-pool-test.sh` bites pre-fix (mode-000 dir + planted file) and asserts warn-on-stderr, stdout leak, leftover scratch, and rc 0.
+
 ### v1.22.22
 - **task-store test extracts its hook template with jq instead of python3 (task-store-test-python3)** — the fence extractor in `task-store-test.sh` is now a `jq -jRs` program (byte-identical output to the old `python3 -c` regex: lazy `m`-flag capture plus the appended newline), so the suite runs on hosts where ad-hoc interpreter invocations are forbidden. The `python3 required` prerequisite die is gone; a missing fence after the marker now fails with its own distinct error (advisor should-fix: `capture(...) // error(...)`), keeping marker-miss and no-fence messages separate. Suite 81/0; siblings dag-lib 81/0, router-static 32/0, ticket-class 8/0.
 

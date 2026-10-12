@@ -337,6 +337,48 @@ if grep -q GONE_WT_ABSENT "$EVID10" && grep -q GONE_IX_PRESENT "$EVID10"; then p
   fail "caseP10 reused worker lost the unstaged deletion: $(cat "$EVID10")"
 fi
 
+# Case P11 (CDT-554): a suite orphan pins cwd in the worker tree (an orphaned
+# background child outlives the suite; nothing reaps it) and an unremovable
+# obstacle (a mode 000 dir -- the deterministic stand-in for the child's own
+# file churn) makes rm -rf actually fail. The EXIT trap must retry, then warn
+# on stderr naming the scratch path, and the run's exit code must stay 0.
+# Non-root only: as root the mode 000 would not block the removal.
+P11=$(new_root)
+printf 'locked/\nchild.pid\n' > "$P11/.gitignore"
+git -C "$P11" add .gitignore
+git -C "$P11" -c user.name=T -c user.email=t@t commit -qm seed
+TOK11="rat_caseP11_$$_pin"
+cat > "$P11/a-pin-test.sh" <<EOF
+#!/usr/bin/env bash
+mkdir locked && touch locked/f && chmod 000 locked
+( exec -a '$TOK11' sleep 60 ) &
+printf '%s\n' "\$!" > child.pid
+exit 0
+EOF
+git -C "$P11" add a-pin-test.sh
+
+run_runner_split --root "$P11" --jobs 2
+expect_exit 0 "caseP11 pinned-cwd run keeps exit 0"
+expect_out "PASS a-pin-test.sh" "caseP11 suite itself still passes"
+if echo "$ERR" | grep -qF "warn: scratch directory not removed"; then pass; else
+  fail "caseP11 stderr warning missing: $ERR"
+fi
+if echo "$OUT" | grep -qF "warn: scratch directory not removed"; then
+  fail "caseP11 warn leaked onto stdout"
+else pass; fi
+if echo "$ERR" | grep -qE "$P11/.git/run-all-tests\.[A-Za-z0-9]{6}"; then pass; else
+  fail "caseP11 warning does not name the scratch path: $ERR"
+fi
+if ls -d "$P11"/.git/run-all-tests.* >/dev/null 2>&1; then pass; else
+  fail "caseP11 scratch was removed despite the warning saying it survived"
+fi
+# The orphan outlives the run by design (the runner never signals suite
+# grandchildren); test hygiene kills it, then unlocks and removes the scratch.
+pkill -f -- "$TOK11" 2>/dev/null
+sleep 0.3
+chmod -R u+rwx "$P11"/.git/run-all-tests.* 2>/dev/null
+rm -rf "$P11"/.git/run-all-tests.*
+
 # Case P7 (CDT-534 AC12): red-then-green receipt. The rm/mv/leak/restore
 # trees are re-run against the round-1 runner (9a61f6b -- has --jobs, but
 # neither the rm/mv overlay nor the full R39 restore) and must FAIL there

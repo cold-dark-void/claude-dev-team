@@ -270,9 +270,33 @@ WORKDIR=$(mktemp -d "${TMPDIR:-/tmp}/run-all-tests.XXXXXX")
 SCRATCH=""
 SEED_SHA=""
 
+# CDT-554: a suite's orphaned child (watchdog sleep, backgrounded fixture)
+# can hold cwd inside the scratch and keep files appearing in it, so a plain
+# rm -rf can fail silently and leave a full .git/run-all-tests.* behind
+# (observed 2026-10-12). Verify the removal: retry briefly, then warn on
+# stderr naming the path -- hygiene never changes the run's exit code.
+# No kill pass: only the suite wrapper and watchdog pids are tracked, not
+# the suites' own grandchildren, so there is no safe target list to signal.
+remove_dir_verified() { # remove_dir_verified <dir> -- rm -rf with a short
+                        # retry; warn on stderr when it still exists
+  local dir="$1" i=0
+  rm -rf "$dir" || :
+  while [ -d "$dir" ] && [ "$i" -lt 3 ]; do
+    sleep 1
+    rm -rf "$dir" || :
+    i=$((i + 1))
+  done
+  if [ -d "$dir" ]; then
+    echo "$PROG: warn: scratch directory not removed (a suite child may still hold cwd or files in it): $dir" >&2
+  fi
+  return 0
+}
+
 cleanup() { # rm -rf "$WORKDIR", plus the R37 worker scratch once one exists
-  rm -rf "$WORKDIR"
-  [ -n "$SCRATCH" ] && rm -rf "$SCRATCH"
+  remove_dir_verified "$WORKDIR"
+  if [ -n "$SCRATCH" ]; then
+    remove_dir_verified "$SCRATCH"
+  fi
   return 0
 }
 trap cleanup EXIT
