@@ -27,6 +27,8 @@ fail() { FAIL=$((FAIL + 1)); echo "FAIL: $*"; }
 
 # shellcheck source=../../tests/lib/assert.sh
 . "$ROOT/tests/lib/assert.sh"
+# shellcheck source=../../tests/lib/skip.sh
+. "$ROOT/tests/lib/skip.sh"
 
 STDOUT_F="$HERMETIC_ROOT/stdout"
 STDERR_F="$HERMETIC_ROOT/stderr"
@@ -258,14 +260,18 @@ git -C "$REPO_J3" commit -q --allow-empty -m init
 TASKS_J3="$REPO_J3/.claude/tasks"
 write_task "$TASKS_J3/A-unreadable.json" "A-unreadable" pending '[]'
 write_task "$TASKS_J3/Z-after.json" "Z-after" pending '[]'
-chmod 000 "$TASKS_J3/A-unreadable.json"
+# J9-J11 rely on chmod 000 being enforced, which root ignores. Per-case
+# skip (SPEC-030 R18): subshell exits 77 under root, body never runs.
+if ( skip_if_root "J9-J11 unreadable-file cases: permission bits unenforced under root" ); then
+  chmod 000 "$TASKS_J3/A-unreadable.json"
 
-RC=0
-OUT=$(cd "$REPO_J3" && bash "$DAG" ready-set 2>"$STDERR_F") || RC=$?
-chmod 644 "$TASKS_J3/A-unreadable.json"
-if [ "$RC" -eq 0 ]; then pass; else fail "J9 ready-set with unreadable file rc=$RC"; fi
-assert_contains "J10 later file still ready" "$OUT" "Z-after"
-assert_contains "J11 warning names the unreadable file" "$(cat "$STDERR_F")" "A-unreadable.json"
+  RC=0
+  OUT=$(cd "$REPO_J3" && bash "$DAG" ready-set 2>"$STDERR_F") || RC=$?
+  chmod 644 "$TASKS_J3/A-unreadable.json"
+  if [ "$RC" -eq 0 ]; then pass; else fail "J9 ready-set with unreadable file rc=$RC"; fi
+  assert_contains "J10 later file still ready" "$OUT" "Z-after"
+  assert_contains "J11 warning names the unreadable file" "$(cat "$STDERR_F")" "A-unreadable.json"
+fi
 
 # CDT backlog dag-lib-fallback-partial-json: a file with zero (whitespace-only)
 # or 2+ (concatenated) top-level JSON values must route to "__BAD__" with a
