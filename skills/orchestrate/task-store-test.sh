@@ -31,7 +31,6 @@ assert_file_present() {
 }
 
 command -v jq >/dev/null 2>&1 || die "jq required"
-command -v python3 >/dev/null 2>&1 || die "python3 required"
 
 SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 ROOT=$(cd "$SCRIPT_DIR/../.." && pwd)
@@ -153,21 +152,13 @@ echo "== (B) hook shadow-safe (extracted template) =="
 
 HOOK="$BASE/task-completed.sh"
 # Same extraction contract as check-hook-templates.sh / escalation-gate-test.sh
-SKILL="$SKILL" python3 -c '
-import os, re, sys
-skill = open(os.environ["SKILL"], encoding="utf-8").read()
-marker = "create `.claude/hooks/task-completed.sh` with this content:"
-idx = skill.find(marker)
-if idx == -1:
-    sys.stderr.write("no marker for task-completed\n")
-    sys.exit(3)
-rest = skill[idx:]
-m = re.search(r"\n```bash\n(.*?)\n```", rest, re.DOTALL)
-if not m:
-    sys.stderr.write("no fenced bash block after marker\n")
-    sys.exit(3)
-sys.stdout.write(m.group(1) + "\n")
-' > "$HOOK" || die "could not extract task-completed template from SKILL.md"
+jq -jRs '
+  . as $skill
+  | ($skill | index("create `.claude/hooks/task-completed.sh` with this content:")) as $idx
+  | if $idx == null then error("no marker for task-completed") else . end
+  | (($skill[$idx:] | capture("\n```bash\n(?<body>.*?)\n```"; "m").body) // error("no fenced bash block after marker")) as $body
+  | $body + "\n"
+' "$SKILL" > "$HOOK" || die "could not extract task-completed template from SKILL.md"
 [ -s "$HOOK" ] || die "extracted hook empty"
 chmod +x "$HOOK"
 bash -n "$HOOK" || die "extracted hook fails bash -n"

@@ -6,6 +6,9 @@ Pre-written headings (release-train M5c, orchestrate version-sync tasks) are kep
 via skip-if-present when `/release` is given an explicit version — do not invent a
 second heading for the same version.
 
+### v1.22.22
+- **task-store test extracts its hook template with jq instead of python3 (task-store-test-python3)** — the fence extractor in `task-store-test.sh` is now a `jq -jRs` program (byte-identical output to the old `python3 -c` regex: lazy `m`-flag capture plus the appended newline), so the suite runs on hosts where ad-hoc interpreter invocations are forbidden. The `python3 required` prerequisite die is gone; a missing fence after the marker now fails with its own distinct error (advisor should-fix: `capture(...) // error(...)`), keeping marker-miss and no-fence messages separate. Suite 81/0; siblings dag-lib 81/0, router-static 32/0, ticket-class 8/0.
+
 ### v1.22.21
 - **fence-exec run treats a suite exit 77 as SKIP and rejects a zero FENCE_EXEC_TIMEOUT (fence-exec-run-exit-77-skip)** — the `run` subcommand's suite loop now maps rc 77 to `SKIP suite <path>` (SPEC-030 R8/R19: missing tool or root uid) instead of FAIL; every other non-zero rc stays FAIL. `FENCE_EXEC_TIMEOUT=0` is rejected with exit 64 (GNU `timeout 0` means no cap) instead of silently running uncapped. Test suite gains a hermetic exit-77 stub and a zero-timeout rejection case (122/0); SPEC-030 R26 states the mapping.
 
