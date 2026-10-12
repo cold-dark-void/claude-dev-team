@@ -233,11 +233,20 @@ exclude_lock() {
 # is_worktree_dirty <wt>
 # exit 0 if porcelain dirty after excluding .wt-lock; 1 if clean.
 # Shared by release and ensure STALE reclaim (filter must not drift).
+# Fail closed (CDT-542): a git error (corrupt index, missing gitdir,
+# permission) reads as dirty — release and the ensure STALE reclaim then
+# refuse instead of continuing as if no user edits exist. The git error
+# goes to stderr so the refusal is explainable. (Decision: kept direct here
+# rather than routed through git-safety is-clean — worktree-lib is a
+# standalone sibling script and must not grow a PDH dependency.)
 is_worktree_dirty() {
-  local wt="$1" dirty
-  # Filter out .wt-lock — bookkeeping, not user content.
+  local wt="$1" status dirty
+  if ! status=$(git -C "$wt" status --porcelain 2>&1); then
+    printf 'worktree-lib: git status failed in %s — treating as dirty\n%s\n' "$wt" "$status" >&2
+    return 0
+  fi
   # Porcelain format: "XY <path>" — strip the lock entry by exact-path match.
-  dirty=$(git -C "$wt" status --porcelain 2>/dev/null | awk '$0 !~ /^.. \.wt-lock$/' || true)
+  dirty=$(printf '%s\n' "$status" | awk '$0 !~ /^.. \.wt-lock$/')
   [ -n "$dirty" ]
 }
 

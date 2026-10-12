@@ -6,6 +6,9 @@ Pre-written headings (release-train M5c, orchestrate version-sync tasks) are kep
 via skip-if-present when `/release` is given an explicit version — do not invent a
 second heading for the same version.
 
+### v1.22.17
+- **worktree-lib dirty check fails closed on a git error (worktree-lib-dirty-check-swallows-git-errors)** — `is_worktree_dirty` treated a `git status` failure (corrupt index, missing gitdir, permission) as a clean tree, so `release` and the `ensure` STALE reclaim continued past uncommitted user edits. The helper now prints the git error to stderr, treats the tree as dirty, and both callers refuse. Kept as a direct `git status` in the lib (no git-safety dependency). New T5b regression uses an unreadable per-worktree index; suite 211/211. SPEC-016 dirty definition + version history amended.
+
 ### v1.22.16
 - **TaskCompleted META_SCAN fails closed on interpreter failure (wp-1-10-task-completed-meta-scan-fail-open)** — the hook template's `|| printf "false"` fallback is gone: a non-zero interpreter rc or empty scan output now exits 2 with `META_SCAN failed` on stderr instead of silently passing the council gate. Exec suite gains a failing-interpreter case; SPEC-002 gains the hard-fail entry, the held-open-stdin EOF-wait note, and the stop-review best-effort drain line. Pair repair: the v1.22.15 fold missed staging plugin.json — this release sets the pair to 1.22.16 so both surfaces match.
 

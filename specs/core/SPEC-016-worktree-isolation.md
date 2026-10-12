@@ -55,7 +55,7 @@ Defines a canonical, collision-safe worktree convention for the plugin. Any skil
 - MUST NOT fall back to `git worktree remove --force` (WP 1-06, CDT-298). A second run of the dirty check does not make a forced remove safe: a file can change after any check.
 - If `git worktree remove` fails after the dirty check passed (for example, a file changed after the check, or the worktree is locked), `release` MUST exit `1` with a stderr message. The worktree directory, the `feat/<slug>` branch and the `branch.feat/<slug>` config section MUST stay unchanged.
 - MUST exit non-zero (exit `1`) with a clear stderr message if the worktree has uncommitted changes; MUST NOT force-remove
-- Dirty definition for `release` (and for `ensure` STALE reclaim): `git -C <wt> status --porcelain` output with lines matching the exact bookkeeping path `.wt-lock` excluded; any remaining line means dirty
+- Dirty definition for `release` (and for `ensure` STALE reclaim): `git -C <wt> status --porcelain` output with lines matching the exact bookkeeping path `.wt-lock` excluded; any remaining line means dirty. A `git status` error also means dirty (fail closed, CDT-542): the helper treats an unreadable index, missing gitdir or permission failure as dirty and prints the git error to stderr, so a broken worktree is refused, never adopted as clean. The check stays a direct `git status` in the lib (no `git-safety` dependency).
 - **Branch delete (WP 1-06).** After the worktree is removed, and only when `refs/heads/feat/<slug>` exists:
   1. Resolve the base with `git-safety.sh -C "$MROOT" resolve-base` (SPEC-025 M17).
   2. Delete the branch with `git-safety.sh -C "$MROOT" safe-delete-branch feat/<slug> <base>`. This deletes the branch only when `is-merged` holds, so a squash-merged branch is deleted.
@@ -273,6 +273,8 @@ Caller contract (unchanged): exit `1` → surface stderr and halt; exit `2` → 
 
 | Date | Change |
 |------|--------|
+
+| 2026-10-12 | worktree-lib-dirty-check-swallows-git-errors (CDT-542): `is_worktree_dirty` fails closed — a `git status` error (corrupt index, missing gitdir, permission) now reads as dirty with the git error on stderr, so `release` and the `ensure` STALE reclaim refuse instead of adopting a broken tree as clean. T5b regression uses an unreadable index. |
 
 | 2026-10-10 | worktree-lib-ensure-lock-paths-non-git + register-non-git-dir: every `ensure` lock path (FRESH steal, STALE reclaim) and `register` now require an existing directory to be a real git worktree via the shared `is_git_worktree` helper before any lock write — previously only the no-lock `ensure` path checked (WP 1-06), so a plain directory under `.worktrees/` holding a stale lock was adoptable. `register` semantics section amended; test fixtures converted to real worktrees. |
 

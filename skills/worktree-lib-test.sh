@@ -152,6 +152,28 @@ assert_file "release dirty kept dirty file" ".worktrees/dirty-slug/dirty.txt"
 # cleanup for later: remove dirty so we can release if needed
 rm -f .worktrees/dirty-slug/dirty.txt
 
+echo "== T5b git error reads dirty (CDT-542) =="
+# A real worktree whose index is unreadable: git status must fail, and both
+# release and the ensure STALE reclaim must fail closed (treat as dirty).
+EOUT=$(run_lib ensure broken-git-slug 2>"$ERR_TMP"); ERC=$?
+assert_eq "ensure broken-git-slug exit 0" "$ERC" "0"
+BG_GITDIR=$(git -C .worktrees/broken-git-slug rev-parse --path-format=absolute --git-dir)
+chmod 000 "$BG_GITDIR/index"
+if git -C .worktrees/broken-git-slug status --porcelain >/dev/null 2>&1; then
+  die "T5b precondition: git status still succeeds with an unreadable index"
+fi
+REL_OUT=$(run_lib release broken-git-slug 2>"$ERR_TMP"); RERC=$?
+assert_eq "release broken gitdir exit 1" "$RERC" "1"
+assert_contains "release broken gitdir stderr treats as dirty" "$(cat "$ERR_TMP" 2>/dev/null || true)" "treating as dirty"
+assert_dir "release broken gitdir kept dir" ".worktrees/broken-git-slug"
+# STALE lock on the same broken tree: reclaim refuses too.
+printf '%s %s\n' "$OLD" "2020-01-01T00:00:00Z" > .worktrees/broken-git-slug/.wt-lock
+EOUT=$(run_lib ensure broken-git-slug 2>"$ERR_TMP"); ERC=$?
+assert_eq "ensure STALE broken gitdir exit 1" "$ERC" "1"
+assert_contains "ensure STALE broken gitdir stderr" "$(cat "$ERR_TMP" 2>/dev/null || true)" "treating as dirty"
+chmod 600 "$BG_GITDIR/index" 2>/dev/null || true
+rm -f .worktrees/broken-git-slug/.wt-lock
+
 echo "== T6 sweep no-delete =="
 # stale-slug already STALE, no tasks → PROPOSAL
 # fresh-slug FRESH → not proposed
