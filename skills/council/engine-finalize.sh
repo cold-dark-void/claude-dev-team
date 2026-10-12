@@ -1,5 +1,23 @@
 # council/engine-finalize.sh — cmd_finalize (render + atomic write), sourced by engine.sh (L-10).
 
+# _finalize_physical_path PATH — print a physical copy of PATH: the longest
+# existing directory is resolved (CDPATH='' cd -- DIR && pwd -P) and the
+# non-existing tail is appended verbatim. A path with no existing component
+# resolves against / (the walk terminates there). Comparison input only —
+# never a write path. CDT-553.
+_finalize_physical_path() {
+  local p="$1" tail= out=
+  while [ "$p" != "/" ] && [ ! -d "$p" ]; do
+    tail="/$(basename "$p")$tail"
+    p=$(dirname "$p")
+  done
+  if out=$(CDPATH='' cd -- "$p" 2>/dev/null && pwd -P); then
+    printf '%s%s\n' "$out" "$tail"
+  else
+    printf '%s\n' "$1"
+  fi
+}
+
 # ---- finalize ---------------------------------------------------------------
 # Consume plan + evidence + judge output, render report, write index row.
 # Inputs: --plan-file, --evidence-file, --judge-output. Does not interpret
@@ -47,8 +65,17 @@ cmd_finalize() {
       /*) : ;;
       *)  report_out="$MROOT/${report_out#./}" ;;
     esac
-    case "$report_out" in
-      "$MROOT"/.worktrees | "$MROOT"/.worktrees/*)
+    # CDT-553: compare physical forms for the refusal. A symlinked ancestor
+    # (macOS /tmp -> /private/tmp: mktemp -d yields the logical form while
+    # git reports the physical one) must not bypass the refusal. The write
+    # path stays exactly as given (SPEC-013: finalize writes exactly PATH) —
+    # only the comparison is canonicalized.
+    local _report_out_phys _mroot_phys
+    _report_out_phys=$(_finalize_physical_path "$report_out")
+    _mroot_phys=$(CDPATH='' cd -- "$MROOT" 2>/dev/null && pwd -P) || _mroot_phys=$MROOT
+    case "$_report_out_phys" in
+      "$MROOT"/.worktrees | "$MROOT"/.worktrees/* | \
+      "$_mroot_phys"/.worktrees | "$_mroot_phys"/.worktrees/*)
         echo "engine.sh: --report-out must not live inside a linked worktree ($report_out) — pass a path under \$MROOT/.claude/council/" >&2
         exit 64
         ;;

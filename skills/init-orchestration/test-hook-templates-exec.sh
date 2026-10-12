@@ -22,6 +22,9 @@ require_cmd shellcheck
 # Pre-farm PATH: the graft runs must resolve the REAL shellcheck, never a
 # suite-made shim (AC3).
 GRAFT_PATH=$PATH
+# Captured pre-farm: the T-case asserts under the farmed PATH, which holds
+# no ls (CDT-552).
+LS_BIN=$(command -v ls)
 
 EXTRACT="$ROOT/skills/init-orchestration/check-hook-templates.sh"
 SCHEMA="$ROOT/skills/memory-store/schema.sql"
@@ -505,17 +508,17 @@ run_tdd() { # run_tdd TMPDIR SESSION_ID OUT ERR
 # sanitized fallback counter is used instead and no '..' file is created.
 run_tdd "$T_TMP" "../x" "$WORK/case-t/t1.out" "$WORK/case-t/t1.err"
 check_rc "T: traversal session_id rc (1st attempt = hint)" "$?" "0"
-if ls "$T_TMP" | grep -q '^tdd-gate-untrusted-'; then
+if "$LS_BIN" "$T_TMP" | grep -q '^tdd-gate-untrusted-'; then
   pass
 else
-  fail "T: sanitized fallback counter missing (got: $(ls "$T_TMP" | tr '\n' ' '))"
+  fail "T: sanitized fallback counter missing (got: $("$LS_BIN" "$T_TMP" | tr '\n' ' '))"
 fi
-if ls "$T_TMP" | grep -Fq '..'; then
+if "$LS_BIN" "$T_TMP" | grep -Fq '..'; then
   fail "T: counter file name contains '..'"
 else
   pass
 fi
-if ls "$WORK/case-t" 2>/dev/null | grep -Eq '^(x|\.\.)'; then
+if "$LS_BIN" "$WORK/case-t" 2>/dev/null | grep -Eq '^(x|\.\.)'; then
   fail "T: unsanitized session_id escaped the counter directory"
 else
   pass
@@ -534,12 +537,12 @@ T_TMP2="$WORK/case-t/tmp2"
 mkdir -p "$T_TMP2"
 run_tdd "$T_TMP2" "01a12844-1589-7033-8bf7-76959da613c9" "$WORK/case-t/t3.out" "$WORK/case-t/t3.err"
 check_rc "T: well-formed session_id rc" "$?" "0"
-if ls "$T_TMP2" | grep -q '^tdd-gate-01a12844-1589-7033-8bf7-76959da613c9-'; then
+if "$LS_BIN" "$T_TMP2" | grep -q '^tdd-gate-01a12844-1589-7033-8bf7-76959da613c9-'; then
   pass
 else
-  fail "T: well-formed session_id bucket missing (got: $(ls "$T_TMP2" | tr '\n' ' '))"
+  fail "T: well-formed session_id bucket missing (got: $("$LS_BIN" "$T_TMP2" | tr '\n' ' '))"
 fi
-if ls "$T_TMP2" | grep -q '^tdd-gate-untrusted-'; then
+if "$LS_BIN" "$T_TMP2" | grep -q '^tdd-gate-untrusted-'; then
   fail "T: well-formed session_id wrongly sanitized"
 else
   pass

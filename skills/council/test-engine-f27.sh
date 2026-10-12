@@ -125,5 +125,24 @@ else
   bad "worktree report-out rc=$WRC err=$WERR"
 fi
 
+# CDT-553: a symlinked path prefix must not bypass the refusal. macOS
+# /private/var: mktemp -d yields the logical form while git reports the
+# physical MROOT, so the literal prefix match silently failed open.
+ln -sf "$REPO_WT" "$REPO_WT-link"
+if [ ! -L "$REPO_WT-link" ]; then
+  bad "symlinked-prefix fixture could not be created"
+fi
+set +e
+WERR="$(cd "$REPO_WT" && "$BASH_BIN" "$ENGINE" finalize --plan-file "$TMP/plan-keep.json" \
+  --evidence-file "$FIX/evidence.json" --judge-output "$FIX/judge.json" \
+  --report-out "$REPO_WT-link/.worktrees/some-wt/r.md" 2>&1 >/dev/null)"
+WRC=$?
+set -e
+if [ "$WRC" -eq 64 ] && printf '%s\n' "$WERR" | grep -q 'not live inside a linked worktree'; then
+  ok "report-out through a symlinked prefix is refused (64)"
+else
+  bad "symlinked-prefix report-out rc=$WRC err=$WERR"
+fi
+
 if [ "$fail" -eq 0 ]; then echo "ALL PASS"; else echo "FAILURES PRESENT"; fi
 exit "$fail"
