@@ -11,7 +11,7 @@
 #   is-pushed <ref>
 #   safe-delete-branch <branch> <base>
 #   safe-reset --stage <base_sha> <staged_tree>
-#   safe-reset --clean-at <sha>
+#   safe-reset --clean-at <sha> [<expected_tree>]
 #   resolve-base
 #
 # Exit codes: 0 holds/done; 1 fails/refused (no change); 2 git error;
@@ -263,7 +263,7 @@ _safe_reset_stage() {
 }
 
 _safe_reset_clean_at() {
-  local sha="$1"
+  local sha="$1" expected="${2:-}"
   local head want
 
   head=$(git rev-parse --verify --quiet HEAD 2>/dev/null)
@@ -280,6 +280,27 @@ _safe_reset_clean_at() {
     return 1
   fi
 
+  # CDT-543 attestation: with an expected tree (recorded by the caller right
+  # after its squash-stage), refuse when the index or the working tree no
+  # longer matches it — a tracked edit that landed after the caller's
+  # prior-clean gate is user data, never discardable by the hard reset.
+  if [ -n "$expected" ]; then
+    local tree_full
+    tree_full=$(git rev-parse --verify --quiet "${expected}^{tree}" 2>/dev/null)
+    if [ -z "$tree_full" ]; then
+      printf 'git-safety: safe-reset --clean-at: cannot resolve expected tree: %s\n' "$expected" >&2
+      return 1
+    fi
+    if ! git diff-index --quiet --cached "$tree_full" 2>/dev/null; then
+      printf 'git-safety: safe-reset --clean-at: refused — index drifted from the recorded staged tree (%s)\n' "$expected" >&2
+      return 1
+    fi
+    if ! git diff-index --quiet "$tree_full" 2>/dev/null; then
+      printf 'git-safety: safe-reset --clean-at: refused — working tree drifted from the recorded staged tree (%s)\n' "$expected" >&2
+      return 1
+    fi
+  fi
+
   git reset -q --hard "$want" >/dev/null 2>&1 || return 2
   _safe_reset_remove_squash_msg
   return 0
@@ -294,10 +315,10 @@ cmd_safe_reset() {
       ;;
     --clean-at)
       shift
-      [ "$#" -eq 1 ] || usage_error "safe-reset --clean-at: need <sha>"
-      _safe_reset_clean_at "$1"
+      { [ "$#" -eq 1 ] || [ "$#" -eq 2 ]; } || usage_error "safe-reset --clean-at: need <sha> [<expected_tree>]"
+      _safe_reset_clean_at "$1" "${2:-}"
       ;;
-    *) usage_error "safe-reset: need --stage <base_sha> <staged_tree> or --clean-at <sha>" ;;
+    *) usage_error "safe-reset: need --stage <base_sha> <staged_tree> or --clean-at <sha> [<expected_tree>]" ;;
   esac
 }
 

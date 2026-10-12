@@ -56,20 +56,21 @@ fi
 
 # ---- substitution -----------------------------------------------------------
 
-# subst_block <main-repo-path> <branch> <card-path> <ship-start-sha> [<autopilot-bump>]
+# subst_block <main-repo-path> <branch> <card-path> <ship-start-sha> [<autopilot-bump>] [<staged-tree>]
 # Reads a block on stdin, prints it substituted. <SHIP_START_SHA> is
 # replaced ONLY on the line matching literal ^SHIP_START_SHA="<SHIP_START_SHA>"
 # (the guard's comparison literal stays otherwise, or the guard trips).
 # <autopilot-bump> is optional (blocks with no <AUTOPILOT_BUMP> placeholder
 # ignore it); defaults to empty.
 subst_block() {
-  local mainpath="$1" branch="$2" cardpath="$3" sha="$4" bump="${5:-}"
+  local mainpath="$1" branch="$2" cardpath="$3" sha="$4" bump="${5:-}" staged_tree="${6:-}"
   sed \
     -e "s|<main-repo-path>|$mainpath|g" \
     -e "s|<branch>|$branch|g" \
     -e "s|<card-path>|$cardpath|g" \
     -e "s|<AUTOPILOT_BUMP>|$bump|g" \
-    -e "/^SHIP_START_SHA=\"<SHIP_START_SHA>\"/ s|<SHIP_START_SHA>|$sha|"
+    -e "/^SHIP_START_SHA=\"<SHIP_START_SHA>\"/ s|<SHIP_START_SHA>|$sha|" \
+    -e "/^STAGED_TREE=\"<STAGED_TREE>\"/ s|<STAGED_TREE>|$staged_tree|"
 }
 
 # run_block <fixture-dir> <substituted-block-text>
@@ -89,8 +90,8 @@ subst_block() {
 # `SHIP_START_SHA=` assignment line) — masked out before the check runs.
 run_block() {
   local fx="$1" block="$2" outfile out rc check
-  check="$(printf '%s\n' "$block" | sed 's/!= "<SHIP_START_SHA>"/!= "GUARD_LITERAL"/')"
-  if printf '%s\n' "$check" | grep -qE '<(main-repo-path|branch|card-path|SHIP_START_SHA|AUTOPILOT_BUMP)>'; then
+  check="$(printf '%s\n' "$block" | sed -e 's/!= "<SHIP_START_SHA>"/!= "GUARD_LITERAL"/' -e 's/!= "<STAGED_TREE>"/!= "GUARD_LITERAL"/')"
+  if printf '%s\n' "$check" | grep -qE '<(main-repo-path|branch|card-path|SHIP_START_SHA|STAGED_TREE|AUTOPILOT_BUMP)>'; then
     echo "HARNESS ERROR: unsubstituted placeholder survived — aborting suite" >&2
     printf '%s\n' "$block" >&2
     exit 2
@@ -286,21 +287,20 @@ i1() {
   if [ -f "$fx/user-notes.txt" ]; then pass_line "I1: untracked file survives"; else fail_line "I1: untracked file survives"; fi
 }
 
-# I2: after a good §4 stage + an untracked file + an unstaged version-file
-# edit -> §6.5 block exits 0, tracked tree clean, untracked file survives,
-# HEAD = SHIP_START_SHA.
+# I2: after a good §4 stage + an untracked file -> §6.5 block exits 0,
+# tracked tree clean, untracked file survives, HEAD = SHIP_START_SHA.
 i2() {
   if [ -z "$blocks65" ]; then
     fail_line "I2: §6.5 has no fenced block to run (not runnable on current end-state.md)"
     return
   fi
-  local fx ship_sha block out rc
+  local fx ship_sha staged_tree block out rc
   fx="$(build_fixture)" || { fail_line "I2 setup"; return; }
   ship_sha="$(git -C "$fx" rev-parse HEAD)"
   (cd "$fx" && git merge --squash feat/x >/dev/null 2>&1) || { fail_line "I2 setup: squash-stage did not succeed"; return; }
+  staged_tree="$(cd "$fx" && git write-tree)"
   printf 'notes\n' >"$fx/user-notes.txt"
-  printf 'edited\n' >>"$fx/base.txt"
-  block="$(printf '%s\n' "$blocks65" | subst_block "$fx" "feat/x" "/tmp/card.json" "$ship_sha")"
+  block="$(printf '%s\n' "$blocks65" | subst_block "$fx" "feat/x" "/tmp/card.json" "$ship_sha" "" "$staged_tree")"
   run_block "$fx" "$block"
   rc=$?
   out="$RUN_OUT"
@@ -327,12 +327,35 @@ i3() {
     git commit -q -m "delivery commit"
   )
   head_before="$(git -C "$fx" rev-parse HEAD)"
-  block="$(printf '%s\n' "$blocks65" | subst_block "$fx" "feat/x" "/tmp/card.json" "$ship_sha")"
+  block="$(printf '%s\n' "$blocks65" | subst_block "$fx" "feat/x" "/tmp/card.json" "$ship_sha" "" "$(git -C "$fx" rev-parse 'HEAD^{tree}')")"
   run_block "$fx" "$block"
   rc=$?
 
   if [ "$rc" -ne 0 ]; then pass_line "I3: §6.5 exits !=0 when HEAD moved past SHIP_START_SHA"; else fail_line "I3: §6.5 exits !=0 when HEAD moved past SHIP_START_SHA (rc=$rc)"; fi
   if [ "$(git -C "$fx" rev-parse HEAD)" = "$head_before" ]; then pass_line "I3: HEAD and delivery commit intact"; else fail_line "I3: HEAD and delivery commit intact"; fi
+}
+
+# I4 (CDT-543): a tracked edit landing on main after the §4 fingerprint ->
+# §6.5 refuses (rc != 0), the edit survives untouched, HEAD == SHIP_START_SHA.
+i4_attested_refuse() {
+  if [ -z "$blocks65" ]; then
+    fail_line "I4: §6.5 has no fenced block to run (not runnable on current end-state.md)"
+    return
+  fi
+  local fx ship_sha staged_tree block out rc
+  fx="$(build_fixture)" || { fail_line "I4 setup"; return; }
+  ship_sha="$(git -C "$fx" rev-parse HEAD)"
+  (cd "$fx" && git merge --squash feat/x >/dev/null 2>&1) || { fail_line "I4 setup: squash-stage did not succeed"; return; }
+  staged_tree="$(cd "$fx" && git write-tree)"
+  printf 'user edit\n' >>"$fx/base.txt"
+  block="$(printf '%s\n' "$blocks65" | subst_block "$fx" "feat/x" "/tmp/card.json" "$ship_sha" "" "$staged_tree")"
+  run_block "$fx" "$block"
+  rc=$?
+
+  if [ "$rc" -ne 0 ]; then pass_line "I4: §6.5 refuses when a tracked edit landed after the fingerprint"; else fail_line "I4: §6.5 refuses when a tracked edit landed after the fingerprint (rc=0)"; fi
+  if [ "$(git -C "$fx" rev-parse HEAD)" = "$ship_sha" ]; then pass_line "I4: HEAD == SHIP_START_SHA"; else fail_line "I4: HEAD == SHIP_START_SHA"; fi
+  if grep -q 'user edit' "$fx/base.txt" 2>/dev/null; then pass_line "I4: the user edit survives"; else fail_line "I4: the user edit survives"; fi
+  if [ -f "$fx/feature.txt" ] && grep -q 'feature change' "$fx/feature.txt" 2>/dev/null; then pass_line "I4: the squash stage stays in place"; else fail_line "I4: the squash stage stays in place"; fi
 }
 
 # I structural checks over the raw section text (not just the block body).
@@ -613,6 +636,7 @@ i_structural
 [ -n "$blocks4" ] && i1
 i2
 i3
+i4_attested_refuse
 [ -n "$blocks4" ] && sc1_bite
 f_structural
 f1_fetch_fails

@@ -149,6 +149,7 @@ gs "$d" is-merged "$feat_tip" "$base_tip"; assert_eq "is-merged: unmerged -> 1" 
 gs "$WORK/im_unmerged" is-merged "deadbeefdeadbeefdeadbeefdeadbeefdeadbeef" "master"
 assert_eq "is-merged: unresolvable ref -> fail closed (1)" "1" "$?"
 
+
 d="$WORK/im_notarepo"; mkdir -p "$d"
 gs "$d" is-merged HEAD HEAD; assert_eq "is-merged: not a repo -> fail closed (1)" "1" "$?"
 
@@ -352,6 +353,68 @@ assert_eq "safe-reset --clean-at: HEAD mismatch -> refused (rc1)" "1" "$?"
 assert_eq "safe-reset --clean-at: refused -> HEAD unchanged" "$pre_call_sha" "$(rev "$d" HEAD)"
 [ -f "$d/f.txt" ] && [ "$(cat "$d/f.txt")" = "l1
 l2" ] && pass "safe-reset --clean-at: refused -> content unchanged" || fail "safe-reset --clean-at: refused -> content unchanged" "changed"
+
+# --- --clean-at with an expected tree (CDT-543 attestation) -----------------
+
+d="$WORK/cleanat_attested"; new_repo "$d"
+printf 'l1\n' > "$d/f.txt"
+printf 'notes\n' > "$d/notes.txt"
+commit_all "$d" "base"
+sha_base=$(rev "$d" HEAD)
+( cd "$d" && git checkout -q -b feat ) >/dev/null 2>&1
+printf 'l1-feat\n' > "$d/f.txt"; commit_all "$d" "feat"
+( cd "$d" && git checkout -q master ) >/dev/null 2>&1
+# Prior-clean gate holds here: record the squash-staged tree like §4 does.
+( cd "$d" && git merge --squash feat ) >/dev/null 2>&1
+staged_tree=$(cd "$d" && git write-tree)
+[ -n "$staged_tree" ] && pass "cleanat-attested: staged tree recorded" || fail "cleanat-attested: staged tree recorded" "empty"
+
+# Attested reset with matching index+worktree: reset proceeds.
+gs "$d" safe-reset --clean-at "$sha_base" "$staged_tree"
+assert_eq "cleanat-attested: matching state rc0" "0" "$?"
+assert_eq "cleanat-attested: HEAD unchanged" "$sha_base" "$(rev "$d" HEAD)"
+gs "$d" is-clean --tracked-only; assert_eq "cleanat-attested: clean after reset" "0" "$?"
+
+# Re-squash, then a tracked edit lands in the working tree: refused, no reset.
+( cd "$d" && git merge --squash feat ) >/dev/null 2>&1
+staged_tree2=$(cd "$d" && git write-tree)
+printf 'user edit\n' >> "$d/f.txt"
+gs "$d" safe-reset --clean-at "$sha_base" "$staged_tree2"
+assert_eq "cleanat-attested: worktree drift refused (rc1)" "1" "$?"
+gs "$d" safe-reset --clean-at "$sha_base" "$staged_tree2"
+grep -q 'working tree drifted' "$WORK/.last_stderr"; assert_eq "cleanat-attested: worktree drift stderr" "0" "$?"
+assert_eq "cleanat-attested: user edit survived" "user edit" "$(sed -n '2p' "$d/f.txt")"
+# A tracked edit OUTSIDE the squash path set is caught too (whole-tree check).
+( cd "$d" && git reset -q --hard ) >/dev/null 2>&1
+( cd "$d" && git merge --squash feat ) >/dev/null 2>&1
+staged_tree2b=$(cd "$d" && git write-tree)
+printf 'sibling edit\n' > "$d/notes.txt"
+gs "$d" safe-reset --clean-at "$sha_base" "$staged_tree2b"
+assert_eq "cleanat-attested: sibling-file worktree drift refused (rc1)" "1" "$?"
+grep -q 'working tree drifted' "$WORK/.last_stderr"; assert_eq "cleanat-attested: sibling-file drift stderr" "0" "$?"
+assert_eq "cleanat-attested: sibling edit survived" "sibling edit" "$(cat "$d/notes.txt")"
+
+# Index drift (something staged after the fingerprint): refused.
+( cd "$d" && git reset -q --hard ) >/dev/null 2>&1
+( cd "$d" && git merge --squash feat ) >/dev/null 2>&1
+staged_tree3=$(cd "$d" && git write-tree)
+printf 'staged-drift\n' > "$d/extra.txt"
+( cd "$d" && git add extra.txt ) >/dev/null 2>&1
+gs "$d" safe-reset --clean-at "$sha_base" "$staged_tree3"
+assert_eq "cleanat-attested: index drift refused (rc1)" "1" "$?"
+gs "$d" safe-reset --clean-at "$sha_base" "$staged_tree3"
+grep -q 'index drifted' "$WORK/.last_stderr"; assert_eq "cleanat-attested: index drift stderr" "0" "$?"
+assert_eq "cleanat-attested: staged file survived" "staged-drift" "$(cat "$d/extra.txt")"
+
+# Unknown tree sha: refused with a resolve message.
+gs "$d" safe-reset --clean-at "$sha_base" "deadbeefdeadbeefdeadbeefdeadbeefdeadbeef"
+assert_eq "cleanat-attested: unknown tree refused (rc1)" "1" "$?"
+gs "$d" safe-reset --clean-at "$sha_base" "deadbeefdeadbeefdeadbeefdeadbeefdeadbeef"
+grep -q 'cannot resolve expected tree' "$WORK/.last_stderr"; assert_eq "cleanat-attested: unknown tree stderr" "0" "$?"
+
+# Arity: three args is a usage error.
+gs "$d" safe-reset --clean-at "$sha_base" "$staged_tree3" extra
+assert_eq "cleanat-attested: 3 args usage error (rc64)" "64" "$?"
 
 # ============================================================================
 # resolve-base (SPEC-025 M17 item 9, AC I)

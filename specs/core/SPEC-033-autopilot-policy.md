@@ -1273,10 +1273,16 @@ It MUST NOT add a budget-cap flag. `parse-flags.sh` stays six-key.
   `git-safety.sh is-clean --tracked-only` (SPEC-025 M17) on the main-repo checkout. When tracked
   edits exist, autopilot MUST write a halt card, exit ≠0 and change nothing. Untracked files do
   not block: `merge --squash` refuses to overwrite them, and a reset never touches them. Every
-  undo of the squash stage — the squash-conflict path (`end-state.md` §4) and both land-abort
-  paths (§6.5) — MUST call `git-safety.sh safe-reset --clean-at <sha>`, where `<sha>` is the HEAD
-  at which that gate passed, and MUST NOT run a bare `git reset --hard`. When HEAD has moved (a
-  delivery commit exists), `safe-reset` refuses and autopilot halts for a human.
+  undo of the squash stage calls `git-safety.sh safe-reset --clean-at` and MUST NOT run a bare
+  `git reset --hard`. The land-abort paths (§6.5) MUST pass `<staged_tree>` — the `git write-tree`
+  fingerprint of the squash-staged index taken immediately after the squash — where `<sha>` is the HEAD
+  at which that gate passed (CDT-543: the cleanup refuses when the index or the working tree
+  drifted from the fingerprint, so a tracked edit landed during the run is never discarded).
+  The squash-conflict path (§4) and the seal recovery stay single-argument `<sha>`: after a
+  conflict the index holds unmerged entries so no fingerprint can be taken, and a release hook
+  may edit the version pair so no staged-tree fingerprint holds there (SPEC-025 M17). When HEAD
+  has moved (a delivery commit exists) or the attestation refuses, `safe-reset` refuses and
+  autopilot halts for a human.
 
   **End-state branch (token class):**
   - **Release** (`bump ∈ {patch, minor, major}`): (iv-R) delegates the sole ref-mutating step
@@ -1541,6 +1547,7 @@ Format and rules: M14(g) and M14(h). Each ticket that ships through M14 has one
 
 | Date | Change |
 |------|--------|
+| 2026-10-12 | CDT-543 (end-state attestation window): §4 fingerprints the squash-staged index with `git write-tree` right after the squash and §6.5 passes it to `safe-reset --clean-at <sha> <staged_tree>` — the cleanup refuses (no reset, halt for human) when the index or the working tree drifted from the fingerprint, so a tracked edit a user lands on main during the run is never discarded. M17 form amended in SPEC-025. |
 | 2026-10-07 | CDT-512-C6: **M14(l) Grok nest deferral.** Child `/orchestrate` on Grok (`nest_depth>=1`) cannot spawn `/council`. Return `needs-parent-M14`; parent at depth 0 runs M14. `resume-ship` y remains only for real council disagree (`conf<80 / CONTRADICTED`). N18. Helper `skills/autopilot/nest-host.sh`. **(d)** / §5 goldens unchanged. New `### CDT-512-C6` AC subsection. |
 | 2026-10-02 | CDT-371: the "no workflow file edited here" note is historical. `ship-gate-council.md` already names the merge-base diff, not a staged diff. |
 | 2026-10-01 | WP 5-06 (CDT-304, CDT-333): Status DRAFT → ACTIVE. M2 cross-references AGENTS.md: epic children seal through `/release`; non-epic `--autopilot=master` stays land-no-release. |

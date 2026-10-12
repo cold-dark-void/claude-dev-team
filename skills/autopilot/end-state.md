@@ -185,6 +185,16 @@ if ! git merge --squash <branch>; then
   echo "ship-choice halt: squash conflict on <branch> — card: <card-path>"
   exit 1
 fi
+# CDT-543: fingerprint the squash-staged index NOW, immediately after the
+# squash and while the prior-clean attestation still holds. §6.5 passes this
+# tree to safe-reset --clean-at, which refuses to reset when the index or the
+# working tree has since drifted from it — a tracked edit a user lands on
+# main during the run is never discarded by the cleanup.
+STAGED_TREE=$(git write-tree) || {
+  echo "ship-choice halt: cannot record the squash-staged tree — card: <card-path>"
+  exit 1
+}
+export STAGED_TREE
 ```
 
 `git merge --squash` moves **no** ref and creates **no** commit — it only stages the branch's
@@ -361,6 +371,12 @@ sequence created in §4 is **left in place** on the main-repo tree. On this path
 therefore **MUST run the §6.5 block** below to discard the squash-staged index and restore
 HEAD's tree **before returning control**, so a later run does not inherit a half-staged working
 tree. (`git merge --abort` is not usable — the §4 `--squash` records no `MERGE_HEAD`.)
+**Attestation outcome (CDT-543):** `/release` Step 3 edits the version pair (unstaged) before
+the gates run, so on an abort after Step 3 the working tree no longer matches the §4
+fingerprint and the attested reset **refuses — halt for a human, not an automatic restore**.
+The operator resolves by hand (discard the staged squash and the mechanical version-pair edits,
+keep anything they recognize as their own) and re-runs; a tracked edit a user landed during the
+run gets the same refusal and is never discarded automatically.
 
 **§5-land-no-release abort:** on commit failure (or pre-push halt with only a staged squash),
 run the §6.5 block below to discard the staged index. On push failure after a successful
@@ -377,8 +393,27 @@ SHIP_START_SHA="<SHIP_START_SHA>"   # literal from §3.5 — required
   echo "end-state: SHIP_START_SHA unset — re-run §3.5" >&2
   exit 1
 }
-bash "$GIT_SAFETY" safe-reset --clean-at "$SHIP_START_SHA" || { echo "ship-choice halt: HEAD moved past SHIP_START_SHA (delivery commit exists) — no reset; halt for human — card: <card-path>"; exit 1; }
+STAGED_TREE="<STAGED_TREE>"   # literal from §4 — required (git write-tree after the squash)
+[ -n "$STAGED_TREE" ] && [ "$STAGED_TREE" != "<STAGED_TREE>" ] || {
+  echo "end-state: STAGED_TREE unset — re-run §4" >&2
+  exit 1
+}
+bash "$GIT_SAFETY" safe-reset --clean-at "$SHIP_START_SHA" "$STAGED_TREE"; RC=$?
+if [ "$RC" -ne 0 ]; then
+  # git-safety's stderr distinguishes the refusal (HEAD moved / index drift /
+  # working-tree drift — e.g. /release Step 3's own version-pair edits, or a
+  # tracked edit a user landed during the run). Either way: no reset, halt.
+  echo "ship-choice halt: attested cleanup refused (rc=$RC — see git-safety stderr above) — no reset; halt for human — card: <card-path>"
+  exit 1
+fi
 ```
+
+The reset is **attested** (CDT-543): §4 fingerprints the squash-staged index with
+`git write-tree` immediately after the squash, and `safe-reset --clean-at` refuses (exit 1,
+no reset) unless the index **and** the working tree still match that recorded tree. A tracked
+edit a user lands on main between the §4 prior-clean gate and this cleanup is therefore never
+discarded — the sequence halts for a human instead. The HEAD-equals-`SHIP_START_SHA` check
+still refuses when a delivery commit exists (push-failure-after-commit path).
 
 The trackers still stay **open** per §6 — nothing shipped; only the working-tree state is
 reset where the land never created a delivery commit.
