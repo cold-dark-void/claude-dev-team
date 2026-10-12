@@ -272,10 +272,24 @@ RC=$?
 # backlog epic-lib-dag-lib-missing-rc1: a missing dag-lib.sh is an
 # environment failure, not a cycle — it must exit 2, never the cycle rc 1.
 set +e
-OUT=$(EPIC_ROOT="$TMPROOT" EPIC_DAG_LIB="$TMPROOT/no-such-dag-lib.sh" bash "$LIB" check-cycle "$ACYC" 2>&1)
+OUT=$(EPIC_ROOT="$TMPROOT" EPIC_TEST_MODE=1 EPIC_DAG_LIB="$TMPROOT/no-such-dag-lib.sh" bash "$LIB" check-cycle "$ACYC" 2>&1)
 RC=$?
 [ "$RC" -eq 2 ] && pass || fail "missing dag-lib want exit 2 got $RC out=$OUT"
 echo "$OUT" | grep -q 'dag-lib not found' && pass || fail "missing dag-lib message missing: $OUT"
+
+# CDT-539: without EPIC_TEST_MODE=1 the override is ignored — the co-located
+# dag-lib runs (acyclic exit 0, never the missing-lib die 2) and a notice
+# names the ignored variable on stderr.
+set +e
+OUT=$(EPIC_ROOT="$TMPROOT" EPIC_DAG_LIB="$TMPROOT/no-such-dag-lib.sh" bash "$LIB" check-cycle "$ACYC" 2>&1)
+RC=$?
+[ "$RC" -eq 0 ] && pass || fail "override without EPIC_TEST_MODE must be ignored (want 0, got $RC out=$OUT)"
+echo "$OUT" | grep -q 'EPIC_DAG_LIB=.* ignored' && pass || fail "ignored-override notice missing: $OUT"
+# With EPIC_TEST_MODE=1 the same leaked value is honored (missing lib -> die 2).
+set +e
+OUT=$(EPIC_ROOT="$TMPROOT" EPIC_TEST_MODE=1 EPIC_DAG_LIB="$TMPROOT/no-such-dag-lib.sh" bash "$LIB" check-cycle "$ACYC" 2>&1)
+RC=$?
+[ "$RC" -eq 2 ] && pass || fail "override with EPIC_TEST_MODE=1 must be honored (want 2, got $RC out=$OUT)"
 
 # also direct dag-lib (AC14 — external reuse)
 set +e
@@ -886,7 +900,7 @@ MOCK
   run_c3() {
     local want="$1"; shift
     set +e
-    OUT=$(cd "$C2_TMP" && EPIC_ROOT="$C2_TMP" EPIC_WT_LIB="$C3_MOCK" \
+    OUT=$(cd "$C2_TMP" && EPIC_ROOT="$C2_TMP" EPIC_TEST_MODE=1 EPIC_WT_LIB="$C3_MOCK" \
       MOCK_WT_ROOT="$C2_TMP" MOCK_WT_LOG="$C3_LOG" \
       bash "$LIB" "$@" 2>&1)
     RC=$?
@@ -981,7 +995,7 @@ MOCK
   mkdir -p "$ENV_INT"
   : >"$C3_LOG"
   set +e
-  OUT=$(cd "$C2_TMP" && EPIC_ROOT="$C2_TMP" EPIC_WT_LIB="$C3_MOCK" \
+  OUT=$(cd "$C2_TMP" && EPIC_ROOT="$C2_TMP" EPIC_TEST_MODE=1 EPIC_WT_LIB="$C3_MOCK" \
     MOCK_WT_ROOT="$C2_TMP" MOCK_WT_LOG="$C3_LOG" \
     EPIC_INTEGRATION_PATH="$ENV_INT" \
     bash "$LIB" ensure-ticket-worktree FREEFORM-1 2>&1)
@@ -1007,7 +1021,7 @@ MOCK
   run_c6() {
     local want="$1"; shift
     set +e
-    OUT=$(cd "$C2_TMP" && EPIC_ROOT="$C2_TMP" EPIC_WT_LIB="$C3_MOCK" \
+    OUT=$(cd "$C2_TMP" && EPIC_ROOT="$C2_TMP" EPIC_TEST_MODE=1 EPIC_WT_LIB="$C3_MOCK" \
       MOCK_WT_ROOT="$C2_TMP" MOCK_WT_LOG="$C3_LOG" \
       bash "$LIB" "$@" 2>&1)
     RC=$?
@@ -2301,7 +2315,7 @@ printf '#!/usr/bin/env bash\necho "stub: boom" >&2\nexit 3\n' >"$W9_WT_RC3"
 w9wt() {
   local want="$1" wtlib="$2"; shift 2
   set +e
-  OUT=$(cd "$W9_ROOT" && EPIC_ROOT="$W9_ROOT" EPIC_WT_LIB="$wtlib" bash "$LIB" "$@" 2>&1)
+  OUT=$(cd "$W9_ROOT" && EPIC_ROOT="$W9_ROOT" EPIC_TEST_MODE=1 EPIC_WT_LIB="$wtlib" bash "$LIB" "$@" 2>&1)
   RC=$?
   if [ "$RC" -eq "$want" ]; then pass
   else fail "w109 wt exit $RC != $want for: $*"; echo "  out: $OUT" | head -c 500; echo
@@ -2477,7 +2491,7 @@ w9 2 check-cycle "$W9_ROOT/no-such-file.json"
 w9 64 check-cycle
 # backlog epic-lib-dag-lib-missing-rc1: a missing dag-lib is an environment
 # failure, not a cycle — it exits 2, never the cycle rc 1.
-OUT=$(cd "$W9_ROOT" && EPIC_ROOT="$W9_ROOT" EPIC_DAG_LIB="$W9_ROOT/no-such-dag-lib.sh" bash "$LIB" check-cycle "$W9_ROOT/no-such-file.json" 2>&1)
+OUT=$(cd "$W9_ROOT" && EPIC_ROOT="$W9_ROOT" EPIC_TEST_MODE=1 EPIC_DAG_LIB="$W9_ROOT/no-such-dag-lib.sh" bash "$LIB" check-cycle "$W9_ROOT/no-such-file.json" 2>&1)
 RC=$?
 [ "$RC" -eq 2 ] && pass || fail "w109 W3-37 missing dag-lib must exit 2 (rc=$RC out=$OUT)"
 
@@ -2613,7 +2627,7 @@ w9ap() {
       ;;
   esac
   set +e
-  OUT=$(cd "$W9_ROOT" && EPIC_ROOT="$W9_ROOT" EPIC_AUTOPILOT_PARSE_FLAGS="$W9_AP_STUB" bash "$LIB" "$@" 2>&1)
+  OUT=$(cd "$W9_ROOT" && EPIC_ROOT="$W9_ROOT" EPIC_TEST_MODE=1 EPIC_AUTOPILOT_PARSE_FLAGS="$W9_AP_STUB" bash "$LIB" "$@" 2>&1)
   RC=$?
   if [ "$RC" -eq "$want" ]; then pass
   else fail "w109 TL4 exit $RC != $want for stub=$stub: $*"; echo "  out: $OUT" | head -c 400; echo

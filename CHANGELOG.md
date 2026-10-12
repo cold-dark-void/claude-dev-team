@@ -6,6 +6,9 @@ Pre-written headings (release-train M5c, orchestrate version-sync tasks) are kep
 via skip-if-present when `/release` is given an explicit version — do not invent a
 second heading for the same version.
 
+### v1.22.13
+- **epic-lib gates the EPIC_* lib-path overrides behind EPIC_TEST_MODE=1 (epic-lib-path-overrides-test-mode-gate)** — the five env overrides that name a sibling script (`EPIC_DAG_LIB`, `EPIC_WT_LIB`, `EPIC_GIT_SAFETY`, `EPIC_PARSE_FLAGS`, `EPIC_AUTOPILOT_PARSE_FLAGS`) are honored only under `EPIC_TEST_MODE=1`; otherwise the co-located default is used and a stderr notice names the ignored variable (same contract as the `EPIC_SEAL_RELEASE_HOOK` gate, CDT-414). A leaked value can no longer replace a safety guard such as `git-safety.sh` in a production run. `skills/epic/test.sh` sets the mode at its 7 override sites and gains ignore/honor regression assertions. Suites: epic 952/952, seal-safety 102/102.
+
 ### v1.22.12
 - **tdd-gate validates session_id before it names a file (wp-1-10-tdd-gate-session-id-path)** — the hook template now accepts only `[A-Za-z0-9_-]` for the hook-input `session_id` and falls back to the fixed bucket name `untrusted` on any other value, so a crafted `session_id` can no longer inject a path separator into `COUNTER_FILE`. Exec suite gains case T (traversal session_id stays in the sanitized bucket and increments it across attempts; a well-formed id keeps its own bucket). Verified on-host by running the extracted hook (suite SKIPs here — no shellcheck).
 

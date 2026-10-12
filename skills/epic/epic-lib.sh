@@ -81,12 +81,29 @@ if ! command -v jq >/dev/null 2>&1; then
 fi
 
 HERE=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
-DAG_LIB="${EPIC_DAG_LIB:-$HERE/../orchestrate/dag-lib.sh}"
-# worktree-lib: EPIC_WT_LIB for tests; else co-located sibling (install-aware via PDH in SKILL callers)
-WT_LIB="${EPIC_WT_LIB:-$HERE/../worktree-lib.sh}"
+# CDT-539: the EPIC_* lib-path overrides are a test seam. A leaked value would
+# replace a safety guard (e.g. git-safety.sh) in a production run, so every
+# override is honored only under EPIC_TEST_MODE=1; otherwise the co-located
+# default is used and a notice goes to stderr (same contract as
+# EPIC_SEAL_RELEASE_HOOK, CDT-414).
+_test_path_override() { # _test_path_override VAR DEFAULT
+  local var="$1" default="$2" val="${!1:-}"
+  if [ -n "$val" ] && [ "${EPIC_TEST_MODE:-}" != "1" ]; then
+    printf 'epic-lib: %s=%s ignored — lib-path overrides run only with EPIC_TEST_MODE=1 (tests); using %s\n' "$var" "$val" "$default" >&2
+    val=""
+  fi
+  if [ -n "$val" ]; then
+    printf '%s\n' "$val"
+  else
+    printf '%s\n' "$default"
+  fi
+}
+DAG_LIB=$(_test_path_override EPIC_DAG_LIB "$HERE/../orchestrate/dag-lib.sh")
+# worktree-lib: EPIC_WT_LIB for tests (with EPIC_TEST_MODE=1); else co-located sibling
+WT_LIB=$(_test_path_override EPIC_WT_LIB "$HERE/../worktree-lib.sh")
 # git-safety: shared subprocess CLI (SPEC-025 M17) — never source, always
 # `bash "$GIT_SAFETY" <sub> ...` (WP 1-05 C2).
-GIT_SAFETY="${EPIC_GIT_SAFETY:-$HERE/../lib/git-safety.sh}"
+GIT_SAFETY=$(_test_path_override EPIC_GIT_SAFETY "$HERE/../lib/git-safety.sh")
 # Seal squash-stage / abort gate excludes — defined once (C2).
 SEAL_EXCLUDES=(.claude/epics/ .worktrees/ .wt-lock)
 
@@ -597,7 +614,8 @@ cmd_resolve_resume_flags() {
   local st
   st=$(read_state "$epic_id")
 
-  local parse_flags="${EPIC_PARSE_FLAGS:-$HERE/parse-flags.sh}"
+  local parse_flags
+  parse_flags=$(_test_path_override EPIC_PARSE_FLAGS "$HERE/parse-flags.sh")
   [ -f "$parse_flags" ] || die 1 "resolve-resume-flags: parse-flags not found: $parse_flags"
 
   local parsed prc=0
@@ -624,7 +642,8 @@ cmd_resolve_resume_flags() {
   # ap_bump: the release bump of --autopilot=<bump>, read from the autopilot
   # parser (skills/autopilot/parse-flags.sh owns the token grammar; nothing here
   # restates it). null (no token) and `master` (land-no-release) are not a bump.
-  local ap_parse="${EPIC_AUTOPILOT_PARSE_FLAGS:-$HERE/../autopilot/parse-flags.sh}"
+  local ap_parse
+  ap_parse=$(_test_path_override EPIC_AUTOPILOT_PARSE_FLAGS "$HERE/../autopilot/parse-flags.sh")
   [ -f "$ap_parse" ] || die 1 "resolve-resume-flags: autopilot parse-flags not found: $ap_parse"
   local ap_json aprc=0 ap_bump=""
   # Fail closed: stdout only (the parser's stderr passes through); a parser
