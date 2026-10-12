@@ -96,11 +96,16 @@ S1=$(nth_matching '### S.1 Theme key + reopen status' 'theme-status.sh') || S1="
 
 plug() {
   local dest="$1"
-  mkdir -p "$dest/skills/debug" "$dest/agents"
+  mkdir -p "$dest/skills/debug" "$dest/agents" "$dest/.claude-plugin"
   cp "$ROOT/skills/plugin-dir.sh" "$dest/skills/plugin-dir.sh"
   cp "$ROOT/skills/debug/theme-status.sh" "$dest/skills/debug/theme-status.sh"
   chmod +x "$dest/skills/plugin-dir.sh" "$dest/skills/debug/theme-status.sh"
   printf '%s\n' '# pm' > "$dest/agents/pm.md"
+  # CDT-540: the stanza's marketplace loop requires the dev-team identity.
+  printf '%s\n' '{
+  "name": "dev-team",
+  "version": "0.0.1"
+}' > "$dest/.claude-plugin/plugin.json"
 }
 
 CONS="$TMP/consumer"

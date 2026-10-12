@@ -6,6 +6,9 @@ Pre-written headings (release-train M5c, orchestrate version-sync tasks) are kep
 via skip-if-present when `/release` is given an explicit version — do not invent a
 second heading for the same version.
 
+### v1.22.14
+- **Marketplace tier requires the dev-team identity (plugin-dir-marketplace-name-check)** — `marketplace_roots()` now filters through `is_dev_team_root` (plugin.json `"name": "dev-team"` + `agents/pm.md`), and the PDH bootstrap stanza's marketplace loop gains the same fixed-string grep — canonical SPEC-002 text, the managed later-fence partial, and all 93 inline copies changed together (CDT-508 precedent); skill-lint C5 byte-pin stays green. A decoy marketplace shipping only the two signature files can no longer take the dev-team slot: new plugin-dir-test section proves the decoy is skipped in favor of the cache tier while an identity-passing marketplace still wins. Collateral: `commands/handoff.md` grew ~95 B from the stanza change, so the SPEC-018 M19 stub cap moves 12000 → 12100, and the debug test-fences marketplace fixture now writes the identity plugin.json. Suites: plugin-dir 280/280, debug fences 20/20, handoff stub 63/63, skill-lint 222/0.
+
 ### v1.22.13
 - **epic-lib gates the EPIC_* lib-path overrides behind EPIC_TEST_MODE=1 (epic-lib-path-overrides-test-mode-gate)** — the five env overrides that name a sibling script (`EPIC_DAG_LIB`, `EPIC_WT_LIB`, `EPIC_GIT_SAFETY`, `EPIC_PARSE_FLAGS`, `EPIC_AUTOPILOT_PARSE_FLAGS`) are honored only under `EPIC_TEST_MODE=1`; otherwise the co-located default is used and a stderr notice names the ignored variable (same contract as the `EPIC_SEAL_RELEASE_HOOK` gate, CDT-414). A leaked value can no longer replace a safety guard such as `git-safety.sh` in a production run. `skills/epic/test.sh` sets the mode at its 7 override sites and gains ignore/honor regression assertions. Suites: epic 952/952, seal-safety 102/102.
 

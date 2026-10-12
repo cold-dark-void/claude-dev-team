@@ -249,7 +249,10 @@ mkdir -p "$MP_ROOT/skills/handoff" "$MP_ROOT/.claude-plugin" "$MP_ROOT/agents" "
 # Marketplace signature files (slug-free bootstrap discovery).
 : > "$MP_ROOT/skills/plugin-dir.sh"
 : > "$MP_ROOT/agents/pm.md"
-printf '%s\n' '{"name":"dev-team","version":"1.0.3"}' > "$MP_ROOT/.claude-plugin/plugin.json"
+printf '%s\n' '{
+  "name": "dev-team",
+  "version": "1.0.3"
+}' > "$MP_ROOT/.claude-plugin/plugin.json"
 printf '%s\n' '{"name":"dev-team","version":"1.0.3"}' > "$CACHE_ROOT/1.0.3/.claude-plugin/plugin.json"
 
 # Legacy cache: --sections only (five-extractor).
@@ -365,7 +368,10 @@ assert_contains "CDT-82 verify legacy warn" "$v_out" "legacy"
 mkdir -p "$MP_ROOT/skills/handoff" "$MP_ROOT/.claude-plugin" "$MP_ROOT/agents" "$MP_ROOT/skills"
 : > "$MP_ROOT/skills/plugin-dir.sh"
 : > "$MP_ROOT/agents/pm.md"
-printf '%s\n' '{"name":"dev-team","version":"1.0.3"}' > "$MP_ROOT/.claude-plugin/plugin.json"
+printf '%s\n' '{
+  "name": "dev-team",
+  "version": "1.0.3"
+}' > "$MP_ROOT/.claude-plugin/plugin.json"
 cat > "$MP_ROOT/skills/handoff/prepass.sh" <<'STM'
 #!/usr/bin/env bash
 # --events
@@ -377,6 +383,32 @@ v_rc=$(
   echo $?
 )
 assert_eq "CDT-82 verify recovers STM" "$v_rc" "0"
+
+# --- CDT-540: the marketplace tier requires the dev-team identity ---
+echo "== CDT-540 marketplace identity gate =="
+# A marketplace tree shipping the two signature files but naming another plugin
+# must be skipped: the cache tier answers instead.
+CDT540_HOME="$TMP/cdt540-home"
+mkdir -p "$CDT540_HOME/.claude/plugins/cache/cold-dark-void/dev-team/1.0.0/skills"
+: > "$CDT540_HOME/.claude/plugins/cache/cold-dark-void/dev-team/1.0.0/skills/plugin-dir.sh"
+DECOY_MP="$CDT540_HOME/.claude/plugins/marketplaces/decoy-slug"
+mkdir -p "$DECOY_MP/skills" "$DECOY_MP/agents"
+: > "$DECOY_MP/skills/plugin-dir.sh"
+mk_plugin_identity "$DECOY_MP" "other-plugin"
+out=$(cd "$FOREIGN" && env -u CLAUDE_PLUGIN_ROOT HOME="$CDT540_HOME" bash "$LIB" root 2>/dev/null)
+assert_contains "CDT-540 decoy marketplace skipped, cache wins" "$out" "/cache/cold-dark-void/dev-team/1.0.0"
+# Control: a marketplace root that passes the identity check wins over the cache
+# (marketplace beats an older cache; CDT-82). 9.9.9 > the 1.0.0 cache above.
+GOOD_MP="$CDT540_HOME/.claude/plugins/marketplaces/good-slug"
+mkdir -p "$GOOD_MP/skills" "$GOOD_MP/agents" "$GOOD_MP/.claude-plugin"
+: > "$GOOD_MP/skills/plugin-dir.sh"
+: > "$GOOD_MP/agents/pm.md"
+printf '%s\n' '{
+  "name": "dev-team",
+  "version": "9.9.9"
+}' > "$GOOD_MP/.claude-plugin/plugin.json"
+out=$(cd "$FOREIGN" && env -u CLAUDE_PLUGIN_ROOT HOME="$CDT540_HOME" bash "$LIB" root 2>/dev/null)
+assert_contains "CDT-540 identity-passing marketplace wins" "$out" "/marketplaces/good-slug"
 
 # --- CDT-166: multi-slug / multi-path / stanza path_ver_pick ---
 echo "== CDT-166 multi-slug path_ver_pick =="
@@ -700,7 +732,7 @@ EXPECTED_RESOLVER_COUNT=12
 # spot. A named exclusion that no longer matches the predicate is a stale
 # exclusion (a hole) and MUST fail the gate.
 NAMED_EXCLUSIONS=(
-  "skills/plugin-dir.sh:354|canonical path_ver_pick ranker, not a copy of it: \$cache and \$rel are function-scope locals and path_ver_pick is a shell function at skills/plugin-dir.sh:64, so the line cannot be extracted and executed standalone; its behaviour is gated directly through the plugin-dir.sh CLI tier-4 fixtures above"
+  "skills/plugin-dir.sh:358|canonical path_ver_pick ranker, not a copy of it: \$cache and \$rel are function-scope locals and path_ver_pick is a shell function at skills/plugin-dir.sh:64, so the line cannot be extracted and executed standalone; its behaviour is gated directly through the plugin-dir.sh CLI tier-4 fixtures above"
 )
 
 # Discovery: anchored on the SPEC-002 structural invariant — a slug-free
@@ -1200,7 +1232,7 @@ PREC_HOME3="$TMP/c237-prec-home3"
 PREC_MP_ROOT="$PREC_HOME3/.claude/plugins/marketplaces/prec-mp-slug"
 mkdir -p "$PREC_MP_ROOT/skills" "$PREC_MP_ROOT/agents"
 : > "$PREC_MP_ROOT/skills/plugin-dir.sh"
-: > "$PREC_MP_ROOT/agents/pm.md"
+mk_plugin_identity "$PREC_MP_ROOT"
 pdh=$(
   cd "$PREC_CWD3" &&
   env -u CLAUDE_PLUGIN_ROOT HOME="$PREC_HOME3" bash "$STANZA_SH"
@@ -1287,7 +1319,7 @@ S11_MP="$S11_HOME_MP/.claude/plugins/marketplaces/some-slug"
 S11_MP_CACHE="$S11_HOME_MP/.claude/plugins/cache/cold-dark-void/dev-team/7.7.7"
 mkdir -p "$S11_MP/skills" "$S11_MP/agents" "$S11_MP_CACHE/skills"
 : > "$S11_MP/skills/plugin-dir.sh"
-: > "$S11_MP/agents/pm.md"
+mk_plugin_identity "$S11_MP"
 : > "$S11_MP_CACHE/skills/plugin-dir.sh"
 # The root Claude Code would substitute for the token (not a cwd, not a dev checkout).
 S11_ROOT="$S11/loaded-plugin"

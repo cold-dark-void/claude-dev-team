@@ -26,7 +26,8 @@
 #   2. Dev main checkout (git-common-dir MROOT): only if different from WTROOT,
 #      $MROOT is the dev-team plugin and $MROOT/<relpath> exists.
 #   3. Marketplace clone vs versioned cache (CDT-82):
-#      - marketplace: ~/.claude/plugins/marketplaces/* with skills/plugin-dir.sh + agents/pm.md
+#      - marketplace: ~/.claude/plugins/marketplaces/* passing is_dev_team_root
+#        (agents/pm.md + plugin.json "name": "dev-team"; CDT-540)
 #      - cache: ~/.claude/plugins/cache/$SLUG/{dev-team,dev-team-edge}/<VER>/
 #        (highest segment rank across BOTH channels; equal VER prefers
 #        dev-team — CDT-508)
@@ -179,11 +180,14 @@ stm_marker() {
 }
 
 # marketplace_roots — print absolute marketplace plugin roots that look like dev-team.
+# CDT-540: the WP 1-11 identity check (plugin.json "name": "dev-team" + pm.md)
+# gates the tier, so another marketplace shipping the two signature files cannot
+# take the dev-team slot.
 marketplace_roots() {
   local d
   for d in "$HOME"/.claude/plugins/marketplaces/*/; do
     [ -d "$d" ] || continue
-    if [ -f "${d}skills/plugin-dir.sh" ] && [ -f "${d}agents/pm.md" ]; then
+    if is_dev_team_root "${d%/}"; then
       printf '%s\n' "${d%/}"
     fi
   done
