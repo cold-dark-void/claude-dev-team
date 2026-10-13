@@ -951,26 +951,24 @@ cmd_release_lock() {
 }
 
 cmd_preflight() {
-  local branch dirty
+  local branch ok=1 reason=()
   branch=$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo UNKNOWN)
-  # Exclude the release-train queue dir: it holds in-flight CLI state, not
-  # repo content, and untracked queue files should never fail preflight
-  # (CDT-332). Excluded whether or not it is gitignored.
-  # Top-anchored (':/' + top magic) so preflight checks the WHOLE repo
-  # regardless of cwd -- a plain '.' pathspec limits the check to the cwd
-  # subtree, hiding dirt elsewhere in the repo when preflight runs from a
-  # subdirectory.
-  dirty=$(git status --porcelain -- ':/' ':(top,exclude).claude/release-train' 2>/dev/null || true)
-  local ok=1
-  local reason=()
   case "$branch" in
     master|main) ;;
     *) ok=0; reason+=("wrong-branch:$branch") ;;
   esac
-  if [ -n "$dirty" ]; then
+  # One tested implementation: skills/lib/git-safety.sh is-clean. It is
+  # top-anchored (':/') and excludes the release-train queue dir (CDT-332):
+  # in-flight CLI state, not repo content — untracked queue files must
+  # never fail preflight, gitignored or not.
+  local is_clean_rc=0
+  bash "$SCRIPT_DIR/../lib/git-safety.sh" is-clean -- .claude/release-train || is_clean_rc=$?
+  if [ "$is_clean_rc" -eq 1 ]; then
     ok=0
     reason+=("dirty")
   fi
+  # is-clean rc 2 (git error) keeps the old `|| true` semantics: with no
+  # git output preflight cannot see dirt and does not fail the gate on it.
   if [ "$ok" -eq 1 ]; then
     printf 'ok\n'
     return 0

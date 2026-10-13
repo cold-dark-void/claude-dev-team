@@ -17,6 +17,12 @@ TICKET="CDV-170-TEST"
 
 die() { echo "FAIL: $*" >&2; exit 1; }
 
+# AC-E's watchdog wrapper needs a host timeout(1), which stock macOS lacks.
+# Whole-suite skip exit 77 per SPEC-030 R18, before any other work.
+# shellcheck source=../../tests/lib/skip.sh
+. "$SCRIPT_DIR/../../tests/lib/skip.sh"
+require_cmd timeout
+
 # ---- Temp git repo (fake MROOT) ---------------------------------------------
 TMP=$(mktemp -d "${TMPDIR:-/tmp}/ci-watch-test-poll.XXXXXX")
 cleanup() { rm -rf "$TMP"; }

@@ -6,6 +6,9 @@ Pre-written headings (release-train M5c, orchestrate version-sync tasks) are kep
 via skip-if-present when `/release` is given an explicit version — do not invent a
 second heading for the same version.
 
+### v1.25.2
+- **Test-infra trio: test-poll skips without `timeout`; guardrails a2 finds its citation by marker; release-train preflight reuses git-safety is-clean (wp-1-10-test-poll-macos-timeout, guardrails-test-a2-pins-ship-gate-council-lines, train-preflight-use-git-safety-is-clean)** — `test-poll.sh` now sources `tests/lib/skip.sh` + `require_cmd timeout` so stock macOS gets SKIP/77 instead of a hard die; the autopilot guardrails a2 check (and its bite tests) extract the `ship-gate-council.md` mapper citation by awk marker with a shift-proof byte-equality variant; `train-lib.sh cmd_preflight` delegates its clean check to the shared `git-safety.sh is-clean` (one tested implementation; rc=2 keeps the old fail-open). Suites: ci-watch 23/0, guardrails 70/0, release-train 112/0.
+
 ### v1.25.1
 - **SECURITY.md supported-versions table is gate-checked on minor/major bumps (minor-bump-security-versions-regen)** — `check-bump-class.sh` gains a B7 pre-gate: on a minor/major bump the staged (or committed / worktree, per mode) `SECURITY.md` table row must match the new core minor or the gate exits 1 — including when no new command file would otherwise trigger the Surface predicate — so a stale table surfaces before the full suite instead of at the docs-drift fold gate (the v1.23.0 miss). `/release` Step 3d now states the stage-with-version-pair / no-op-diff rule explicitly, SPEC-010 B1/B2 reworded so the empty-set pass only holds after B7, and the pre-commit comment updated. Test suite extended to 46 cases (stale/regen/missing/cached/commit fixtures); release 170/0, ship-steps 67/0, ship-history 84/0, docs-drift 112/0.
 

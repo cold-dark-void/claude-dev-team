@@ -39,7 +39,8 @@
 #        not hold "RECIPE STEP" (no restatement of the recipe's own steps).
 #
 # Also covers AC A (a1-a5): SPEC-033 Version History names the review report;
-# ship-gate-council.md line 7/8 names the mapper and "not a render helper";
+# ship-gate-council.md intro (marker-located) names the mapper and "not a
+# render helper";
 # it cites M14(b)/(i) and does not restate M14(b)'s worst-order string or
 # "lowest confidence".
 # a5 (WP 1-15 AC A/G): SPEC-033 names WP 1-15, M14(a) and M14(g) in a dated
@@ -217,6 +218,18 @@ extract_sgc_3b() {
     /^### 3b\./ { grab = 1 }
     grab && /^## / { exit }
     grab { print }
+  ' "$1"
+}
+
+# extract_sgc_mapper <ship-gate-council.md path> -- the two intro blockquote
+# lines that cite the mapper: the line holding `ship-gate-verdict.sh` plus
+# the following line, located by marker (first hit before the first "## "
+# heading), not a fixed line number (WP 1-15 defect class: no hardcoded
+# line numbers).
+extract_sgc_mapper() {
+  awk '
+    /^## / { exit }
+    /ship-gate-verdict\.sh/ { print; getline; print; exit }
   ' "$1"
 }
 
@@ -446,20 +459,31 @@ else
   pass "a1-bite mutated row loses .claude/council/ path -> check would fail"
 fi
 
-LINE7=$(sed -n '7p' "$SG")
-LINE8=$(sed -n '8p' "$SG")
-if printf '%s' "$LINE7" | grep -q 'ship-gate-verdict\.sh' \
-  && printf '%s' "$LINE8" | grep -q 'not a render helper'; then
-  pass "a2 ship-gate-council.md line 7/8 names the mapper + 'not a render helper'"
+SG_MAPPER=$(extract_sgc_mapper "$SG")
+MAPPER_LINE1=$(sed -n '1p' <<< "$SG_MAPPER")
+MAPPER_LINE2=$(sed -n '2p' <<< "$SG_MAPPER")
+if grep -q 'ship-gate-verdict\.sh' <<< "$MAPPER_LINE1" \
+  && grep -q 'not a render helper' <<< "$MAPPER_LINE2"; then
+  pass "a2 ship-gate-council.md intro cites the mapper + 'not a render helper' (marker-located)"
 else
-  fail "a2 ship-gate-council.md line 7/8 missing mapper name or 'not a render helper'"
+  fail "a2 ship-gate-council.md mapper citation missing or 'not a render helper' line absent"
 fi
 remove_line_substr "$SG" "$TMP/a2-sg-mut.md" "not a render helper"
-MUT_LINE8=$(sed -n '8p' "$TMP/a2-sg-mut.md")
-if printf '%s' "$MUT_LINE8" | grep -q 'not a render helper'; then
+MUT_MAPPER_LINE2=$(sed -n '2p' <<< "$(extract_sgc_mapper "$TMP/a2-sg-mut.md")")
+if grep -q 'not a render helper' <<< "$MUT_MAPPER_LINE2"; then
   fail "a2-bite mutation did not remove 'not a render helper'"
 else
-  pass "a2-bite mutated line 8 loses 'not a render helper' -> check would fail"
+  pass "a2-bite mutated mapper tail loses 'not a render helper' -> check would fail"
+fi
+
+# a2-bite2: one line inserted above the intro must not shift the marker-
+# located citation (same shift-proofing as g4-bite2, AC K).
+{ printf '%s\n' '<!-- a2-bite2: inserted line -->'; cat -- "$SG"; } > "$TMP/a2-bite2-base.md" || fail "a2-bite2 could not build inserted-line copy"
+SHIFTED_MAPPER=$(extract_sgc_mapper "$TMP/a2-bite2-base.md")
+if [ "$SHIFTED_MAPPER" = "$SG_MAPPER" ]; then
+  pass "a2-bite2 marker-located mapper citation is byte-equal after one inserted line"
+else
+  fail "a2-bite2 mapper citation shifted after one inserted line"
 fi
 
 if has "$SG" "M14(b)" && has "$SG" "M14(i)"; then
