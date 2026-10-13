@@ -340,6 +340,7 @@ Glossary term: Advisor (`CONTEXT.md`).
 
 | Date | Change |
 |------|--------|
+| 2026-10-13 | CDT-558: `### CDT-558` ACs for the agent file + `advisor-protocol.md` include (epic child C1). M4 roster-docs and the 14-file SPEC-003 count stay with CDT-562. |
 | 2026-10-13 | Initial DRAFT (CDT-556). Third roster category; two-phase ask.sh; `--with-advisor`; triggers (b)/(c)/(a); BC8 reuse for unavailable; additive card key `advisor`. |
 
 ## Acceptance criteria
@@ -403,6 +404,21 @@ Format and rules: SPEC-033 M14(g) and M14(h).
 - **AC27.** Shadow mode has no auto-widen path: no skill writes a widen flag or sets shadow off; a test greps the advisor skill for auto-widen and expects zero hits.
   Verify: bash skills/advisor/test.sh
 - **AC28.** [process] `bash tools/run-all-tests.sh` exits 0.
+
+### CDT-558
+
+- **AC1.** `agents/advisor.md` exists. YAML frontmatter has `name: advisor`, a `description`, `tools: Read, Grep, Glob, Bash` (that exact string; no `Write`, `Edit`, or `SendMessage`), `model: opus`, `effort: high`, and `mode: subagent`.
+  Verify: bash skills/agent-memory/agent-blocks-test.sh
+- **AC2.** `skills/agent-memory/advisor-protocol.md` exists as a managed partial. It is `protocol.md` minus the directives-load fence (no `directives.md` cat) and minus `cortex` from the fallback `for TYPE in ...` loop (`memory lessons` only). Fences keep the PDH stanza. `agents/advisor.md` carries `<!-- include: skills/agent-memory/advisor-protocol.md agent=advisor -->` and does not include `protocol.md`, `glossary-handback.md`, or `cortex-load.md`. `sync-includes.py check` exits 0 on that region (the suite invokes it).
+  Verify: bash skills/agent-memory/agent-blocks-test.sh
+- **AC3.** `agents/advisor.md` body states: spawned only by the orchestrator through `ask.sh`; never routed directly; read-only; advisory-but-logged; findings as your final message. Body restates no-mutating-Bash: do not run a `Bash` command that mutates state (no writes, no installs, no git commands that change refs or the working tree).
+  Verify: bash skills/agent-memory/agent-blocks-test.sh
+- **AC4.** `advisor` is absent from the `agents/project-init.md` cortex-bootstrap `for agent in pm tech-lead ic5 ic4 devops qa ds` list, from the `commands/adjust-agent.md` dashboard `for AGENT in pm tech-lead ic5 ic4 devops qa ds` list, and from `PIN_AGENTS` in `install.sh` and `uninstall.sh`. `agent-blocks-test.sh` `INTERNAL=` stays the six non-behavioral names; advisor is a separate ADVISORY check, not folded into `INTERNAL=`.
+  Verify: bash skills/agent-memory/agent-blocks-test.sh
+- **AC5.** `specs/OWNERS` has exactly one `agents/advisor.md` row; the owner is `SPEC-003`.
+  Verify: bash skills/agent-memory/agent-blocks-test.sh
+- **AC6.** `install.sh` `strip_frontmatter` drops the frontmatter `tools:` line from `agents/advisor.md`. `install-test.sh` has a case that generates the opencode copy of `agents/advisor.md` and asserts that copy's frontmatter has no `tools:` line.
+  Verify: bash install-test.sh
 
 ## Alternatives considered
 
