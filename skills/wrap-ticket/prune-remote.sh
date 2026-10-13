@@ -20,6 +20,11 @@
 # copy of the base order.
 set -euo pipefail
 
+# Bound ssh connects (CDT-524): a github SSH timeout hung the CDT-512 wrap
+# ~8 min. Append ConnectTimeout to the ssh git spawns for ssh remotes; a
+# caller-set GIT_SSH_COMMAND keeps its options (a later -o wins).
+export GIT_SSH_COMMAND="${GIT_SSH_COMMAND:-ssh} -o ConnectTimeout=10"
+
 HERE=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 EPIC_LIB="$HERE/../epic/epic-lib.sh"
 GIT_SAFETY="$HERE/../lib/git-safety.sh"
@@ -309,7 +314,7 @@ cmd_prune() {
         continue
         ;;
       failed)
-        printf 'remote prune failed: %s: %s\n' "$name" "$CHK_REASON"
+        printf 'remote prune failed: %s: %s; continuing\n' "$name" "$CHK_REASON"
         continue
         ;;
       leftover)
@@ -331,7 +336,7 @@ cmd_prune() {
     elif is_already_gone "$err"; then
       :
     else
-      printf 'remote prune failed: %s: %s\n' "$name" "$(join_err "$err")"
+      printf 'remote prune failed: %s: %s; continuing\n' "$name" "$(join_err "$err")"
     fi
   done < <(printf '%s\n' "${CANDS-}")
   exit 0

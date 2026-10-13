@@ -2304,6 +2304,21 @@ printf '%s' "$OUT" | jq -e '.release_bump=="patch" and .worktree_enabled==true' 
   && pass || fail "w109 W2-34 resume with stored bump: want patch/true ($OUT)"
 w9 64 assert-release-allowed W34-SEAL
 
+# --- bump-class mismatch on resume: fail-open stderr notice, stored bump wins
+# (stored minor + resume --autopilot=patch must not downgrade to patch silently)
+w9 0 init W34-BUMP --title "mismatch bump" --mode orchestrate --worktree-enabled true --release-bump minor
+W34_RC=0
+W34_ERR=$(cd "$W9_ROOT" && EPIC_ROOT="$W9_ROOT" bash "$LIB" resolve-resume-flags W34-BUMP -- W34-BUMP --autopilot=patch 2>&1 >/dev/null) || W34_RC=$?
+[ "$W34_RC" -eq 0 ] && pass || fail "w109 bump mismatch resume exit $W34_RC (want 0, fail-open notice)"
+W34_JSON=$(cd "$W9_ROOT" && EPIC_ROOT="$W9_ROOT" bash "$LIB" resolve-resume-flags W34-BUMP -- W34-BUMP --autopilot=patch 2>/dev/null)
+printf '%s' "$W34_JSON" | jq -e '.release_bump=="minor"' >/dev/null \
+  && pass || fail "w109 bump mismatch: stored minor must win ($W34_JSON)"
+printf '%s' "$W34_ERR" | grep -q 'autopilot=patch' && printf '%s' "$W34_ERR" | grep -q 'release_bump=minor' \
+  && pass || fail "w109 bump mismatch: stderr notice must name both bumps ($W34_ERR)"
+# matching bump on resume: no notice
+W34_ERR2=$(cd "$W9_ROOT" && EPIC_ROOT="$W9_ROOT" bash "$LIB" resolve-resume-flags W34-SEAL -- W34-SEAL --autopilot=patch 2>&1 >/dev/null)
+case "$W34_ERR2" in *notice*) fail "w109 bump match: unexpected notice ($W34_ERR2)" ;; *) pass ;; esac
+
 # --- T2 / CDT-315: ensure-integration-worktree / ensure-ticket-worktree never
 # exit 0 when worktree-lib fails. A stub that exits 0 with an empty path is a
 # failure; a stub that exits N keeps rc N.

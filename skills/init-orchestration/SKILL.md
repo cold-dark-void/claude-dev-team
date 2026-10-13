@@ -1220,8 +1220,12 @@ rm -f "$TMPF"
 
 # Compound commands (CDT-334): a compound command must pass through
 # unmatched — the permissionDecision:"allow" re-grant below is for one
-# simple (non-compound) command only.
-case "$COMMAND" in *';'*|*'&'*|*'|'*|*'`'*|*'$('*|*'<('*|*'>('*|*$'\n'*|*$'\r'*) exit 0 ;; esac
+# simple (non-compound) command only. A plain fd redirect (2>&1, >&2) is
+# a redirection, not a compound operator: strip it before the scan; bare
+# &, &&, ;, |, backticks, $(), <(), >(), newline still mark compound.
+_FDSCAN="${COMMAND//[0-9]>&[0-9]/ }"
+_FDSCAN="${_FDSCAN//>&[0-9]/ }"
+case "$_FDSCAN" in *';'*|*'&'*|*'|'*|*'`'*|*'$('*|*'<('*|*'>('*|*$'\n'*|*$'\r'*) exit 0 ;; esac
 
 NOISY=false
 case "$COMMAND" in

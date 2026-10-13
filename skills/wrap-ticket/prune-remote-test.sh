@@ -629,6 +629,43 @@ assert_contains "two failures: LIN-99 line" "$OUT" "remote prune failed: feat/LI
 TOTAL_LINES=$(printf '%s\n' "$OUT" | grep -c .)
 assert_eq "two failures: no other output lines" "2" "$TOTAL_LINES"
 
+# ---- CDT-524 ssh connect bound: a hanging ssh must fail open in seconds ----
+echo "== CDT-524 ssh ConnectTimeout =="
+assert_file_match "ssh connect bounded via GIT_SSH_COMMAND" "$PRUNE" 'ConnectTimeout=10'
+SSHSHIM="$TMP/ssh-shim"
+mkdir -p "$SSHSHIM"
+cat > "$SSHSHIM/ssh" <<'SHIM_EOF'
+#!/usr/bin/env bash
+# Stub ssh: honors -o ConnectTimeout=<n> by sleeping n then failing like a
+# real connect timeout; without the flag it hangs 300s (blackhole peer).
+_n=""
+_p=""
+for _a in "$@"; do
+  if [ "$_p" = "-o" ]; then case "$_a" in ConnectTimeout=*) _n="${_a#ConnectTimeout=}" ;; esac; fi
+  _p="$_a"
+done
+if [ -n "$_n" ]; then sleep "$_n"; else sleep 300; fi
+exit 255
+SHIM_EOF
+chmod +x "$SSHSHIM/ssh"
+SSH524="$TMP/ssh524"; SSH524_BARE="$TMP/ssh524-bare.git"
+work_repo "$SSH524" "$SSH524_BARE"
+git -C "$SSH524" checkout -q -b feat/CDT-524
+git -C "$SSH524" commit --allow-empty -q -m feat
+git -C "$SSH524" checkout -q master
+git -C "$SSH524" merge -q --ff-only feat/CDT-524
+git -C "$SSH524" push -q origin master feat/CDT-524
+# Ssh URL so git routes the network-active calls through the stub ssh. The
+# local tracking refs keep resolve-base working after the rewrite.
+git -C "$SSH524" remote set-url origin "git@github.com:example/ssh524.git"
+OUT=$(cd "$SSH524" && PATH="$SSHSHIM:$PATH" timeout 60 bash "$PRUNE" prune CDT-524)
+RC=$?
+assert_eq "hanging ssh: exit 0 (fail-open, not killed)" "0" "$RC"
+assert_contains "hanging ssh: failure named" "$OUT" "remote prune failed: feat/CDT-524:"
+assert_contains "hanging ssh: continuing" "$OUT" "; continuing"
+git -C "$SSH524_BARE" show-ref --verify --quiet refs/heads/feat/CDT-524
+assert_eq "hanging ssh: remote branch survives" "0" "$?"
+
 # ---- AC7 SKILL presence -----------------------------------------------------
 echo "== AC7 SKILL =="
 assert_file_match "plugin-dir resolve" "$SKILL" 'plugin-dir\.sh" file skills/wrap-ticket/prune-remote\.sh'

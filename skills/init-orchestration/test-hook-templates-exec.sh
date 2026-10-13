@@ -351,6 +351,31 @@ check_rc "C: npm test (regression) rc" "$?" "0"
 check_contains "C: npm test permissionDecision allow" "$WORK/bcr2.out" '"permissionDecision": "allow"'
 check_contains "C: npm test updatedInput _ccout=" "$WORK/bcr2.out" '_ccout='
 
+# regression: a plain fd redirect is a redirection, not a compound marker
+run_bc "npm test 2>&1" "$WORK/bcr3.out" "$WORK/bcr3.err"
+check_rc "C: npm test 2>&1 rc" "$?" "0"
+check_contains "C: npm test 2>&1 permissionDecision allow" "$WORK/bcr3.out" '"permissionDecision": "allow"'
+check_contains "C: npm test 2>&1 updatedInput _ccout=" "$WORK/bcr3.out" '_ccout='
+
+run_bc "go test ./... 2>&1" "$WORK/bcr4.out" "$WORK/bcr4.err"
+check_rc "C: go test ./... 2>&1 rc" "$?" "0"
+check_contains "C: go test ./... 2>&1 permissionDecision allow" "$WORK/bcr4.out" '"permissionDecision": "allow"'
+
+run_bc "make test >out.log 2>&1" "$WORK/bcr5.out" "$WORK/bcr5.err"
+check_rc "C: make test >out.log 2>&1 rc" "$?" "0"
+check_contains "C: make test >out.log 2>&1 permissionDecision allow" "$WORK/bcr5.out" '"permissionDecision": "allow"'
+
+# still compound: an fd redirect next to a real compound operator
+run_bc "npm test 2>&1 && make" "$WORK/bcc_fd1.out" "$WORK/bcc_fd1.err"
+check_rc "C: npm test 2>&1 && make rc" "$?" "0"
+check_not_contains "C: npm test 2>&1 && make no permissionDecision" "$WORK/bcc_fd1.out" "permissionDecision"
+check_not_contains "C: npm test 2>&1 && make no updatedInput" "$WORK/bcc_fd1.out" "updatedInput"
+
+run_bc "npm test 2>&1 | tee /dev/null" "$WORK/bcc_fd2.out" "$WORK/bcc_fd2.err"
+check_rc "C: npm test 2>&1 | tee rc" "$?" "0"
+check_not_contains "C: npm test 2>&1 | tee no permissionDecision" "$WORK/bcc_fd2.out" "permissionDecision"
+check_not_contains "C: npm test 2>&1 | tee no updatedInput" "$WORK/bcc_fd2.out" "updatedInput"
+
 # prose checks
 check_not_contains "C: SKILL.md no 'bounded exposure'" "$ROOT/skills/init-orchestration/SKILL.md" "bounded exposure"
 check_not_contains "C: SKILL.md no 'bounded NOISY allowlist only'" "$ROOT/skills/init-orchestration/SKILL.md" "bounded NOISY allowlist only"

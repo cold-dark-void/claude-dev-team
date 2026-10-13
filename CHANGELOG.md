@@ -6,6 +6,9 @@ Pre-written headings (release-train M5c, orchestrate version-sync tasks) are kep
 via skip-if-present when `/release` is given an explicit version — do not invent a
 second heading for the same version.
 
+### v1.25.3
+- **Ship/remote/hooks trio: bounded SSH prune, epic resume bump notice, bash-compress allows plain fd redirects (wrap-ticket-remote-prune-fail-open-faster-on-ssh-t, epic-resume-autopilot-bump-override, wp-1-10-bash-compress-redirect-allow)** — `prune-remote.sh` sets `GIT_SSH_COMMAND` with `-o ConnectTimeout=10` (caller options preserved) so a dead remote fails open in seconds instead of hanging ~8 min; `/epic` resume over a mismatched `--autopilot=<bump>` prints a stderr notice naming both values and keeps the stored seal bump (no state mutation); the bash-compress hook strips plain fd redirects (`2>&1`, `>&2`) before the compound scan so `npm test 2>&1` regains the auto-allow while `&`/`&&`/`;`/`|` still mark compound (SPEC-002 clause updated). Suites: wrap-ticket prune 125/0 (hanging-stub test), epic 957/0, hook-template exec 13 new asserts.
+
 ### v1.25.2
 - **Test-infra trio: test-poll skips without `timeout`; guardrails a2 finds its citation by marker; release-train preflight reuses git-safety is-clean (wp-1-10-test-poll-macos-timeout, guardrails-test-a2-pins-ship-gate-council-lines, train-preflight-use-git-safety-is-clean)** — `test-poll.sh` now sources `tests/lib/skip.sh` + `require_cmd timeout` so stock macOS gets SKIP/77 instead of a hard die; the autopilot guardrails a2 check (and its bite tests) extract the `ship-gate-council.md` mapper citation by awk marker with a shift-proof byte-equality variant; `train-lib.sh cmd_preflight` delegates its clean check to the shared `git-safety.sh is-clean` (one tested implementation; rc=2 keeps the old fail-open). Suites: ci-watch 23/0, guardrails 70/0, release-train 112/0.
 

@@ -675,6 +675,15 @@ cmd_resolve_resume_flags() {
     die 64 "resume --autopilot=$ap_bump: state release_bump is null, so the bump cannot be seal-intent on resume (no session-only release_bump). Resume with bare --autopilot or --autopilot=master, or start a new epic with --worktree --release $ap_bump"
   fi
 
+  # A resume --autopilot=<bump> over a set durable release_bump of a different
+  # class would be silently replaced by the stored value below. Fail open:
+  # one stderr notice naming both; the stored seal-intent still wins.
+  local sr_plain
+  sr_plain=$(echo "$st" | jq -r '.release_bump // empty')
+  if [ -n "$ap_bump" ] && [ -n "$sr_plain" ] && [ "$ap_bump" != "$sr_plain" ]; then
+    printf 'notice: resume --autopilot=%s ignored — stored release_bump=%s wins (seal bump is persisted at init)\n' "$ap_bump" "$sr_plain" >&2
+  fi
+
   if [ "$flags_present" = false ]; then
     # Honor durable store — modes from state, not CLI defaults
     jq -cn \
