@@ -283,6 +283,17 @@ bash "$CLOSE" verify <slug-or-title> [--root <path>]
 `close.sh` is subprocess-only, bash-only (no MCP). It is **idempotent**
 (re-close → `Already closed:`). Does **not** git-commit or stage.
 
+**Post-ship fold sweeps** (`/release` Step 6.5, `/wrap-ticket` Step 5.5) reuse
+this same verb through `skills/backlog/fold-sweep.sh`: it collects the ticket
+IDs/slugs named by a shipped fold commit (the subject's trailing `(slug, …)`
+list plus the matching `### vX.Y.Z` CHANGELOG entry), closes each local item
+(`--ticket vX.Y.Z --sha <commit>` — version+commit footer), and prints one
+`linear-close: <ID>` line per flipped item for the session's best-effort
+Linear Done. Never fatal; already-closed files are skipped without writes
+(and without a second Linear close); slugs with no local item file are a
+calm skip. Test seam: `--linear-close-cmd CMD` invokes `CMD <linear-id>` per
+flipped item (tests stub it; production callers never set it).
+
 **Lock (SPEC-009 § Backlog write integrity).** `close.sh` in close mode holds one
 shared `mkdir` lock, `<root>/.claude/backlog.lock/`, over the whole read-decide-write
 (`close.sh verify` takes no lock). A fresh lock makes the caller wait at most

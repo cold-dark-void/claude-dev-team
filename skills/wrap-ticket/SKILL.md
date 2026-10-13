@@ -378,6 +378,32 @@ status. When no local write-through exists (Linear-only / post-hygiene),
 write-through stays on disk only — **MUST NOT** stage or commit
 `.claude/backlog*` / `.claude/plans*` as product (SPEC-009).
 
+**Fold status sweep (non-fatal):** the wrapped ticket may share a release fold
+with other shipped tickets whose trackers `/release` Step 6.5 already closed —
+or not, if it wrapped late. After the close above, run the same sweep engine
+(one tested close verb, no forked path), locating the fold by this ticket's
+slug/ID in the newest fold subject. Never fails the wrap.
+
+```bash
+_gc=$(git rev-parse --git-common-dir 2>/dev/null) \
+  && MROOT=$(cd "$(dirname "$_gc")" && pwd) \
+  || MROOT=$(pwd)
+PDH="${PDH:-$( { [ -n "${CLAUDE_PLUGIN_ROOT:-}" ] && [ -f "$CLAUDE_PLUGIN_ROOT/skills/plugin-dir.sh" ] && printf '%s\n' "$CLAUDE_PLUGIN_ROOT"; } || { [ -f skills/plugin-dir.sh ] && [ -f agents/pm.md ] && grep -qF '"name": "dev-team"' .claude-plugin/plugin.json 2>/dev/null && pwd; } || { _pr='${CLAUDE_PLUGIN_ROOT}'; [ "${_pr#\$}" = "$_pr" ] && [ -f "$_pr/skills/plugin-dir.sh" ] && printf '%s\n' "$_pr"; } || { for _mp in "$HOME"/.claude/plugins/marketplaces/*/; do [ -f "${_mp}skills/plugin-dir.sh" ] && [ -f "${_mp}agents/pm.md" ] && grep -qF '"name": "dev-team"' "${_mp}.claude-plugin/plugin.json" 2>/dev/null && printf '%s\n' "${_mp%/}" && break; done; } || find ~/.claude/plugins/cache \( -path '*/dev-team/*/skills/plugin-dir.sh' -o -path '*/dev-team-edge/*/skills/plugin-dir.sh' \) 2>/dev/null | awk -F/ '{ver=""; for(i=1;i<=NF;i++) if(($i=="dev-team"||$i=="dev-team-edge")&&i<NF){ver=$(i+1);break}; if(ver=="") next; m=ver; gsub(/-pre\./,"~pre.",m); p=($0 ~ /\/cache\/cold-dark-void\/dev-team\//)?2:(($0 ~ /\/cache\/cold-dark-void\/dev-team-edge\//)?1:0); print m "\t" p "\t" $0}' | sort -t $'\t' -k1,1V -k2,2n -k3,3 | tail -1 | cut -f3 | xargs -r dirname | xargs -r dirname )}"
+TICKET_ID="<TICKET-ID>"
+SWEEP=$(bash "$PDH/skills/plugin-dir.sh" file skills/backlog/fold-sweep.sh)
+cd "$MROOT" 2>/dev/null || true
+if [ -n "$SWEEP" ] && [ -f "$SWEEP" ]; then
+  bash "$SWEEP" --find-fold "$TICKET_ID" || true
+else
+  echo "fold-sweep: engine missing — skip (non-fatal)"
+fi
+```
+
+For every `linear-close: <ID>` line printed, mark that Linear issue **Done**
+via MCP, best-effort (`Linear unreachable — local close only.` on error, one
+line, continue). A missing fold commit or no matching token is a calm one-line
+skip; the sweep is idempotent (already-closed files skipped without writes).
+
 ---
 
 ## Step 6: Remove the worktree

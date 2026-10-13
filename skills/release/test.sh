@@ -459,7 +459,7 @@ section_has() { # section_has <label> <needle>
     fail "S3: Step $1 missing: $2"
   fi
 }
-for s in 0 0.5 0.6 4.5 4.6 4.7 4.8 4.9 4.10 4.11 4.12 4.13 5.5 6; do
+for s in 0 0.5 0.6 4.5 4.6 4.7 4.8 4.9 4.10 4.11 4.12 4.13 5.5 6 6.5; do
   section_has "$s" 'plugin-dir.sh" file'
 done
 
@@ -653,6 +653,50 @@ else
   else
     pass "S12: no hand-written changelog-lead summary in Step 5"
   fi
+fi
+
+# ---------------------------------------------------------------------------
+# S13 (CDT-536): post-push fold status sweep — Step 6.5 exists AFTER the Step 6
+# post-push check, names the shared sweep engine, is non-fatal, and bridges the
+# Linear close to the session (bash engines never call MCP, SPEC-009).
+# ---------------------------------------------------------------------------
+STEP65_BODY=$(section_body "6.5")
+POSTPUSH_LINE=$(grep -n 'After a successful push' "$SKILL" | head -1 | cut -d: -f1)
+STEP65_LINE=$(grep -n '^## Step 6.5:' "$SKILL" | head -1 | cut -d: -f1)
+if [ -n "$STEP65_BODY" ]; then
+  pass "S13: Step 6.5 section exists"
+else
+  fail "S13: section 'Step 6.5' not found in SKILL.md"
+fi
+if [ -n "$POSTPUSH_LINE" ] && [ -n "$STEP65_LINE" ] && [ "$STEP65_LINE" -gt "$POSTPUSH_LINE" ]; then
+  pass "S13: Step 6.5 sits after the Step 6 post-push check"
+else
+  fail "S13: Step 6.5 not after post-push check (postpush=$POSTPUSH_LINE step65=$STEP65_LINE)"
+fi
+if printf '%s\n' "$STEP65_BODY" | grep -Fq 'skills/backlog/fold-sweep.sh'; then
+  pass "S13: Step 6.5 names the shared fold-sweep engine"
+else
+  fail "S13: Step 6.5 missing fold-sweep.sh"
+fi
+if printf '%s\n' "$STEP65_BODY" | grep -Fq -- '--commit "$(git rev-parse HEAD)"'; then
+  pass "S13: Step 6.5 sweeps the pushed fold (HEAD)"
+else
+  fail "S13: Step 6.5 missing --commit HEAD invocation"
+fi
+if printf '%s\n' "$STEP65_BODY" | grep -Fq -- '|| true'; then
+  pass "S13: Step 6.5 is non-fatal (|| true)"
+else
+  fail "S13: Step 6.5 fence not non-fatal"
+fi
+if printf '%s\n' "$STEP65_BODY" | grep -Fq 'linear-close: <ID>'; then
+  pass "S13: Step 6.5 bridges Linear close to the session"
+else
+  fail "S13: Step 6.5 missing linear-close bridge prose"
+fi
+if printf '%s\n' "$STEP65_BODY" | grep -Fq 'MUST NOT fail the release'; then
+  pass "S13: Step 6.5 states the non-fatal contract"
+else
+  fail "S13: Step 6.5 missing non-fatal contract prose"
 fi
 
 # ---------------------------------------------------------------------------

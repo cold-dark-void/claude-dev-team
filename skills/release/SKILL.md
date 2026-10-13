@@ -633,3 +633,38 @@ bash "$SHIP_START_SH" --clear
 post-push check above are both exit 0. Do not claim release success, set
 Linear/backlog Done, or print a ship-success line before the post-push
 check has run and passed.
+
+## Step 6.5: Fold status sweep (post-push, non-fatal)
+
+A fold bundles several tickets, but nothing so far closed their local backlog
+files or non-primary child Linear issues — status drift every ship. After the
+post-push check is exit 0, sweep the shipped fold: collect the ticket IDs/slugs
+named by the fold (commit subject's trailing `(slug, …)` list + the matching
+`### vX.Y.Z` CHANGELOG entry) and, for each, close the local write-through item
+via the one tested close verb (`skills/backlog/close.sh`, SPEC-009) — a
+version+commit footer rides along. This step is **outside the gate path** and
+**non-fatal**: a sweep failure MUST NOT fail the release — log and continue.
+
+```bash
+# Fresh shell — carry PDH from the stanza fence above (SPEC-021 C1)
+PDH="${PDH:-$( { [ -n "${CLAUDE_PLUGIN_ROOT:-}" ] && [ -f "$CLAUDE_PLUGIN_ROOT/skills/plugin-dir.sh" ] && printf '%s\n' "$CLAUDE_PLUGIN_ROOT"; } || { [ -f skills/plugin-dir.sh ] && [ -f agents/pm.md ] && grep -qF '"name": "dev-team"' .claude-plugin/plugin.json 2>/dev/null && pwd; } || { _pr='${CLAUDE_PLUGIN_ROOT}'; [ "${_pr#\$}" = "$_pr" ] && [ -f "$_pr/skills/plugin-dir.sh" ] && printf '%s\n' "$_pr"; } || { for _mp in "$HOME"/.claude/plugins/marketplaces/*/; do [ -f "${_mp}skills/plugin-dir.sh" ] && [ -f "${_mp}agents/pm.md" ] && grep -qF '"name": "dev-team"' "${_mp}.claude-plugin/plugin.json" 2>/dev/null && printf '%s\n' "${_mp%/}" && break; done; } || find ~/.claude/plugins/cache \( -path '*/dev-team/*/skills/plugin-dir.sh' -o -path '*/dev-team-edge/*/skills/plugin-dir.sh' \) 2>/dev/null | awk -F/ '{ver=""; for(i=1;i<=NF;i++) if(($i=="dev-team"||$i=="dev-team-edge")&&i<NF){ver=$(i+1);break}; if(ver=="") next; m=ver; gsub(/-pre\./,"~pre.",m); p=($0 ~ /\/cache\/cold-dark-void\/dev-team\//)?2:(($0 ~ /\/cache\/cold-dark-void\/dev-team-edge\//)?1:0); print m "\t" p "\t" $0}' | sort -t $'\t' -k1,1V -k2,2n -k3,3 | tail -1 | cut -f3 | xargs -r dirname | xargs -r dirname )}"
+SWEEP=$(bash "$PDH/skills/plugin-dir.sh" file skills/backlog/fold-sweep.sh)
+# Fold = HEAD (the Step 5 commit pushed in Step 6); backlog root = $MROOT default.
+if [ -n "$SWEEP" ] && [ -f "$SWEEP" ]; then
+  bash "$SWEEP" --commit "$(git rev-parse HEAD)" || true
+else
+  echo "fold-sweep: engine missing — skip (non-fatal)"
+fi
+```
+
+- **Linear (SPEC-009 posture — best-effort):** for every `linear-close: <ID>`
+  line the sweep prints, mark that Linear issue **Done** via MCP. Unreachable
+  or erroring MCP: print one line `Linear unreachable — local close only.`
+  and continue — the local write stands; never block or retry-loop.
+- **Idempotent:** already-closed item files are skipped without writes (and
+  without a second Linear close); slugs with no local item file are skipped
+  with one stderr line. The engine never writes tracker files itself and
+  never stages them (SPEC-009 write integrity).
+- Never fatal, never a re-gate: do not retag, re-push, or re-run any Step 4–6
+  gate because of a sweep result. `/wrap-ticket` Step 5.5 runs the same sweep
+  for its ticket (`--find-fold <TICKET-ID>`) — same engine, no forked path.

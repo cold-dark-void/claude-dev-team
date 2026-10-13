@@ -599,6 +599,24 @@ run_fence "$fx" "$blk"
 [ -d "${fx}-wt-CDT-1-2" ] && pass "AC B(3): CDT-1-2 worktree untouched" || fail "AC B(3): CDT-1-2 worktree untouched" "removed"
 if branch_exists "$fx" "feat/CDT-1-2"; then pass "AC B(3): CDT-1-2 branch untouched"; else fail "AC B(3): CDT-1-2 branch untouched" "branch gone"; fi
 
+echo "== CDT-536: Step 5.5 fold status sweep (static SKILL asserts) =="
+
+# Step 5.5 runs the shared fold-sweep engine (one tested close verb, no forked
+# path), is non-fatal, and bridges the Linear close to the session (SPEC-009).
+S55_LINE=$(grep -n '^## Step 5.5:' "$SKILL" | head -1 | cut -d: -f1)
+S6_LINE=$(grep -n '^## Step 6:' "$SKILL" | head -1 | cut -d: -f1)
+if [ -n "$S55_LINE" ]; then pass "S5.5: section exists"; else fail "S5.5: section exists" "missing"; fi
+if [ -n "$S55_LINE" ] && [ -n "$S6_LINE" ] && [ "$S55_LINE" -lt "$S6_LINE" ]; then
+  pass "S5.5: fold sweep sits before Step 6"
+else
+  fail "S5.5: fold sweep sits before Step 6" "s55=$S55_LINE s6=$S6_LINE"
+fi
+S55_BODY=$(awk -v pat='^## Step 5.5:' '$0 ~ pat {g=1; next} /^## / {if (g) exit} g {print}' "$SKILL")
+assert_contains "S5.5: names the shared fold-sweep engine" "$S55_BODY" "skills/backlog/fold-sweep.sh"
+assert_contains "S5.5: locates the fold by ticket" "$S55_BODY" '--find-fold "$TICKET_ID"'
+assert_contains "S5.5: sweep is non-fatal" "$S55_BODY" "|| true"
+assert_contains "S5.5: bridges Linear close to the session" "$S55_BODY" "linear-close: <ID>"
+
 echo "----"
 echo "PASS=$PASS FAIL=$FAIL"
 if [ "$FAIL" -gt 0 ]; then
