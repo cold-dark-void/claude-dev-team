@@ -175,6 +175,16 @@ capture env PATH="$FAKE_BIN:$PATH" bash "$INSTALL" </dev/null
 [ -d "$XDG_CONFIG_HOME/opencode/agents/dev-team" ] && [ "$(ls -A "$XDG_CONFIG_HOME/opencode/agents/dev-team")" ] && ok "AC5 agents generated" || bad "AC5 agents not generated"
 [ -L "$XDG_CONFIG_HOME/opencode/commands/dev-team" ] && ok "AC5 commands symlink created" || bad "AC5 commands symlink missing"
 
+# AC5-advisor (CDT-558 / SPEC-039 AC6): the opencode copy of the real
+# agents/advisor.md strips its frontmatter tools:/model: lines (opencode
+# hard-errors on the string form).
+adv="$XDG_CONFIG_HOME/opencode/agents/dev-team/advisor.md"
+if [ -f "$adv" ] && awk 'BEGIN{n=0;fm=0} /^---[[:space:]]*$/{n++; if(n==1)fm=1; else if(n==2)fm=0; next} fm && /^(tools|model):/{bad=1} END{exit bad+0}' "$adv"; then
+  ok "AC5-advisor opencode advisor.md frontmatter tools/model stripped"
+else
+  bad "AC5-advisor opencode advisor.md still carries frontmatter tools/model"
+fi
+
 # AC5b: a default install does not drop an existing pin.
 H="$(mk_home)"
 export HOME="$H" XDG_CONFIG_HOME="$H/.config"
