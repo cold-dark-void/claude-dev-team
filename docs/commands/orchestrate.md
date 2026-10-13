@@ -97,3 +97,4 @@ Routine issues (test failures, lint, formatting, implementation choices within s
 - [`/brainstorm`](./brainstorm.md) — Socratic refinement before formal planning
 - [`/status standup`](./status.md) — monitor in-progress task state
 - [`/retro`](./retro.md) — review the just-finished session for friction patterns (suggested at completion when the gate fires)
+- [Host tool map](../host-tool-map.md) — per-host fallbacks when a step calls a Claude-only tool

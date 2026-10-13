@@ -22,6 +22,7 @@ when one exists; skills-backed Surfaces without a page still appear here.
 | [Memory](runbooks/memory.md) | Memory tiers, distillation, **prose compress**, domain glossary vs DB |
 | [Manual operation](runbooks/manual.md) | Driving agents by hand without orchestrators |
 | [Scheduled retro](runbooks/scheduled-retro.md) | Opt-in cron for `/retro --all --auto` |
+| [oh-my-pi (omp) host](runbooks/omp.md) | Run the plugin under omp — enable, verify, undo, known limits |
 | [Transcript mirror](commands/transcript-mirror.md) | Opt-in Stop + SessionEnd recorder; live compressed session record |
 
 **Internal (maintainer) docs** — evidence and dogfood gates, not user workflow:

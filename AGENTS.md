@@ -231,6 +231,14 @@ Override per-agent via `/adjust-agent <agent> "Disable terse mode"` or
 prefer fact-dense bullets over narrative — same substance, fewer tokens
 (`skills/memory-compress` protocol; used by `/memory distill` when invited).
 
+## Host Portability
+
+Agents may reference host-only tools (`TaskCreate`, `TaskUpdate`,
+`SendMessage`, `AskUserQuestion`, `CronCreate`, agent teams). When the
+host lacks a tool, degrade gracefully: print the would-be action and
+continue, or halt per the gate's fail mode. Never fabricate tool
+output. Per-host fallbacks: `docs/host-tool-map.md`.
+
 ## Domain Glossary (CONTEXT.md)
 
 When `$MROOT/CONTEXT.md` or `$MROOT/docs/domain/CONTEXT.md` exists, it is the

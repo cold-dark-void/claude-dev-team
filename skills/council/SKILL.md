@@ -19,6 +19,10 @@ preset, the `/council` command wrapper, and the refactored
 `skills/review-and-commit/SKILL.md` all read this file to know what to
 build. It is a spec for the implementation, not the implementation itself.
 
+Host note: on hosts without Claude-only tools (`SendMessage`,
+`AskUserQuestion`), degrade per `docs/host-tool-map.md` — print the
+would-be action, or halt per the gate's fail mode.
+
 Authoritative source of truth for all MUSTs cited below:
 `specs/core/SPEC-013-adversarial-council-tribunal.md`. Every MUST in this
 document is traceable to a line in that spec.

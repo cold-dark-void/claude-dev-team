@@ -94,3 +94,5 @@ Estimate: <S|M|L>
 Output mode: terse for agent spawns.
 PM kickoff is mandatory — do not skip."
 ```
+
+Host tools: on hosts without `TaskCreate`/`SendMessage`/`AskUserQuestion`/`CronCreate`, degrade per [docs/host-tool-map.md](docs/host-tool-map.md) — print the would-be action, or halt per the gate's fail mode.

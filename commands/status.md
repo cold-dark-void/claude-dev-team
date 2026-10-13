@@ -200,3 +200,5 @@ surface stderr if it occurs.
   force-remove path. Release lives on `/worktree` only.
 - Engines stay live: `rollup.sh`, `worktree-lib.sh`, and standup protocol body
   under `skills/standup/SKILL.md` (internal skill-delegate backend).
+- **Host tools** — on hosts without `AskUserQuestion`/`SendMessage`/`CronCreate`,
+  degrade per [docs/host-tool-map.md](../docs/host-tool-map.md).
