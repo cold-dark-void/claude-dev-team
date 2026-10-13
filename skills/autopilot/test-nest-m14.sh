@@ -108,6 +108,38 @@ require_has "$SKILL" "M14(l)" "autopilot SKILL cites M14(l)"
 require_has "$DOCS_O" "needs-parent-M14" "docs/commands/orchestrate.md names needs-parent-M14"
 require_has "$DOCS_E" "needs-parent-M14" "docs/commands/epic.md names needs-parent-M14"
 
+# --- CDT-523 kickoff deferral (needs-parent-PM-TL) ---
+KICKOFF="$ROOT/skills/kickoff/SKILL.md"
+KICKOFF_STEP="$ROOT/skills/orchestrate/steps/04-kickoff.md"
+SPAWN_BLOCK="$ROOT/skills/orchestrate/steps/spawn-pm-tl-finder.md"
+for f in "$KICKOFF" "$KICKOFF_STEP" "$SPAWN_BLOCK"; do
+  if [ ! -f "$f" ]; then
+    fail "missing $f"
+  fi
+done
+require_has "$SPEC" "needs-parent-PM-TL" "SPEC-033 names needs-parent-PM-TL"
+require_has "$SPEC" "can-spawn-agents" "SPEC-033 names can-spawn-agents"
+require_has "$SPEC" "in-session fake kickoff" "SPEC-033 forbids in-session fake kickoff"
+require_has "$KICKOFF" "needs-parent-PM-TL" "kickoff SKILL Step 2 returns needs-parent-PM-TL"
+require_has "$KICKOFF" "can-spawn-agents" "kickoff SKILL probes can-spawn-agents"
+require_has "$KICKOFF" "MUST NOT spawn @pm" "kickoff SKILL forbids the PM/TL/finder spawns"
+require_has "$KICKOFF_STEP" "needs-parent-PM-TL" "04-kickoff.md returns needs-parent-PM-TL"
+require_has "$KICKOFF_STEP" "can-spawn-agents" "04-kickoff.md probes can-spawn-agents"
+require_has "$MODEB" "needs-parent-PM-TL" "mode-b handles needs-parent-PM-TL"
+require_has "$MODEB" "spawn-pm-tl-finder.md" "mode-b cites the shared spawn blocks"
+require_has "$SPEC" "resume-consume guard" "SPEC-033 names the resume-consume guard"
+require_has "$KICKOFF" "resume-consume guard" "kickoff SKILL has the resume-consume guard"
+require_has "$KICKOFF" "already carries the parent kickoff outputs" "kickoff SKILL consume condition"
+require_has "$KICKOFF_STEP" "resume-consume guard" "04-kickoff.md has the resume-consume guard"
+require_has "$KICKOFF_STEP" "already carries the parent kickoff outputs" "04-kickoff.md consume condition"
+require_has "$MODEB" "resume-consume guard" "mode-b cites the child consume guard"
+require_has "$MODEB" "DEVTEAM_NEST_DEPTH=1" "mode-b re-exports depth 1 on PM-TL resume"
+if grep -q 'needs-parent-PM-TL' "$SG"; then
+  fail "ship-gate-council.md must not claim needs-parent-PM-TL (reserved for kickoff)"
+else
+  pass "ship-gate-council.md keeps needs-parent-M14 only"
+fi
+
 # --- no resident daemon / no new BC ---
 if grep -qi 'no resident daemon' "$SPEC" && grep -qi 'no resident daemon' "$SG"; then
   pass "no resident daemon claimed"

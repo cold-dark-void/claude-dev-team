@@ -7,12 +7,16 @@
 # Usage:
 #   nest-host.sh [--host grok|claude|unknown] [--ticket ID] [json]
 #   nest-host.sh [--host …] [--ticket ID] can-spawn-council
+#   nest-host.sh [--host …] [--ticket ID] can-spawn-agents
 #   nest-host.sh [--host …] [--ticket ID] classify-spawn-fail
 #
 # Default command is json. Stdout (json): one line
 #   {"host":"grok|claude|unknown","nest_depth":N,"can_spawn_council":true|false}
 #
 # can-spawn-council: exit 0 if a /council spawn is allowed here, 1 if not, 64 usage.
+# can-spawn-agents: exit 0 if a named roster-agent spawn (PM/TL/finder/council) is
+#   allowed here, 1 if not (CDT-523). Same gate: a Grok nest that cannot spawn
+#   /council cannot spawn any named roster agent either.
 # classify-spawn-fail: prints needs-parent-M14 when a council spawn-fail must
 # defer to the parent walker; otherwise bc7-spawn-fail (depth-0 M14(d) path).
 #
@@ -23,12 +27,12 @@
 # in_progress epic child; else 0.
 # can_spawn_council is false iff host=grok AND nest_depth>=1.
 #
-# Exit: 0 ok; 1 can-spawn-council false; 64 usage / bad args.
+# Exit: 0 ok; 1 can-spawn-council / can-spawn-agents false; 64 usage / bad args.
 
 set -euo pipefail
 # THIS SCRIPT IS A SUBPROCESS CLI — NEVER SOURCE IT.
 
-USAGE='Usage: nest-host.sh [--host grok|claude|unknown] [--ticket ID] [json|can-spawn-council|classify-spawn-fail]'
+USAGE='Usage: nest-host.sh [--host grok|claude|unknown] [--ticket ID] [json|can-spawn-council|can-spawn-agents|classify-spawn-fail]'
 
 die() {
   echo "error: $1" >&2
@@ -60,7 +64,7 @@ while [ $# -gt 0 ]; do
       TICKET="${1#--ticket=}"
       shift
       ;;
-    json|can-spawn-council|classify-spawn-fail)
+    json|can-spawn-council|can-spawn-agents|classify-spawn-fail)
       CMD="$1"
       shift
       ;;
@@ -167,7 +171,10 @@ case "$CMD" in
       "$HOST" "$DEPTH" "$CAN"
     exit 0
     ;;
-  can-spawn-council)
+  can-spawn-council|can-spawn-agents)
+    # CDT-523: one gate, two names — a Grok nest that cannot spawn /council
+    # cannot spawn named roster agents (PM/TL/finder) either. Byte-identical
+    # arms would be a SPEC-003 dispatch copy, so the case shares one arm.
     if [ "$CAN" = true ]; then
       exit 0
     fi

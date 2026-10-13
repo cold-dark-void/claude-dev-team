@@ -139,7 +139,9 @@ Estimate: <S|M|L>
 Output mode: terse for agent spawns.
 PM kickoff is mandatory — do not skip.
 DEVTEAM_NEST_DEPTH=1
-On Grok, do not spawn /council; after tests return needs-parent-M14."
+On Grok, do not spawn /council; after tests return needs-parent-M14.
+On Grok, do not spawn PM/TL/finder either (CDT-523): if nest-host.sh
+can-spawn-agents is false, return needs-parent-PM-TL before any spawn."
 ```
 
 **When `use_shared=true` (epic `--worktree` / `worktree_enabled` + integration path set) — append to the handoff payload and export for the child run:**
@@ -251,6 +253,21 @@ y. Unset `DEVTEAM_NEST_DEPTH` (or set `0`). The parent walker runs M14
 (`skills/autopilot/ship-gate-council.md` at depth 0) then Stage 3
 (`end-state.md` / `/release`) for that child. Depth-0 council disagree
 (`conf<80 / CONTRADICTED`) still BC7 + resume-ship y. There is no resident daemon.
+
+**Grok nest `needs-parent-PM-TL` (CDT-523 / SPEC-033 M14(l)):** when the child
+`/kickoff` or `/orchestrate` return contains `needs-parent-PM-TL`, this is also
+**not** a BC7 halt and **not** a resume-ship y. MUST NOT ping intercom /
+Telegram for a nest-depth y. Unset `DEVTEAM_NEST_DEPTH` (or set `0`) **only
+while the parent spawns**: the parent walker runs the PM + Tech Lead (+ Finder
+for a `/kickoff` child) blocks from
+`skills/orchestrate/steps/spawn-pm-tl-finder.md` itself at depth 0. Light-tier
+child: the scoper-planner prompt is not a shared block — compose its two duties
+from the PM + Tech Lead results and write the ~5-line plan to the plan home
+yourself. Then re-export `DEVTEAM_NEST_DEPTH=1` and re-invoke the child with
+the outputs embedded in the handoff payload: the child's resume-consume guard
+detects them, spawns nothing, and continues (no probe loop). Depth stays 1 on
+resume so the ship gate still defers M14. The child still spawns nothing (no
+invented nested spawn). There is no resident daemon.
 
 ### B.6 Between-child context discipline (M13 / CDT-127)
 

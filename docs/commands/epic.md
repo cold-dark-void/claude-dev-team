@@ -70,7 +70,9 @@ mechanical subcommands, not `/epic` flags.)
    M13 seed-fail, or user interrupt — not after the first shipped child.
    Child `/orchestrate` on Grok exports `DEVTEAM_NEST_DEPTH=1` and may return
    `needs-parent-M14`; the parent walker runs M14 at depth 0 (no Telegram y
-   for nest depth).
+   for nest depth). A Grok nest child also cannot spawn PM/TL/finder: it
+   returns `needs-parent-PM-TL`, and the parent runs the PM+TL(+Finder)
+   blocks and resumes the child with the outputs embedded (CDT-523).
    `--autopilot=patch|minor|major` is **seal-intent**: a new decompose persists
    it as `release_bump` (with `worktree_enabled=true`) when `--release` did not.
    On resume, a bump token over a null `release_bump` exits 64 (resume has no

@@ -975,6 +975,22 @@ target.
       not a new card `decision`. Do not claim Grok nested spawn works unless
       proven. **(d)** / ship-gate §5 goldens and blob-pinned scripts stay
       unchanged.
+    - Kickoff deferral (CDT-523): the same probe governs named-roster spawns.
+      A child on Grok MUST NOT spawn PM/TL/finder in `/kickoff` Step 2 or
+      `/orchestrate` Step 4 (both tiers). Both steps first apply the
+      resume-consume guard: a handoff that already carries the parent kickoff
+      outputs spawns nothing and continues with those results (no probe
+      loop). On a fresh run the steps probe `nest-host.sh can-spawn-agents`;
+      on false the child returns
+      `needs-parent-PM-TL SHA=<sha> branch=<branch>`. It MUST NOT skip
+      kickoff silently and MUST NOT run the PM/TL work in-session — the
+      CDT-523 defect is exactly that in-session fake kickoff. The parent
+      walker at `nest_depth` 0 runs the PM + Tech Lead (+ Finder) blocks
+      (`skills/orchestrate/steps/spawn-pm-tl-finder.md`) — depth unset only
+      for those spawns — then re-invokes the child with the outputs embedded
+      AND `DEVTEAM_NEST_DEPTH=1` (the ship gate keeps deferring M14). A
+      light-tier child gets the scoper-planner duties composed by the parent
+      from the PM + Tech Lead results, short plan written by the parent.
 
 ### AC8 — LOC exclusion + `--max-loc` override (CDT-223)
 
@@ -1532,6 +1548,15 @@ Format and rules: M14(g) and M14(h). Each ticket that ships through M14 has one
 - **E.** [process] There is no resident daemon. No ninth BC. Decision enum frozen.
   Suites `skills/autopilot/test-nest-host.sh` and `test-nest-m14.sh` pass.
 
+### CDT-523
+
+- **A.** A child `/kickoff` (Step 2) or `/orchestrate` (Step 4, both tiers) on Grok (`nest_depth>=1`) MUST NOT spawn PM, Tech Lead, or finder. Both steps apply the resume-consume guard first (a handoff already carrying the parent kickoff outputs spawns nothing and continues), then probe `nest-host.sh can-spawn-agents`; on false the step returns `needs-parent-PM-TL SHA=<sha> branch=<branch>` — a procedure outcome, not a new decision. `can-spawn-agents` shares one dispatch arm with `can-spawn-council` (SPEC-003: a second byte-identical arm would be a this-diff dispatch copy).
+  Verify: bash skills/autopilot/test-nest-host.sh
+- **B.** The child MUST NOT skip kickoff silently and MUST NOT run the PM / Tech Lead / finder work in-session (the CDT-523 defect is that in-session fake kickoff). It MUST NOT write a BC halt and MUST NOT emit `task_blocked` for nest depth. `needs-parent-M14` stays reserved for the ship gate.
+  Verify: bash skills/autopilot/test-nest-m14.sh
+- **C.** The parent walker at `nest_depth` 0 (Mode B) runs the PM + Tech Lead (+ Finder for a `/kickoff` child) blocks from `skills/orchestrate/steps/spawn-pm-tl-finder.md` with depth unset, then re-invokes the child with the outputs embedded AND `DEVTEAM_NEST_DEPTH=1` — the resume-consume guard consumes them, the child still spawns nothing, and the ship gate still defers M14. Light tier: the parent composes the scoper-planner duties and writes the short plan.
+  Verify: bash skills/autopilot/test-nest-m14.sh
+
 ---
 
 ## Test
@@ -1547,6 +1572,7 @@ Format and rules: M14(g) and M14(h). Each ticket that ships through M14 has one
 
 | Date | Change |
 |------|--------|
+| 2026-10-13 | grok-nest-child-kickoff-cannot-spawn-pm-tl-c6-only (CDT-523): C6 deferred only the `/council` ship gate; a Grok nest child then skipped `/orchestrate` Step 4 / `/kickoff` Step 2 and ran the PM/TL work in-session. Both steps now apply a resume-consume guard (a handoff already carrying parent kickoff outputs spawns nothing), then probe `nest-host.sh can-spawn-agents` (new subcommand, one shared dispatch arm) and return `needs-parent-PM-TL SHA=<sha> branch=<branch>` — a procedure outcome, not a new decision. Mode B parent runs the PM+TL(+Finder) blocks at depth unset and re-invokes the child with outputs embedded AND `DEVTEAM_NEST_DEPTH=1` (ship gate keeps deferring M14); light tier gets parent-composed scoper-planner duties. M14(l) kickoff bullet + `### CDT-523` AC subsection. Suites `test-nest-host.sh` / `test-nest-m14.sh` extended. Status stays DRAFT. |
 | 2026-10-12 | CDT-537 (`cdt-537-m14-evidence-bar`): **M14 evidence bar.** The M14 ship-gate per-AC >=80 confidence bar scored evidence packaging, not correctness: the CDT-534 gate's round 1 (two blocking bugs) scored min 68 and round 2 (all fixed, 15 ACs green) min 54, because the judge capped confidence wherever an AC sub-clause was evidenced by source asserts rather than exhibited per-case run output. Investigator bundles now MUST quote actual run output (command + exit code + relevant output lines) for each AC sub-clause where a run exists; the judge scores confidence on exhibited run output and keeps a sub-clause evidenced only by source asserts at 79 or lower; a bite-coverage strike on an AC routes a follow-up ticket through the existing struck-lines audit trail. **M14(b)** aggregation, the >=80 bar, the firing rule, the two cards and the mapper are unchanged — the bar now scores exhibited correctness evidence, not packaging. Prompts: `skills/council/prompts/investigator.md`, `judge.md` (SPEC-013 Phase 5 "Run-output evidence bar"). |
 | 2026-10-12 | judge-diff-hunk-bullet-stale: operational-copy sync, no rule change. The judge prompt's WP 1-15 "VERIFY exit=0 is not enough" bullet no longer cites the finder's retired "cited test lines and diff hunk" step — WP 1-16 replaced that step with the three-step recipe — and now weighs the Step 1 AC quote, the Step 2 Verify output and the Step 3 token greps. The SPEC-013 Verify-evidence MUST is amended to match; M14(b), the caps and the clearing rule are unchanged. |
 | 2026-10-12 | bc6-counts-permission-wait: operational-copy sync, no rule change. M9a's approval-wait exclusion (WP 1-08, user decision 2026-09-28) was absent from `skills/autopilot/SKILL.md` (M12 one-operational-copy), letting an orchestrator that skips the orchestrate-step protocol count approval-wait time toward BC6 (observed on WP 1-15: 38248 s vs 10800 cap, ~7.5 h idle). SKILL.md gains the M9a subsection mirroring the spec; static drift-guard added to `test-bc6-approval-wait.sh`. |

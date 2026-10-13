@@ -61,6 +61,7 @@ Alongside the 7 behavioral agents the plugin ships **non-behavioral roster agent
 - MUST NOT allow QA to approve releases when blocking bugs exist
 - MUST NOT allow DS to ship models without evaluation metrics and baseline comparison
 - MUST extract a this-diff copy or a new branch on an existing axis unless the plan carries exactly one canonical waiver. A this-diff copy is the second near-duplicate function, block, or guard this diff introduces (the first copy may be pre-existing or also in-diff). A new branch on an existing axis is another `if`/`elif`/`case`/`switch` arm or parallel guard on a dispatch that already has siblings, instead of the shared shape those siblings imply. Extracted means both sites call one helper that already matches an in-tree pattern (same file or already-used helper) — not a new package, module, or dispatch style. Docs/config-only with no this-diff copy: omit this axis.
+- A this-diff copy of a SPEC-002-managed canonical text is **already extracted**, not a waiver case: the canonical text is the one shared source (WP 1-11) and a test pins its byte-identity across sites (`skills/agent-memory/sync-includes.py`, `skills/plugin-dir-test.sh`, SPEC-021 C5). Bootstrap text that cannot load a helper before it locates the plugin — the PDH stanza, the later-fence partial, hook bootstraps, managed include regions — is this class. It carries no `## Copy-extract` line. A copy that is neither a managed canonical text nor carries a canonical waiver still fails this rule.
 - Canonical waivers are byte-identical and the same shape as `WHY INLINE REJECTED`: `COPY-ACCEPTED: divergence-expected` (sites MUST differ by product requirement) or `EXTRACT-DEFERRED: pre-existing-dup` (dup existed on merge-base; this diff did not add a copy or arm). Plan field: optional `## Copy-extract` then 0 or 1 of those lines. Not a Tracking key. Plan-level, not per-task. Omit heading and line = default extract. Both lines, extra suffix, synonym, or Simplest/Rejected prose = unknown = not a waiver. Skills cite this enum; they MUST NOT restate a second vocabulary.
 - MUST treat a false reason as a fail: `COPY-ACCEPTED` when copies share shape; `EXTRACT-DEFERRED` when this diff added the second copy. Tech Lead Step 9 MUST REQUEST CHANGES unless the copy or arm is extracted or a true canonical waiver.
 - MUST NOT allow IC4 to invent a new pattern or abstraction in order to extract — escalate to Tech Lead first. Extracting a this-diff copy into an in-tree helper is matching the codebase, not inventing.
@@ -111,6 +112,7 @@ Alongside the 7 behavioral agents the plugin ships **non-behavioral roster agent
 - Verify IC4 opener: `rg -n 'Follow existing patterns. Propose changes to Tech Lead separately.' agents/ic4.md`
 - Verify IC4 Do-NOT: `rg -n 'Invent new patterns or abstractions without Tech Lead approval' agents/ic4.md`
 - Verify Step 8/10 stay silent: `rg -n 'COPY-ACCEPTED|EXTRACT-DEFERRED|Copy-extract' skills/orchestrate/steps/08-execute.md skills/orchestrate/steps/10-qa.md` (expect no matches)
+- Verify the SPEC-002 canonical-text carve-out is present where the rule is defined and evaluated: `rg -n 'SPEC-002-managed canonical text' specs/core/SPEC-003-agent-role-system.md skills/orchestrate/steps/09-review.md`
 - Verify MC-4 on the 8 council tribunal templates (each file must contain the line `Output mode: terse`): `rg -n 'Output mode: terse' skills/council/prompts/investigator.md skills/council/prompts/cross-reviewer.md skills/council/prompts/claim-extractor.md skills/council/prompts/plan-extractor.md skills/council/prompts/phase4-brief.md skills/council/prompts/judge.md skills/council/prompts/tier-triage.md skills/council/prompts/topic-classifier.md`
 - A change under this spec MUST NOT add a file under `commands/` except edits to `commands/adjust-agent.md`. The roster stays in `agents/`. This is a standing rule, not a ticket diff.
 
@@ -122,7 +124,7 @@ Alongside the 7 behavioral agents the plugin ships **non-behavioral roster agent
 - Role boundaries are enforced in agent behavioral rules
 - TDD gate exemption for config/docs is explicit in IC5 and IC4 agent definitions
 - Directives file uses sequential numbering after holistic rewrite
-- Copy-extract Role Boundaries MUST is present; Test greps match the canonical tokens
+- Copy-extract Role Boundaries MUST is present; Test greps match the canonical tokens; the SPEC-002 canonical-text carve-out is present in SPEC-003 and Step 9
 
 ## Open Questions
 
@@ -133,6 +135,7 @@ Alongside the 7 behavioral agents the plugin ships **non-behavioral roster agent
 
 | Date | Change |
 |------|--------|
+| 2026-10-13 | spec-003-bootstrap-copy-reason: a this-diff copy of a SPEC-002-managed canonical text (byte-identity test-pinned — sync-includes.py, plugin-dir-test.sh, C5) is already extracted, not a waiver case; bootstrap text that cannot load a helper before it locates the plugin (PDH stanza, later-fence partial, hook bootstraps, managed includes) carries no `## Copy-extract` line. Codifies WP 1-11, accepted outside the written rule until now. Step 9 evaluator cites the carve-out. Status stays ACTIVE. |
 | 2026-10-03 | WP 8-B (rv-w3-18 + CDT-299): recorded the `finder`/`debugger` SendMessage decision (final-message hand-back; SendMessage only for a named running teammate). Behavioral agents gained the managed glossary + hand-back block; behavioral `tools:` order unified; ic5/ic4 commit rule defers to the orchestrator's fold; ic4 merge line dropped; tech-lead alternatives reconciled with the Technical Spec format; council-judge `suggestion` carve-out. |
 | 2026-10-02 | CDT-391 / CDT-413: Covers names the full roster, including council-judge, council-scribe, distiller, and project-init. The commands-directory check is a standing rule, not a ticket `git diff`. |
 | 2026-10-01 | BH-C013: MC-4 Test grep covers the 8 council tribunal templates under `skills/council/prompts/`. Status stays ACTIVE. |
@@ -150,6 +153,7 @@ Alongside the 7 behavioral agents the plugin ships **non-behavioral roster agent
 ## Cross-references
 
 - SPEC-001: Per-Agent Directives — owns the directives contract (storage path, numbered list, conflict surfacing, holistic rewrite, standing orders)
+- SPEC-002: Plugin infrastructure — owns the canonical bootstrap texts (PDH stanza, later-fence partial, hook bootstraps, managed includes) whose byte-identical, test-pinned copies count as extracted (WP 1-11)
 - SPEC-004: Memory Storage — dual-mode storage implementation, file line limits
 - SPEC-005: Team Bootstrap — project-init writes cortex.md for all 7 agents
 - SPEC-006: Memory Retrieval — tiered loading at session start

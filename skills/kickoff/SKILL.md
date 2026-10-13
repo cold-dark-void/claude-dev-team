@@ -283,6 +283,40 @@ Do **not** hardcode `.worktrees/<TICKET-ID>` when the ticket may be an epic shar
 
 Spawn **three** agents simultaneously. Do not wait for one before starting the others.
 
+**Grok nest deferral (CDT-523 / SPEC-033 M14(l)) — consume first, then probe before any spawn in this step.**
+
+**Resume consume (loop guard).** If the handoff payload already carries the parent kickoff outputs (the PM / Tech Lead / Finder block results the parent ran at depth 0), do NOT probe and do NOT spawn: collect those results as this step's outputs and continue at "Collect all three outputs before proceeding." Re-probing would return `needs-parent-PM-TL` again — an infinite resume loop.
+
+Otherwise (fresh run, no parent outputs in the handoff) probe:
+
+```bash
+PDH="${PDH:-$( { [ -n "${CLAUDE_PLUGIN_ROOT:-}" ] && [ -f "$CLAUDE_PLUGIN_ROOT/skills/plugin-dir.sh" ] && printf '%s\n' "$CLAUDE_PLUGIN_ROOT"; } || { [ -f skills/plugin-dir.sh ] && [ -f agents/pm.md ] && grep -qF '"name": "dev-team"' .claude-plugin/plugin.json 2>/dev/null && pwd; } || { _pr='${CLAUDE_PLUGIN_ROOT}'; [ "${_pr#\$}" = "$_pr" ] && [ -f "$_pr/skills/plugin-dir.sh" ] && printf '%s\n' "$_pr"; } || { for _mp in "$HOME"/.claude/plugins/marketplaces/*/; do [ -f "${_mp}skills/plugin-dir.sh" ] && [ -f "${_mp}agents/pm.md" ] && grep -qF '"name": "dev-team"' "${_mp}.claude-plugin/plugin.json" 2>/dev/null && printf '%s\n' "${_mp%/}" && break; done; } || find ~/.claude/plugins/cache \( -path '*/dev-team/*/skills/plugin-dir.sh' -o -path '*/dev-team-edge/*/skills/plugin-dir.sh' \) 2>/dev/null | awk -F/ '{ver=""; for(i=1;i<=NF;i++) if(($i=="dev-team"||$i=="dev-team-edge")&&i<NF){ver=$(i+1);break}; if(ver=="") next; m=ver; gsub(/-pre\./,"~pre.",m); p=($0 ~ /\/cache\/cold-dark-void\/dev-team\//)?2:(($0 ~ /\/cache\/cold-dark-void\/dev-team-edge\//)?1:0); print m "\t" p "\t" $0}' | sort -t $'\t' -k1,1V -k2,2n -k3,3 | tail -1 | cut -f3 | xargs -r dirname | xargs -r dirname )}"
+NEST_HOST=$(bash "$PDH/skills/plugin-dir.sh" file skills/autopilot/nest-host.sh)
+if bash "$NEST_HOST" --ticket "<TICKET-ID>" can-spawn-agents; then
+  echo "spawn ok"
+else
+  echo "grok nest: cannot spawn PM/TL/finder"
+fi
+```
+
+`grok nest: cannot spawn PM/TL/finder` (Grok, `nest_depth>=1`) means this session cannot spawn named roster agents. Then:
+
+1. MUST NOT spawn @pm, @tech-lead, or @finder (no invented nested spawn).
+2. MUST NOT skip this step silently and MUST NOT run the PM / Tech Lead / finder
+   work in-session — an in-session fake kickoff is the defect CDT-523 records.
+3. MUST NOT write a BC halt and MUST NOT emit `task_blocked` for nest depth.
+4. Print exactly:
+   `needs-parent-PM-TL SHA=<git rev-parse HEAD> branch=<git rev-parse --abbrev-ref HEAD>`
+5. Return that token — a procedure outcome, not a new decision. The parent
+   walker at `nest_depth` 0 runs the PM + Tech Lead + Finder blocks
+   (`skills/orchestrate/steps/spawn-pm-tl-finder.md`) and resumes this run
+   with their outputs embedded in the handoff payload (and
+   `DEVTEAM_NEST_DEPTH=1` still exported, so the ship gate keeps deferring
+   M14). This run consumes them per the resume-consume guard above.
+   `needs-parent-M14` is reserved for the ship gate.
+
+`spawn ok` → continue below unchanged.
+
 ### Model map (SPEC-037)
 
 One fence for this step's three named-roster spawns. PDH once. Resolve the

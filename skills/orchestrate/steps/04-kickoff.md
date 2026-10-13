@@ -2,6 +2,45 @@
 
 ## Step 4: Parallel PM + Tech Lead kickoff
 
+**Grok nest deferral (CDT-523 / SPEC-033 M14(l)) — consume first, then probe before any spawn in this step (both tiers).**
+
+**Resume consume (loop guard).** If the handoff payload already carries the parent kickoff outputs (the PM / Tech Lead block results the parent ran at depth 0), do NOT probe and do NOT spawn: use those results as the PM / Tech Lead outputs and continue below (light tier: the parent also wrote the short plan — see its Step-4 note — so continue to Step 5). Re-probing would return `needs-parent-PM-TL` again — an infinite resume loop.
+
+**Light tier (no resume):** the scoper-planner prompt is not a shared block; the parent composes its two duties from the PM + Tech Lead block results and writes the ~5-line plan to the plan home itself, then resumes the child — the child continues at Step 5.
+
+Otherwise (fresh run, no parent outputs in the handoff) probe:
+
+```bash
+PDH="${PDH:-$( { [ -n "${CLAUDE_PLUGIN_ROOT:-}" ] && [ -f "$CLAUDE_PLUGIN_ROOT/skills/plugin-dir.sh" ] && printf '%s\n' "$CLAUDE_PLUGIN_ROOT"; } || { [ -f skills/plugin-dir.sh ] && [ -f agents/pm.md ] && grep -qF '"name": "dev-team"' .claude-plugin/plugin.json 2>/dev/null && pwd; } || { _pr='${CLAUDE_PLUGIN_ROOT}'; [ "${_pr#\$}" = "$_pr" ] && [ -f "$_pr/skills/plugin-dir.sh" ] && printf '%s\n' "$_pr"; } || { for _mp in "$HOME"/.claude/plugins/marketplaces/*/; do [ -f "${_mp}skills/plugin-dir.sh" ] && [ -f "${_mp}agents/pm.md" ] && grep -qF '"name": "dev-team"' "${_mp}.claude-plugin/plugin.json" 2>/dev/null && printf '%s\n' "${_mp%/}" && break; done; } || find ~/.claude/plugins/cache \( -path '*/dev-team/*/skills/plugin-dir.sh' -o -path '*/dev-team-edge/*/skills/plugin-dir.sh' \) 2>/dev/null | awk -F/ '{ver=""; for(i=1;i<=NF;i++) if(($i=="dev-team"||$i=="dev-team-edge")&&i<NF){ver=$(i+1);break}; if(ver=="") next; m=ver; gsub(/-pre\./,"~pre.",m); p=($0 ~ /\/cache\/cold-dark-void\/dev-team\//)?2:(($0 ~ /\/cache\/cold-dark-void\/dev-team-edge\//)?1:0); print m "\t" p "\t" $0}' | sort -t $'\t' -k1,1V -k2,2n -k3,3 | tail -1 | cut -f3 | xargs -r dirname | xargs -r dirname )}"
+NEST_HOST=$(bash "$PDH/skills/plugin-dir.sh" file skills/autopilot/nest-host.sh)
+if bash "$NEST_HOST" --ticket "<ISSUE-ID>" can-spawn-agents; then
+  echo "spawn ok"
+else
+  echo "grok nest: cannot spawn PM/TL"
+fi
+```
+
+`grok nest: cannot spawn PM/TL` (Grok, `nest_depth>=1`) means this session cannot
+spawn named roster agents — the scoper-planner and the PM / Tech Lead spawns below
+are all in that class. Then:
+
+1. MUST NOT spawn any agent in this step (no invented nested spawn).
+2. MUST NOT skip this step silently and MUST NOT run the AC/plan work in-session —
+   an in-session fake kickoff is the defect CDT-523 records.
+3. MUST NOT write a BC halt and MUST NOT emit `task_blocked` for nest depth.
+4. Print exactly:
+   `needs-parent-PM-TL SHA=<git rev-parse HEAD> branch=<git rev-parse --abbrev-ref HEAD>`
+5. Return that token — a procedure outcome, not a new decision. The parent
+   walker at `nest_depth` 0 runs the PM + Tech Lead blocks
+   (`skills/orchestrate/steps/spawn-pm-tl-finder.md`) and resumes this run
+   with their outputs embedded in the handoff payload (and
+   `DEVTEAM_NEST_DEPTH=1` still exported, so the ship gate keeps deferring
+   M14). This run consumes them per the resume-consume guard above.
+   `needs-parent-M14` is reserved for the ship gate
+   (Step 11 / ship-gate-council.md §2b).
+
+`spawn ok` → continue below unchanged.
+
 When `[ "$ORCH_TIER" = "light" ]`: spawn exactly one scoper-planner (not parallel PM+TL). Use `@tech-lead` (or a general agent). That agent (1) locks ACs and (2) writes a short (~5-line) plan. Then Step 5. Do not spawn the PM agent or Tech Lead orientation below.
 
 When spawning `@tech-lead`, resolve its model first. If using unnamed/general-purpose instead, omit this block (SPEC-037 AC20).

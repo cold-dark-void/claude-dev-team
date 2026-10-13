@@ -200,6 +200,30 @@ fi
 expect_json "grok nest_depth=2 can=false" grok 2 false \
   env -C "$REPO" GROK_AGENT=1 DEVTEAM_NEST_DEPTH=2
 
+# 18. can-spawn-agents (CDT-523): grok nest denied, depth 0 and claude allowed
+rc=0
+run_nest env -C "$REPO" GROK_AGENT=1 DEVTEAM_NEST_DEPTH=1 \
+  bash "$NEST" can-spawn-agents >/dev/null || rc=$?
+if [ "$rc" -eq 1 ]; then
+  pass "can-spawn-agents grok nest → exit 1"
+else
+  fail "can-spawn-agents grok nest rc=$rc (want 1)"
+fi
+rc=0
+run_nest env -C "$REPO" GROK_AGENT=1 bash "$NEST" can-spawn-agents >/dev/null || rc=$?
+if [ "$rc" -eq 0 ]; then
+  pass "can-spawn-agents grok depth 0 → exit 0"
+else
+  fail "can-spawn-agents grok depth 0 rc=$rc (want 0)"
+fi
+rc=0
+run_nest env -C "$REPO" DEVTEAM_NEST_DEPTH=1 bash "$NEST" can-spawn-agents >/dev/null || rc=$?
+if [ "$rc" -eq 0 ]; then
+  pass "can-spawn-agents claude nest → exit 0"
+else
+  fail "can-spawn-agents claude nest rc=$rc (want 0)"
+fi
+
 echo "PASS=$PASS FAIL=$FAIL"
 [ "$FAIL" -eq 0 ]
 exit $?
