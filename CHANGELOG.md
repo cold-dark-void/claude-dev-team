@@ -6,6 +6,10 @@ Pre-written headings (release-train M5c, orchestrate version-sync tasks) are kep
 via skip-if-present when `/release` is given an explicit version — do not invent a
 second heading for the same version.
 
+### v1.27.5
+- **Advisor agent file + memory protocol (SPEC-039 C1, cdt-558)** — new `agents/advisor.md` opens the third SPEC-003 roster category (internal agent with per-agent memory): Opus tier, full tools, orchestrator-only spawn under the SPEC-039 triggers (post-council residue appeal, BC diagnosis), with `skills/agent-memory/advisor-protocol.md` as its tiered session protocol; `specs/OWNERS` maps `agents/advisor.md → SPEC-003`; `install-test.sh` gains AC5-advisor (the opencode copy strips the frontmatter `tools:`/`model:` string lines). `skills/agent-memory/agent-blocks-test.sh` +62 asserts green.
+- **SPEC-039 draft lands with the CDT-558 ACs (cdt-556)** — `specs/core/SPEC-039-advisor-agent.md` carries the whole-epic draft (trigger taxonomy, `--with-advisor` opt-in, advisor-as-appeal sequencing, shadow-mode trigger (a)) with the C1 acceptance criteria under `### CDT-558`; `specs/TDD.md` gains the SPEC-039 DRAFT row and a version-history line; `CONTEXT.md` crystallizes the **Advisor** term.
+
 ### v1.27.4
 - **test-m14-suite-hygiene: here-string the `--list` and council-call checks (m14-suite-hygiene-sigpipe, CDT-555 class)** — the suite's `printf '%s\n' "$list_out" | grep -qxF` and `printf '%s' "$stripped" | grep -qE` checks under `set -o pipefail` raced grep's early exit and could die with SIGPIPE 141, spuriously failing the "listed by tools/run-all-tests.sh --list" check on fast machines (observed once on CI run 38371560885; local runs passed 4x). Both checks now grep a here-string. Suite 5x green (7/0 each); remaining producer|consumer pipes read to EOF and are safe.
 

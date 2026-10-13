@@ -53,11 +53,14 @@ Use `--dry-run` to preview every change without writing anything (`bash install.
 | `ds` | Opus | Data analysis, ML/AI pipelines, A/B testing, metrics, statistical modeling |
 
 The seven rows above are the behavioral/team agents you route work to, and they are the
-ones with persistent per-project memory. Six internal agents — `finder`, `debugger`,
-`project-init`, `distiller`, `council-judge`, and `council-scribe` — are invoked by specific commands
-(`/council` and `/bug-hunt`, `/debug`, `/setup team`, `/memory distill`, `/council` again for the judge and the scribe),
-not directly. `finder` and `debugger` are read-only investigators; `council-scribe` is a tool-less internal council role. Internal agents carry
-no memory, cortex, or directives.
+ones with persistent per-project memory. Seven internal agents are never routed to directly.
+`finder`, `debugger`, `project-init`, `distiller`, `council-judge`, and `council-scribe` are
+invoked by specific commands
+(`/council` and `/bug-hunt`, `/debug`, `/setup team`, `/memory distill`, `/council` again for the judge and the scribe)
+and carry no memory, cortex, or directives — `finder` and `debugger` are read-only investigators;
+`council-scribe` is a tool-less internal council role. `advisor` (SPEC-039) is the orchestrator-only
+adjudicator **with** per-agent memory: post-council appeals and critical-claim checks during
+unsupervised runs, opt-in via `--with-advisor`.
 
 ### Memory
 
@@ -141,7 +144,8 @@ engines, gates (`docs-drift`, `skill-lint`, …), and `tools/` helpers are **not
 user-invoked Surfaces — they run under Core/Advanced commands or CI. Internal agents
 `finder`, `debugger`, `project-init`, `distiller`, `council-judge`, and `council-scribe` are
 reached only via `/council` and `/bug-hunt`, `/debug ticket`, `/setup team`, `/memory distill`,
-and `/council` again for the judge and the scribe.
+and `/council` again for the judge and the scribe; `advisor` (SPEC-039) is reached only through
+the orchestrator's ask.sh seam.
 
 ### Migration (historical)
 

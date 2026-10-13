@@ -718,11 +718,13 @@ fi
 # (R4 ruling) — the existing python3 tree-gate block above is untouched.
 echo "== CDT-234 cache-resolver discovery (coverage gate) =="
 
-# Recorded expected count (v1.18.x): 9 single-line embed-one.sh locators + 3
-# multiline hook-runtime bootstraps = 12. A mismatch in EITHER direction MUST
-# fail loudly and print the discovered set — a 13th site is a gate failure
+# Recorded expected count (v1.27.5): 11 single-line embed-one.sh locators
+# (7 behavioral agents + advisor + agent-memory/protocol.md +
+# agent-memory/advisor-protocol.md + wrap-ticket) + 3 multiline hook-runtime
+# bootstraps = 14. A mismatch in EITHER direction MUST
+# fail loudly and print the discovered set — a 15th site is a gate failure
 # until a human ports it or names it, not a silent pass.
-EXPECTED_RESOLVER_COUNT=12
+EXPECTED_RESOLVER_COUNT=14
 
 # Named exclusions — `path:line|rationale`. A site the predicate legitimately
 # catches but which cannot be extracted and executed standalone. SPEC-002

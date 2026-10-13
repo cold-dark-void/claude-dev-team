@@ -64,11 +64,15 @@ single source of truth; read the skill.)
 | `distiller` | Haiku | Memory compression specialist (invoked by `/memory distill` only) |
 | `council-judge` | Opus | Tool-less final arbiter for `/council` tribunals (invoked by the council engine only) |
 | `council-scribe` | Opus | Tool-less internal council role (extractor, classifier, prosecutor, advocate, cross-reviewer, quorum analyst). No memory. Invoked by the council engine only |
+| `advisor` | Opus | Read-only adjudicator with per-agent memory — post-council appeal + BC-diagnosis claims, spawned only by the orchestrator (SPEC-039; opt-in `--with-advisor`) |
 
-The first 7 rows are the behavioral/team agents. The remaining 6 — `finder`,
-`debugger`, `project-init`, `distiller`, `council-judge`, and `council-scribe` — are internal
-agents invoked by specific commands, never routed to directly. Internal agents
-have no per-agent memory, no cortex, and no `/adjust-agent` directives surface.
+The first 7 rows are the behavioral/team agents. The remaining 7 — `finder`,
+`debugger`, `project-init`, `distiller`, `council-judge`, `council-scribe`, and
+`advisor` — are internal agents, never routed to directly. `finder`,
+`debugger`, `project-init`, `distiller`, `council-judge`, and `council-scribe`
+are invoked by specific commands and have no per-agent memory, no cortex, and
+no `/adjust-agent` directives surface; `advisor` (SPEC-039) is the
+orchestrator-only advisor with per-agent memory.
 
 Model and effort tiers for all 13 agents are set in `agents/*.md` frontmatter;
 SPEC-003 § Tier table is the source of truth.
@@ -186,7 +190,7 @@ Agents can receive project-specific standing orders via directives files:
 **File:** `.claude/memory/<agent>/directives.md`
 **Format:** Numbered list, one directive per line
 **Applies to:** 7 behavioral agents (pm, tech-lead, ic5, ic4, devops, qa, ds)
-**Does NOT apply to:** the non-behavioral roster agents in SPEC-003 (project-init, distiller, finder, debugger, council-judge, council-scribe)
+**Does NOT apply to:** the non-behavioral roster agents in SPEC-003 (project-init, distiller, finder, debugger, council-judge, council-scribe, advisor)
 
 Directives load BEFORE memory (load order: directives → memory → context).
 They are framed as "standing orders" that the agent must not override — analogous to

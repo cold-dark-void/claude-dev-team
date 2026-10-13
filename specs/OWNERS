@@ -73,6 +73,7 @@ skills/transcript-mirror	SPEC-036
 skills/transcript-parse	SPEC-012
 skills/validate-memory	SPEC-011
 skills/wrap-ticket	SPEC-009
+agents/advisor.md	SPEC-003
 agents/council-judge.md	SPEC-003
 agents/council-scribe.md	SPEC-003
 agents/debugger.md	SPEC-003
