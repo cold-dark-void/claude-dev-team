@@ -1,0 +1,15 @@
+{
+  "claims": [
+    {"claim_id": "c0", "claim": "claim zero"},
+    {"claim_id": "c1", "claim": "claim one"},
+    {"claim_id": "c2", "claim": "claim two"},
+    {"claim_id": "c3", "claim": "claim three"}
+  ],
+  "cap_bytes": 220,
+  "expected_parts": [
+    {"claim_ids": ["c0"], "tool_use_ids": ["t0"]},
+    {"claim_ids": ["c1"], "tool_use_ids": ["t1", "t2"]},
+    {"claim_ids": ["c2", "c3"], "tool_use_ids": ["t3", "t4"]}
+  ],
+  "under_cap_parts": 1
+}

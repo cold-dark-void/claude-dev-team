@@ -1062,6 +1062,30 @@ are Phase-4-conditional (SPEC-013 Phase 5). An absent brief is marked `NOT
 RUN`, never empty-stringed, stubbed, or reconstructed — `plan.phases
 .5_judgment.inputs` lists what this run actually carries.
 
+**Large bundle sets (judge fan-out, 2026-10-12).** A single judge prompt
+holds the whole bundle block. When that block exceeds 64,000 bytes
+(`JUDGE_BUNDLE_CAP_BYTES = 64000` in `workflow.js`), split the judge spawn
+into claim-atomic parts:
+
+1. Render the bundle block to a temp file and measure it with `wc -c`.
+2. At or under the cap: spawn one judge as above. Done.
+3. Over the cap: partition the claims, in document order, into groups whose
+   bundles stay under the cap. Keep each claim's bundles together — never
+   cut a `raw_blob`. A claim whose own bundles exceed the cap gets its own
+   part.
+4. Spawn the judge once per part. Each part gets: the part's claims only in
+   `{{ORIGINAL_CLAIMS}}`, the part's bundles in `{{EVIDENCE_BUNDLES}}`, the
+   brief lines whose `claim_id` is in the part, and the same
+   `{{OUTPUT_SHAPE}}`.
+5. Merge the parts: `concat` the `verdicts`/`findings` arrays and the
+   `struck_lines` arrays, in part order. If any spawn fails, treat the whole
+   judge as failed (degraded path below) — never finalize a partially
+   judged set.
+
+The Workflow path (`workflow.js`) implements the same rule with
+`partitionJudgeParts` and the same constant. The judge stays tool-less:
+parts are judged from prompt content only (SPEC-013).
+
 Receive the judge's verdict list or finding list.
 
 **Spawn failure:** if judge spawn fails → orchestrator emits judge JSON from

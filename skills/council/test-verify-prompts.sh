@@ -18,8 +18,12 @@
 #     skills/council/fixtures/m14-finder-recipe/{spec-two-subsections.md,
 #     verify-log.txt} (AC C);
 #   - the three judge.md finder-recipe confidence caps (C6) plus a
-#     byte-identity golden check that the five WP 1-15 VERIFY EVIDENCE
-#     bullets are unchanged from 38bc739 (AC D).
+#     byte-identity golden check that the first four WP 1-15 VERIFY EVIDENCE
+#     bullets are unchanged from 38bc739 (AC D). 2026-10-12
+#     (judge-diff-hunk-bullet-stale): the fifth bullet's "cited test lines
+#     and diff hunk" tail was stale — WP 1-16 retired that finder step — so
+#     it now weighs the recipe's own evidence and is pinned by wording, not
+#     by the 38bc739 golden.
 #
 # WP 1-16 T1 review fix pass (TL review + 10b spec check) further extends
 # this file with: H1 Step 3 bounded/scoped-grep checks (default one call
@@ -295,6 +299,29 @@ PNEOF
     fi
   fi
 
+  # ---- CDT-537 (2026-10-12): run-output evidence bar -----------------------
+  # The M14 render carries the bar; the non-M14 render does not (the bar
+  # lives inside the {{#VERIFY_COMMAND}} section).
+  if [ -s "$RENDER_M14" ] && m14_has 'EVIDENCE BAR (2026-10-12, CDT-537)' \
+    && m14_has 'it is not run output, and it does' \
+    && m14_has 'never invent output.'; then
+    ok "CDT-537: M14 render holds the run-output evidence bar (command + exit code + relevant lines)"
+  else
+    fail_msg "CDT-537: M14 render missing the run-output evidence bar"
+  fi
+  MUT_EBAR="$TMP/render-m14.no-ebar.txt"
+  grep -v 'EVIDENCE BAR (2026-10-12, CDT-537)' "$RENDER_M14" > "$MUT_EBAR"
+  if grep -qF 'EVIDENCE BAR (2026-10-12, CDT-537)' "$MUT_EBAR"; then
+    fail_msg "CDT-537 bite: the evidence-bar check passed a render copy without the bar (test bug)"
+  else
+    ok "CDT-537 bite: removing the bar line fails its own grep"
+  fi
+  if [ -s "$RENDER_NONM14" ] && grep -qF 'EVIDENCE BAR (2026-10-12, CDT-537)' "$RENDER_NONM14"; then
+    fail_msg "CDT-537: evidence bar leaked into the non-M14 render"
+  else
+    ok "CDT-537: non-M14 render has no evidence bar"
+  fi
+
   # verify:null render (this IS the non-M14 render) has no verify-run
   # artifacts left over and the 5-call non-M14 budget text intact.
   if [ -s "$RENDER_NONM14" ]; then
@@ -543,6 +570,55 @@ judge_bite "pass-alone" \
   '       - A "VERIFY exit=0" line is not enough by itself. A pass alone' \
   'is not enough by itself. A pass alone'
 
+# 2026-10-12 (judge-diff-hunk-bullet-stale): the fifth WP 1-15 bullet weighs
+# the WP 1-16 recipe's own evidence, not the retired "diff hunk" finder step.
+if grep -qF "with the recipe's own evidence: the Step 1 AC quote, the Step 2" "$JUDGE_MD" \
+  && grep -qF 'Verify output and the Step 3 token greps, as with any other' "$JUDGE_MD"; then
+  ok "judge.md: pass-alone bullet weighs the recipe's own evidence (AC quote, Verify output, token greps)"
+else
+  fail_msg "judge.md: pass-alone bullet missing the recipe-evidence wording"
+fi
+judge_bite "recipe-evidence-tail" \
+  '         with the recipe'"'"'s own evidence: the Step 1 AC quote, the Step 2' \
+  "with the recipe's own evidence: the Step 1 AC quote, the Step 2"
+
+if grep -qF 'diff hunk' "$JUDGE_MD"; then
+  fail_msg "judge.md: stale 'diff hunk' wording still present"
+else
+  ok "judge.md: no 'diff hunk' in the judge prompt"
+fi
+
+# ---- CDT-537 (2026-10-12): judge run-output evidence bar ------------------
+if grep -qF 'Evidence bar (2026-10-12, CDT-537): score confidence on EXHIBITED' "$JUDGE_MD" \
+  && grep -qF 'output for it, the claim MUST get confidence <=79.' "$JUDGE_MD"; then
+  ok "judge.md: the CDT-537 evidence bar caps a source-assert-only sub-clause at <=79"
+else
+  fail_msg "judge.md: missing the CDT-537 run-output evidence bar cap"
+fi
+judge_bite "evidence-bar-cap" \
+  '       - Evidence bar (2026-10-12, CDT-537): score confidence on EXHIBITED' \
+  'Evidence bar (2026-10-12, CDT-537): score confidence on EXHIBITED'
+
+if grep -qF 'A strike on an AC sub-clause is a bite-coverage strike. Record it' "$JUDGE_MD" \
+  && grep -qF 'the route to a follow-up ticket, never silently dropped.' "$JUDGE_MD"; then
+  ok "judge.md: a bite-coverage strike on an AC routes a follow-up ticket via struck_lines"
+else
+  fail_msg "judge.md: missing the bite-coverage follow-up routing"
+fi
+judge_bite "bite-coverage-routing" \
+  '       - A strike on an AC sub-clause is a bite-coverage strike. Record it' \
+  'A strike on an AC sub-clause is a bite-coverage strike. Record it'
+# Planted-negative control for the absence check above: a copy with the
+# stale phrase re-added must trip it (proves the check is not vacuous).
+MUT_DH="$TMP/judge.diffhunk-readded.md"
+cp "$JUDGE_MD" "$MUT_DH"
+printf '         with the cited test lines and diff hunk, as with any other\n' >> "$MUT_DH"
+if grep -qF 'diff hunk' "$MUT_DH"; then
+  ok "bite: a judge.md copy with 'diff hunk' re-added trips the absence check"
+else
+  fail_msg "bite: the 'diff hunk' absence check missed a re-added phrase (test bug)"
+fi
+
 # ---- WP 1-16 AC D: judge finder-recipe caps (C6), via one judge_cap helper --
 # H3 / 10b gap 1 (TL review): the old check+bite blocks grepped judge.md as
 # a whole for "MUST get confidence <=79" and each cap's own key phrase
@@ -635,18 +711,21 @@ judge_bite "finder-cap-closing-sentence" \
   '       These caps can only lower a confidence; they do not change SPEC-033 M14(b).' \
   'These caps can only lower a confidence'
 
-# ---- WP 1-16 AC D: five WP 1-15 bullets byte-identical to 38bc739 ---------
+# ---- WP 1-16 AC D: first four WP 1-15 bullets byte-identical to 38bc739 ----
+# 2026-10-12 (judge-diff-hunk-bullet-stale): the fifth bullet's tail was
+# reworded, so the 38bc739 golden now covers the four unchanged bullets and
+# stops right before the fifth ("- A "VERIFY exit=0" line is not enough").
 extract_verify_evidence() {
-  awk '/VERIFY EVIDENCE \(M14 per-AC/{p=1} p{print} p && /^[[:space:]]*evidence\.$/{exit}' "$1"
+  awk '/VERIFY EVIDENCE \(M14 per-AC/{p=1} p{print} p && /^[[:space:]]*- A "VERIFY exit=0" line is not enough/{exit} p && /^[[:space:]]*evidence\.$/{exit}' "$1"
 }
 GOLDEN_JUDGE="$TMP/judge.38bc739.md"
 if git show 38bc739:skills/council/prompts/judge.md > "$GOLDEN_JUDGE" 2>"$TMP/git-show.err"; then
   GOLD_EXTRACT="$(extract_verify_evidence "$GOLDEN_JUDGE")"
   NEW_EXTRACT="$(extract_verify_evidence "$JUDGE_MD")"
   if [ "$GOLD_EXTRACT" = "$NEW_EXTRACT" ]; then
-    ok "judge.md: the five WP 1-15 verify-evidence bullets are byte-identical to 38bc739"
+    ok "judge.md: the first four WP 1-15 verify-evidence bullets are byte-identical to 38bc739"
   else
-    fail_msg "judge.md: the five WP 1-15 verify-evidence bullets drifted from 38bc739"
+    fail_msg "judge.md: the first four WP 1-15 verify-evidence bullets drifted from 38bc739"
     diff <(printf '%s\n' "$GOLD_EXTRACT") <(printf '%s\n' "$NEW_EXTRACT") || true
   fi
 else

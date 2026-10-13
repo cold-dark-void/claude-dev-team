@@ -115,8 +115,19 @@ PROCEDURE
          is not neutral, it caps the verdict below 80.
        - A "VERIFY exit=0" line is not enough by itself. A pass alone
          does not earn VERIFIED or PARTIALLY_VERIFIED — weigh it together
-         with the cited test lines and diff hunk, as with any other
+         with the recipe's own evidence: the Step 1 AC quote, the Step 2
+         Verify output and the Step 3 token greps, as with any other
          evidence.
+       - Evidence bar (2026-10-12, CDT-537): score confidence on EXHIBITED
+         run output — a bundle that quotes the command, its exit code and
+         the relevant output lines. A source assert (a test-file line that
+         states the expected behavior) is a citation of the source, NOT
+         run output. When an AC sub-clause of the claim's quote is
+         evidenced only by source asserts and no bundle quotes actual run
+         output for it, the claim MUST get confidence <=79.
+       - A strike on an AC sub-clause is a bite-coverage strike. Record it
+         in struck_lines with the AC id and the reason: struck lines are
+         the route to a follow-up ticket, never silently dropped.
        - When no bundle quotes the AC bullet at the claim's source_locator
          (a raw_blob line of the form `<N>: - **<id>.**` anchored on
          its source_locator), the claim MUST get confidence <=79.
@@ -127,7 +138,9 @@ PROCEDURE
          claim MUST get confidence <=79.
        A numbered sub-clause named in that quote is advisory evidence
        only and carries no cap, because no oracle can check a
-       finder-chosen key phrase.
+       finder-chosen key phrase. That no-cap rule covers the token caps
+       above only; the run-output evidence bar still applies to a
+       sub-clause where a run exists.
        These caps can only lower a confidence; they do not change SPEC-033 M14(b).
 
    If OUTPUT_SHAPE == "finding[]":

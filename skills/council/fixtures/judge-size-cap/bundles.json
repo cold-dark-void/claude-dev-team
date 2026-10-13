@@ -1,0 +1,9 @@
+{
+  "bundles": [
+    {"claim_id": "c0", "tool_use_id": "t0", "raw_blob": "c0-line-1\nc0-line-2", "file_line": "a.txt:1", "reproducible_command": "cat a.txt"},
+    {"claim_id": "c1", "tool_use_id": "t1", "raw_blob": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA", "file_line": "b.txt:1", "reproducible_command": "cat b.txt"},
+    {"claim_id": "c1", "tool_use_id": "t2", "raw_blob": "c1-second-blob", "file_line": "b.txt:2", "reproducible_command": "sed -n 2p b.txt"},
+    {"claim_id": "c2", "tool_use_id": "t3", "raw_blob": "c2-line-1", "file_line": "c.txt:1", "reproducible_command": "cat c.txt"},
+    {"claim_id": "c3", "tool_use_id": "t4", "raw_blob": "c3-line-1", "file_line": "d.txt:1", "reproducible_command": "cat d.txt"}
+  ]
+}

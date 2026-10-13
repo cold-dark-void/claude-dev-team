@@ -273,6 +273,55 @@ function formatBundlesForPrompt(bundles) {
     .join('\n\n')
 }
 
+// council-judge-file-delivery (2026-10-12): a tool-less judge (SPEC-013,
+// `tools: ""`) cannot Read bundle part files, so an oversized bundle set is
+// instead split into claim-atomic parts judged in sequential spawns — each
+// part carries only its own claims, bundles and brief lines, and the parts'
+// verdict/struck arrays are concatenated. Fixed cap: no env var, no flag
+// (the M14(j) constant convention). A single claim whose own rendered
+// bundles already exceed the cap gets its own oversized part; a raw_blob is
+// never cut mid-bundle. Under-cap runs keep the single-spawn prompt
+// byte-identical to the pre-split render.
+export const JUDGE_BUNDLE_CAP_BYTES = 64000
+
+export function partitionJudgeParts(claims, bundles, capBytes) {
+  const safeBundles = Array.isArray(bundles) ? bundles : []
+  if (!Array.isArray(claims) || claims.length === 0) {
+    return [{ claims: [], claim_ids: [], bundles: safeBundles }]
+  }
+  // Claim ids follow the engine's `c${index}` convention (m14-ac-split.sh
+  // and the non-M14 fallback paths both emit it); bundles echo it back.
+  const ids = claims.map((c, i) => (c && c.claim_id) || `c${i}`)
+  const known = new Set(ids)
+  const groups = ids.map((id) => safeBundles.filter((b) => b && (b.claim_id || '') === id))
+  for (const b of safeBundles) {
+    if (b && !known.has(b.claim_id || '')) groups[0].push(b)
+  }
+  const parts = []
+  let cur = { claims: [], claim_ids: [], bundles: [] }
+  const flush = () => {
+    if (cur.claims.length || cur.bundles.length) {
+      parts.push({ claims: cur.claims, claim_ids: cur.claim_ids, bundles: cur.bundles })
+    }
+    cur = { claims: [], claim_ids: [], bundles: [] }
+  }
+  for (let i = 0; i < ids.length; i++) {
+    // Byte-accurate packing (advisor note, 2026-10-12): measure the merged
+    // candidate, not UTF-16 .length sums of the parts.
+    if (cur.claims.length) {
+      const candidate = cur.bundles.concat(groups[i])
+      if (Buffer.byteLength(formatBundlesForPrompt(candidate), 'utf8') > capBytes) {
+        flush()
+      }
+    }
+    cur.claims.push(claims[i])
+    cur.claim_ids.push(ids[i])
+    cur.bundles = cur.bundles.concat(groups[i])
+  }
+  flush()
+  return parts
+}
+
 function shuffled(items, shuffleFn) {
   const a = items.slice()
   if (typeof shuffleFn === 'function') return shuffleFn(a)
@@ -739,6 +788,8 @@ export async function runCouncil(runtime) {
 
   let prosecutorBrief = ''
   let advocateBrief = ''
+  let prosecutorRes = null
+  let advocateRes = null
   const struck = []
 
   if (!skipPhase4) {
@@ -790,6 +841,8 @@ export async function runCouncil(runtime) {
     }
     prosecutorBrief = briefToText(pRes, 'evidence_against')
     advocateBrief = briefToText(aRes, 'evidence_for')
+    prosecutorRes = pRes
+    advocateRes = aRes
     if (pRes?.struck_lines) struck.push(...pRes.struck_lines)
     if (aRes?.struck_lines) struck.push(...aRes.struck_lines)
   }
@@ -797,22 +850,68 @@ export async function runCouncil(runtime) {
   // --- Judge ----------------------------------------------------------------
   if (typeof phase === 'function') phase('Judge')
 
-  const judgePrompt = loadPrompt('judge', {
-    ORIGINAL_CLAIMS: JSON.stringify(claims, null, 2),
-    EVIDENCE_BUNDLES: formatBundlesForPrompt(orderedBundles),
-    PROSECUTOR_BRIEF: prosecutorBrief || phase4SkipMarker,
-    ADVOCATE_BRIEF: advocateBrief || phase4SkipMarker,
-    OUTPUT_SHAPE: outputShape,
-  })
+  // council-judge-file-delivery: over JUDGE_BUNDLE_CAP_BYTES the bundle set
+  // is split into claim-atomic parts; each spawn sees only its own claims,
+  // bundles and brief lines, and the arrays are concatenated. Any failed
+  // part falls through to the existing degraded path below (whole-run
+  // fallback — a partially judged set never reaches finalize).
+  const briefForPart = (res, field, claimIds) =>
+    res && Array.isArray(res.briefs)
+      ? briefToText({ briefs: res.briefs.filter((b) => claimIds.includes(b.claim_id)) }, field)
+      : ''
+
+  const allBundlesBlock = formatBundlesForPrompt(orderedBundles)
+  const judgeParts =
+    Buffer.byteLength(allBundlesBlock, 'utf8') <= JUDGE_BUNDLE_CAP_BYTES
+      ? [
+          {
+            claims,
+            claim_ids: claims.map((c, i) => (c && c.claim_id) || `c${i}`),
+            bundles: orderedBundles,
+          },
+        ]
+      : partitionJudgeParts(claims, orderedBundles, JUDGE_BUNDLE_CAP_BYTES)
 
   const judgeSchema = outputShape === 'finding[]' ? FindingSchema : VerdictSchema
-  // D4 / AC4: plugin-qualified council-judge; tools empty via agent file
-  let judgeOut = await safeAgent(judgePrompt, {
-    schema: judgeSchema,
-    agentType: 'dev-team:council-judge',
-    phase: 'Judge',
-    label: 'council-judge',
-  })
+  const mergedJudge = { struck_lines: [] }
+  let allPartsJudged = true
+  for (const part of judgeParts) {
+    // Single-part runs reuse the unfiltered brief text, keeping the prompt
+    // byte-identical to the pre-split render.
+    const pBrief =
+      judgeParts.length === 1
+        ? prosecutorBrief
+        : briefForPart(prosecutorRes, 'evidence_against', part.claim_ids)
+    const aBrief =
+      judgeParts.length === 1
+        ? advocateBrief
+        : briefForPart(advocateRes, 'evidence_for', part.claim_ids)
+    const judgePrompt = loadPrompt('judge', {
+      ORIGINAL_CLAIMS: JSON.stringify(part.claims, null, 2),
+      EVIDENCE_BUNDLES: formatBundlesForPrompt(part.bundles),
+      PROSECUTOR_BRIEF: pBrief || phase4SkipMarker,
+      ADVOCATE_BRIEF: aBrief || phase4SkipMarker,
+      OUTPUT_SHAPE: outputShape,
+    })
+    // D4 / AC4: plugin-qualified council-judge; tools empty via agent file
+    const partOut = await safeAgent(judgePrompt, {
+      schema: judgeSchema,
+      agentType: 'dev-team:council-judge',
+      phase: 'Judge',
+      label: 'council-judge',
+    })
+    if (!partOut) {
+      allPartsJudged = false
+      break
+    }
+    for (const key of ['verdicts', 'findings', 'struck_lines']) {
+      if (Array.isArray(partOut[key])) {
+        if (!Array.isArray(mergedJudge[key])) mergedJudge[key] = []
+        mergedJudge[key].push(...partOut[key])
+      }
+    }
+  }
+  let judgeOut = allPartsJudged ? mergedJudge : null
 
   // Passed to finalize only for the finding[] judge fallback (CDT-487).
   // The CDV-199 marker string stays in engine.sh; this is the reason line.

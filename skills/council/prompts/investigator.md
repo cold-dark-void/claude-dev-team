@@ -172,6 +172,19 @@ Numbered sub-clauses are advisory evidence, not a capped token
 (SPEC-013 Phase 5): grep a key phrase of the sub-clause in the Verify
 test file, same bundle shape as above.
 
+EVIDENCE BAR (2026-10-12, CDT-537)
+------------------------
+For each AC sub-clause named in your Step 1 quote where a run exists, an
+evidence bundle MUST quote the actual run output: the command, its exit
+code, and the relevant output lines. The Step 2 run bundle and the
+AC-label filter bundle are run output. A grep hit in a test file is a
+SOURCE ASSERT: it cites the source, it is not run output, and it does
+not satisfy this rule by itself. When the Verify log holds the
+sub-clause's lines but the filter above missed them, add one scoped
+filter grep of the log (same shape as the Step 3 filter). When the log
+holds nothing for a sub-clause, the run does not exhibit it — record
+that honestly; never invent output.
+
 A spec checkbox line (`- [ ]` or `- [x]`) you meet in the AC source goes
 in raw_blob as file content only, never as a result. Its
 checked/unchecked state is NEVER itself evidence for or against the

@@ -101,6 +101,18 @@ them from `inputs` and sets `briefs_omitted: true` plus
 `briefs_omitted_reason`; the Judge receives claims + bundles only. Passing an
 empty, placeholder, or reconstructed brief in their place is forbidden.
 
+**Judge bundle cap (2026-10-12).** One judge invocation carries the whole
+rendered bundle block. When that block exceeds 64,000 bytes
+(`JUDGE_BUNDLE_CAP_BYTES = 64000`, a fixed constant in `workflow.js` — no
+env var, no flag), the engine splits it into claim-atomic parts and spawns
+the judge once per part. Each part carries only its own claims, bundles,
+and brief lines; the verdict/finding and `struck_lines` arrays are
+concatenated in part order. A `raw_blob` is never cut mid-bundle; a claim
+whose own bundles exceed the cap gets its own oversized part. Any failed
+part degrades the whole judge (the spawn-failure path above) — a partially
+judged set never reaches finalize. The judge stays tool-less: it judges
+prompt content only (SPEC-013 Phase 5).
+
 **Engine expects from the Judge:**
 
 The verdict / finding / evidence schema below is the operational copy; the
