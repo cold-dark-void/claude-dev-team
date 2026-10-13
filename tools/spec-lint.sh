@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# spec-lint.sh — CDT-273 spec gate (bash + awk only).
+# spec-lint.sh — CDT-273 spec gate (bash + awk; check 6 shells out to
+# skills/council/m14-ac-split.sh, which needs jq).
 #
 #   bash tools/spec-lint.sh [--root DIR]
 #
@@ -10,6 +11,14 @@
 #   4. ## Version History dates are monotonic (newest-first or oldest-first)
 #   5. no "SPEC-N line M" citation under skills/, commands/, agents/, specs/, AGENTS.md
 #      (fixtures/ and CHANGELOG.md are captured history and are skipped)
+#   6. M14(g) AC grammar per ### subsection under ## Acceptance criteria — the
+#      same skills/council/m14-ac-split.sh script the council ship gate runs,
+#      in M14_AC_SOURCE=worktree mode. ADVISORY (WARN, non-gating): shipped
+#      specs predate the gate and still hold stale M14(g) violations, and a
+#      gating run would red CI on them; the writer still sees the exact
+#      "m14-ac-split: <cause>" line the ship gate would raise.
+#   7. technical AC clauses no command can check (spec-ac-uncheckable-clause-lint,
+#      via skills/spec-tooling/check-ac-clauses.sh) — also ADVISORY (WARN).
 #
 # A path listed in tools/spec-lint.allow (one repo-relative path per line,
 # # comments) is an intentional example and is not a missing-path finding.
@@ -22,9 +31,21 @@ if [ "${1:-}" = "--root" ]; then
 fi
 [ $# -eq 0 ] || { echo "usage: spec-lint.sh [--root DIR]" >&2; exit 64; }
 FMT="$ROOT/skills/spec-tooling/check-format.sh"
+ACSTYLE="$ROOT/skills/spec-tooling/check-ac-clauses.sh"
+M14="$ROOT/skills/council/m14-ac-split.sh"
 ALLOW="$ROOT/tools/spec-lint.allow"
 FAIL=0
+WARN=0
 say() { printf '%s\n' "$*" >&2; FAIL=$((FAIL + 1)); }
+warn() { printf '%s\n' "$*" >&2; WARN=$((WARN + 1)); }
+
+# The M14(g) check needs the split script and a git worktree to resolve the
+# AC path against; neither is present in a fixture tree, so the check is
+# skipped there.
+M14_OK=false
+if [ -f "$M14" ] && git -C "$ROOT" rev-parse --show-toplevel >/dev/null 2>&1; then
+  M14_OK=true
+fi
 
 allowed() {
   local p=$1
@@ -111,6 +132,32 @@ while IFS= read -r spec; do
     }
     END { exit n ? 1 : 0 }
   ' "$spec" || FAIL=$((FAIL + 1))
+
+  # 6. M14(g) AC grammar per ### subsection under ## Acceptance criteria.
+  # Same script the council ship gate runs (m14-ac-split.sh); worktree mode
+  # checks the file on disk. Advisory WARN — see the header note.
+  if [ "$M14_OK" = true ]; then
+    while IFS= read -r slug; do
+      [ -n "$slug" ] || continue
+      m14_err=$(cd "$ROOT" && M14_AC_SOURCE=worktree bash "$M14" "$slug" "$rel" 2>&1 1>/dev/null)
+      m14_rc=$?
+      [ "$m14_rc" -ne 0 ] && warn "$rel: [m14-ac] WARN: ### $slug: $m14_err"
+    done < <(awk '
+      /^## Acceptance criteria[[:space:]]*$/ { in_sec=1; next }
+      in_sec && /^## / { in_sec=0 }
+      in_sec && /^### / { sub(/^### */, ""); print }
+    ' "$spec")
+  fi
+
+  # 7. Technical AC clauses no command can check (advisory WARN). The
+  # script prefixes each finding with the file it was given; strip it and
+  # re-prefix with the repo-relative path for a uniform finding shape.
+  if [ -f "$ACSTYLE" ]; then
+    while IFS= read -r astyle_line; do
+      [ -n "$astyle_line" ] || continue
+      warn "$rel: [ac-style] WARN: ${astyle_line#*": "}"
+    done < <(bash "$ACSTYLE" "$spec" 2>&1 1>/dev/null)
+  fi
 
   # Version history monotonic
   awk -v rel="$rel" '
@@ -245,7 +292,11 @@ while IFS= read -r f; do
 done < <(cite_scan)
 
 if [ "$FAIL" -eq 0 ]; then
-  echo "spec-lint: clean"
+  if [ "$WARN" -gt 0 ]; then
+    echo "spec-lint: clean, $WARN warning(s)"
+  else
+    echo "spec-lint: clean"
+  fi
   exit 0
 fi
 echo "spec-lint: $FAIL finding(s)" >&2

@@ -310,6 +310,77 @@ else
 fi
 git -C "$REPO" checkout -q -- notasuite.sh
 
+# ---- M14_AC_SOURCE=worktree: the spec-lint caller's mode -------------------
+# Reads the file on disk (a HEAD read would check stale content in an
+# uncommitted tree), checks Verify paths against the worktree, and skips
+# case 11 (a dirty tree is the normal state there).
+run_wt() {  # run_wt <ticket_id> <path> -- worktree mode, inside $REPO
+  ( cd "$REPO" && M14_AC_SOURCE=worktree bash "$SCRIPT" "$1" "$2" )
+}
+
+# 1. Verify path absent from the worktree -> case 10 even though the spec
+#    file itself is committed.
+ERR="$(run_wt wp-wt-mode wt-verify.md 2>&1 1>/dev/null)"; RC=$?
+if [ "$RC" -eq 8 ] && [[ "$ERR" == "m14-ac-split: case 10:"* ]]; then
+  ok "worktree mode: Verify path absent from the worktree -> case 10"
+else
+  fail_msg "worktree mode: absent path (rc=$RC, stderr=$ERR)"
+fi
+
+# 2. The file on disk satisfies the path check without a commit.
+mkdir -p "$REPO/skills/wt-fix"
+: > "$REPO/skills/wt-fix/test-wt.sh"
+OUT_WT="$(run_wt wp-wt-mode wt-verify.md)"; RC=$?
+if [ "$RC" -eq 0 ] && [ "$(echo "$OUT_WT" | jq -r '.acs[0].verify')" = "bash skills/wt-fix/test-wt.sh" ]; then
+  ok "worktree mode: untracked Verify path present on disk exits 0"
+else
+  fail_msg "worktree mode: untracked path (rc=$RC, out=$OUT_WT)"
+fi
+ERR="$(run wp-wt-mode wt-verify.md 2>&1 1>/dev/null)"; RC=$?
+if [ "$RC" -eq 8 ] && [[ "$ERR" == "m14-ac-split: case 10:"* ]]; then
+  ok "HEAD mode still rejects a Verify path absent at HEAD"
+else
+  fail_msg "HEAD mode: untracked path (rc=$RC, stderr=$ERR)"
+fi
+
+# 3. Worktree content is read: an uncommitted AC is visible only here.
+#    (The suite file is committed first so HEAD mode has no case-10 path
+#    error of its own; only the AC difference remains.)
+git -C "$REPO" add skills/wt-fix/test-wt.sh
+git -C "$REPO" commit -q -m wt-suite
+OUT_HD_BEFORE="$(run wp-wt-mode wt-verify.md)"; RC=$?
+if [ "$RC" -eq 0 ] && [ "$(echo "$OUT_HD_BEFORE" | jq -r '[.acs[].id] | join(",")')" = "A" ]; then
+  ok "clean tree: HEAD mode reads AC A"
+else
+  fail_msg "clean tree: HEAD mode (rc=$RC)"
+fi
+echo "- **Z.** an uncommitted worktree-mode edit" >> "$REPO/wt-verify.md"
+OUT_WT="$(run_wt wp-wt-mode wt-verify.md)"; RC=$?
+if [ "$RC" -eq 0 ] && [ "$(echo "$OUT_WT" | jq -r '[.acs[].id] | join(",")')" = "A,Z" ]; then
+  ok "worktree mode: uncommitted AC Z is visible (HEAD mode showed A only)"
+else
+  fail_msg "worktree mode: uncommitted AC (rc=$RC, ids=$(echo "$OUT_WT" | jq -r '[.acs[].id] | join(",")'))"
+fi
+git -C "$REPO" checkout -q -- wt-verify.md
+
+# 4. Case 11 is a HEAD-mode rule: a dirty tracked tree does not fail
+#    worktree mode (it already reads the worktree; there is no gap).
+echo "dirtied by test-m14-ac-split.sh wt-mode" >> "$REPO/notasuite.sh"
+OUT_WT="$(run_wt wp-wt-mode wt-verify.md)"; RC=$?
+if [ "$RC" -eq 0 ]; then
+  ok "worktree mode: dirty tracked tree does not fail case 11"
+else
+  fail_msg "worktree mode: dirty tree (rc=$RC)"
+fi
+ERR="$(run wp-wt-mode wt-verify.md 2>&1 1>/dev/null)"; RC=$?
+if [ "$RC" -eq 8 ] && [[ "$ERR" == "m14-ac-split: case 11:"* ]]; then
+  ok "HEAD mode still fails case 11 on the same dirty tree"
+else
+  fail_msg "HEAD mode: dirty tree (rc=$RC, stderr=$ERR)"
+fi
+git -C "$REPO" checkout -q -- notasuite.sh
+rm -rf "$REPO/skills/wt-fix"
+
 # ---- Old fixtures: byte-identical except the added verify:null ------------
 if echo "$OUT" | jq -e '[.acs[].verify] == [null, null, null]' >/dev/null 2>&1; then
   ok "valid-mix: every AC (no Verify line in this fixture) has verify:null"

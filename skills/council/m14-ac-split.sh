@@ -3,7 +3,9 @@
 # council/m14-ac-split.sh — M14 per-AC source parser (SPEC-033 M14(g)/(h),
 # SPEC-013 Phase 1 "M14 per-AC split", WP 1-14 interface contract C1).
 #
-# Reads the AC source at HEAD (git show HEAD:<path>) and writes nothing.
+# Reads the AC source — `git show HEAD:<path>` by default (M14_AC_SOURCE
+# unset or "HEAD"), the file on disk when M14_AC_SOURCE=worktree — and
+# writes nothing.
 # On success (exit 0) prints one JSON document on stdout:
 #   {"ac_source":"<path>","ticket_id":"<id>",
 #    "acs":[{"id":"A","line":12,"process":false,"verify":"bash x/test-y.sh"|null},...]}
@@ -17,6 +19,13 @@
 # Usage: m14-ac-split.sh <ticket_id> <path>
 #   <ticket_id>  the "### <ticket_id>" subsection to read.
 #   <path>       relative to the worktree top level, no ".." segment.
+#
+# M14_AC_SOURCE (env, optional): "HEAD" (default) reads the AC source from
+# HEAD — the ship-gate contract, and case 11 (dirty tree) applies. The
+# spec-lint / authoring-time caller (tools/spec-lint.sh) sets "worktree": it
+# lints uncommitted work, where a HEAD read would check stale content, a
+# dirty tree is the normal state (no case 11), and Verify paths are checked
+# against the worktree, not HEAD.
 
 set -uo pipefail
 
@@ -38,6 +47,15 @@ ac_path="$2"
 [ -n "$ticket_id" ] || usage
 [ -n "$ac_path" ] || usage
 
+ac_source="${M14_AC_SOURCE:-HEAD}"
+case "$ac_source" in
+  HEAD|worktree) ;;
+  *)
+    echo "$SELF: M14_AC_SOURCE must be HEAD or worktree, got: $ac_source" >&2
+    exit 64
+    ;;
+esac
+
 # ---- Case 1: path format (relative, no ".." segment) -----------------------
 case "$ac_path" in
   /*)
@@ -53,9 +71,14 @@ esac
 toplevel="$(git rev-parse --show-toplevel 2>/dev/null)" \
   || fail "case 1: not inside a git worktree"
 
-# ---- Case 1: path absent at HEAD -------------------------------------------
-content="$(git -C "$toplevel" show "HEAD:$ac_path" 2>/dev/null)" \
-  || fail "case 1: <path> absent at HEAD: $ac_path"
+# ---- Case 1: path absent at HEAD (or in the worktree, worktree mode) -------
+if [ "$ac_source" = worktree ]; then
+  [ -f "$toplevel/$ac_path" ] || fail "case 1: <path> absent in the worktree: $ac_path"
+  content="$(cat "$toplevel/$ac_path")"
+else
+  content="$(git -C "$toplevel" show "HEAD:$ac_path" 2>/dev/null)" \
+    || fail "case 1: <path> absent at HEAD: $ac_path"
+fi
 
 # ---- Parse: section -> subsection -> bullets -> Verify line ---------------
 # awk emits, on success, one line per AC as
@@ -281,7 +304,11 @@ while IFS="$(printf '\t')" read -r tag id line_no proc_flag verify || [ -n "$tag
   esac
   [ "$vpath" = "tools/run-all-tests.sh" ] && ok=0
   if [ "$ok" -eq 1 ]; then
-    git -C "$toplevel" cat-file -e "HEAD:$vpath" 2>/dev/null || ok=0
+    if [ "$ac_source" = worktree ]; then
+      [ -f "$toplevel/$vpath" ] || ok=0
+    else
+      git -C "$toplevel" cat-file -e "HEAD:$vpath" 2>/dev/null || ok=0
+    fi
   fi
   if [ "$ok" -eq 0 ]; then
     if [ -z "$bad_ids" ]; then bad_ids="$id"; else bad_ids="$bad_ids,$id"; fi
@@ -290,6 +317,9 @@ done <<PARSED_EOF
 $parsed
 PARSED_EOF
 if [ -n "$bad_ids" ]; then
+  if [ "$ac_source" = worktree ]; then
+    fail "case 10: AC $bad_ids: the Verify path fails a M14(g) path check (absolute, '..', non-suite basename, tools/run-all-tests.sh, or absent on disk)"
+  fi
   fail "case 10: AC $bad_ids: the Verify path fails a M14(g) path check (absolute, '..', non-suite basename, tools/run-all-tests.sh, or absent at HEAD)"
 fi
 
@@ -297,7 +327,10 @@ fi
 # changes to tracked files. The split reads HEAD; a verify run reads the
 # worktree, so a dirty tracked file would let a verify run see content the
 # split never checked. ------------------------------------------------------
-if [ -n "$verify_ids" ]; then
+# Case 11 is a HEAD-mode rule only: it exists because the split reads HEAD
+# while a verify run reads the worktree. Worktree mode already reads the
+# worktree, so there is no such gap to guard.
+if [ "$ac_source" = HEAD ] && [ -n "$verify_ids" ]; then
   git -C "$toplevel" diff --quiet HEAD -- \
     || fail "case 11: worktree has uncommitted changes to tracked files; verify runs read the worktree (ACs $verify_ids)"
 fi

@@ -17,8 +17,10 @@ fail() { FAIL=$((FAIL + 1)); printf 'FAIL: %s\n' "$1"; }
 seed() { # seed DEST
   local dest=$1
   mkdir -p "$dest/specs/core" "$dest/skills/spec-tooling" \
-    "$dest/skills" "$dest/commands" "$dest/agents" "$dest/tools"
+    "$dest/skills/council" "$dest/skills" "$dest/commands" "$dest/agents" "$dest/tools"
   cp "$REPO/skills/spec-tooling/check-format.sh" "$dest/skills/spec-tooling/check-format.sh"
+  cp "$REPO/skills/spec-tooling/check-ac-clauses.sh" "$dest/skills/spec-tooling/check-ac-clauses.sh"
+  cp "$REPO/skills/council/m14-ac-split.sh" "$dest/skills/council/m14-ac-split.sh"
   printf '%s\n' '# agents' > "$dest/AGENTS.md"
   cat > "$dest/specs/TDD.md" << 'EOF'
 | ID | Title | Status | Coverage |
@@ -176,6 +178,99 @@ if printf '%s\n' "$OUT" | grep -q 'SPEC-090'; then
   fail "archived spec mentioned in findings"
 else
   pass "findings never name the archived file"
+fi
+
+# CDT-522 + spec-ac-uncheckable-clause-lint: the two advisory checks WARN
+# and keep rc 0. Needs a git tree — the m14 check resolves the AC path
+# against the worktree top level (and is skipped in the non-git seeds
+# above, which must stay clean).
+seed "$BASE/advisory"
+git -C "$BASE/advisory" init -q
+mkdir -p "$BASE/advisory/skills/x"
+: > "$BASE/advisory/skills/x/test-y.sh"
+cat > "$BASE/advisory/specs/core/SPEC-001-clean.md" << 'EOF'
+# SPEC-001: Clean title
+
+**Status**: ACTIVE
+**Category**: core
+**Created**: 2026-10-01
+
+## Overview
+
+Advisory-check fixture.
+
+## MUST
+
+- MUST stay clean under the gating checks
+
+## Acceptance criteria
+
+### T-good
+
+- **A.** The diff adds a widget and `stat` shows mode 600 on the token file.
+  Verify: bash skills/x/test-y.sh
+
+### T-prose
+
+- **A.** The diff adds a widget.
+
+Captured history note at column zero, not a bullet or continuation.
+
+### T-guard
+
+- **A.** The diff adds a widget.
+- **B.** [process] Approvals are recorded on the ticket.
+
+### T-verify
+
+- **C.** The diff adds a widget.
+  Verify: bash skills/x/test-y.sh ; rm -rf /tmp/x
+
+### T-absent
+
+- **E.** The diff adds a widget.
+  Verify: bash skills/absent/test-z.sh
+
+### T-style
+
+- **D.** The diff adds a widget. The text follows ASD-STE100.
+
+## Test
+
+- the advisory fixtures exist
+
+## Validation
+
+- reviewed; evidence: spec-lint-test.sh run attached
+
+## Version History
+
+| Date | Change |
+|------|--------|
+| 2026-10-12 | advisory fixture |
+EOF
+OUT=$(bash "$LINT" --root "$BASE/advisory" 2>&1); RC=$?
+[ "$RC" -eq 0 ] && printf '%s\n' "$OUT" | grep -q 'spec-lint: clean' \
+  && pass "advisory warnings keep rc 0" || fail "advisory rc=$RC out=$OUT"
+printf '%s\n' "$OUT" | grep -q '\[m14-ac\] WARN: ### T-prose: m14-ac-split: case 5:' \
+  && pass "m14 advisory warns on prose in an AC subsection" || fail "no case 5 warn: $OUT"
+printf '%s\n' "$OUT" | grep -q '\[m14-ac\] WARN: ### T-guard: m14-ac-split: case 8:' \
+  && pass "m14 advisory warns on [process] AC failing guard 1" || fail "no case 8 warn: $OUT"
+printf '%s\n' "$OUT" | grep -q '\[m14-ac\] WARN: ### T-verify: m14-ac-split: case 10: AC C: a Verify line breaks' \
+  && pass "m14 advisory warns on a Verify line breaking the grammar" || fail "no case 10 grammar warn: $OUT"
+printf '%s\n' "$OUT" | grep -q '\[m14-ac\] WARN: ### T-absent: m14-ac-split: case 10: AC E: the Verify path fails' \
+  && pass "m14 advisory warns on a Verify path absent from the worktree" || fail "no case 10 path warn: $OUT"
+printf '%s\n' "$OUT" | grep -q '\[ac-style\] WARN: AC D' \
+  && pass "ac-style advisory warns on the style-only clause" || fail "no ac-style warn: $OUT"
+if printf '%s\n' "$OUT" | grep -q '### T-good'; then
+  fail "valid subsection T-good warned: $OUT"
+else
+  pass "valid subsection T-good stays silent"
+fi
+if printf '%s\n' "$OUT" | grep -q '^\S*: \[format\]'; then
+  fail "advisory fixture tripped a gating check: $OUT"
+else
+  pass "advisory fixture trips no gating check"
 fi
 
 echo "spec-lint tests: $PASS passed, $FAIL failed"

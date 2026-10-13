@@ -160,7 +160,9 @@ m14_check() {
     exit 8
   fi
   local split_json
-  split_json=$(bash "$M14_AC_SPLIT" "$ticket_id" "$ac_source") || exit $?
+  # Pin the AC source to HEAD: the ship gate must never inherit an exported
+  # M14_AC_SOURCE=worktree from the caller's env, which would skip case 11.
+  split_json=$(M14_AC_SOURCE=HEAD bash "$M14_AC_SPLIT" "$ticket_id" "$ac_source") || exit $?
   local technical_count
   technical_count=$(printf '%s' "$split_json" | jq '[.acs[] | select(.process == false)] | length')
   if [ "$technical_count" -gt "$M14_AC_BUDGET" ]; then

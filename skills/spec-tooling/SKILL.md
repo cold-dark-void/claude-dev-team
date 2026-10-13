@@ -23,7 +23,8 @@ Governing contract: `specs/core/SPEC-008-spec-management.md`.
 | `spec-skeleton.md` | Canonical 9-section emitter partial (SPEC-008). Include via `<!-- include: skills/spec-tooling/spec-skeleton.md agent=spec -->`. |
 | `source-exclude.md` | Canonical code-alignment exclude set (SPEC-008 § Source Exclusions). Include via `<!-- include: skills/spec-tooling/source-exclude.md agent=spec -->`. |
 | `check-format.sh` | Mechanized Phase-1 format check (9 required sections). Exit 0 = OK. |
-| `fixtures/` | check-format fixtures (pre/post-fix). |
+| `check-ac-clauses.sh` | Flags technical AC clauses no command can check (spec-ac-uncheckable-clause-lint, WARN-grade; wired into `tools/spec-lint.sh`). Exit 0 = clean. |
+| `fixtures/` | check-format fixtures (pre/post-fix) and check-ac-clauses fixtures (ac-style-flag/ac-style-clean). |
 
 Do NOT hand-edit include regions; refresh from the repo root:
 ```bash

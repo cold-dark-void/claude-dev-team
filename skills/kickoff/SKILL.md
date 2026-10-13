@@ -532,6 +532,10 @@ Write the confirmed ACs into a `## Acceptance criteria` section, `###
 only test/gate/CI running, never diff content) `[process]` (M14(h)).
 Add a two-space `Verify: bash <test file>` continuation to each technical AC that one
 test file proves (SPEC-033 M14(g)).
+A technical AC MUST NOT carry a clause no command can check (style-only prose,
+e.g. "The text follows ASD-STE100."): a Verify line does not clear it — move
+the sentence to a `[process]` AC or delete it;
+`skills/spec-tooling/check-ac-clauses.sh` flags the known pattern set.
 ```
 
 Determine the next SPEC number (read from the worktree — same content as master at
@@ -579,6 +583,10 @@ Write the confirmed ACs into a `## Acceptance criteria` section, `###
 only test/gate/CI running, never diff content) `[process]` (M14(h)).
 Add a two-space `Verify: bash <test file>` continuation to each technical AC that one
 test file proves (SPEC-033 M14(g)).
+A technical AC MUST NOT carry a clause no command can check (style-only prose,
+e.g. "The text follows ASD-STE100."): a Verify line does not clear it — move
+the sentence to a `[process]` AC or delete it;
+`skills/spec-tooling/check-ac-clauses.sh` flags the known pattern set.
 ```
 
 Wait for Tech Lead to write/update the spec. Then commit it **inside the worktree** so

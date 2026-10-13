@@ -45,6 +45,10 @@ Produce:
    confirmed ACs into a `## Acceptance criteria` section (SPEC-033 M14(g)),
    with the `[process]` tag and the two-space
    `Verify: bash <test file>` continuation. Do not copy that contract here.
+   A technical AC MUST NOT carry a clause no command can check (style-only
+   prose, e.g. "The text follows ASD-STE100."): a Verify line does not clear
+   it — move the sentence to a `[process]` AC or delete it;
+   `skills/spec-tooling/check-ac-clauses.sh` flags the known pattern set.
 2. Implementation plan with task graph (dependencies, parallelism)
 3. For each task: `Recommended agent: <ic4|ic5|qa|devops|ds>` and why.
    Cite agents/tech-lead.md Task-routing table.
