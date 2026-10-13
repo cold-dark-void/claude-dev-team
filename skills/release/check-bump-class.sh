@@ -9,7 +9,8 @@
 #   check-bump-class.sh --commit REV    # REV vs its parent (CI)
 #   check-bump-class.sh --range BASE..TIP  # each non-merge commit in the range (CI)
 #
-# Exit: 0 ok · 1 new Surface with patch/none · 64 usage
+# Exit: 0 ok · 1 new Surface with patch/none, or a minor/major bump whose
+#   SECURITY.md supported-versions table lags the new minor · 64 usage
 # THIS SCRIPT IS A SUBPROCESS CLI — NEVER SOURCE IT.
 set -euo pipefail
 
@@ -172,6 +173,39 @@ bump_class() {
   fi
 }
 
+security_gate() {
+  # SECURITY.md supported-versions pre-gate (SKILL.md Step 3d): on a
+  # minor/major bump the table must track the new plugin.json minor. Reads
+  # the same snapshot as the version (index for --cached, the commit tree
+  # for --commit, the worktree file otherwise). Fails closed — a missing
+  # file or an unparseable table is a violation, not a skip.
+  local klass="$1" new="$2" sec="" sec_min="" new_min=""
+  case "$klass" in
+    minor|major) ;;
+    *) return 0 ;;
+  esac
+  case "$MODE" in
+    cached) sec=$(git show ":SECURITY.md" 2>/dev/null) || sec="" ;;
+    commit) sec=$(git show "${COMMIT}:SECURITY.md" 2>/dev/null) || sec="" ;;
+    *)      [ -f "$ROOT/SECURITY.md" ] && sec=$(cat "$ROOT/SECURITY.md") ;;
+  esac
+  new_min=$(strip_v "$new")
+  new_min="${new_min%%+*}"
+  new_min="${new_min%%-*}"
+  new_min="${new_min%.*}"
+  sec_min=$(printf '%s\n' "$sec" | sed -n 's/^|[[:space:]]*\([0-9][0-9]*\.[0-9][0-9]*\)\.x[[:space:]]*|[[:space:]]*Yes[[:space:]]*|/\1/p' | head -1)
+  if [ -n "$sec_min" ] && [ "$sec_min" = "$new_min" ]; then
+    return 0
+  fi
+  {
+    echo "bump-class: $klass bump $old_ver -> $new_ver but the SECURITY.md supported-versions table does not track minor $new_min"
+    echo "  SECURITY.md table minor: ${sec_min:-<none>}"
+    echo "  run gen-supported-versions.sh --write and stage SECURITY.md (SKILL.md Step 3d)"
+    echo "  MUST NOT commit/tag/push"
+  } >&2
+  return 1
+}
+
 if [ "$MODE" = "range" ]; then
   case "$RANGE" in
     *..*) RBASE="${RANGE%%..*}"; RTIP="${RANGE#*..}" ;;
@@ -280,13 +314,19 @@ else
   old_ver=$(git show "${AGAINST}:.claude-plugin/plugin.json" 2>/dev/null | json_ver || true)
 fi
 
+old_ver=${old_ver:-0.0.0}
+new_ver=${new_ver:-}
+klass=$(bump_class "$old_ver" "$new_ver")
+
+# Pre-gate runs before the Surface predicate: a stale table fails even with
+# no new command files, so the miss surfaces before the full suite.
+security_gate "$klass" "$new_ver" || exit 1
+
 if [ "${#added[@]}" -eq 0 ]; then
   echo "bump-class: no new commands/*.md — ok"
   exit 0
 fi
 
-old_ver=${old_ver:-0.0.0}
-new_ver=${new_ver:-}
 if [ -z "$new_ver" ]; then
   echo "bump-class: new command surface(s) but plugin.json version unreadable" >&2
   printf '  %s\n' "${added[@]}" >&2
@@ -295,7 +335,6 @@ if [ -z "$new_ver" ]; then
   exit 1
 fi
 
-klass=$(bump_class "$old_ver" "$new_ver")
 case "$klass" in
   minor|major)
     echo "bump-class: ${#added[@]} new command(s), $old_ver -> $new_ver ($klass) — ok"

@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# Master-only: refuse a new commands/*.md Surface on a patch / no bump.
+# Master-only: refuse a new commands/*.md Surface on a patch / no bump, and
+# refuse a minor/major bump with a stale SECURITY.md table (B7).
 # Installed via `git config core.hooksPath githooks` (skills/release/install-git-hooks.sh).
 set -euo pipefail
 

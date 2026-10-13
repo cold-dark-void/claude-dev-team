@@ -254,6 +254,10 @@ With no version argument the generator reads the just-bumped `plugin.json`;
 `security-versions` check fails the release when the table lags `plugin.json`,
 so this step is not optional.
 
+Stage `SECURITY.md` in Step 5 with the version pair. If `--write` produced no
+diff, stage nothing. On a minor or major bump the bump-class pre-gate
+(Step 4.11) fails closed when the table lags the new minor.
+
 ## Step 4: Verify the version pair matches
 
 Confirm the version string is identical in:
@@ -370,6 +374,10 @@ bash "$CHECK_BUMP" || exit 1
 
 Non-zero → **Do NOT commit, tag, or push.** Bump minor (or major) and re-run.
 Edits to existing `commands/*.md` do not trip the gate.
+
+On a minor or major bump the gate also checks the `SECURITY.md`
+supported-versions table (Step 3d). A stale or missing table fails the
+release even with no new command files.
 
 ## Step 4.12: PDH stanza harness gate (pre-commit gate)
 

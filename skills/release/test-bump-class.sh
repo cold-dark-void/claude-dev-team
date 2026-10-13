@@ -40,6 +40,21 @@ expect_contains() {
   fi
 }
 
+# set_sec REPO MINOR — write SECURITY.md with the supported-versions table
+# for minor MINOR (same shape gen-supported-versions.sh --write emits).
+set_sec() {
+  local d="$1" min="$2"
+  cat >"$d/SECURITY.md" <<EOF
+# Security Policy
+
+## Supported Versions
+| Version | Supported |
+|---------|-----------|
+| ${min}.x | Yes       |
+| < ${min} | No        |
+EOF
+}
+
 make_repo() {
   local d
   d=$(mktemp -d "${TMPDIR:-/tmp}/bump-class-XXXXXX")
@@ -50,7 +65,8 @@ make_repo() {
   printf '{"name":"t","version":"1.7.36"}\n' >"$d/.claude-plugin/plugin.json"
   printf '%s\n' '### v1.7.36' >"$d/CHANGELOG.md"
   printf '%s\n' '# existing' >"$d/commands/status.md"
-  git -C "$d" add CHANGELOG.md .claude-plugin/plugin.json commands/status.md
+  set_sec "$d" 1.7
+  git -C "$d" add CHANGELOG.md .claude-plugin/plugin.json commands/status.md SECURITY.md
   git -C "$d" commit -q -m "fix: v1.7.36 — baseline"
   printf '%s\n' "$d"
 }
@@ -106,7 +122,34 @@ printf '%s\n' '# existing edited' >"$REPO/commands/status.md"
 run_in "$REPO"
 expect_rc 0 "edit-existing + patch"
 
+# security pre-gate: minor bump with NO new commands and a stale table
+# fails closed (the miss surfaces before the full suite, not at the fold gate)
+REPO=$(make_repo)
+set_ver "$REPO" "1.8.0"
+run_in "$REPO"
+expect_rc 1 "minor bump + stale SECURITY.md table (no new commands)"
+expect_contains "does not track minor 1.8"
+expect_contains "gen-supported-versions.sh --write"
+rm -rf "$REPO"
+
+# security pre-gate: the same bump with a regenerated table passes
+REPO=$(make_repo)
+set_ver "$REPO" "1.8.0"
+set_sec "$REPO" 1.8
+run_in "$REPO"
+expect_rc 0 "minor bump + regenerated SECURITY.md table"
+rm -rf "$REPO"
+
+# security pre-gate: fail closed when SECURITY.md is absent entirely
+REPO=$(make_repo)
+set_ver "$REPO" "1.8.0"
+rm "$REPO/SECURITY.md"
+run_in "$REPO"
+expect_rc 1 "minor bump + missing SECURITY.md"
+rm -rf "$REPO"
+
 # new command + patch
+REPO=$(make_repo)
 set_ver "$REPO" "1.7.37"
 add_command "$REPO"
 run_in "$REPO"
@@ -116,17 +159,19 @@ expect_contains "1.7.36 -> 1.7.37"
 expect_contains "MUST NOT commit/tag/push"
 rm -rf "$REPO"
 
-# new command + minor
+# new command + minor (table regenerated per Step 3d)
 REPO=$(make_repo)
 set_ver "$REPO" "1.8.0"
+set_sec "$REPO" 1.8
 add_command "$REPO"
 run_in "$REPO"
 expect_rc 0 "new command + minor"
 rm -rf "$REPO"
 
-# new command + major
+# new command + major (table regenerated per Step 3d)
 REPO=$(make_repo)
 set_ver "$REPO" "2.0.0"
+set_sec "$REPO" 2.0
 add_command "$REPO"
 run_in "$REPO"
 expect_rc 0 "new command + major"
@@ -150,14 +195,27 @@ run_in "$REPO" --commit HEAD
 expect_rc 1 "--commit new+patch"
 rm -rf "$REPO"
 
-# --commit: committed minor + new command
+# --commit: committed minor + new command (SECURITY.md folded in per Step 3d)
+REPO=$(make_repo)
+set_ver "$REPO" "1.8.0"
+set_sec "$REPO" 1.8
+add_command "$REPO"
+git -C "$REPO" add commands/audit.md .claude-plugin/plugin.json SECURITY.md
+git -C "$REPO" commit -q -m "feat: v1.8.0 — /audit"
+run_in "$REPO" --commit HEAD
+expect_rc 0 "--commit new+minor"
+rm -rf "$REPO"
+
+# --commit: committed minor + new command but SECURITY.md left stale → the
+# pre-gate fails closed even though the Surface predicate would pass.
 REPO=$(make_repo)
 set_ver "$REPO" "1.8.0"
 add_command "$REPO"
 git -C "$REPO" add commands/audit.md .claude-plugin/plugin.json
-git -C "$REPO" commit -q -m "feat: v1.8.0 — /audit"
+git -C "$REPO" commit -q -m "feat: v1.8.0 — /audit (no SECURITY.md)"
 run_in "$REPO" --commit HEAD
-expect_rc 0 "--commit new+minor"
+expect_rc 1 "--commit minor with stale SECURITY.md table"
+expect_contains "SECURITY.md supported-versions table"
 rm -rf "$REPO"
 
 # --cached: staged new command, version not staged (still 1.7.36 on HEAD)
@@ -168,13 +226,26 @@ run_in "$REPO" --cached
 expect_rc 1 "--cached new command, version unstaged"
 rm -rf "$REPO"
 
-# --cached: staged new command + minor version
+# --cached: staged new command + minor version (SECURITY.md staged too)
 REPO=$(make_repo)
 set_ver "$REPO" "1.8.0"
+set_sec "$REPO" 1.8
+add_command "$REPO"
+git -C "$REPO" add commands/audit.md .claude-plugin/plugin.json SECURITY.md
+run_in "$REPO" --cached
+expect_rc 0 "--cached new command + minor staged"
+rm -rf "$REPO"
+
+# --cached: minor staged but SECURITY.md NOT staged — the index still holds
+# HEAD's 1.7 table, so the pre-gate fails closed (staged-set miss).
+REPO=$(make_repo)
+set_ver "$REPO" "1.8.0"
+set_sec "$REPO" 1.8
 add_command "$REPO"
 git -C "$REPO" add commands/audit.md .claude-plugin/plugin.json
 run_in "$REPO" --cached
-expect_rc 0 "--cached new command + minor staged"
+expect_rc 1 "--cached: minor staged, SECURITY.md not staged"
+expect_contains "gen-supported-versions.sh --write"
 rm -rf "$REPO"
 
 # --cached: index-vs-worktree divergence. plugin.json is staged UNCHANGED
@@ -203,7 +274,8 @@ rm -rf "$REPO"
 REPO=$(make_repo)
 add_command "$REPO"
 set_ver "$REPO" "1.8.0"
-git -C "$REPO" add commands/audit.md .claude-plugin/plugin.json
+set_sec "$REPO" 1.8
+git -C "$REPO" add commands/audit.md .claude-plugin/plugin.json SECURITY.md
 set_ver "$REPO" "1.7.37"
 run_in "$REPO" --cached
 expect_rc 0 "--cached: staged minor bump, worktree-only patch downgrade"
@@ -245,6 +317,7 @@ rm -rf "$REPO"
 # release -> pre-release of the next minor core + new command → ok
 REPO=$(make_repo_at "1.18.17")
 set_ver "$REPO" "1.19.0-pre.1"
+set_sec "$REPO" 1.19
 add_command "$REPO"
 run_in "$REPO"
 expect_rc 0 "pre-release: 1.18.17 -> 1.19.0-pre.1 + new command"
@@ -253,6 +326,7 @@ rm -rf "$REPO"
 # pre-release -> pre-release, same core → still the core's minor line → ok
 REPO=$(make_repo_at "1.19.0-pre.1")
 set_ver "$REPO" "1.19.0-pre.2"
+set_sec "$REPO" 1.19
 add_command "$REPO"
 run_in "$REPO"
 expect_rc 0 "pre-release: 1.19.0-pre.1 -> 1.19.0-pre.2 + new command"
