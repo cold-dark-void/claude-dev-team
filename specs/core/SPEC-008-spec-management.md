@@ -20,11 +20,14 @@ agree with the required-section set below — they MUST NOT define their own com
 
 - MUST scope: this format applies to every governed spec file under `specs/core/*.md` (and
   the other category dirs — `specs/performance/`, `specs/safety/`, `specs/compatibility/`,
-  `specs/architecture/`) authored or maintained by the spec-tooling commands. The scaffold
-  starter `specs/TDD.md` (the simpler inline "Format B" emitted by `skills/scaffold-project/`
-  for a brand-new consumer project) is an intentionally-simpler bootstrap artifact and is
-  EXEMPT from this per-file format MUST (cross-ref SPEC-005, which Covers scaffold-project);
-  `/spec check` MUST NOT flag scaffold's starter against this contract.
+  `specs/architecture/`) authored or maintained by the spec-tooling commands — including
+  the scaffold-project starter specs (`specs/core/SPEC-001..003`), which are emitted from
+  the same `skills/spec-tooling/spec-skeleton.md` partial as `/spec generate` and
+  `/spec create`. The scaffold's `specs/TDD.md` index file itself (an intentionally-simpler
+  bootstrap artifact emitted by `skills/scaffold-project/` for a brand-new consumer
+  project — an index, not a spec file) is EXEMPT from this per-file format MUST
+  (cross-ref SPEC-005, which Covers scaffold-project); `/spec check` MUST NOT flag the
+  scaffold's TDD.md index against this contract.
 - MUST include EXACTLY these 9 required sections, in this canonical form (spelling and heading
   level are normative — they are the elements `/spec check` Phase 1 validates):
   1. `# <ID>: <Title>` header (where `<ID>` is `<PREFIX>-<NNN>`, e.g. `SPEC-008`)

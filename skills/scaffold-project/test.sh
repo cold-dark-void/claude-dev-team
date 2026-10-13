@@ -1,8 +1,10 @@
 #!/usr/bin/env bash
-# scaffold-project/test.sh — CDT-297 [10 scaffold-fences] + rv-w3-32 de-GUI
+# scaffold-project/test.sh — CDT-297 [10 scaffold-fences] + rv-w3-32 de-GUI,
+# no non-roster memory dir, and SPEC-008 skeleton starter specs.
 # bite-tests: the two emitted templates survive their inner ``` fences (4-backtick
-# outer), no phantom ~/.claude/CLAUDE.md reference, and the starter specs are
-# stack-neutral.
+# outer), no phantom ~/.claude/CLAUDE.md reference, the starter specs are
+# stack-neutral and emitted from the spec-skeleton.md include region, and no
+# .claude/memory/claude/ is created.
 #
 # Machine-check: bash skills/scaffold-project/test.sh  (exit 0)
 # THIS SCRIPT IS A SUBPROCESS CLI — NEVER SOURCE IT.
@@ -49,7 +51,7 @@ AG_BODY=$(template_body '^### Step 6: Create AGENTS.md$')
 if [ -z "$TDD_BODY" ]; then fail_line "TDD.md template extracted"; fi
 if [ -z "$AG_BODY" ]; then fail_line "AGENTS.md template extracted"; fi
 
-for needle in "## Organizing Large Projects" "├── core/" "## Version History" "## Instructions for AI Agents"; do
+for needle in "## Spec Layout" "├── core/" "## Version History" "## Instructions for AI Agents"; do
   if printf '%s' "$TDD_BODY" | grep -qF -- "$needle"; then
     pass_line "TDD.md template keeps '$needle' inside the copied body"
   else
@@ -91,6 +93,74 @@ if printf '%s' "$S" | grep -q '<First Core Behavior>'; then
   pass_line "starter spec titles are placeholder-neutral"
 else
   fail_line "starter spec titles not neutralized"
+fi
+
+# ---- T5: no non-roster memory dir is created (rv-w3-32) -----------------------
+if printf '%s' "$S" | grep -q 'memory/claude'; then
+  fail_line "scaffold still creates .claude/memory/claude (rv-w3-32)"
+else
+  pass_line "no .claude/memory/claude creation (rv-w3-32)"
+fi
+printf '%s\n' 'mkdir -p "$PROJ_ROOT/.claude/memory/claude"' | grep -q 'memory/claude' \
+  && pass_line "negative control: memory/claude text is detectable" \
+  || fail_line "negative control: memory/claude text not detectable"
+
+# ---- T6: memory dirs are created for the 7 roster agents only (rv-w3-32) ------
+if printf '%s' "$S" | grep -qF 'for _agent in pm tech-lead ic5 ic4 devops qa ds'; then
+  pass_line "memory dirs created for the 7 roster agents only (rv-w3-32)"
+else
+  fail_line "roster memory-dir loop missing"
+fi
+
+# ---- T7: starter specs come from the spec-skeleton.md include region ----------
+# (rv-w3-32): the 9-section body must be the drift-gated partial, byte-identical,
+# and the old inline '## Core Specifications' block must be gone.
+SKELETON="$HERE/../spec-tooling/spec-skeleton.md"
+if [ ! -f "$SKELETON" ]; then
+  fail_line "spec-skeleton.md not found"
+else
+  PARTIAL=$(mktemp "${TMPDIR:-/tmp}/sc-part.XXXXXX")
+  REGION=$(mktemp "${TMPDIR:-/tmp}/sc-reg.XXXXXX")
+  awk 'f{print} !f && $0=="-->"{f=1}' "$SKELETON" > "$PARTIAL"
+  awk '/^<!-- include: skills\/spec-tooling\/spec-skeleton\.md agent=spec -->$/{g=1;next} /^<!-- \/include -->$/{g=0} g' "$SKILL" > "$REGION"
+  if [ -s "$REGION" ] && diff -q "$PARTIAL" "$REGION" >/dev/null; then
+    pass_line "skeleton include region is byte-identical to the partial (rv-w3-32)"
+  else
+    fail_line "include region missing or drifted from spec-skeleton.md (rv-w3-32)"
+  fi
+  rm -f "$PARTIAL" "$REGION"
+fi
+printf '%s\n' '## Core Specifications' | grep -q '^## Core Specifications$' \
+  && pass_line "negative control: old inline-spec heading is detectable" \
+  || fail_line "negative control: old inline-spec heading not detectable"
+if printf '%s' "$S" | grep -q '^## Core Specifications$'; then
+  fail_line "old inline '## Core Specifications' block still present (rv-w3-32)"
+else
+  pass_line "old inline spec block replaced by the skeleton include (rv-w3-32)"
+fi
+
+# ---- T8: the rendered starter spec passes check-format.sh (rv-w3-32) ----------
+CHECK_FORMAT="$HERE/../spec-tooling/check-format.sh"
+if [ ! -x "$CHECK_FORMAT" ] && [ ! -f "$CHECK_FORMAT" ]; then
+  fail_line "check-format.sh not found"
+else
+  SPEC=$(mktemp "${TMPDIR:-/tmp}/sc-spec.XXXXXX")
+  awk '/^<!-- include: skills\/spec-tooling\/spec-skeleton\.md agent=spec -->$/{g=1;next} /^<!-- \/include -->$/{g=0} g' "$SKILL" \
+    | sed -e '1d' -e '$d' \
+    | sed -e 's/^# <PREFIX>-<NNN>: <Title>$/# SPEC-001: <First Core Behavior>/' \
+          -e 's/^\*\*Status\*\*: <STATUS>/**Status**: DRAFT/' \
+          -e 's/^\*\*Category\*\*: <CATEGORY>/**Category**: core/' > "$SPEC"
+  if bash "$CHECK_FORMAT" "$SPEC" >/dev/null 2>&1; then
+    pass_line "rendered starter spec passes check-format.sh (rv-w3-32)"
+  else
+    fail_line "rendered starter spec fails check-format.sh (rv-w3-32)"
+  fi
+  if grep -qE '^[[:space:]]*[-*][[:space:]]*\[[ xX]\]' "$SPEC"; then
+    fail_line "rendered starter spec carries retired checkbox syntax (SPEC-008 retirement)"
+  else
+    pass_line "rendered starter spec has no retired checkbox syntax (SPEC-008 retirement)"
+  fi
+  rm -f "$SPEC"
 fi
 
 echo

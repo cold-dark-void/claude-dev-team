@@ -59,7 +59,7 @@ Everything needed to get the dev-team running in a new or existing project. Incl
 - MUST use focused one-fact-per-INSERT approach in SQLite mode
 
 ### Project Scaffolding (greenfield)
-- MUST create directory structure: `.claude/plans/`, `.claude/context/`, `.claude/memory/claude/`, `specs/`
+- MUST create directory structure: `.claude/plans/`, `.claude/context/`, `.claude/memory/<roster-agent>/` for the 7 roster agents only (`pm`, `tech-lead`, `ic5`, `ic4`, `devops`, `qa`, `ds` — no non-roster memory dir, rv-w3-32), `specs/`, and `specs/core/`; MUST create `.claude/memory/memory.db` only when `sqlite3` is available
 - MUST create `.claude/settings.json` with `defaultMode: "acceptEdits"` and comprehensive Bash allowlist
 - MUST seed TDD.md with 3 example spec entries in the index table marked as DRAFT status (to be replaced by real specs)
 - MUST NOT overwrite existing AGENTS.md or CLAUDE.md without asking user first
@@ -213,6 +213,7 @@ Everything needed to get the dev-team running in a new or existing project. Incl
 | Date | Change |
 |------|--------|
 
+| 2026-10-12 | rv-w3-32: the greenfield scaffold creates memory dirs for the 7 roster agents only (no non-roster `.claude/memory/claude/`); `memory.db` is created only when `sqlite3` is available; `specs/core/` joins the created directory set. |
 | 2026-10-02 | CDT-314 / CDT-342: drop the expired `commands/init-team.md` and `skills/demo/SKILL.md` requirements. Scaffold seeds DRAFT, not EXAMPLE. |
 | 2026-09-30 | WP 1-13 (`wp-1-13-setup-team-lembed`; CDT-261 `[10 F1]`, rv-p0-09; the lembed half of the package is CDT-262, see SPEC-004): **/setup team finds its scripts.** `commands/setup.md` Steps 2, 2.5, 3 and 4 set `PLUGIN_DIR` to the plugin root, so `schema.sql`, `migrate.sh`, `download-extensions.sh` and `migrate-md.sh` (all under `skills/memory-store/`) were never found and `/setup team` could not enable SQLite memory. Each fence now resolves its script with `plugin-dir.sh dir skills/memory-store/<file>` and skips with a warning when it is absent. Each fence is its own shell, so no variable crosses a fence: Step 5b is one fence (it set `SETTINGS` and `HOSTS_TO_ADD` in one fence and read them in the next, so `echo '{}' > ""` failed), it runs `mkdir -p "$MROOT/.claude"`, and it holds no `lint-ok: C1` waiver. Step 5 runs every time, without the `EXT_GITIGNORE_DONE` flag. Step 7 reads the printed `seed-import:` line. The team approval ask names only the `settings.json` merge, because the team path writes no hook (`bash-compress.sh` belongs to `/setup orchestration`). The `MROOT`-before-`MEMDB` premise of rv-p0-09 was already fixed by WP 1-12 (Steps 2.5 and 4), so nothing changed there. New `### wp-1-13-setup-team-lembed` AC subsection. Status stays ACTIVE. |
 | 2026-08-26 | CDT-228: `/setup models` dispatch (local Model map writer; not doctor-gated). Subs are `project` \| `orchestration` \| `team` \| `models`. Status stays ACTIVE. |

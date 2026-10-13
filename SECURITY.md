@@ -3,8 +3,8 @@
 ## Supported Versions
 | Version | Supported |
 |---------|-----------|
-| 1.24.x | Yes       |
-| < 1.24 | No        |
+| 1.25.x | Yes       |
+| < 1.25 | No        |
 
 ## Reporting a Vulnerability
 

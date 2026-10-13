@@ -35,10 +35,11 @@ project/
 │   ├── context/              # Task progress tracking
 │   │   └── .gitkeep
 │   └── memory/
-│       └── claude/           # Claude Code's project-local memory
-│           └── memory.md
+│       ├── memory.db         # Shared agent memory (SQLite mode; if sqlite3)
+│       └── <roster-agent>/   # pm, tech-lead, ic5, ic4, devops, qa, ds (rv-w3-32)
 ├── specs/
-│   └── TDD.md                # Living behavioral specifications
+│   ├── TDD.md                # Spec index (living behavioral specifications)
+│   └── core/                 # Starter specs (SPEC-008 9-section format)
 ├── CONTEXT.md                # Domain glossary (ubiquitous language; empty Terms ok)
 ├── AGENTS.md                 # Project-specific rules
 ├── .gitignore                # Git ignore patterns (if needed)
@@ -79,7 +80,11 @@ Before creating files, check:
 
 ```bash
 PROJ_ROOT=$(git rev-parse --show-toplevel 2>/dev/null || pwd)
-mkdir -p "$PROJ_ROOT/.claude/plans" "$PROJ_ROOT/.claude/context" "$PROJ_ROOT/.claude/memory/claude" "$PROJ_ROOT/specs"
+mkdir -p "$PROJ_ROOT/.claude/plans" "$PROJ_ROOT/.claude/context" "$PROJ_ROOT/specs" "$PROJ_ROOT/specs/core"
+# Roster agents only (rv-w3-32) — never create a non-roster memory dir.
+for _agent in pm tech-lead ic5 ic4 devops qa ds; do
+  mkdir -p "$PROJ_ROOT/.claude/memory/$_agent"
+done
 touch "$PROJ_ROOT/.claude/plans/.gitkeep" "$PROJ_ROOT/.claude/context/.gitkeep"
 ```
 
@@ -161,33 +166,26 @@ Create `$PROJ_ROOT/.claude/settings.json` to enable autonomous agent operation (
 
 ### Step 3: Create .claude/CLAUDE.md
 
-Create `$PROJ_ROOT/.claude/CLAUDE.md` with the project memory pointer so Claude Code uses project-local memory:
+Create `$PROJ_ROOT/.claude/CLAUDE.md` with the project memory pointer so agents use the shared per-agent memory convention (rv-w3-32: roster agents only):
 
 ```markdown
 # Project Memory
 
-Your memory for this project lives at `.claude/memory/claude/memory.md` (project-local, worktree-shared).
+Team agents persist memory per agent under `$MROOT/.claude/memory/<agent>/`.
+The roster agents are: `pm`, `tech-lead`, `ic5`, `ic4`, `devops`, `qa`, `ds`.
+Do not create memory directories for names outside this roster.
 
 At session start:
-1. Resolve project root: `_gc=$(git rev-parse --git-common-dir 2>/dev/null) && MROOT=$(cd "$(dirname "$_gc")" && pwd) || MROOT=$(pwd)`
-2. Read `$MROOT/.claude/memory/claude/memory.md` if it exists
-3. Write new memories here — not to the global `~/.claude/projects/...` path
+1. Resolve the shared root: `_gc=$(git rev-parse --git-common-dir 2>/dev/null) && MROOT=$(cd "$(dirname "$_gc")" && pwd) || MROOT=$(pwd)`
+2. Load memory in order: `directives.md` → memory → context. For memory: if `command -v sqlite3` succeeds AND `$MROOT/.claude/memory/memory.db` exists, use SQLite mode (tiered `memories` table, `archived=FALSE`); otherwise read `$MROOT/.claude/memory/<agent>/{cortex,memory,lessons}.md`
+3. Context is always a file: `$WTROOT/.claude/memory/<agent>/context.md` (per-worktree, never migrated to the DB)
+
+Write back at end of task.
 
 This file is shared across all git worktrees since they share the same `.git` common directory.
-Fits the per-agent convention: each team agent uses `$MROOT/.claude/memory/<agent>/`; Claude Code uses `$MROOT/.claude/memory/claude/`.
 ```
 
-Also seed `$PROJ_ROOT/.claude/memory/claude/memory.md` with a minimal header:
-
-```markdown
-# Claude Code Memory — <PROJECT NAME>
-_Initialized: <TODAY'S DATE>_
-
-## Project Context
-[Add project-specific notes here as you work]
-```
-
-Replace `<PROJECT NAME>` and `<TODAY'S DATE>` with actual values.
+Replace nothing — the template above is final.
 
 ### Step 4: Create plans.md
 
@@ -280,85 +278,24 @@ This file contains living behavioral specifications that define how the applicat
 
 ## Spec Index
 
-| ID | Title | Status | Coverage |
-|----|-------|--------|----------|
-| SPEC-001 | <First Core Behavior> | DRAFT | <key files> |
-| SPEC-002 | <Second Core Behavior> | DRAFT | <key files> |
-| SPEC-003 | <State That Must Persist> | DRAFT | <key files> |
+Each row has a spec file under `specs/` in the SPEC-008 format. Verify each
+file with `skills/spec-tooling/check-format.sh`.
+
+| ID | Title | Status | File |
+|----|-------|--------|------|
+| SPEC-001 | <First Core Behavior> | DRAFT | specs/core/SPEC-001-<kebab-title>.md |
+| SPEC-002 | <Second Core Behavior> | DRAFT | specs/core/SPEC-002-<kebab-title>.md |
+| SPEC-003 | <State That Must Persist> | DRAFT | specs/core/SPEC-003-<kebab-title>.md |
 
 <!-- Verify status (✅ PASS / ❌ FAIL / ⚠️) is reported by /spec check, not stored here -->
 
 ---
 
-## Core Specifications
+## Starter Spec Files
 
-### SPEC-001: <First Core Behavior>
-
-**MUST**: The project's primary workflow completes successfully end to end
-
-**Behavior**:
-- The primary workflow finishes within 5 seconds under normal conditions
-- Its output/artifacts appear with the expected shape and content
-- All steps of the workflow report success or a clear failure
-- No errors or crashes on the happy path
-
-**Test**:
-1. Run the primary workflow
-2. Verify the expected output/artifact appears
-3. Verify every step reports success
-4. Check logs/stderr for errors
-
-**Validation**:
-- [ ] The workflow completes without errors
-- [ ] Output matches the expected shape
-- [ ] Failure modes surface clearly
-- [ ] Duration < 5 seconds
-
----
-
-### SPEC-002: <Second Core Behavior>
-
-**MUST**: Users can move between the project's core workflows without loss
-
-**Behavior**:
-- Every core workflow is reachable from a documented entry point
-- Moving between workflows preserves in-progress state
-- Returning to a previous workflow restores its prior state
-
-**Test**:
-1. Exercise each core workflow in sequence
-2. Verify no state is lost between them
-3. Verify returning to a prior workflow restores state
-
-**Validation**:
-- [ ] All core workflows reachable
-- [ ] Transitions respond immediately (<100ms overhead)
-- [ ] No dead ends or orphaned state
-- [ ] State persists across transitions
-
----
-
-### SPEC-003: <State That Must Persist>
-
-**MUST**: Application data persists across sessions
-
-**Behavior**:
-- User settings/data saved automatically
-- Data restored on the next session
-- Data stored in appropriate location
-- Corrupted data handled gracefully
-
-**Test**:
-1. Make changes to settings/data
-2. Close the session
-3. Start a new session
-4. Verify changes persisted
-
-**Validation**:
-- [ ] Settings persist across restarts
-- [ ] Data saved in correct location
-- [ ] No data loss on normal shutdown
-- [ ] Graceful handling of corrupted data
+The three starter specs live as separate SPEC-008 files under `specs/core/`
+(one per Spec Index row, created in Step 5a) — each verifiable with
+`skills/spec-tooling/check-format.sh`.
 
 ---
 
@@ -390,9 +327,9 @@ This file contains living behavioral specifications that define how the applicat
 3. Get user approval on new specs
 
 ### After Implementation
-1. Verify affected specs manually
-2. Mark each spec as ✅ PASS or ❌ FAIL
-3. Update version history with changes
+1. Verify the affected spec files manually
+2. Record the result as a validation claim with evidence in each spec
+3. Update the Spec Index row and the spec's Version History
 
 ### Spec Status Meanings
 - ✅ **PASS**: Verified working as specified
@@ -416,18 +353,19 @@ This file contains living behavioral specifications that define how the applicat
 ## Instructions for AI Agents
 
 ### When Adding Features
-1. Read this file first to understand what must NOT break
-2. Add new SPEC-XXX sections for your feature
-3. Get user approval before implementing
-4. Implement feature
-5. Verify both new and existing specs pass
-6. Update version history
+1. Read the Spec Index and the affected spec files first to understand what must NOT break
+2. Add a new `specs/<category>/SPEC-NNN-<kebab-title>.md` spec file in the SPEC-008 9-section format
+3. Add a Spec Index row for the new file
+4. Get user approval before implementing
+5. Implement the feature
+6. Verify both new and existing specs pass
+7. Update the new spec's Version History
 
 ### When Fixing Bugs
-1. Identify which spec(s) are failing
-2. Fix the code to make spec pass
-3. Verify fix doesn't break other specs
-4. Update version history
+1. Identify which spec file(s) are failing
+2. Fix the code to make the spec pass
+3. Verify the fix does not break other specs
+4. Update the affected spec's Version History
 
 ### When Breaking Changes are Required
 1. Mark affected spec(s) as ⚠️ UNDER REVIEW
@@ -438,9 +376,11 @@ This file contains living behavioral specifications that define how the applicat
 
 ---
 
-## Organizing Large Projects
+## Spec Layout
 
-When specs exceed ~10 items (~200 lines), reorganize into:
+Spec files live under `specs/<category>/` — `core/`, `performance/`, `safety/`,
+`compatibility/`, `architecture/` — and `TDD.md` is the lightweight index.
+Add category directories as the spec count grows:
 
 ```
 specs/
@@ -458,6 +398,58 @@ specs/
 ````
 
 **IMPORTANT**: Replace `<PROJECT NAME>` with actual project name and `<TODAY'S DATE>` with today's date (YYYY-MM-DD format).
+
+### Step 5a: Create the starter spec files (SPEC-008 skeleton)
+
+Create three starter spec files under `$PROJ_ROOT/specs/core/`, one per
+Spec Index row, from the canonical 9-section skeleton below (SPEC-008;
+drift-gated from `skills/spec-tooling/spec-skeleton.md` — rv-w3-32). For
+each file:
+
+- `<PREFIX>-<NNN>` is `SPEC-001`, `SPEC-002`, `SPEC-003`; `<Title>` is the
+  Spec Index row's title.
+- Render `<STATUS>` as `DRAFT` (new specs start DRAFT) and `<CATEGORY>` as
+  `core`.
+- `<YYYY-MM-DD>` is today's date (YYYY-MM-DD). The filename is
+  `<ID>-<kebab-case-title>.md`.
+- Keep the `<…>` content placeholders — the user replaces them with real
+  requirements.
+- DO NOT copy the `<!-- include: … -->` / `<!-- /include -->` marker lines
+  into the produced spec files — they are build-time directives only.
+
+Each generated file MUST pass `skills/spec-tooling/check-format.sh`.
+
+<!-- include: skills/spec-tooling/spec-skeleton.md agent=spec -->
+```markdown
+# <PREFIX>-<NNN>: <Title>
+
+**Status**: <STATUS>
+**Category**: <CATEGORY>
+**Created**: <YYYY-MM-DD>
+
+## Overview
+
+<One paragraph: what behavior this spec governs and why it exists.>
+
+## MUST
+
+- MUST <one concrete, testable requirement>
+
+## Test
+
+- <one concrete check verifying a MUST requirement above>
+
+## Validation
+
+- <one validation claim, with its evidence: test run, command output, or linked artifact>
+
+## Version History
+
+| Date | Change |
+|------|--------|
+| <YYYY-MM-DD> | Initial version |
+```
+<!-- /include -->
 
 ### Step 5b: Create CONTEXT.md (domain glossary)
 
@@ -705,12 +697,12 @@ After creating all files, output:
 Created:
   📁 .claude/plans/ - Plan files directory
   📁 .claude/context/ - Progress tracking directory
-  📁 .claude/memory/claude/ - Claude Code project-local memory
+  📁 .claude/memory/ - Roster agent memory dirs (pm, tech-lead, ic5, ic4, devops, qa, ds) [+ memory.db when sqlite3 is available]
   📄 .claude/settings.json - Agent autonomy settings (acceptEdits + Bash allow list)
   📄 .claude/CLAUDE.md - Project memory pointer
-  📄 .claude/memory/claude/memory.md - Claude Code's memory (project-local)
   📄 .claude/plans.md - Master plan index
-  📄 specs/TDD.md - Behavioral specifications (3 starter specs)
+  📄 specs/TDD.md - Spec index (living behavioral specifications)
+  📁 specs/core/ - Starter specs (SPEC-001..003, SPEC-008 format)
   📄 CONTEXT.md - Domain glossary (fill Terms as names crystallize)
   📄 AGENTS.md - Project-specific rules (NEEDS CUSTOMIZATION)
   📄 .gitignore - Git ignore patterns [if created]
@@ -725,10 +717,10 @@ Next steps:
    - Known issues
    - Architecture notes
 
-2. 📋 Customize specs/TDD.md:
-   - Replace example specs with your actual requirements
-   - Or keep them as starting point and add more
-   - Update project name in header
+2. 📋 Customize the starter specs under `specs/core/` and the `specs/TDD.md` index:
+   - Replace each starter spec's `<…>` placeholders with real requirements
+   - Add new spec files under `specs/<category>/` plus a `specs/TDD.md` index row
+   - Update the project name in the `specs/TDD.md` header
 
 3. 🎯 Create your first plan (optional):
    - .claude/plans/<YYYY-MM-DD>-initial-setup.md
@@ -777,13 +769,13 @@ When emitting this, replace `<model>` with the agent/model actually performing t
 Before completing, verify (all under `$PROJ_ROOT`):
 - [ ] $PROJ_ROOT/.claude/plans/ directory exists
 - [ ] $PROJ_ROOT/.claude/context/ directory exists
-- [ ] $PROJ_ROOT/.claude/memory/claude/ directory exists
+- [ ] $PROJ_ROOT/.claude/memory/<roster-agent>/ directories exist (pm, tech-lead, ic5, ic4, devops, qa, ds — rv-w3-32: no non-roster dir)
 - [ ] $PROJ_ROOT/.claude/settings.json created with defaultMode and Bash allow list
 - [ ] $PROJ_ROOT/.claude/CLAUDE.md created with project memory pointer
-- [ ] $PROJ_ROOT/.claude/memory/claude/memory.md created with project header
 - [ ] $PROJ_ROOT/.claude/plans.md created
 - [ ] $PROJ_ROOT/specs/ directory exists
-- [ ] $PROJ_ROOT/specs/TDD.md created with 3 starter specs
+- [ ] $PROJ_ROOT/specs/TDD.md created (spec index)
+- [ ] $PROJ_ROOT/specs/core/ starter specs created (SPEC-001..003) and each passes skills/spec-tooling/check-format.sh (rv-w3-32)
 - [ ] $PROJ_ROOT/CONTEXT.md created (domain glossary template; skip if already present)
 - [ ] $PROJ_ROOT/AGENTS.md created
 - [ ] $PROJ_ROOT/.gitattributes created or missing M15 linguist-generated markers appended (never clobber other attributes)

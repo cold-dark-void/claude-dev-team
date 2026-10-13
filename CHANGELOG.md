@@ -6,6 +6,9 @@ Pre-written headings (release-train M5c, orchestrate version-sync tasks) are kep
 via skip-if-present when `/release` is given an explicit version — do not invent a
 second heading for the same version.
 
+### v1.25.0
+- **/setup project scaffolds roster-only memory and real starter specs (rv-w3-32)** — the scaffold creates memory dirs for the 7 roster agents only (no non-roster `claude/` dir; SPEC-005's greenfield MUST updated to match), writes a `.claude/CLAUDE.md` template that follows the actual memory protocol (SQLite branch gated on `command -v sqlite3` + `memory.db`, directives → memory → context load order, per-worktree `context.md`), replaces the TDD.md Format-B template with a per-category spec layout index, and emits SPEC-001..003 as real 9-section starter specs from the SPEC-008 skeleton (spec-project named as a skeleton consumer). Test suite extended T5–T8 incl. a retired-checkbox grep (26/0); SPEC-005/008 check-format OK; spec-lint 9/0.
+
 ### v1.24.2
 - **rv-w3-09 leftovers: adjust-agent steps renumbered into routing order; audit resolves the PDH once (rv-w3-09)** — `/adjust-agent`'s Model map is Step 3 (routing dispatches `--model`/`--effort` first), with the dashboard/read-only/adjustment/apply steps renumbered 4–7, dispatch bullets ordered model-flags-first, and every heading-keyed needle retargeted (`test-command-fences.sh`, `tools/fence-exec/manifest.tsv`, `memory-store/test-wp309.sh` Step 6e) plus SPEC-021/SPEC-037 prose. `/audit` merges its two setup steps so the canonical PDH stanza appears exactly once. Suites: command-fences 22/0, fence-exec 122/0, wp309 35/0, docs-drift rc 0, spec-lint 9/0.
 
