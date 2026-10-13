@@ -47,311 +47,24 @@ Extract the first word as `AGENT` and the remainder as `PROMPT` from the argumen
 
 Parse `--model` / `--model-unset` / `--effort` / `--effort-unset` **before**
 treating the remainder as a directives prompt. These flags are not a
-directive conversation and MUST NOT fall through to Step 5.
+directive conversation and MUST NOT fall through to Step 6.
 
-- If no arguments: go to **Step 3** (Dashboard mode)
-- If agent name only (one word, no prompt): go to **Step 4** (Read-only mode)
-- If agent name + prompt (no `--apply`): go to **Step 5** (Adjustment mode)
-- If agent name + `--apply` + prompt: go to **Step 6** (Non-interactive apply mode)
-- If agent name + `--model-unset`: go to **Step 7** (Model map unset)
-- If agent name + `--model` + string: go to **Step 7** (Model map set)
-- If agent name + `--effort-unset`: go to **Step 7** (effort unset)
-- If agent name + `--effort` + token: go to **Step 7** (effort set)
-- If agent name + both `--model*` and `--effort*` flags: go to **Step 7** (each writes only its field)
+- If agent name + `--model-unset`: go to **Step 3** (Model map unset)
+- If agent name + `--model` + string: go to **Step 3** (Model map set)
+- If agent name + `--effort-unset`: go to **Step 3** (effort unset)
+- If agent name + `--effort` + token: go to **Step 3** (effort set)
+- If agent name + both `--model*` and `--effort*` flags: go to **Step 3** (each writes only its field)
+- If no arguments: go to **Step 4** (Dashboard mode)
+- If agent name only (one word, no prompt): go to **Step 5** (Read-only mode)
+- If agent name + prompt (no `--apply`): go to **Step 6** (Adjustment mode)
+- If agent name + `--apply` + prompt: go to **Step 7** (Non-interactive apply mode)
 
-`council-judge`, `finder` and `debugger` are mappable (Step 7) even though they
+`council-judge`, `finder` and `debugger` are mappable (Step 3) even though they
 are not in the 7-agent dashboard roster.
 
-## Step 3: Dashboard mode (no arguments)
+## Step 3: Model map (`--model` / `--model-unset` / `--effort` / `--effort-unset`)
 
-The 7 behavioral agents are: `pm`, `tech-lead`, `ic5`, `ic4`, `devops`, `qa`, `ds`.
-
-For each agent, count directives:
-```bash
-_gc=$(git rev-parse --git-common-dir 2>/dev/null) \
-  && MROOT=$(cd "$(dirname "$_gc")" && pwd) \
-  || MROOT=$(pwd)
-DIRECTIVES_BASE="$MROOT/.claude/memory"
-PDH="${PDH:-$( { [ -n "${CLAUDE_PLUGIN_ROOT:-}" ] && [ -f "$CLAUDE_PLUGIN_ROOT/skills/plugin-dir.sh" ] && printf '%s\n' "$CLAUDE_PLUGIN_ROOT"; } || { [ -f skills/plugin-dir.sh ] && [ -f agents/pm.md ] && grep -qF '"name": "dev-team"' .claude-plugin/plugin.json 2>/dev/null && pwd; } || { _pr='${CLAUDE_PLUGIN_ROOT}'; [ "${_pr#\$}" = "$_pr" ] && [ -f "$_pr/skills/plugin-dir.sh" ] && printf '%s\n' "$_pr"; } || { for _mp in "$HOME"/.claude/plugins/marketplaces/*/; do [ -f "${_mp}skills/plugin-dir.sh" ] && [ -f "${_mp}agents/pm.md" ] && grep -qF '"name": "dev-team"' "${_mp}.claude-plugin/plugin.json" 2>/dev/null && printf '%s\n' "${_mp%/}" && break; done; } || find ~/.claude/plugins/cache \( -path '*/dev-team/*/skills/plugin-dir.sh' -o -path '*/dev-team-edge/*/skills/plugin-dir.sh' \) 2>/dev/null | awk -F/ '{ver=""; for(i=1;i<=NF;i++) if(($i=="dev-team"||$i=="dev-team-edge")&&i<NF){ver=$(i+1);break}; if(ver=="") next; m=ver; gsub(/-pre\./,"~pre.",m); p=($0 ~ /\/cache\/cold-dark-void\/dev-team\//)?2:(($0 ~ /\/cache\/cold-dark-void\/dev-team-edge\//)?1:0); print m "\t" p "\t" $0}' | sort -t $'\t' -k1,1V -k2,2n -k3,3 | tail -1 | cut -f3 | xargs -r dirname | xargs -r dirname )}"
-RESOLVE_MODEL=$(bash "$PDH/skills/plugin-dir.sh" file skills/model-map/resolve-model.sh)
-echo "Agent        Directives  Model            Effort"
-echo "-----        ----------  -----            ------"
-for AGENT in pm tech-lead ic5 ic4 devops qa ds; do
-  FILE="$DIRECTIVES_BASE/$AGENT/directives.md"
-  COUNT=$(grep -c '^[0-9]' "$FILE" 2>/dev/null || true); COUNT=${COUNT:-0}
-  MODEL=""
-  EFFORT=""
-  if [ -n "$RESOLVE_MODEL" ] && [ -f "$RESOLVE_MODEL" ]; then
-    MODEL=$(bash "$RESOLVE_MODEL" "$AGENT") || MODEL=""
-    EFFORT=$(bash "$RESOLVE_MODEL" --effort "$AGENT") || EFFORT=""
-  fi
-  [ -n "$MODEL" ] || MODEL="Tier default"
-  [ -n "$EFFORT" ] || EFFORT="inherited"
-  printf "%-12s %-11s %-16s %s\n" "$AGENT" "$COUNT" "$MODEL" "$EFFORT"
-done
-```
-
-Display as an aligned table (Model column is the resolved Model map string, or
-`Tier default` when empty; Effort column is the resolved effort token, or
-`inherited` when empty). `council-judge`, `finder` and `debugger` are omitted
-from this roster; use `/adjust-agent <agent> --model <string>` or
-`--effort <token>` to map one.
-
-```
-Agent        Directives  Model            Effort
------        ----------  -----            ------
-pm           3           grok-4           high
-tech-lead    0           Tier default     inherited
-ic5          1           Tier default     inherited
-ic4          2           grok-code-fast-1 inherited
-devops       0           Tier default     inherited
-qa           0           Tier default     inherited
-ds           0           Tier default     inherited
-
-Use: /adjust-agent <agent> to view, /adjust-agent <agent> <prompt> to adjust,
-or /adjust-agent <agent> --model <string> / --model-unset / --effort <token> / --effort-unset for the Model map.
-```
-
-Stop here.
-
-## Step 4: Read-only mode (agent name only)
-
-### Step 4a: Validate agent name
-
-Check if the agent has a definition file in the plugin:
-```bash
-PDH="${PDH:-$( { [ -n "${CLAUDE_PLUGIN_ROOT:-}" ] && [ -f "$CLAUDE_PLUGIN_ROOT/skills/plugin-dir.sh" ] && printf '%s\n' "$CLAUDE_PLUGIN_ROOT"; } || { [ -f skills/plugin-dir.sh ] && [ -f agents/pm.md ] && grep -qF '"name": "dev-team"' .claude-plugin/plugin.json 2>/dev/null && pwd; } || { _pr='${CLAUDE_PLUGIN_ROOT}'; [ "${_pr#\$}" = "$_pr" ] && [ -f "$_pr/skills/plugin-dir.sh" ] && printf '%s\n' "$_pr"; } || { for _mp in "$HOME"/.claude/plugins/marketplaces/*/; do [ -f "${_mp}skills/plugin-dir.sh" ] && [ -f "${_mp}agents/pm.md" ] && grep -qF '"name": "dev-team"' "${_mp}.claude-plugin/plugin.json" 2>/dev/null && printf '%s\n' "${_mp%/}" && break; done; } || find ~/.claude/plugins/cache \( -path '*/dev-team/*/skills/plugin-dir.sh' -o -path '*/dev-team-edge/*/skills/plugin-dir.sh' \) 2>/dev/null | awk -F/ '{ver=""; for(i=1;i<=NF;i++) if(($i=="dev-team"||$i=="dev-team-edge")&&i<NF){ver=$(i+1);break}; if(ver=="") next; m=ver; gsub(/-pre\./,"~pre.",m); p=($0 ~ /\/cache\/cold-dark-void\/dev-team\//)?2:(($0 ~ /\/cache\/cold-dark-void\/dev-team-edge\//)?1:0); print m "\t" p "\t" $0}' | sort -t $'\t' -k1,1V -k2,2n -k3,3 | tail -1 | cut -f3 | xargs -r dirname | xargs -r dirname )}"
-PLUGIN_AGENTS=$(bash "$PDH/skills/plugin-dir.sh" dir agents/pm.md)
-ARGS=$(cat <<'__A__'
-$ARGUMENTS
-__A__
-)
-set -f; set -- $ARGS; set +f
-AGENT="${1:-}"
-if [ -n "$PLUGIN_AGENTS" ] && [ ! -f "$PLUGIN_AGENTS/$AGENT.md" ]; then
-  echo "Warning: No agent definition found for '$AGENT' (no agents/$AGENT.md in plugin)."
-  echo "This may be a typo. Continuing anyway for forward-compatibility."
-  echo ""
-fi
-```
-
-This is a warning only -- do NOT hard-block. This allows setting directives for
-agents that may be added in future versions.
-
-### Step 4b: Display current directives
-
-```bash
-_gc=$(git rev-parse --git-common-dir 2>/dev/null) \
-  && MROOT=$(cd "$(dirname "$_gc")" && pwd) \
-  || MROOT=$(pwd)
-DIRECTIVES_BASE="$MROOT/.claude/memory"
-ARGS=$(cat <<'__A__'
-$ARGUMENTS
-__A__
-)
-set -f; set -- $ARGS; set +f
-AGENT="${1:-}"
-FILE="$DIRECTIVES_BASE/$AGENT/directives.md"
-if [ -s "$FILE" ]; then
-  echo "Directives for $AGENT:"
-  echo ""
-  cat "$FILE"
-else
-  echo "No directives set for $AGENT."
-fi
-```
-
-Stop here. Do NOT prompt for input.
-
-## Step 5: Adjustment mode (agent + prompt)
-
-### Step 5a: Validate agent name
-
-Same validation as Step 4a. Warn if no agent definition exists, but continue.
-
-### Step 5b: Read existing directives
-
-```bash
-_gc=$(git rev-parse --git-common-dir 2>/dev/null) \
-  && MROOT=$(cd "$(dirname "$_gc")" && pwd) \
-  || MROOT=$(pwd)
-DIRECTIVES_BASE="$MROOT/.claude/memory"
-ARGS=$(cat <<'__A__'
-$ARGUMENTS
-__A__
-)
-set -f; set -- $ARGS; set +f
-AGENT="${1:-}"
-FILE="$DIRECTIVES_BASE/$AGENT/directives.md"
-EXISTING=""
-if [ -s "$FILE" ]; then
-  EXISTING=$(cat "$FILE")
-fi
-```
-
-### Conflict detection rules
-
-A conflict exists when the incoming prompt is semantically contradictory to an
-existing directive (e.g., existing says "always use tabs" and the new prompt says
-"use spaces"). When a conflict is found, format it as:
-
-```
-Conflict detected:
-  Existing #2: "Always use tabs for indentation"
-  New request:  "Use 2-space indentation"
-
-These are contradictory. Which should take precedence?
-```
-
-### Step 5c: Interpret prompt and detect conflicts
-
-Apply conflict detection rules. If a conflict is found, show it to the user and
-wait for their response before continuing. Do NOT silently resolve conflicts by
-dropping or rewriting directives without the user's awareness.
-
-### Step 5d: Produce holistic rewrite
-
-Rewrite the ENTIRE directives file as a coherent set. Do NOT blindly append the
-new directive to the existing list. Consider all directives together:
-
-- Merge related directives where appropriate
-- Remove duplicates
-- Resolve any user-confirmed conflict decisions
-- Maintain consistent phrasing and scope
-- Re-number sequentially starting from 1
-- **Trial annotations (SPEC-001 M1 / CDV-200):** lines may end with
-  `<!-- trial start=… source=… review-after=… -->`. On holistic rewrite MUST
-  **copy through** any trial comment on lines that are not intentionally
-  removed or text-replaced. Do not invent trial metadata for lines that never
-  had it. Do not strip trial comments unless the prompt explicitly requests
-  KEEP-promote (strip) or the line is removed (REVERT).
-
-The result MUST be a numbered list, one directive per line:
-```
-1. First directive
-2. Second directive <!-- trial start=2026-07-03 source=sess#a review-after=10-sessions -->
-3. Third directive
-```
-
-#### Trial outcome prompt shapes (automation callers / SPEC-001 M5)
-
-Callers (`/retro` trial-review) MUST use these shapes so rewrite intent is unambiguous:
-
-- **KEEP (promote trial → permanent):** strip only the trial comment; keep the
-  directive text. Prompt example:
-  ```
-  Promote the following trial directive to permanent by removing only its
-  <!-- trial … --> annotation (leave the directive text). Do not add or remove
-  other directives: "<exact directive text without relying on number>"
-  ```
-  Equivalent `--apply` form is fine. Result line has no trial comment.
-
-- **REVERT (remove trial directive):** delete the directive entirely via the
-  normal removal path. Prompt example:
-  ```
-  Remove this directive entirely (trial REVERT): "<exact directive text>"
-  ```
-  Conflict detection still applies (M8); on `--apply` conflict, refuse and exit
-  non-zero — callers degrade to MANUAL_FOLLOWUP.
-
-Trial directives are full standing orders mid-trial (M8): conflict detection
-evaluates them exactly like permanent lines.
-
-### Step 5e: Ensure .gitignore coverage
-
-Before writing, call `ensure_seed_gitignore` so `.claude/memory/*` is ignored and `!.claude/memory/seed/` stays committable. Do not append a bare `.claude/memory/` directory rule.
-```bash
-_gc=$(git rev-parse --git-common-dir 2>/dev/null) \
-  && MROOT=$(cd "$(dirname "$_gc")" && pwd) \
-  || MROOT=$(pwd)
-PDH="${PDH:-$( { [ -n "${CLAUDE_PLUGIN_ROOT:-}" ] && [ -f "$CLAUDE_PLUGIN_ROOT/skills/plugin-dir.sh" ] && printf '%s\n' "$CLAUDE_PLUGIN_ROOT"; } || { [ -f skills/plugin-dir.sh ] && [ -f agents/pm.md ] && grep -qF '"name": "dev-team"' .claude-plugin/plugin.json 2>/dev/null && pwd; } || { _pr='${CLAUDE_PLUGIN_ROOT}'; [ "${_pr#\$}" = "$_pr" ] && [ -f "$_pr/skills/plugin-dir.sh" ] && printf '%s\n' "$_pr"; } || { for _mp in "$HOME"/.claude/plugins/marketplaces/*/; do [ -f "${_mp}skills/plugin-dir.sh" ] && [ -f "${_mp}agents/pm.md" ] && grep -qF '"name": "dev-team"' "${_mp}.claude-plugin/plugin.json" 2>/dev/null && printf '%s\n' "${_mp%/}" && break; done; } || find ~/.claude/plugins/cache \( -path '*/dev-team/*/skills/plugin-dir.sh' -o -path '*/dev-team-edge/*/skills/plugin-dir.sh' \) 2>/dev/null | awk -F/ '{ver=""; for(i=1;i<=NF;i++) if(($i=="dev-team"||$i=="dev-team-edge")&&i<NF){ver=$(i+1);break}; if(ver=="") next; m=ver; gsub(/-pre\./,"~pre.",m); p=($0 ~ /\/cache\/cold-dark-void\/dev-team\//)?2:(($0 ~ /\/cache\/cold-dark-void\/dev-team-edge\//)?1:0); print m "\t" p "\t" $0}' | sort -t $'\t' -k1,1V -k2,2n -k3,3 | tail -1 | cut -f3 | xargs -r dirname | xargs -r dirname )}"
-SEED_COMMON=$(bash "$PDH/skills/plugin-dir.sh" file skills/memory-store/seed-common.sh)
-if [ -z "$SEED_COMMON" ] || [ ! -f "$SEED_COMMON" ]; then
-  echo "Error: seed-common.sh not found" >&2
-  exit 1
-fi
-# shellcheck disable=SC1090
-. "$SEED_COMMON"
-ensure_seed_gitignore "$MROOT"
-```
-
-### Step 5f: Write directives file
-
-```bash
-_gc=$(git rev-parse --git-common-dir 2>/dev/null) \
-  && MROOT=$(cd "$(dirname "$_gc")" && pwd) \
-  || MROOT=$(pwd)
-DIRECTIVES_BASE="$MROOT/.claude/memory"
-ARGS=$(cat <<'__A__'
-$ARGUMENTS
-__A__
-)
-set -f; set -- $ARGS; set +f
-AGENT="${1:-}"
-mkdir -p "$DIRECTIVES_BASE/$AGENT"
-cat > "$DIRECTIVES_BASE/$AGENT/directives.md" << 'DIREOF'
-<the holistic rewritten numbered list>
-DIREOF
-```
-
-### Step 5g: Show final result
-
-Display the final directive list so the user can verify:
-```
-Directives for <agent> (updated):
-
-1. First directive
-2. Second directive
-3. Third directive
-```
-
-## Idempotency
-
-Invoking this command with the same prompt twice on the same state MUST produce
-the same result. No duplicate directives, no numbering drift, no semantic changes.
-When the existing directives already fully satisfy the prompt, confirm this and
-leave the file unchanged.
-
-## Step 6: Non-interactive apply mode (`--apply`)
-
-This mode is intended for automation callers (e.g., `/retro --auto`). It reuses
-the conflict-detection and holistic-rewrite logic from Step 5 but NEVER prompts.
-
-### Step 6a: Validate agent name
-
-Same validation as Step 4a. Warn to stderr if no agent definition exists, continue.
-
-### Step 6b: Read existing directives
-
-Same as Step 5b.
-
-### Step 6c: Conflict detection (fail-fast)
-
-Apply conflict detection rules. If a conflict is found:
-
-1. Print the conflict description to **stderr**.
-2. Do NOT write the file.
-3. Exit with a non-zero status.
-
-Do NOT prompt. Do NOT attempt to resolve the conflict automatically.
-
-### Step 6d: Apply on no conflict
-
-If no conflict is detected, proceed directly to:
-
-- Step 5d (holistic rewrite — **including trial-annotation preservation**)
-- Step 5e (`.gitignore` coverage)
-- Step 5f (write file)
-- Step 5g (show final result to stdout)
-
-Exit 0.
-
-Trial KEEP-strip and REVERT-remove prompts (Step 5d shapes) work under `--apply`
-the same way as any other non-conflicting rewrite.
-
-## Step 7: Model map (`--model` / `--model-unset` / `--effort` / `--effort-unset`)
-
-Not a directives conversation. Do **not** mix into Step 5. Writes only the
+Not a directives conversation. Do **not** mix into Step 6. Writes only the
 local Model map via `write-model.sh` (never repo/global, never `directives.md`).
 
 `--model <string>` → `write-model.sh set <agent> <string>`
@@ -419,3 +132,290 @@ fi
 ```
 
 Stop here. Do not open a directives rewrite.
+
+## Step 4: Dashboard mode (no arguments)
+
+The 7 behavioral agents are: `pm`, `tech-lead`, `ic5`, `ic4`, `devops`, `qa`, `ds`.
+
+For each agent, count directives:
+```bash
+_gc=$(git rev-parse --git-common-dir 2>/dev/null) \
+  && MROOT=$(cd "$(dirname "$_gc")" && pwd) \
+  || MROOT=$(pwd)
+DIRECTIVES_BASE="$MROOT/.claude/memory"
+PDH="${PDH:-$( { [ -n "${CLAUDE_PLUGIN_ROOT:-}" ] && [ -f "$CLAUDE_PLUGIN_ROOT/skills/plugin-dir.sh" ] && printf '%s\n' "$CLAUDE_PLUGIN_ROOT"; } || { [ -f skills/plugin-dir.sh ] && [ -f agents/pm.md ] && grep -qF '"name": "dev-team"' .claude-plugin/plugin.json 2>/dev/null && pwd; } || { _pr='${CLAUDE_PLUGIN_ROOT}'; [ "${_pr#\$}" = "$_pr" ] && [ -f "$_pr/skills/plugin-dir.sh" ] && printf '%s\n' "$_pr"; } || { for _mp in "$HOME"/.claude/plugins/marketplaces/*/; do [ -f "${_mp}skills/plugin-dir.sh" ] && [ -f "${_mp}agents/pm.md" ] && grep -qF '"name": "dev-team"' "${_mp}.claude-plugin/plugin.json" 2>/dev/null && printf '%s\n' "${_mp%/}" && break; done; } || find ~/.claude/plugins/cache \( -path '*/dev-team/*/skills/plugin-dir.sh' -o -path '*/dev-team-edge/*/skills/plugin-dir.sh' \) 2>/dev/null | awk -F/ '{ver=""; for(i=1;i<=NF;i++) if(($i=="dev-team"||$i=="dev-team-edge")&&i<NF){ver=$(i+1);break}; if(ver=="") next; m=ver; gsub(/-pre\./,"~pre.",m); p=($0 ~ /\/cache\/cold-dark-void\/dev-team\//)?2:(($0 ~ /\/cache\/cold-dark-void\/dev-team-edge\//)?1:0); print m "\t" p "\t" $0}' | sort -t $'\t' -k1,1V -k2,2n -k3,3 | tail -1 | cut -f3 | xargs -r dirname | xargs -r dirname )}"
+RESOLVE_MODEL=$(bash "$PDH/skills/plugin-dir.sh" file skills/model-map/resolve-model.sh)
+echo "Agent        Directives  Model            Effort"
+echo "-----        ----------  -----            ------"
+for AGENT in pm tech-lead ic5 ic4 devops qa ds; do
+  FILE="$DIRECTIVES_BASE/$AGENT/directives.md"
+  COUNT=$(grep -c '^[0-9]' "$FILE" 2>/dev/null || true); COUNT=${COUNT:-0}
+  MODEL=""
+  EFFORT=""
+  if [ -n "$RESOLVE_MODEL" ] && [ -f "$RESOLVE_MODEL" ]; then
+    MODEL=$(bash "$RESOLVE_MODEL" "$AGENT") || MODEL=""
+    EFFORT=$(bash "$RESOLVE_MODEL" --effort "$AGENT") || EFFORT=""
+  fi
+  [ -n "$MODEL" ] || MODEL="Tier default"
+  [ -n "$EFFORT" ] || EFFORT="inherited"
+  printf "%-12s %-11s %-16s %s\n" "$AGENT" "$COUNT" "$MODEL" "$EFFORT"
+done
+```
+
+Display as an aligned table (Model column is the resolved Model map string, or
+`Tier default` when empty; Effort column is the resolved effort token, or
+`inherited` when empty). `council-judge`, `finder` and `debugger` are omitted
+from this roster; use `/adjust-agent <agent> --model <string>` or
+`--effort <token>` to map one.
+
+```
+Agent        Directives  Model            Effort
+-----        ----------  -----            ------
+pm           3           grok-4           high
+tech-lead    0           Tier default     inherited
+ic5          1           Tier default     inherited
+ic4          2           grok-code-fast-1 inherited
+devops       0           Tier default     inherited
+qa           0           Tier default     inherited
+ds           0           Tier default     inherited
+
+Use: /adjust-agent <agent> to view, /adjust-agent <agent> <prompt> to adjust,
+or /adjust-agent <agent> --model <string> / --model-unset / --effort <token> / --effort-unset for the Model map.
+```
+
+Stop here.
+
+## Step 5: Read-only mode (agent name only)
+
+### Step 5a: Validate agent name
+
+Check if the agent has a definition file in the plugin:
+```bash
+PDH="${PDH:-$( { [ -n "${CLAUDE_PLUGIN_ROOT:-}" ] && [ -f "$CLAUDE_PLUGIN_ROOT/skills/plugin-dir.sh" ] && printf '%s\n' "$CLAUDE_PLUGIN_ROOT"; } || { [ -f skills/plugin-dir.sh ] && [ -f agents/pm.md ] && grep -qF '"name": "dev-team"' .claude-plugin/plugin.json 2>/dev/null && pwd; } || { _pr='${CLAUDE_PLUGIN_ROOT}'; [ "${_pr#\$}" = "$_pr" ] && [ -f "$_pr/skills/plugin-dir.sh" ] && printf '%s\n' "$_pr"; } || { for _mp in "$HOME"/.claude/plugins/marketplaces/*/; do [ -f "${_mp}skills/plugin-dir.sh" ] && [ -f "${_mp}agents/pm.md" ] && grep -qF '"name": "dev-team"' "${_mp}.claude-plugin/plugin.json" 2>/dev/null && printf '%s\n' "${_mp%/}" && break; done; } || find ~/.claude/plugins/cache \( -path '*/dev-team/*/skills/plugin-dir.sh' -o -path '*/dev-team-edge/*/skills/plugin-dir.sh' \) 2>/dev/null | awk -F/ '{ver=""; for(i=1;i<=NF;i++) if(($i=="dev-team"||$i=="dev-team-edge")&&i<NF){ver=$(i+1);break}; if(ver=="") next; m=ver; gsub(/-pre\./,"~pre.",m); p=($0 ~ /\/cache\/cold-dark-void\/dev-team\//)?2:(($0 ~ /\/cache\/cold-dark-void\/dev-team-edge\//)?1:0); print m "\t" p "\t" $0}' | sort -t $'\t' -k1,1V -k2,2n -k3,3 | tail -1 | cut -f3 | xargs -r dirname | xargs -r dirname )}"
+PLUGIN_AGENTS=$(bash "$PDH/skills/plugin-dir.sh" dir agents/pm.md)
+ARGS=$(cat <<'__A__'
+$ARGUMENTS
+__A__
+)
+set -f; set -- $ARGS; set +f
+AGENT="${1:-}"
+if [ -n "$PLUGIN_AGENTS" ] && [ ! -f "$PLUGIN_AGENTS/$AGENT.md" ]; then
+  echo "Warning: No agent definition found for '$AGENT' (no agents/$AGENT.md in plugin)."
+  echo "This may be a typo. Continuing anyway for forward-compatibility."
+  echo ""
+fi
+```
+
+This is a warning only -- do NOT hard-block. This allows setting directives for
+agents that may be added in future versions.
+
+### Step 5b: Display current directives
+
+```bash
+_gc=$(git rev-parse --git-common-dir 2>/dev/null) \
+  && MROOT=$(cd "$(dirname "$_gc")" && pwd) \
+  || MROOT=$(pwd)
+DIRECTIVES_BASE="$MROOT/.claude/memory"
+ARGS=$(cat <<'__A__'
+$ARGUMENTS
+__A__
+)
+set -f; set -- $ARGS; set +f
+AGENT="${1:-}"
+FILE="$DIRECTIVES_BASE/$AGENT/directives.md"
+if [ -s "$FILE" ]; then
+  echo "Directives for $AGENT:"
+  echo ""
+  cat "$FILE"
+else
+  echo "No directives set for $AGENT."
+fi
+```
+
+Stop here. Do NOT prompt for input.
+
+## Step 6: Adjustment mode (agent + prompt)
+
+### Step 6a: Validate agent name
+
+Same validation as Step 5a. Warn if no agent definition exists, but continue.
+
+### Step 6b: Read existing directives
+
+```bash
+_gc=$(git rev-parse --git-common-dir 2>/dev/null) \
+  && MROOT=$(cd "$(dirname "$_gc")" && pwd) \
+  || MROOT=$(pwd)
+DIRECTIVES_BASE="$MROOT/.claude/memory"
+ARGS=$(cat <<'__A__'
+$ARGUMENTS
+__A__
+)
+set -f; set -- $ARGS; set +f
+AGENT="${1:-}"
+FILE="$DIRECTIVES_BASE/$AGENT/directives.md"
+EXISTING=""
+if [ -s "$FILE" ]; then
+  EXISTING=$(cat "$FILE")
+fi
+```
+
+### Conflict detection rules
+
+A conflict exists when the incoming prompt is semantically contradictory to an
+existing directive (e.g., existing says "always use tabs" and the new prompt says
+"use spaces"). When a conflict is found, format it as:
+
+```
+Conflict detected:
+  Existing #2: "Always use tabs for indentation"
+  New request:  "Use 2-space indentation"
+
+These are contradictory. Which should take precedence?
+```
+
+### Step 6c: Interpret prompt and detect conflicts
+
+Apply conflict detection rules. If a conflict is found, show it to the user and
+wait for their response before continuing. Do NOT silently resolve conflicts by
+dropping or rewriting directives without the user's awareness.
+
+### Step 6d: Produce holistic rewrite
+
+Rewrite the ENTIRE directives file as a coherent set. Do NOT blindly append the
+new directive to the existing list. Consider all directives together:
+
+- Merge related directives where appropriate
+- Remove duplicates
+- Resolve any user-confirmed conflict decisions
+- Maintain consistent phrasing and scope
+- Re-number sequentially starting from 1
+- **Trial annotations (SPEC-001 M1 / CDV-200):** lines may end with
+  `<!-- trial start=… source=… review-after=… -->`. On holistic rewrite MUST
+  **copy through** any trial comment on lines that are not intentionally
+  removed or text-replaced. Do not invent trial metadata for lines that never
+  had it. Do not strip trial comments unless the prompt explicitly requests
+  KEEP-promote (strip) or the line is removed (REVERT).
+
+The result MUST be a numbered list, one directive per line:
+```
+1. First directive
+2. Second directive <!-- trial start=2026-07-03 source=sess#a review-after=10-sessions -->
+3. Third directive
+```
+
+#### Trial outcome prompt shapes (automation callers / SPEC-001 M5)
+
+Callers (`/retro` trial-review) MUST use these shapes so rewrite intent is unambiguous:
+
+- **KEEP (promote trial → permanent):** strip only the trial comment; keep the
+  directive text. Prompt example:
+  ```
+  Promote the following trial directive to permanent by removing only its
+  <!-- trial … --> annotation (leave the directive text). Do not add or remove
+  other directives: "<exact directive text without relying on number>"
+  ```
+  Equivalent `--apply` form is fine. Result line has no trial comment.
+
+- **REVERT (remove trial directive):** delete the directive entirely via the
+  normal removal path. Prompt example:
+  ```
+  Remove this directive entirely (trial REVERT): "<exact directive text>"
+  ```
+  Conflict detection still applies (M8); on `--apply` conflict, refuse and exit
+  non-zero — callers degrade to MANUAL_FOLLOWUP.
+
+Trial directives are full standing orders mid-trial (M8): conflict detection
+evaluates them exactly like permanent lines.
+
+### Step 6e: Ensure .gitignore coverage
+
+Before writing, call `ensure_seed_gitignore` so `.claude/memory/*` is ignored and `!.claude/memory/seed/` stays committable. Do not append a bare `.claude/memory/` directory rule.
+```bash
+_gc=$(git rev-parse --git-common-dir 2>/dev/null) \
+  && MROOT=$(cd "$(dirname "$_gc")" && pwd) \
+  || MROOT=$(pwd)
+PDH="${PDH:-$( { [ -n "${CLAUDE_PLUGIN_ROOT:-}" ] && [ -f "$CLAUDE_PLUGIN_ROOT/skills/plugin-dir.sh" ] && printf '%s\n' "$CLAUDE_PLUGIN_ROOT"; } || { [ -f skills/plugin-dir.sh ] && [ -f agents/pm.md ] && grep -qF '"name": "dev-team"' .claude-plugin/plugin.json 2>/dev/null && pwd; } || { _pr='${CLAUDE_PLUGIN_ROOT}'; [ "${_pr#\$}" = "$_pr" ] && [ -f "$_pr/skills/plugin-dir.sh" ] && printf '%s\n' "$_pr"; } || { for _mp in "$HOME"/.claude/plugins/marketplaces/*/; do [ -f "${_mp}skills/plugin-dir.sh" ] && [ -f "${_mp}agents/pm.md" ] && grep -qF '"name": "dev-team"' "${_mp}.claude-plugin/plugin.json" 2>/dev/null && printf '%s\n' "${_mp%/}" && break; done; } || find ~/.claude/plugins/cache \( -path '*/dev-team/*/skills/plugin-dir.sh' -o -path '*/dev-team-edge/*/skills/plugin-dir.sh' \) 2>/dev/null | awk -F/ '{ver=""; for(i=1;i<=NF;i++) if(($i=="dev-team"||$i=="dev-team-edge")&&i<NF){ver=$(i+1);break}; if(ver=="") next; m=ver; gsub(/-pre\./,"~pre.",m); p=($0 ~ /\/cache\/cold-dark-void\/dev-team\//)?2:(($0 ~ /\/cache\/cold-dark-void\/dev-team-edge\//)?1:0); print m "\t" p "\t" $0}' | sort -t $'\t' -k1,1V -k2,2n -k3,3 | tail -1 | cut -f3 | xargs -r dirname | xargs -r dirname )}"
+SEED_COMMON=$(bash "$PDH/skills/plugin-dir.sh" file skills/memory-store/seed-common.sh)
+if [ -z "$SEED_COMMON" ] || [ ! -f "$SEED_COMMON" ]; then
+  echo "Error: seed-common.sh not found" >&2
+  exit 1
+fi
+# shellcheck disable=SC1090
+. "$SEED_COMMON"
+ensure_seed_gitignore "$MROOT"
+```
+
+### Step 6f: Write directives file
+
+```bash
+_gc=$(git rev-parse --git-common-dir 2>/dev/null) \
+  && MROOT=$(cd "$(dirname "$_gc")" && pwd) \
+  || MROOT=$(pwd)
+DIRECTIVES_BASE="$MROOT/.claude/memory"
+ARGS=$(cat <<'__A__'
+$ARGUMENTS
+__A__
+)
+set -f; set -- $ARGS; set +f
+AGENT="${1:-}"
+mkdir -p "$DIRECTIVES_BASE/$AGENT"
+cat > "$DIRECTIVES_BASE/$AGENT/directives.md" << 'DIREOF'
+<the holistic rewritten numbered list>
+DIREOF
+```
+
+### Step 6g: Show final result
+
+Display the final directive list so the user can verify:
+```
+Directives for <agent> (updated):
+
+1. First directive
+2. Second directive
+3. Third directive
+```
+
+## Idempotency
+
+Invoking this command with the same prompt twice on the same state MUST produce
+the same result. No duplicate directives, no numbering drift, no semantic changes.
+When the existing directives already fully satisfy the prompt, confirm this and
+leave the file unchanged.
+
+## Step 7: Non-interactive apply mode (`--apply`)
+
+This mode is intended for automation callers (e.g., `/retro --auto`). It reuses
+the conflict-detection and holistic-rewrite logic from Step 6 but NEVER prompts.
+
+### Step 7a: Validate agent name
+
+Same validation as Step 5a. Warn to stderr if no agent definition exists, continue.
+
+### Step 7b: Read existing directives
+
+Same as Step 6b.
+
+### Step 7c: Conflict detection (fail-fast)
+
+Apply conflict detection rules. If a conflict is found:
+
+1. Print the conflict description to **stderr**.
+2. Do NOT write the file.
+3. Exit with a non-zero status.
+
+Do NOT prompt. Do NOT attempt to resolve the conflict automatically.
+
+### Step 7d: Apply on no conflict
+
+If no conflict is detected, proceed directly to:
+
+- Step 6d (holistic rewrite — **including trial-annotation preservation**)
+- Step 6e (`.gitignore` coverage)
+- Step 6f (write file)
+- Step 6g (show final result to stdout)
+
+Exit 0.
+
+Trial KEEP-strip and REVERT-remove prompts (Step 6d shapes) work under `--apply`
+the same way as any other non-conflicting rewrite.

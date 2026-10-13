@@ -126,7 +126,7 @@ fence_exec "$WORK/cwoff" "$REPO" "$CW_OFF"$'\n''printf "FLAG=%s\n" "$_COUNCIL_WO
 check "council without --workflow leaves the flag unset" grep -qx 'FLAG=0' "$WORK/cwoff.out"
 
 # ---- adjust-agent gitignore keeps the seed pack committable ----
-IGN=$(fence_nth "$ROOT/commands/adjust-agent.md" "### Step 5e: Ensure .gitignore coverage" 1)
+IGN=$(fence_nth "$ROOT/commands/adjust-agent.md" "### Step 6e: Ensure .gitignore coverage" 1)
 : > "$REPO/.gitignore"
 run_fence "$IGN" "$WORK/ign" CLAUDE_PLUGIN_ROOT="$ROOT" PDH="$ROOT"
 check "gitignore fence exits 0 (rc=$RUN_RC)" test "$RUN_RC" -eq 0

@@ -82,9 +82,9 @@ pass_through() {
 
 # ---- argument pass-through: the four thin commands -------------------------
 STUB='printf "ARG:%s\n" "$@"'
-pass_through "audit: words and a *.json glob arrive intact" "$CMD/audit.md" "## Step 2: Invoke" 1 \
+pass_through "audit: words and a *.json glob arrive intact" "$CMD/audit.md" "## Step 1: Resolve audit.sh and invoke" 1 \
   'bash "$AUDIT_SH" "$@"' "$STUB" 'apply b1 --from-json *.json --yes' 'apply|b1|--from-json|*.json|--yes'
-pass_through "audit: no arguments give no words" "$CMD/audit.md" "## Step 2: Invoke" 1 \
+pass_through "audit: no arguments give no words" "$CMD/audit.md" "## Step 1: Resolve audit.sh and invoke" 1 \
   'bash "$AUDIT_SH" "$@"' "$STUB" '' ''
 pass_through "compact-transcript: a * stays a *" "$CMD/compact-transcript.md" "## Step 2: Invoke" 1 \
   'bash "$COMPACT_SH" "$@"' "$STUB" 'sid-1 *' 'sid-1|*'
@@ -92,7 +92,7 @@ pass_through "doctor: flags and a * arrive intact" "$CMD/doctor.md" "## Step 2: 
   'bash "$DOCTOR_SH" "$@"' "$STUB" '--gate=team --json *' '--gate=team|--json|*'
 pass_through "status: a section and a * arrive intact" "$CMD/status.md" "### Step 2: Invoke rollup" 1 \
   'bash "$ROLLUP_SH" "$@"' "$STUB" '--section * --json' '--section|*|--json'
-pass_through "audit: \$( ) and a backtick are data" "$CMD/audit.md" "## Step 2: Invoke" 1 \
+pass_through "audit: \$( ) and a backtick are data" "$CMD/audit.md" "## Step 1: Resolve audit.sh and invoke" 1 \
   'bash "$AUDIT_SH" "$@"' "$STUB" '$(touch PWNED) `touch PWNED2`' '$(touch|PWNED)|`touch|PWNED2`'
 check "no command ran from the sample text" test ! -e "$ROOT/PWNED" -a ! -e "$ROOT/PWNED2"
 
@@ -152,26 +152,26 @@ worktree_case "worktree preview: a missing slug exits 64" 1 "$PREVIEW_FROM" "$SL
 worktree_case "worktree preview: a path is not a slug" 1 "$PREVIEW_FROM" "$SLUG_STUB" 'release ../evil' 64 ''
 worktree_case "worktree release: a * is not a slug" 2 "$RELEASE_FROM" "$SLUG_STUB" 'release a*b' 64 ''
 
-# ---- /adjust-agent Step 7: agent and flags come from the user's text -------
+# ---- /adjust-agent Step 3: agent and flags come from the user's text -------
 WM_STUB="$WORK/write-model-stub.sh"
 cat > "$WM_STUB" <<'EOF'
 #!/usr/bin/env bash
 printf 'WM:%s\n' "$*" >> "$WM_LOG"
 EOF
 chmod +x "$WM_STUB"
-text=$(fence_nth "$CMD/adjust-agent.md" "## Step 7: Model map" 1)
+text=$(fence_nth "$CMD/adjust-agent.md" "## Step 3: Model map" 1)
 text=$(subst_args "$text" 'ic5 --model grok-4 --effort high') \
   && text=$(swap "$text" 'WRITE_MODEL=$(bash "$PDH/skills/plugin-dir.sh" file skills/model-map/write-model.sh)' 'WRITE_MODEL=$WM_STUB') || text=""
 if [ -n "$text" ]; then
   : > "$WORK/wm.log"
   run_fence "$text" "$ROOT" "WM_STUB=$WM_STUB" "WM_LOG=$WORK/wm.log"
   if [ "$RC" -eq 0 ] && [ "$(paste -sd'|' "$WORK/wm.log")" = 'WM:set ic5 grok-4|WM:set-effort ic5 high' ]; then
-    pass_line "adjust-agent Step 7: the agent and both flags reach write-model.sh"
+    pass_line "adjust-agent Step 3: the agent and both flags reach write-model.sh"
   else
-    fail_line "adjust-agent Step 7: rc=$RC log=[$(paste -sd'|' "$WORK/wm.log")] err=[$ERR]"
+    fail_line "adjust-agent Step 3: rc=$RC log=[$(paste -sd'|' "$WORK/wm.log")] err=[$ERR]"
   fi
 else
-  fail_line "adjust-agent Step 7: the fence no longer holds the \$ARGUMENTS heredoc or the write-model line"
+  fail_line "adjust-agent Step 3: the fence no longer holds the \$ARGUMENTS heredoc or the write-model line"
 fi
 
 # ---- retro Step 1: the one parser, words intact ----------------------------
@@ -231,7 +231,7 @@ DASH_REPO="$WORK/dash"
 mkdir -p "$DASH_REPO/.claude/memory/pm"
 git -C "$DASH_REPO" init -q .
 : > "$DASH_REPO/.claude/memory/pm/directives.md"
-DASH=$(fence_nth "$CMD/adjust-agent.md" "## Step 3: Dashboard mode" 1)
+DASH=$(fence_nth "$CMD/adjust-agent.md" "## Step 4: Dashboard mode" 1)
 run_fence "$DASH" "$DASH_REPO"
 if [ "$RC" -eq 0 ] && printf '%s\n' "$OUT" | grep -Eq '^pm +0 +Tier default +inherited$' && printf '%s\n' "$OUT" | grep -Eq '^tech-lead +0 +Tier default +inherited$'; then
   pass_line "adjust-agent dashboard: an empty file and a missing file each give one 0"

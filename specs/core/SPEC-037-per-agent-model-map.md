@@ -348,7 +348,7 @@ amendment, and the surface retirement land as separate tickets.
   `/adjust-agent <agent> --model <string>` → `write-model.sh set`.
   `/adjust-agent <agent> --model-unset` → `write-model.sh unset`. Parse these
   flags BEFORE treating remainder as a directives prompt. MUST NOT mix into
-  Step 5 conversational directives. `council-judge` is mappable (M8) even
+  Step 6 conversational directives. `council-judge` is mappable (M8) even
   though it is not in the 7-agent dashboard roster.
   `/adjust-agent <agent> --effort <token>` → `write-model.sh set-effort`.
   `/adjust-agent <agent> --effort-unset` → `write-model.sh unset-effort`.
@@ -531,7 +531,7 @@ amendment, and the surface retirement land as separate tickets.
 - Unparseable existing local → set/unset refuse, exit 1, file unchanged (M18)
 - `qa` / `council-judge` set emits M9 warn and writes (M18)
 - `/setup` usage lists `models`; unknown sub still MUST NOT mutate (M20)
-- `/adjust-agent` documents `--model` / `--model-unset` before Step 5 (M21)
+- `/adjust-agent` documents `--model` / `--model-unset` before Step 6 (M21)
 - `/doctor --only models.map`: no files SKIP; valid PASS; unparseable/unknown/bad/jq-missing/M9 WARN; never FAIL (M19)
 - `/doctor --fix` does not rewrite the map (M19)
 - `spawn-site-test.sh` still forbids production `.sh` redirect onto `models.local.json` except `write-model.sh` (M18)

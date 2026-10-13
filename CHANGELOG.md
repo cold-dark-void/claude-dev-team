@@ -6,6 +6,9 @@ Pre-written headings (release-train M5c, orchestrate version-sync tasks) are kep
 via skip-if-present when `/release` is given an explicit version — do not invent a
 second heading for the same version.
 
+### v1.24.2
+- **rv-w3-09 leftovers: adjust-agent steps renumbered into routing order; audit resolves the PDH once (rv-w3-09)** — `/adjust-agent`'s Model map is Step 3 (routing dispatches `--model`/`--effort` first), with the dashboard/read-only/adjustment/apply steps renumbered 4–7, dispatch bullets ordered model-flags-first, and every heading-keyed needle retargeted (`test-command-fences.sh`, `tools/fence-exec/manifest.tsv`, `memory-store/test-wp309.sh` Step 6e) plus SPEC-021/SPEC-037 prose. `/audit` merges its two setup steps so the canonical PDH stanza appears exactly once. Suites: command-fences 22/0, fence-exec 122/0, wp309 35/0, docs-drift rc 0, spec-lint 9/0.
+
 ### v1.24.1
 - **CI-gate test reds fixed: caseP11 path grep is physical-path-proof; security-scan drops the pipefail SIGPIPE race (cdt-555)** — the pool bite-test's scratch-path assertion now matches an OS-agnostic `.git/run-all-tests.XXXXXX` substring (macOS names the physical /private/var path; same class as the CDT-553 finalize fix), and all six `printf | grep -q` sites in `security-scan/test.sh` (under `set -uo pipefail`) became here-string greps — a fast `grep -q` exit mid-write could yield SIGPIPE 141 and fail a matching assert (the timing flake behind v1.22.23/24's CI reds). Suites: pool 66/0 (red-proofed), security-scan 16/0.
 
