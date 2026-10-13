@@ -62,7 +62,9 @@ check_hygiene() {
   while IFS= read -r p || [ -n "$p" ]; do
     [ -n "$p" ] || continue
 
-    if printf '%s\n' "$list_out" | grep -qxF "$p"; then
+    # grep against a here-string, not `printf | grep -q` under pipefail
+    # (CDT-555 SIGPIPE class: grep -q exits early, producer gets 141).
+    if grep -qxF "$p" <<<"$list_out"; then
       echo "OK: $p — listed by tools/run-all-tests.sh --list"
     else
       echo "FAIL: $p — not listed by tools/run-all-tests.sh --list"
@@ -98,7 +100,7 @@ check_hygiene() {
       while IFS=: read -r lineno linetext; do
         [ -n "$lineno" ] || continue
         stripped="$(printf '%s' "$linetext" | sed -E "s/'[^']*'//g; s/\"[^\"]*\"//g")"
-        if printf '%s' "$stripped" | grep -qE 'claude[[:space:]]*-p|claude[[:space:]]*--|/council'; then
+        if grep -qE 'claude[[:space:]]*-p|claude[[:space:]]*--|/council' <<<"$stripped"; then
           hits="${hits}${hits:+$'\n'}${lineno}:${linetext}"
         fi
       done < <(grep -nE 'claude[[:space:]]+-p|claude[[:space:]]+--|/council "' "$dir/$p" 2>/dev/null || true)

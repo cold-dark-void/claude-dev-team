@@ -6,6 +6,9 @@ Pre-written headings (release-train M5c, orchestrate version-sync tasks) are kep
 via skip-if-present when `/release` is given an explicit version — do not invent a
 second heading for the same version.
 
+### v1.27.4
+- **test-m14-suite-hygiene: here-string the `--list` and council-call checks (m14-suite-hygiene-sigpipe, CDT-555 class)** — the suite's `printf '%s\n' "$list_out" | grep -qxF` and `printf '%s' "$stripped" | grep -qE` checks under `set -o pipefail` raced grep's early exit and could die with SIGPIPE 141, spuriously failing the "listed by tools/run-all-tests.sh --list" check on fast machines (observed once on CI run 38371560885; local runs passed 4x). Both checks now grep a here-string. Suite 5x green (7/0 each); remaining producer|consumer pipes read to EOF and are safe.
+
 ### v1.27.3
 - **Release-fold status sweep: /release and /wrap-ticket now close the backlog and child Linear issues named in the shipped fold (release-fold-close-backlog-status-sweep)** — new `skills/backlog/fold-sweep.sh` reuses `close.sh` (one tested code path, two callers): it reads the fold commit's subject slug list and the matching `### vX.Y.Z` CHANGELOG lead bullet (from the commit blob, never the working tree), flips each `.claude/backlog/<slug>.md` to COMPLETED with a version+commit footer, and emits `linear-close: <ID>` lines for the session's best-effort Linear Done (bash never calls MCP, SPEC-009) — idempotent, per-slug failures logged, exit 0. `/release` gains a post-push Step 6.5 (`|| true`, never re-gates, warns when the engine is missing) and `/wrap-ticket` Step 5.5 the same sweep via `--find-fold <TICKET-ID>` (case-insensitive exact-or-prefix match: CDT-547 finds cdt-547-…, never cdt-5470-…). Suites: fold-sweep 43/0, backlog 207/0, release 178/0, wrap-ticket 95/0.
 
