@@ -123,9 +123,14 @@ EOSQL
 # --- 4b. remote mode (any OpenAI-compatible embedding provider) ---
 elif [ "$EMBED_MODE" = "remote" ]; then
   EMBED_URL=$(sqlite3 -cmd ".timeout 5000" "$MEMDB" "SELECT value FROM config WHERE key='embedding_url';" 2>/dev/null)
-  [ -n "$EMBED_URL" ] || exit 0
-  command -v curl >/dev/null 2>&1 || exit 0
-  command -v jq   >/dev/null 2>&1 || exit 0
+  # Each skip is logged (one line), never silent: a swallowed failure strands
+  # semantic search and is invisible to /memory stats and /doctor.
+  if [ -z "$EMBED_URL" ]; then
+    embed_fail "embedding_mode=remote but embedding_url is unset; skipping remote embed."
+    exit 0
+  fi
+  command -v curl >/dev/null 2>&1 || { embed_fail "curl is not installed; skipping remote embed."; exit 0; }
+  command -v jq   >/dev/null 2>&1 || { embed_fail "jq is not installed; skipping remote embed."; exit 0; }
   EMBED_KEY="${EMBEDDING_API_KEY:-}"
   # Env overrides DB; DB is the durable source when env is unset (local ollama, etc.).
   EMBED_MODEL="${EMBEDDING_MODEL:-$(sqlite3 -cmd ".timeout 5000" "$MEMDB" "SELECT value FROM config WHERE key='embedding_model';" 2>/dev/null)}"

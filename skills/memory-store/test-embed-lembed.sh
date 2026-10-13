@@ -43,6 +43,9 @@ COMMON="$ROOT/skills/memory-store/embed-common.sh"
 # shellcheck source=../../tests/lib/path.sh
 . "$ROOT/tests/lib/path.sh"
 hermetic_init
+# Hermetic regardless of the host shell's env: the remote-mode pre-flight WARN
+# count depends on EMBEDDING_MODEL being unset.
+unset EMBEDDING_MODEL EMBEDDING_API_KEY
 require_cmd sqlite3 jq
 
 pass=0
@@ -122,7 +125,17 @@ EOF_ALL
 case "$all" in
   *"vec_to_json(lembed("*)
     [ -n "${SHIM_STDERR_OK:-}" ] && echo "warning: noise on stderr from the extension" >&2
-    echo "${SHIM_VEC_OUT:-[0.1,0.2,0.3]}"
+    if printf '%s\n' "$all" | grep -q 'char(9)'; then
+      # migrate-md batch SELECT: "<id><TAB>vec_to_json(...)" lines. The shim
+      # cannot execute SQL, so tests name the fixture's row ids in
+      # SHIM_VEC_IDS (comma-separated; default '1').
+      vec="${SHIM_VEC_OUT:-[0.1,0.2,0.3]}"
+      printf '%s\n' "${SHIM_VEC_IDS:-1}" | tr ',' '\n' | while IFS= read -r i; do
+        printf '%s\t%s\n' "$i" "$vec"
+      done
+    else
+      echo "${SHIM_VEC_OUT:-[0.1,0.2,0.3]}"
+    fi
     ;;
 esac
 id=$(printf '%s\n' "$all" | tr '\n' ' ' | sed -n 's/.*INSERT INTO vec_memories_[0-9]*(memory_id, embedding) *VALUES (\([0-9][0-9]*\).*/\1/p')
@@ -235,6 +248,31 @@ check "embed-one remote, no vector in the response: exits 0 (rc=$RUN_RC)" [ "$RU
 check "embed-one remote, no vector in the response: one error line" \
   bash -c '[ "$(grep -c "" "$1")" = 1 ] && grep -qE " embed embed-one memory 1: " "$1"' _ "$P5/.claude/memory/.errors.log"
 
+# remote mode with an unset URL used to exit silently; now one logged line
+P5B="$WORK/p5b"
+make_proj "$P5B" remote || { echo "FATAL: fixture 5b"; exit 1; }
+reset_logs
+run_embed "$P5B" "no url configured"
+check "embed-one remote, URL unset: exits 0 (rc=$RUN_RC)" [ "$RUN_RC" -eq 0 ]
+check "embed-one remote, URL unset: one error line names the unset embedding_url" \
+  bash -c '[ "$(grep -c "" "$1")" = 1 ] && grep -qF "embedding_url is unset" "$1"' _ "$P5B/.claude/memory/.errors.log"
+
+# remote mode without curl (and without jq) used to exit silently too
+P5C="$WORK/p5c"
+make_proj "$P5C" remote || { echo "FATAL: fixture 5c"; exit 1; }
+"$REAL_SQLITE" "$P5C/.claude/memory/memory.db" "INSERT OR REPLACE INTO config(key, value) VALUES ('embedding_url', 'http://127.0.0.1:1/embeddings');"
+mkdir -p "$WORK/bin-nocurl"
+# A PATH that has no curl: only the tools embed-one.sh needs before the remote
+# block (the sqlite3 shim uses the exported REAL_SQLITE absolute path).
+for _t in bash dirname uname date mktemp tr cut; do ln -sf "$(command -v "$_t")" "$WORK/bin-nocurl/$_t"; done
+cp "$WORK/bin/sqlite3" "$WORK/bin-nocurl/sqlite3"
+reset_logs
+( cd "$P5C" && env PATH="$WORK/bin-nocurl" bash "$EMBED_ONE" "$P5C/.claude/memory/memory.db" 1 "no curl here" ) < /dev/null > "$WORK/embed.out" 2> "$WORK/embed.err"
+RUN_RC=$?
+check "embed-one remote, curl missing: exits 0 (rc=$RUN_RC)" [ "$RUN_RC" -eq 0 ]
+check "embed-one remote, curl missing: one error line names curl" \
+  bash -c '[ "$(grep -c "" "$1")" = 1 ] && grep -qF "curl is not installed" "$1"' _ "$P5C/.claude/memory/.errors.log"
+
 # ---- migrate-md.sh, lembed mode: json(lembed('<path>')) -> registered name ----
 # Unembedded rows exist (no embedding_meta) and there is no .md file, so the
 # script goes straight to its bulk-embedding loop.
@@ -251,7 +289,9 @@ check "migrate-md lembed: the model is registered with its GGUF path" \
   bash -c '[ "$1" = "$2" ]' _ "$(path_canon "$(gguf_raw_arg "$SHIM_LOG" | sed "s/''/'/g")")" "$(path_canon "$MODEL6")"
 M_REG="$(grep -n "lembed_model_from_file('" "$SHIM_LOG" | head -1 | cut -d: -f1)"
 M_CALL="$(line_of "lembed('mini', ")"
-check "migrate-md lembed: lembed() is called with the model name" grep -qF "lembed('mini', 'first memory text to embed')" "$SHIM_LOG"
+check "migrate-md lembed: lembed() is called with the model name, the content read from the column (1500-char truncation)" grep -qF "lembed('mini', substr(m.content, 1, 1500))" "$SHIM_LOG"
+check "migrate-md lembed: the model is registered exactly once (loaded once, reused across rows)" \
+  [ "$(grep -c "lembed_model_from_file('" "$SHIM_LOG")" = 1 ]
 check "migrate-md lembed: the registration comes before the lembed() call (lines ${M_REG:-none} < ${M_CALL:-none})" \
   bash -c '[ -n "$1" ] && [ -n "$2" ] && [ "$1" -lt "$2" ]' _ "$M_REG" "$M_CALL"
 check "migrate-md lembed: the vector is read as JSON with vec_to_json() (json() cannot hold a BLOB)" grep -qF "vec_to_json(lembed('mini'" "$SHIM_LOG"
@@ -265,10 +305,12 @@ make_proj "$P7" lembed || { echo "FATAL: fixture 7"; exit 1; }
 reset_logs
 SHIM_FAIL_MSG='lembed boom' run_migrate "$P7"
 check "migrate-md lembed failure: the run still finishes (rc=$RUN_RC)" [ "$RUN_RC" -eq 0 ]
-check "migrate-md lembed failure: the WARN line is printed for the chunk" grep -qF "WARN: lembed failed for chunk 1" "$WORK/migrate.out"
+check "migrate-md lembed failure: ONE WARN line is printed for the batch, not per chunk" \
+  bash -c '[ "$(grep -c "WARN: lembed batch failed" "$1")" = 1 ] && ! grep -q "lembed failed for chunk" "$1" "$2"' _ "$WORK/migrate.err" "$WORK/migrate.out"
 check "migrate-md lembed failure: one line is added to .errors.log" [ "$(errors_lines "$P7")" = 1 ]
-check "migrate-md lembed failure: the line is '<ts> embed migrate-md chunk 1: ...' with the sqlite error" \
-  bash -c 'grep -qE "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9:]{8}Z embed migrate-md chunk 1: .*lembed boom" "$1"' _ "$P7/.claude/memory/.errors.log"
+check "migrate-md lembed failure: the line is '<ts> embed migrate-md lembed batch failed ...' with the sqlite error" \
+  bash -c 'grep -qE "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9:]{8}Z embed migrate-md lembed batch failed .*lembed boom" "$1"' _ "$P7/.claude/memory/.errors.log"
+check "migrate-md lembed failure: no vector row is written" bash -c '! grep -q "INSERT INTO vec_memories_" "$1"' _ "$SHIM_LOG"
 
 # stderr noise from a call that SUCCEEDS must not reach the vector (TL fix: 2>&1 put it in
 # $EMBEDDING): the chunk is still embedded and nothing is logged
@@ -295,6 +337,45 @@ for bad in '[]' 'not json'; do
     bash -c '[ "$(grep -c "" "$1")" = 1 ] && grep -qE "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9:]{8}Z embed migrate-md chunk 1: invalid embedding dimensions" "$1"' _ "$PB/.claude/memory/.errors.log"
   check "migrate-md, embedding '$bad': no vector row is written" bash -c '! grep -q "INSERT INTO vec_memories_" "$1"' _ "$SHIM_LOG"
 done
+
+# One connection per migration: a two-row fixture registers the model once and
+# embeds both rows from that single batch (SHIM_VEC_IDS names the rows the
+# fixture holds; the shim cannot run the batch SELECT itself).
+PM2="$WORK/pm2"
+make_proj "$PM2" lembed || { echo "FATAL: fixture multi-row"; exit 1; }
+"$REAL_SQLITE" "$PM2/.claude/memory/memory.db" "INSERT INTO memories(id, agent, type, content) VALUES (2, 'qa', 'memory', 'second memory text to embed');" || { echo "FATAL: multi-row seed"; exit 1; }
+reset_logs
+SHIM_VEC_IDS='1,2' run_migrate "$PM2"
+check "migrate-md multi-row: the model is registered exactly once for both rows" \
+  [ "$(grep -c "lembed_model_from_file('" "$SHIM_LOG")" = 1 ]
+check "migrate-md multi-row: both rows are embedded from the one batch" \
+  bash -c '[ "$(grep -cE "INSERT INTO vec_memories_3\(memory_id, embedding\) VALUES \([0-9]+, .\[0\.1,0\.2,0\.3\].\)" "$1")" = 2 ]' _ "$SHIM_LOG"
+
+# Existence pre-flight: a missing model is ONE warn and ONE .errors.log line and a
+# fallback (the import still runs), never one sqlite error per row.
+PMISS="$WORK/pmiss"
+make_proj "$PMISS" lembed || { echo "FATAL: fixture missing model"; exit 1; }
+rm -f "$PMISS/.claude/memory/models/all-MiniLM-L6-v2.gguf"
+reset_logs
+run_migrate "$PMISS"
+check "migrate-md, model missing: the run still finishes (rc=$RUN_RC)" [ "$RUN_RC" -eq 0 ]
+check "migrate-md, model missing: one WARN names the missing model and the fallback" \
+  grep -qF "missing: models/all-MiniLM-L6-v2.gguf — embedding skipped" "$WORK/migrate.err"
+check "migrate-md, model missing: one .errors.log line (no per-row errors)" \
+  bash -c '[ "$(grep -c "" "$1")" = 1 ] && grep -qF "missing: models/all-MiniLM-L6-v2.gguf" "$1"' _ "$PMISS/.claude/memory/.errors.log"
+check "migrate-md, model missing: sqlite3 is never called for embedding (no batch, no per-row calls)" [ ! -s "$SHIM_LOG" ]
+
+# remote pre-flight: an unset URL is ONE warn and ONE .errors.log line, not
+# per-chunk curl noise (mirrors the lembed pre-flight above).
+PREM="$WORK/prem"
+make_proj "$PREM" remote || { echo "FATAL: fixture remote-url"; exit 1; }
+reset_logs
+run_migrate "$PREM"
+check "migrate-md remote, URL unset: the run still finishes (rc=$RUN_RC)" [ "$RUN_RC" -eq 0 ]
+check "migrate-md remote, URL unset: one WARN names embedding_url and the fallback" \
+  grep -qF "missing: embedding_url — embedding skipped" "$WORK/migrate.err"
+check "migrate-md remote, URL unset: one .errors.log line" \
+  bash -c '[ "$(grep -c "" "$1")" = 1 ] && grep -qF "missing: embedding_url" "$1"' _ "$PREM/.claude/memory/.errors.log"
 
 # embed-common.sh missing next to migrate-md.sh: a warning, embedding skipped, the .md import still runs
 LONE="$WORK/lone"

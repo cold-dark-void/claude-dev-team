@@ -162,6 +162,7 @@ if [ "$EMBED_MODE" = "lembed" ]; then
 fi
 DIMS=$(sqlite3 -cmd ".timeout 5000" "$MEMDB" "SELECT value FROM config WHERE key='embedding_dimensions';")
 if [ "$EMBED_MODE" = "lembed" ] && [ -n "$EMBED_COMMON" ] && [ -f "$EXT_DIR/vec0.$EXT_SUFFIX" ] && [ -f "$EXT_DIR/lembed0.$EXT_SUFFIX" ] && \
+   [ -f "$MODEL_DIR/all-MiniLM-L6-v2.gguf" ] && \
    [[ "$DIMS" =~ ^[0-9]+$ ]] && [ "$DIMS" -gt 0 ]; then
   MODEL_PATH="$MODEL_DIR/all-MiniLM-L6-v2.gguf"
   VEC_TABLE="vec_memories_${DIMS}"
@@ -180,9 +181,11 @@ if [ "$EMBED_MODE" = "lembed" ] && [ -n "$EMBED_COMMON" ] && [ -f "$EXT_DIR/vec0
   ESCAPED_QUERY=$(printf '%s' "$QUERY" | sed "s/'/''/g")
   # lembed() takes a registered model NAME, not a file path. The registration is
   # per connection, so it goes in this same sqlite3 call, before lembed(). The
-  # statement and the name come from embed-common.sh (no copy here).
+  # statement and the name come from embed-common.sh (no copy here). -bail stops
+  # at the first failing statement, so a failed registration never runs the
+  # MATCH query against an unregistered model.
   REGISTER_SQL=$(embed_lembed_register_sql "$MODEL_PATH")
-  sqlite3 -cmd ".timeout 5000" "$MEMDB" <<EOSQL
+  sqlite3 -cmd ".timeout 5000" -bail "$MEMDB" <<EOSQL
 .load "$EXT_DIR/vec0"
 .load "$EXT_DIR/lembed0"
 $REGISTER_SQL

@@ -174,6 +174,7 @@ check "Step 4 none: the keyword fallback does not match '1000 widgets'" out_lack
 # mode lembed: both extension files and the model must resolve from MROOT
 mkdir -p "$EXT" "$MODELS"
 : > "$EXT/vec0.so"; : > "$EXT/lembed0.so"; : > "$EXT/vec0.dylib"; : > "$EXT/lembed0.dylib"
+: > "$MODELS/all-MiniLM-L6-v2.gguf"
 set_cfg embedding_mode lembed; set_cfg embedding_dimensions 384
 QUERY_TEXT="it's fine" run_fence "$STEP4" "$REPO" "$WORK/s4lembed"
 check "Step 4 lembed: exits 0 (rc=$RUN_RC; err: $(head -c 160 "$WORK/s4lembed.err"))" [ "$RUN_RC" -eq 0 ]
@@ -193,6 +194,18 @@ check "Step 4 lembed: the first argument of every lembed() call is the model nam
   [ "$(lembed_first_args)" = "lembed('mini'" ]
 check "Step 4 lembed: no .load of a path with an empty root" bash -c '! grep -qE "^\.load \"?/(vec0|lembed0)" "$1"' _ "$SHIM_LOG"
 check "Step 4 lembed: no sqlite3 error text on stderr" bash -c '! grep -qiE "cannot open shared object|no such module|parse error" "$1"' _ "$WORK/s4lembed.err"
+check "Step 4: the semantic heredoc passes -bail to sqlite3 (a failed registration never runs the MATCH query)" \
+  bash -c 'printf "%s\n" "$1" | grep -qF "sqlite3 -cmd \".timeout 5000\" -bail \"\$MEMDB\" <<EOSQL"' _ "$STEP4"
+
+# lembed mode, model FILE missing: the guard checks MODEL_PATH, so this is the
+# keyword fallback — not SQL errors from an unregistered model.
+rm -f "$MODELS/all-MiniLM-L6-v2.gguf"
+QUERY_TEXT='100%' run_fence "$STEP4" "$REPO" "$WORK/s4nomodel"
+check "Step 4 lembed, model file missing: exits 0 (rc=$RUN_RC; err: $(head -c 160 "$WORK/s4nomodel.err"))" [ "$RUN_RC" -eq 0 ]
+check "Step 4 lembed, model file missing: reports the keyword fallback" out_has "Using keyword search" "$WORK/s4nomodel"
+check "Step 4 lembed, model file missing: no .load reaches sqlite3" [ ! -s "$SHIM_LOG" ]
+check "Step 4 lembed, model file missing: the keyword fallback matches '100%'" out_has "coverage reached 100%" "$WORK/s4nomodel"
+: > "$MODELS/all-MiniLM-L6-v2.gguf"   # restore the fixture for later fences
 
 # The registration statement and the model name come from embed-common.sh, resolved
 # through plugin-dir.sh (TL fix: no second hand-typed copy in the fence).

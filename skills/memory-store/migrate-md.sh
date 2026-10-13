@@ -258,7 +258,7 @@ EXT_SUFFIX="so"
 [ "$(uname -s)" = "Darwin" ] && EXT_SUFFIX="dylib"
 
 if [ "$DRY_RUN" != true ] && [ "$EMBED_MODE" != "fallback" ] && [ "$EMBED_MODE" != "none" ] && [ "$EMBED_LIB_OK" = true ]; then
-  UNEMBEDDED=$(sqlite3 -cmd ".timeout 5000" "$MEMDB" "SELECT COUNT(*) FROM memories m LEFT JOIN embedding_meta em ON em.memory_id = m.id WHERE em.memory_id IS NULL AND m.archived = 0;")
+  UNEMBEDDED=$(sqlite3 -cmd ".timeout 5000" "$MEMDB" "SELECT COUNT(*) FROM memories m LEFT JOIN embedding_meta em ON em.memory_id = m.id WHERE em.memory_id IS NULL AND m.archived = 0 AND m.content <> '';")
 
   if [ "$UNEMBEDDED" -gt 0 ]; then
     echo ""
@@ -270,7 +270,8 @@ if [ "$DRY_RUN" != true ] && [ "$EMBED_MODE" != "fallback" ] && [ "$EMBED_MODE" 
     # is removed on every exit path; without it stderr is discarded.
     EMBED_ERR=$(mktemp "${TMPDIR:-/tmp}/migrate-md-embed.XXXXXX") || EMBED_ERR=""
     CURL_CONFIG=""
-    trap '[ -z "${EMBED_ERR:-}" ] || rm -f -- "$EMBED_ERR"; [ -z "${CURL_CONFIG:-}" ] || rm -f -- "$CURL_CONFIG"' EXIT
+    LEMBED_SQL=""
+    trap '[ -z "${EMBED_ERR:-}" ] || rm -f -- "$EMBED_ERR"; [ -z "${CURL_CONFIG:-}" ] || rm -f -- "$CURL_CONFIG"; [ -z "${LEMBED_SQL:-}" ] || rm -f -- "$LEMBED_SQL"' EXIT
 
     # Read embedding URL/model once (not per-row)
     EMBED_URL=""
@@ -294,28 +295,86 @@ if [ "$DRY_RUN" != true ] && [ "$EMBED_MODE" != "fallback" ] && [ "$EMBED_MODE" 
         EMBED_MODE="fallback"
       fi
     fi
+    # Existence pre-flight (once, not per row): a missing vec0, lembed0 or model
+    # used to surface as one sqlite error per chunk. One line, then fallback.
+    if [ "$EMBED_MODE" = "lembed" ]; then
+      MISSING=""
+      [ -f "$EXT_DIR/vec0.$EXT_SUFFIX" ] || MISSING="vec0.$EXT_SUFFIX"
+      [ -f "$EXT_DIR/lembed0.$EXT_SUFFIX" ] || MISSING="${MISSING:+$MISSING, }lembed0.$EXT_SUFFIX"
+      [ -f "$MODEL_DIR/all-MiniLM-L6-v2.gguf" ] || MISSING="${MISSING:+$MISSING, }models/all-MiniLM-L6-v2.gguf"
+      if [ -n "$MISSING" ]; then
+        echo "  WARN: embedding_mode=lembed but missing: $MISSING — embedding skipped (keyword fallback)" >&2
+        embed_log_error "$MEMDIR" migrate-md "embedding_mode=lembed but missing: $MISSING — embedding skipped"
+        EMBED_MODE="fallback"
+      fi
+    fi
     if [ "$EMBED_MODE" = "remote" ]; then
-      case "${EMBED_MODEL:-}" in
-        ""|none|remote)
-          echo "  WARN: embedding model is unset or a placeholder — skipping remote embed" >&2
-          embed_log_error "$MEMDIR" migrate-md "embedding model is unset or a placeholder"
-          EMBED_MODE="fallback"
-          ;;
-      esac
+      REMOTE_MISS=""
+      [ -n "$EMBED_URL" ] || REMOTE_MISS="embedding_url"
+      command -v curl >/dev/null 2>&1 || REMOTE_MISS="${REMOTE_MISS:+$REMOTE_MISS, }curl"
+      command -v jq   >/dev/null 2>&1 || REMOTE_MISS="${REMOTE_MISS:+$REMOTE_MISS, }jq"
+      if [ -n "$REMOTE_MISS" ]; then
+        echo "  WARN: embedding_mode=remote but missing: $REMOTE_MISS — embedding skipped (keyword fallback)" >&2
+        embed_log_error "$MEMDIR" migrate-md "embedding_mode=remote but missing: $REMOTE_MISS — embedding skipped"
+        EMBED_MODE="fallback"
+      else
+        case "${EMBED_MODEL:-}" in
+          ""|none|remote)
+            echo "  WARN: embedding model is unset or a placeholder — skipping remote embed" >&2
+            embed_log_error "$MEMDIR" migrate-md "embedding model is unset or a placeholder"
+            EMBED_MODE="fallback"
+            ;;
+        esac
+      fi
     fi
     # Apply :-default before escaping (SPEC-004 / CDT-164). SQL-only — jq --arg keeps raw EMBED_MODEL.
     EMBED_MODEL_ESC=$(printf '%s' "${EMBED_MODEL:-all-MiniLM-L6-v2}" | sed "s/'/''/g")
 
+    # One connection for the whole migration: temp.lembed_models is per
+    # connection, so a per-row sqlite3 call loaded the GGUF once per row. The
+    # batch loads the extensions once, registers the model once and computes
+    # every vector as "<id><TAB><json>" lines — lembed() reads the content
+    # column, so no user-held text is interpolated into the SQL. A batch
+    # failure is one logged line and a fallback, not a per-row error stream.
+    LEMBED_OUT=""
+    if [ "$EMBED_MODE" = "lembed" ]; then
+      LEMBED_SQL=$(mktemp "${TMPDIR:-/tmp}/migrate-md-batch.XXXXXX") || LEMBED_SQL=""
+      if [ -z "$LEMBED_SQL" ]; then
+        echo "  WARN: cannot create the lembed batch file — embedding skipped" >&2
+        embed_log_error "$MEMDIR" migrate-md "cannot create the lembed batch file — embedding skipped"
+        EMBED_MODE="fallback"
+      else
+        REGISTER_SQL=$(embed_lembed_register_sql "$MODEL_DIR/all-MiniLM-L6-v2.gguf") || REGISTER_SQL=""
+        {
+          printf '.load "%s/vec0"\n' "$EXT_DIR"
+          printf '.load "%s/lembed0"\n' "$EXT_DIR"
+          printf '%s\n' "$REGISTER_SQL"
+          printf "SELECT m.id || char(9) || vec_to_json(lembed('%s', substr(m.content, 1, 1500)))\n" "$EMBED_LEMBED_NAME"
+          printf 'FROM memories m LEFT JOIN embedding_meta em ON em.memory_id = m.id\n'
+          printf "WHERE em.memory_id IS NULL AND m.archived = 0 AND m.content <> '';\n"
+        } > "$LEMBED_SQL"
+        LEMBED_RC=0
+        LEMBED_OUT=$(sqlite3 -cmd ".timeout 5000" -bail "$MEMDB" < "$LEMBED_SQL" 2>"${EMBED_ERR:-/dev/null}") || LEMBED_RC=$?
+        if [ "$LEMBED_RC" -ne 0 ]; then
+          LEMBED_ERRTEXT=""
+          [ -z "$EMBED_ERR" ] || LEMBED_ERRTEXT=$(cat "$EMBED_ERR" 2>/dev/null || true)
+          echo "  WARN: lembed batch failed (sqlite3 exit $LEMBED_RC) — no vectors stored" >&2
+          embed_log_error "$MEMDIR" migrate-md "lembed batch failed (sqlite3 exit $LEMBED_RC): ${LEMBED_ERRTEXT:-no error text}"
+          EMBED_MODE="fallback"
+        fi
+      fi
+    fi
+
     while read -r MEM_ID; do
       # Validate MEM_ID is numeric (defense in depth)
       [[ "$MEM_ID" =~ ^[0-9]+$ ]] || continue
-      # Fetch content — truncate to 1500 chars for embedding (matches embed-one.sh)
-      MEM_CONTENT=$(sqlite3 -cmd ".timeout 5000" "$MEMDB" "SELECT substr(content, 1, 1500) FROM memories WHERE id=$MEM_ID;")
-      [ -z "$MEM_CONTENT" ] && continue
+      if [ "$EMBED_MODE" = "remote" ]; then
+        # Fetch content — truncate to 1500 chars for embedding (matches embed-one.sh)
+        MEM_CONTENT=$(sqlite3 -cmd ".timeout 5000" "$MEMDB" "SELECT substr(content, 1, 1500) FROM memories WHERE id=$MEM_ID;")
+        [ -z "$MEM_CONTENT" ] && continue
 
-      JSON_CONTENT=$(printf '%s' "$MEM_CONTENT" | jq -Rs .)
+        JSON_CONTENT=$(printf '%s' "$MEM_CONTENT" | jq -Rs .)
 
-      if [ "$EMBED_MODE" = "remote" ] && [ -n "$EMBED_URL" ]; then
         CURL_ARGS=(-sS --fail --connect-timeout 5 --max-time 30 --proto '=https,http' "$EMBED_URL" -H "Content-Type: application/json")
 
         # Pass auth header via config file to avoid leaking token in ps aux
@@ -344,26 +403,10 @@ if [ "$DRY_RUN" != true ] && [ "$EMBED_MODE" != "fallback" ] && [ "$EMBED_MODE" 
           continue
         fi
 
-      elif [ "$EMBED_MODE" = "lembed" ] && [ -f "$EXT_DIR/lembed0.$EXT_SUFFIX" ]; then
-        MODEL_PATH="$MODEL_DIR/all-MiniLM-L6-v2.gguf"
-        ESCAPED_SQL=$(printf '%s' "$MEM_CONTENT" | sed "s/'/''/g")
-        # lembed() takes a registered model NAME (embed-common.sh). The model is
-        # registered on this connection, in the same call, before lembed() runs
-        # (temp.lembed_models is per connection; a bulk run loads the model per
-        # row — simple, not fast). lembed() returns a BLOB, so read it as JSON
-        # with vec_to_json(): json() cannot hold a BLOB.
-        REGISTER_SQL=$(embed_lembed_register_sql "$MODEL_PATH") || REGISTER_SQL=""
-        LEMBED_RC=0
-        EMBEDDING=$(sqlite3 -cmd ".timeout 5000" -bail "$MEMDB" ".load \"$EXT_DIR/vec0\"" ".load \"$EXT_DIR/lembed0\"" \
-          "$REGISTER_SQL" \
-          "SELECT vec_to_json(lembed('$EMBED_LEMBED_NAME', '$ESCAPED_SQL'));" 2>"${EMBED_ERR:-/dev/null}") || LEMBED_RC=$?
-        if [ "$LEMBED_RC" -ne 0 ]; then
-          LEMBED_ERR=""
-          [ -z "$EMBED_ERR" ] || LEMBED_ERR=$(cat "$EMBED_ERR" 2>/dev/null || true)
-          echo "  WARN: lembed failed for chunk $MEM_ID"
-          embed_log_error "$MEMDIR" migrate-md "chunk $MEM_ID: lembed failed (sqlite3 exit $LEMBED_RC): ${LEMBED_ERR:-${EMBEDDING:-no error text}}"
-          continue
-        fi
+      elif [ "$EMBED_MODE" = "lembed" ]; then
+        # The batch connection already computed this row's vector ("<id><TAB><json>"
+        # lines); the model was loaded and registered once for all rows.
+        EMBEDDING=$(printf '%s\n' "$LEMBED_OUT" | awk -F'\t' -v id="$MEM_ID" '$1 == id { print $2; exit }')
       else
         break
       fi
@@ -417,7 +460,7 @@ if [ "$DRY_RUN" != true ] && [ "$EMBED_MODE" != "fallback" ] && [ "$EMBED_MODE" 
       fi
 
       EMBEDDED_COUNT=$((EMBEDDED_COUNT + 1))
-    done < <(sqlite3 -cmd ".timeout 5000" "$MEMDB" "SELECT m.id FROM memories m LEFT JOIN embedding_meta em ON em.memory_id = m.id WHERE em.memory_id IS NULL AND m.archived = 0;" 2>/dev/null)
+    done < <(sqlite3 -cmd ".timeout 5000" "$MEMDB" "SELECT m.id FROM memories m LEFT JOIN embedding_meta em ON em.memory_id = m.id WHERE em.memory_id IS NULL AND m.archived = 0 AND m.content <> '';" 2>/dev/null)
 
     echo "  Embedded: $EMBEDDED_COUNT/$UNEMBEDDED chunks"
 
