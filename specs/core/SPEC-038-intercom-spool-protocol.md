@@ -1428,6 +1428,50 @@ cycle; the CDT-529 ACs pin it.
   `commands/*.md`). The bot token never appears in argv, logs, spool
   files, or error text.
 
+### CDT-566
+
+- **AC1.** The Dockerfile bakes the shipped `skills/intercom` into the
+  image (build context is `skills/intercom/`, per compose
+  `build.context: .`) — e.g. `COPY` to `/app/skills/intercom` — and the
+  image contains the self-contained runtime chain (`daemon.sh`,
+  `poller.sh`, `common.sh`, plus shipped runtime `.sh` files). The image
+  never contains test files (`test*.sh`, `test-lib.sh`), never the bot
+  token or a token file. The `docker.io/library/alpine@sha256:…` base
+  pin stays.
+  Verify: bash skills/intercom/test-daemon.sh
+- **AC2.** `docker-compose.yml` has no code bind mount: the
+  `${INTERCOM_PLUGIN_ROOT:?}:/plugin:ro` volume is gone, `working_dir`
+  no longer points at `/plugin`, and no service requires
+  `INTERCOM_PLUGIN_ROOT`. The token `:ro` mount (mode-600 `bot_token`)
+  and the state-dir rw bind (`INTERCOM_STATE_DIR`) stay unchanged.
+  Verify: bash skills/intercom/test-daemon.sh
+- **AC3.** The compose container command runs the baked path (`bash
+  /app/skills/intercom/daemon.sh`, matching AC1's `COPY` target) with
+  the existing hardening intact: `user:` non-root from
+  `INTERCOM_UID:INTERCOM_GID` (never 0), `read_only: true`, `cap_drop:
+  ["ALL"]`, `no-new-privileges`, tmpfs `/tmp`, digest-pinned image, no
+  `:latest`, no published ports.
+  Verify: bash skills/intercom/test-daemon.sh
+- **AC4.** `start-daemon.sh` no longer stages a copy and no longer
+  passes `INTERCOM_PLUGIN_ROOT`; it keeps `INTERCOM_UID`,
+  `INTERCOM_GID`, `INTERCOM_TOKEN_FILE`, and `INTERCOM_STATE_DIR`, and
+  still runs `docker compose -p intercom -f <compose> up -d --build` —
+  the rebuild applies updated poller code on the next start, and works
+  when the image does not exist yet (built on first `up`). A running
+  daemon keeps its last-built image until then (acceptable for a
+  poller). Host-side `watch.sh`/`poller.sh` users are unaffected —
+  neither script changes.
+  Verify: bash skills/intercom/test-daemon.sh
+- **AC5.** A compose up/build failure means `start-daemon.sh` exits
+  nonzero without a daemon-mode print; the bot token never appears in
+  argv, env, or printed text, and never enters the image — only the
+  `:ro` mount of the mode-600 token file.
+  Verify: bash skills/intercom/test-daemon.sh
+- **AC6.** [process] `bash skills/intercom/test-daemon.sh` and `bash
+  skills/intercom/test.sh` stay green; `bash tools/run-all-tests.sh`
+  exits 0 (skill-lint, docs-drift, spec-lint pass). Release bump is
+  patch; no new `commands/*.md`.
+
 ## Test
 
 - Token file written 0600 with 700 parent; repo stays clean (AC1)
