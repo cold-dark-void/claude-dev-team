@@ -3387,6 +3387,125 @@ export PATH
 export INTERCOM_STATE_ROOT="$TMP/intercom-isolated"
 
 # =============================================================================
+# T31. omp host checks (CDT-551) — print-only, env-injectable paths
+# =============================================================================
+omp_field() { # omp_field <id> <json> <field>
+  printf '%s' "$2" | jq -r --arg id "$1" \
+    '.checks[] | select(.id==$id) | .'"$3"' // ""'
+}
+
+# T31a — omp absent → both checks SKIP, exit 0
+RC=0
+OUT=$(cd "$HEALTHY" && OMP_BIN=none bash "$DOCTOR" --json --only omp 2>/dev/null) || RC=$?
+if [ "$RC" -eq 0 ] \
+  && [ "$(omp_field omp.enabled_providers "$OUT" status)" = "SKIP" ] \
+  && [ "$(omp_field omp.marketplace "$OUT" status)" = "SKIP" ]; then
+  pass "T31a OMP_BIN=none → omp checks SKIP, exit 0"
+else
+  fail "T31a rc=$RC out=$OUT"
+fi
+
+# T31b — enabledProviders block form with claude-plugins → PASS
+OMP_CFG="$TMP/omp-config.yml"
+printf 'enabledProviders:\n  - claude-plugins\n' > "$OMP_CFG"
+RC=0
+OUT=$(cd "$HEALTHY" && OMP_BIN=present OMP_CONFIG_FILE="$OMP_CFG" bash "$DOCTOR" --json --only omp.enabled_providers 2>/dev/null) || RC=$?
+if [ "$RC" -eq 0 ] && [ "$(omp_field omp.enabled_providers "$OUT" status)" = "PASS" ]; then
+  pass "T31b block-form claude-plugins → PASS"
+else
+  fail "T31b rc=$RC out=$OUT"
+fi
+
+# T31c — inline form without claude-plugins → WARN + exact fixit
+OMP_FIXIT="omp config set enabledProviders '[\"claude-plugins\"]'"
+printf 'enabledProviders: ["memory-db"]\n' > "$OMP_CFG"
+RC=0
+OUT=$(cd "$HEALTHY" && OMP_BIN=present OMP_CONFIG_FILE="$OMP_CFG" bash "$DOCTOR" --json --only omp.enabled_providers 2>/dev/null) || RC=$?
+if [ "$RC" -eq 1 ] \
+  && [ "$(omp_field omp.enabled_providers "$OUT" status)" = "WARN" ] \
+  && [ "$(omp_field omp.enabled_providers "$OUT" fixit)" = "$OMP_FIXIT" ]; then
+  pass "T31c missing claude-plugins → WARN with omp config set fixit"
+else
+  fail "T31c rc=$RC out=$OUT"
+fi
+
+# T31d — omp present, no config file → WARN
+RC=0
+OUT=$(cd "$HEALTHY" && OMP_BIN=present OMP_CONFIG_FILE="$TMP/omp-absent.yml" bash "$DOCTOR" --json --only omp.enabled_providers 2>/dev/null) || RC=$?
+if [ "$RC" -eq 1 ] && [ "$(omp_field omp.enabled_providers "$OUT" status)" = "WARN" ]; then
+  pass "T31d omp without config → WARN"
+else
+  fail "T31d rc=$RC out=$OUT"
+fi
+
+# T31e — stale marketplace copy → WARN; fresh copy → PASS
+MPDIR="$TMP/omp-mp"
+CACHE="$TMP/omp-cache"
+mk_mp() { # mk_mp <version>
+  rm -rf "$MPDIR"
+  mkdir -p "$MPDIR/some-mp/.claude-plugin"
+  printf '{"name":"dev-team","version":"%s"}\n' "$1" > "$MPDIR/some-mp/.claude-plugin/plugin.json"
+}
+mk_cache() { # mk_cache <version>
+  rm -rf "$CACHE"
+  mkdir -p "$CACHE/owner/dev-team/$1"
+}
+mk_mp "1.0.0"
+mk_cache "1.2.0"
+RC=0
+OUT=$(cd "$HEALTHY" && OMP_BIN=present OMP_MARKETPLACE_DIR="$MPDIR" OMP_CACHE_DIR="$CACHE" bash "$DOCTOR" --json --only omp.marketplace 2>/dev/null) || RC=$?
+if [ "$RC" -eq 1 ] && [ "$(omp_field omp.marketplace "$OUT" status)" = "WARN" ]; then
+  pass "T31e stale marketplace (v1.0.0 < cache v1.2.0) → WARN"
+else
+  fail "T31e rc=$RC out=$OUT"
+fi
+mk_mp "1.2.0"
+RC=0
+OUT=$(cd "$HEALTHY" && OMP_BIN=present OMP_MARKETPLACE_DIR="$MPDIR" OMP_CACHE_DIR="$CACHE" bash "$DOCTOR" --json --only omp.marketplace 2>/dev/null) || RC=$?
+if [ "$RC" -eq 0 ] && [ "$(omp_field omp.marketplace "$OUT" status)" = "PASS" ]; then
+  pass "T31f fresh marketplace (v1.2.0 = cache v1.2.0) → PASS"
+else
+  fail "T31f rc=$RC out=$OUT"
+fi
+
+# T31g — no marketplace clone → SKIP
+rm -rf "$MPDIR"
+RC=0
+OUT=$(cd "$HEALTHY" && OMP_BIN=present OMP_MARKETPLACE_DIR="$MPDIR" OMP_CACHE_DIR="$CACHE" bash "$DOCTOR" --json --only omp.marketplace 2>/dev/null) || RC=$?
+if [ "$RC" -eq 0 ] && [ "$(omp_field omp.marketplace "$OUT" status)" = "SKIP" ]; then
+  pass "T31g no marketplace clone → SKIP, exit 0"
+else
+  fail "T31g rc=$RC out=$OUT"
+fi
+
+# T31h — print-only: --fix never touches the omp config it reads
+printf 'enabledProviders: []\n' > "$OMP_CFG"
+SUM_BEFORE=$(cksum < "$OMP_CFG")
+(cd "$HEALTHY" && OMP_BIN=present OMP_CONFIG_FILE="$OMP_CFG" \
+  bash "$DOCTOR" --fix --only omp >/dev/null 2>&1) || true
+if [ "$(cksum < "$OMP_CFG")" = "$SUM_BEFORE" ]; then
+  pass "T31h --fix leaves the read omp config untouched (print-only)"
+else
+  fail "T31h omp config was modified by --fix"
+fi
+
+# T31i — malformed marketplace plugin.json (no name, no version) must not
+# abort the battery under pipefail (advisor fix, cdt-551)
+rm -rf "$MPDIR"
+mkdir -p "$MPDIR/broken-mp/.claude-plugin"
+printf '{"description":"no name, no version"}\n' > "$MPDIR/broken-mp/.claude-plugin/plugin.json"
+printf 'enabledProviders:\n  - claude-plugins\n' > "$OMP_CFG"
+RC=0
+OUT=$(cd "$HEALTHY" && OMP_BIN=present OMP_CONFIG_FILE="$OMP_CFG" OMP_MARKETPLACE_DIR="$MPDIR" OMP_CACHE_DIR="$CACHE" bash "$DOCTOR" --json --only omp 2>/dev/null) || RC=$?
+if [ "$RC" -eq 0 ] \
+  && [ "$(omp_field omp.marketplace "$OUT" status)" = "SKIP" ] \
+  && [ "$(omp_field omp.enabled_providers "$OUT" status)" = "PASS" ]; then
+  pass "T31i malformed plugin.json (no name) → battery completes, omp.marketplace SKIP"
+else
+  fail "T31i rc=$RC out=$OUT"
+fi
+
+# =============================================================================
 # Summary
 # =============================================================================
 echo ""

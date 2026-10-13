@@ -30,6 +30,7 @@ when one exists; skills-backed Surfaces without a page still appear here.
 |-----|--------------|
 | [Permission posture matrix](internal/permission-posture-matrix.md) | C8 evidence — `auto` (Cell D) ship default (pin Claude Code 2.1.190) |
 | [Handoff STM dogfood](internal/handoff-stm-dogfood.md) | AC-16 ship-gate evidence for the `/handoff` STM packet |
+| [omp host notes](internal/omp-host.md) | oh-my-pi hosts — `enabledProviders`, agent-name dedup, roster overlap (CDT-549) |
 
 **What's new / upgrade path:** [CHANGELOG](../CHANGELOG.md) (newest first) · [Migrate to v1.0.0](runbooks/migrate-to-v1.md) · [Setup → Upgrading](setup.md#upgrading-the-plugin-existing-projects).
 

@@ -125,14 +125,21 @@ non-bootstrap — gating is the caller's job.
 | `intercom.spool` | intercom |
 | `intercom.poller_stale` | intercom |
 | `intercom.slack` | intercom |
+| `omp.enabled_providers` | omp |
+| `omp.marketplace` | omp |
+
+omp checks (CDT-551) are print-only — doctor never writes omp config or host
+state. Paths are injectable for tests: `OMP_CONFIG_FILE`,
+`OMP_MARKETPLACE_DIR`, `OMP_CACHE_DIR`; `OMP_BIN=none` simulates an omp-less
+host and `OMP_BIN=present` a deterministic omp host (both used by tests).
 
 ## Severity
 
 | Severity | When |
 |----------|------|
 | **FAIL** | Triplet drift; unparseable plugin/settings JSON; `schema_version` mismatch; wired hook → missing script; missing canonical hook **event** when `settings.hooks` exists |
-| **WARN** | Optional dep absent; uninitialized memory; extension unloadable; embedding config incoherent; embed errors logged in `.claude/memory/.errors.log` (`memory.embed_errors`, CDT-262; never FAIL); un-anchored **managed** hook path / managed pipe / managed script that is not executable (hooks run via `bash`; user-owned hooks silent — CDT-77); stale wt-lock; held distilling_lock; sandbox/`defaultMode` coherence (`bypassPermissions`, `dontAsk`, or `auto` without sandbox); `sandbox.enabled=true` but bwrap runtime init fails (`settings.sandbox_runtime`, CDT-78); Claude Code version drift vs last matrix-probed (`matrix.cc_version`, CDT-59); opted-in cwd transcript `missing`/`lag` (`transcript.mirror_lag`, CDT-221; never FAIL); Model map unparseable / bad value / unknown key / `jq` missing / `qa` or `council-judge` override (`models.map`, CDT-228; never FAIL); intercom daemon down or heartbeat stale (`intercom.daemon` / `intercom.heartbeat`, CDT-509; never FAIL); away on with a FRESH `.wt-lock` / non-numeric `state/away` / bad `topics.json` / missing or unwritable `spool/` / stale `/plugin` poller / missing `/setup slack` stub (`intercom.away` / `intercom.topics` / `intercom.spool` / `intercom.poller_stale` / `intercom.slack`, CDT-532; never FAIL) |
-| **SKIP** | Probe tool for that check absent; dev-only check in consumer; `transcript.mirror_lag` when not opted-in, `python3` absent, or `transcript-sync.sh` missing; `intercom.daemon` when `config.json` or docker CLI is absent; `intercom.away` / `intercom.topics` / `intercom.spool` when `config.json` is absent; `intercom.topics` when `jq` is absent; `intercom.poller_stale` when docker CLI, config, or compose identity is absent |
+| **WARN** | Optional dep absent; uninitialized memory; extension unloadable; embedding config incoherent; embed errors logged in `.claude/memory/.errors.log` (`memory.embed_errors`, CDT-262; never FAIL); un-anchored **managed** hook path / managed pipe / managed script that is not executable (hooks run via `bash`; user-owned hooks silent — CDT-77); stale wt-lock; held distilling_lock; sandbox/`defaultMode` coherence (`bypassPermissions`, `dontAsk`, or `auto` without sandbox); `sandbox.enabled=true` but bwrap runtime init fails (`settings.sandbox_runtime`, CDT-78); Claude Code version drift vs last matrix-probed (`matrix.cc_version`, CDT-59); opted-in cwd transcript `missing`/`lag` (`transcript.mirror_lag`, CDT-221; never FAIL); Model map unparseable / bad value / unknown key / `jq` missing / `qa` or `council-judge` override (`models.map`, CDT-228; never FAIL); intercom daemon down or heartbeat stale (`intercom.daemon` / `intercom.heartbeat`, CDT-509; never FAIL); away on with a FRESH `.wt-lock` / non-numeric `state/away` / bad `topics.json` / missing or unwritable `spool/` / stale `/plugin` poller / missing `/setup slack` stub (`intercom.away` / `intercom.topics` / `intercom.spool` / `intercom.poller_stale` / `intercom.slack`, CDT-532; never FAIL); omp present but `enabledProviders` without `claude-plugins`, or omp config file absent (`omp.enabled_providers`, CDT-551; never FAIL); stale omp marketplace copy older than the newest install-cache copy, or an unparseable marketplace plugin version (`omp.marketplace`, CDT-551; never FAIL) |
+| **SKIP** | Probe tool for that check absent; dev-only check in consumer; `transcript.mirror_lag` when not opted-in, `python3` absent, or `transcript-sync.sh` missing; `intercom.daemon` when `config.json` or docker CLI is absent; `intercom.away` / `intercom.topics` / `intercom.spool` when `config.json` is absent; `intercom.topics` when `jq` is absent; `intercom.poller_stale` when docker CLI, config, or compose identity is absent; `omp.*` when the omp CLI is absent (not an omp host); `omp.marketplace` when no dev-team marketplace clone exists under the marketplaces root |
 | **PASS** | Invariant holds |
 
 Uninitialized memory is **WARN not FAIL** — fix-it is `/setup team`.
@@ -145,7 +152,7 @@ Only these repairs (idempotent; announced; TTY confirms; non-TTY applies). `--on
 2. Remove **STALE** (per SPEC-016 TTL) `.wt-lock` files — never worktree dirs, never FRESH locks. Owning check: `worktree.locks`.
 3. Sweep `$MROOT/.claude/handoff/cache/*.tmp`. Owning check: `handoff.tmp` (full run, or `--only handoff.tmp`).
 
-MUST NOT touch `settings.json`, schema, manifests, CHANGELOG, Model map JSON, or create memory/hooks. MUST NOT create or remove `state/away`, rewrite `topics.json`, create spool dirs, restart the intercom daemon, or write slack state.
+MUST NOT touch `settings.json`, schema, manifests, CHANGELOG, Model map JSON, or create memory/hooks. MUST NOT create or remove `state/away`, rewrite `topics.json`, create spool dirs, restart the intercom daemon, or write slack state. MUST NOT write omp config or any omp host state.
 
 ## Single-source expectations
 

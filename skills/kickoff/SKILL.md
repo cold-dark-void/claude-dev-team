@@ -811,14 +811,22 @@ Task Graph:
   id:<N> Task 4 — QA tests    → qa           [ready after Task 2 interface defined]
 Quality check: <ci|local-test|none>  (detected via skills/ci-watch/detect-mode.sh $WT_PATH)
 
-Parallel work ready:
-  @ic4: claim Task 1 via TaskUpdate, start immediately
-  @ic5: claim Task 2 via TaskUpdate, start immediately — SendMessage interface to @ic4 and @qa early
-  @qa:  claim Task 4 via TaskUpdate, start after @ic5 defines the interface
+Parallel work ready (reference for the engineer — this summary is print-only):
+  Task 1 is ready for @ic4 to claim via TaskUpdate.
+  Task 2 is ready for @ic5 to claim via TaskUpdate; the SendMessage interface to @ic4 and @qa should be defined early.
+  Task 4 is @qa's, ready once Task 2 defines the interface.
 
+STOP — print-only summary. Do not claim tasks, spawn agents, or implement. The engineer decides the next step.
 Resume with /orchestrate <TICKET-ID> to implement, or cd into the worktree directly.
 Next: /status standup to monitor progress
 ```
+
+**Print-only handoff (CDT-547).** The "Parallel work ready" block and the STOP line
+are report text for the engineer. They are not instructions to this run: after
+printing the summary, do not claim tasks, do not spawn agents, and do not
+implement — the task graph waits for the engineer. Never phrase a handoff line
+as a bare imperative to an agent (`@ic4: claim …`); write it as a status
+sentence instead.
 
 **Notify-on-done (CDT-123):** after printing the summary above (successful kickoff
 completion, no early halt), emit `task_complete` (detail =

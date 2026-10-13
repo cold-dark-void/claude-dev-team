@@ -47,11 +47,12 @@ Task Graph:
   id:42  Task 2 — Export toolbar UI    → ic4   [ready to claim]
   id:43  Task 3 — Acceptance tests     → qa    [blocked by Task 1, Task 2]
 
-Parallel work ready:
-  @ic4: claim Task 1 via TaskUpdate, start immediately
-  @ic4: claim Task 2 via TaskUpdate, start immediately
-  @qa:  claim Task 3 after Task 1 + Task 2 complete
+Parallel work ready (reference for the engineer — this summary is print-only):
+  Task 1 is ready for @ic4 to claim via TaskUpdate.
+  Task 2 is ready for @ic4 to claim via TaskUpdate.
+  Task 3 is @qa's, ready once Task 1 + Task 2 complete.
 
+STOP — print-only summary. Do not claim tasks, spawn agents, or implement. The engineer decides the next step.
 Next: /status standup to monitor progress
 ```
 

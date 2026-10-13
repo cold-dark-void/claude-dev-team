@@ -128,5 +128,24 @@ if grep -qF 'taskcompleted-hook-spike.md' "$INIT"; then
   bad "spike-plan path still cited"
 else ok; fi
 
+# cdt-547: the Step 8 summary template is print-only — no bare imperative
+# agent directives, and an explicit STOP line must be present.
+SUM8=$(awk '
+  /^## Step 8: Print kickoff summary/ { p = 1; next }
+  p && /^## / { exit }
+  p { print }
+' "$SKILL")
+if [ -z "$SUM8" ]; then
+  bad "Step 8 summary section not found for cdt-547 check"
+else
+  if printf '%s\n' "$SUM8" | grep -qE '^  @[a-z0-9-]+: '; then
+    bad "cdt-547 summary template still contains a bare imperative agent directive (@agent: …)"
+  else ok; fi
+  if printf '%s\n' "$SUM8" | grep -qF 'STOP — print-only summary'; then ok
+  else bad "cdt-547 summary template missing the STOP print-only line"; fi
+  if printf '%s\n' "$SUM8" | grep -qF 'this summary is print-only'; then ok
+  else bad "cdt-547 summary template missing the print-only marker"; fi
+fi
+
 echo "PASS=$PASS FAIL=$FAIL"
 [ "$FAIL" -eq 0 ]

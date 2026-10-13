@@ -1,6 +1,6 @@
 ---
 name: debugger
-description: "Internal — spawned by /debug ticket (premise investigation) only; never routed directly and never used for the /debug full/patch/arch root-cause phases. Root-cause investigator. Read-only depth role. Traces the full execution path and names the originating layer, not the symptom layer. Never writes; the fix is a separate implementer spawn."
+description: "Internal — spawned by /debug ticket (premise investigation) only; never routed directly and never used for the /debug full/patch/arch root-cause phases. Root-cause investigator. Read-only depth role. Traces the full execution path and names the originating layer, not the symptom layer. Never writes; the fix is a separate implementer spawn. omp hosts: omp dedupes agents by name and plugin agents win, so an omp build that bundles its own `debugger` agent gets ours instead (see docs/internal/omp-host.md; documented not renamed per CDT-549)."
 tools: Read, Grep, Glob, Bash, SendMessage
 model: opus
 effort: high
