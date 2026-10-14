@@ -50,6 +50,7 @@ devops:sonnet:medium
 ic4:sonnet:medium
 project-init:sonnet:low
 distiller:haiku:low
+advisor:opus:high
 '
 
 frontmatter_key() {

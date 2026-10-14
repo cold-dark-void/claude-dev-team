@@ -358,6 +358,87 @@ env HOME="$FAKE_HOME" DEVTEAM_MODEL_pm=from-env bash "$RESOLVE" pm >"$OUTF" 2>"$
 check "C2-absent-local-repo" 0 "from-repo" ""
 
 # =============================================================================
+# M36 (SPEC-039) — mappable-names.sh: single source of the mappable set
+# =============================================================================
+HELPER="$SCRIPT_DIR/mappable-names.sh"
+run_helper() {
+  RC=0
+  : >"$OUTF"
+  : >"$ERRF"
+  bash "$HELPER" "$@" >"$OUTF" 2>"$ERRF" || RC=$?
+}
+
+run_helper --is advisor
+check "M36-helper-is-advisor" 0 "" ""
+
+run_helper --is pm
+check "M36-helper-is-pm" 0 "" ""
+
+run_helper --is distiller
+check "M36-helper-is-distiller-refused" 1 "" ""
+
+run_helper --is not-an-agent
+check "M36-helper-is-unknown-refused" 1 "" ""
+
+run_helper --is
+check "M36-helper-is-missing-arg" 64 "" "usage: mappable-names.sh --is <name>"
+
+run_helper --list
+LIST_OUT=$(cat "$OUTF")
+if [ "$(printf '%s\n' "$LIST_OUT" | grep -c .)" = "11" ] \
+  && printf '%s\n' "$LIST_OUT" | grep -qx advisor \
+  && ! printf '%s\n' "$LIST_OUT" | grep -qx distiller \
+  && ! printf '%s\n' "$LIST_OUT" | grep -qx project-init; then
+  pass "M36-helper-list-11-no-internals"
+else
+  fail "M36-helper-list-11-no-internals: got '$LIST_OUT'"
+fi
+
+run_helper --internal-empty
+INT_OUT=$(cat "$OUTF")
+if [ "$INT_OUT" = "distiller
+project-init" ]; then
+  pass "M36-helper-internal-empty"
+else
+  fail "M36-helper-internal-empty: got '$INT_OUT'"
+fi
+
+# =============================================================================
+# M36 (SPEC-039) — resolve-model.sh --mapped explicit-mapped probe
+# =============================================================================
+clear_layers
+run --mapped advisor
+check "M36-mapped-no-layers" 0 "unmapped" ""
+
+write_map <<'EOF'
+{"version":1,"agents":{"advisor":"mapped-model"}}
+EOF
+run --mapped advisor
+check "M36-mapped-local" 0 "mapped" ""
+
+rm_map
+write_repo <<'EOF'
+{"version":1,"agents":{"advisor":"repo-model"}}
+EOF
+run --mapped advisor
+check "M36-mapped-repo" 0 "mapped" ""
+
+# Internals are always unmapped; unknown agents too.
+run --mapped distiller
+check "M36-mapped-internal-unmapped" 0 "unmapped" ""
+
+run --mapped not-an-agent
+check "M36-mapped-unknown-unmapped" 0 "unmapped" ""
+
+# An explicit but invalid value is not a mapping.
+clear_layers
+write_map <<'EOF'
+{"version":1,"agents":{"advisor":""}}
+EOF
+run --mapped advisor
+check "M36-mapped-invalid-unmapped" 0 "unmapped" "not a non-empty string"
+
+# =============================================================================
 # Summary
 # =============================================================================
 echo ""

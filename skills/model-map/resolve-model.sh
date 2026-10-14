@@ -5,9 +5,13 @@
 #
 #   bash skills/model-map/resolve-model.sh <agent>
 #   bash skills/model-map/resolve-model.sh --effort <agent>
+#   bash skills/model-map/resolve-model.sh --mapped <agent>
 #
 # stdout: trimmed model string, or empty (at most one trailing newline)
 #         --effort: lowercase token, or empty (inherited effort)
+#         --mapped: exactly `mapped` when an explicit Model map layer carries a
+#                   valid string for a mappable agent, else `unmapped` (internals
+#                   and unknown agents are always unmapped; SPEC-039 M36 probe)
 # stderr: warnings only (SPEC-037 M6/M7/M8/M9 prefixes; effort uses M25 inherited-effort)
 # exit:   0 except 64 when the agent argument is missing or empty
 # Extra argv after the agent is ignored.
@@ -15,10 +19,17 @@
 
 set -euo pipefail
 
+SCRIPT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+
 # JSON field in the Model map: agents (host model) or effort (inherited effort).
 FIELD=agents
+MAPPED_MODE=0
 if [ "${1:-}" = "--effort" ]; then
   FIELD=effort
+  shift
+fi
+if [ "${1:-}" = "--mapped" ]; then
+  MAPPED_MODE=1
   shift
 fi
 
@@ -41,10 +52,9 @@ resolve_mroot() {
 }
 
 is_mappable() {
-  case "$1" in
-    pm|tech-lead|ic5|ic4|devops|qa|ds|council-judge|finder|debugger) return 0 ;;
-    *) return 1 ;;
-  esac
+  # Single source of the mappable set: SPEC-037 M8 + SPEC-039 M36 (advisor).
+  # mappable-names.sh sits next to this script; resolve via $0's directory.
+  "$SCRIPT_DIR/mappable-names.sh" --is "$1"
 }
 
 is_internal() {
@@ -164,6 +174,9 @@ resolve_mroot
 
 if ! command -v jq >/dev/null 2>&1; then
   warn "model-map: jq not found; using $(default_phrase "$FIELD")"
+  if [ "$MAPPED_MODE" = "1" ]; then
+    printf 'unmapped\n'
+  fi
   exit 0
 fi
 
@@ -171,6 +184,17 @@ WINNER=""
 pick_from_layer "$MROOT/.claude/dev-team/models.local.json" "$FIELD"
 pick_from_layer "$MROOT/.claude/dev-team/models.json" "$FIELD"
 pick_from_layer "${HOME:-}/.claude/dev-team/models.json" "$FIELD"
+
+if [ "$MAPPED_MODE" = "1" ]; then
+  # Explicit-mapped probe (SPEC-039 M36): report only what a Model map layer
+  # carries; never consult the Tier default or frontmatter retry.
+  if [ -n "$WINNER" ]; then
+    printf 'mapped\n'
+  else
+    printf 'unmapped\n'
+  fi
+  exit 0
+fi
 
 if is_internal "$AGENT"; then
   exit 0

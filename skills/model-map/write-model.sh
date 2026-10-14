@@ -28,10 +28,9 @@ usage() {
 }
 
 is_mappable() {
-  case "$1" in
-    pm|tech-lead|ic5|ic4|devops|qa|ds|council-judge|finder|debugger) return 0 ;;
-    *) return 1 ;;
-  esac
+  # Single source of the mappable set: SPEC-037 M8 + SPEC-039 M36 (advisor).
+  # mappable-names.sh sits next to this script.
+  "$HERE/mappable-names.sh" --is "$1"
 }
 
 is_effort_token() {
@@ -135,7 +134,8 @@ ensure_runtime_gitignore() {
 cmd_list() {
   local agent model effort
   printf 'local: %s\n' "$MAP"
-  for agent in pm tech-lead ic5 ic4 devops qa ds council-judge finder debugger; do
+  # Mappable set comes from mappable-names.sh (SPEC-037 M8 / SPEC-039 M36).
+  for agent in $(bash "$HERE/mappable-names.sh" --list); do
     model=$(bash "$RESOLVE" "$agent") || model=""
     [ -n "$model" ] || model="Tier default"
     effort=$(bash "$RESOLVE" --effort "$agent") || effort=""

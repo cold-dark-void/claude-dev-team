@@ -166,7 +166,7 @@ write-model.sh set-effort <agent> <token>
 write-model.sh unset-effort <agent>
 ```
 
-- `list` — print the 10 mappable agents with the winning resolved model
+- `list` — print the 11 mappable agents with the winning resolved model
   (calls `resolve-model.sh`; empty → `Tier default`) and the winning
   resolved effort (calls `resolve-model.sh --effort`; empty → `inherited`)
   plus the local path. Read-only.

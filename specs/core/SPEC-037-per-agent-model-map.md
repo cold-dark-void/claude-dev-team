@@ -152,12 +152,13 @@ amendment, and the surface retirement land as separate tickets.
   An argv name outside M8 and those two internals is an unknown agent: empty
   stdout, exit `0`, stderr
   `model-map: unknown agent '<name>'; using Tier default`.
-  The set is duplicated in three enforcement points —
-  `skills/model-map/resolve-model.sh`, `skills/model-map/write-model.sh`
-  (guard plus `list` loop), and `skills/doctor/doctor.sh` (`models.map`
-  key validation). All three MUST carry the same 10-name mappable set plus
-  the two always-empty internals; a change to one without the others is a
-  spec violation, not a cosmetic drift.
+  The set lives in one helper, `skills/model-map/mappable-names.sh`
+  (SPEC-039 M36): `--is NAME` exit 0/1, `--list` one name per line,
+  `--internal-empty` the always-empty internals. `resolve-model.sh`,
+  `write-model.sh` (guard plus `list` loop), and
+  `skills/doctor/checks/models.sh` (`models.map` key validation) call that
+  helper; a hand-copied case list anywhere else is a spec violation, not a
+  cosmetic drift. `advisor` joins the set under SPEC-039 M36 (11 names).
 
 - **M9 — Adversarial (AC13).** A valid string for `qa` or `council-judge` MUST
   be emitted. The resolver MUST also warn once

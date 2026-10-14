@@ -420,6 +420,15 @@ Format and rules: SPEC-033 M14(g) and M14(h).
 - **AC6.** `install.sh` `strip_frontmatter` drops the frontmatter `tools:` line from `agents/advisor.md`. `install-test.sh` has a case that generates the opencode copy of `agents/advisor.md` and asserts that copy's frontmatter has no `tools:` line.
   Verify: bash install-test.sh
 
+### CDT-560
+
+- **AC1.** `skills/model-map/mappable-names.sh` is the single source of the mappable set. `--is NAME` exits 0 exactly for the 11 mappable names (`pm`, `tech-lead`, `ic5`, `ic4`, `devops`, `qa`, `ds`, `council-judge`, `finder`, `debugger`, `advisor`) and 1 otherwise; `--list` prints the 11 names one per line; `--internal-empty` prints `distiller` and `project-init` one per line. `spawn-site-test.sh` ROSTER gains `advisor:opus:high` (covered by `skills/model-map/spawn-site-test.sh`, also run at the gate).
+  Verify: bash skills/model-map/test.sh
+- **AC2.** `resolve-model.sh --mapped <agent>` prints exactly `unmapped` when no Model map layer carries a valid string for the agent (no layers, internals, unknown agents, and invalid values are all unmapped) and `mapped` otherwise; it never consults the Tier default.
+  Verify: bash skills/model-map/test.sh
+- **AC3.** `resolve-model.sh`, `write-model.sh` (guard plus `list` loop), and `skills/doctor/checks/models.sh` call `mappable-names.sh`; no hand-copied case list remains in any of the three.
+  Verify: bash skills/doctor/test.sh
+
 ## Alternatives considered
 
 - **Spawn from bash via host CLI.** Rejected: host CLI is not portable across
