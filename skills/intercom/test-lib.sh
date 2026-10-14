@@ -232,7 +232,9 @@ offset_val() { cat "$STATE_ROOT/state/offset" 2>/dev/null; }
 
 # ---- docker mock (CDT-509 / CDT-527). Never talks to a real daemon. ------------
 # Modes (DOCKER_MOCK_MODE_FILE): no-compose, no-engine, down, running, up-ok,
-# up-fail. CLI-absent = nodocker_bin PATH + rm_docker_mock (no shim).
+# up-fail. `running` answers the compose ps identity query AND accepts
+# `compose up` rc 0 (CDT-567). CLI-absent = nodocker_bin PATH + rm_docker_mock
+# (no shim).
 # assert_no_docker_pull flags docker verbs `pull`/`run` only — not `--build`
 # on `compose … up -d --build`.
 
@@ -369,7 +371,7 @@ if [ "$is_compose" -eq 1 ]; then
       ;;
     up)
       case "$mode" in
-        up-ok) exit 0 ;;
+        up-ok|running) exit 0 ;;
         up-fail)
           echo "docker-mock: compose up failed" >&2
           exit 1
@@ -431,20 +433,21 @@ assert_no_docker_pull() { # LABEL — fail on docker verb pull/run, not compose 
   return 0
 }
 
-docker_mock_logged_up() { # rc 0 when log has compose -p intercom -f … up -d --build
+docker_mock_logged_up() { # rc 0 when log has compose -p intercom -f … up -d --build --force-recreate
   local log="${DOCKER_MOCK_LOG:-}"
   [ -n "$log" ] && [ -f "$log" ] || return 1
   grep -q -- '-p intercom' "$log" || return 1
   awk '
     {
-      has_up=0; has_d=0; has_build=0; has_f=0
+      has_up=0; has_d=0; has_build=0; has_f=0; has_fr=0
       for (i = 1; i <= NF; i++) {
         if ($i == "up") has_up=1
         if ($i == "-d") has_d=1
         if ($i == "--build") has_build=1
         if ($i == "-f" || $i == "--file") has_f=1
+        if ($i == "--force-recreate") has_fr=1
       }
-      if (has_up && has_d && has_build && has_f) found=1
+      if (has_up && has_d && has_build && has_f && has_fr) found=1
     }
     END { exit found ? 0 : 1 }
   ' "$log"

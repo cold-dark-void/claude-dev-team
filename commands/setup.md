@@ -615,10 +615,12 @@ host-aware block. After pairing and on keep-existing:
 
 - **Docker available** — `ir_docker_available` (CLI + compose v2 +
   `docker info`). Identity running (compose project `intercom`, service
-  `daemon`, label `dev-team.intercom=daemon`) prints daemon mode even if
-  heartbeat is empty. Identity down: prompt to start via
-  `start-daemon.sh` (TTY-less default Y). Do not arm `watch.sh` as a
-  second getUpdates consumer. The daemon is the sole consumer.
+  `daemon`, label `dev-team.intercom=daemon`) skips the prompt and re-runs
+  `start-daemon.sh` (`up -d --build --force-recreate`) so a re-run
+  recreates the sidecar, then prints daemon mode. Identity down: prompt to
+  start via `start-daemon.sh` (TTY-less default Y). Do not arm
+  `watch.sh` as a second getUpdates consumer. The daemon is the sole
+  consumer.
 - **C1 harness** — Docker unavailable, or the operator answers `n`:
   absolute `watch.sh`, 45s cadence; Grok silent watcher plus Claude
   CronCreate only if empty stdout injects zero parent turn. Missing

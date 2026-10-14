@@ -31,15 +31,17 @@ if ! miss=$(ir_docker_available); then
   exit 1
 fi
 
-if ir_daemon_identity_running; then
-  exit 0
-fi
-
-if ir_lock_held; then
-  echo "intercom: poller.lock is held — stop host watch.sh first" >&2
-  exit 75
+# CDT-567: the 75 refuse applies only when identity is down (the holder would
+# be a stray host watch.sh). Identity running means the holder is the daemon
+# being replaced — its own cycle — so up proceeds and recreates the same
+# project/service (never a second getUpdates consumer).
+if ! ir_daemon_identity_running; then
+  if ir_lock_held; then
+    echo "intercom: poller.lock is held — stop host watch.sh first" >&2
+    exit 75
+  fi
 fi
 
 export INTERCOM_UID INTERCOM_GID INTERCOM_TOKEN_FILE INTERCOM_STATE_DIR
-docker compose -p intercom -f "$COMPOSE_FILE" up -d --build >/dev/null || exit 1
+docker compose -p intercom -f "$COMPOSE_FILE" up -d --build --force-recreate >/dev/null || exit 1
 exit 0

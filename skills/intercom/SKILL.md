@@ -237,9 +237,11 @@ print the bot token. First miss names `docker CLI`, `compose v2`, or
 - Not available: print the C1 `watch.sh` block plus one token-free line
   that names the miss. Missing Docker is not a setup failure.
 - Available and identity running (compose project `intercom`, service
-  `daemon`, label `dev-team.intercom=daemon`): print daemon mode. Do not
-  arm `watch.sh`. Heartbeat MAY be empty or stale. Doctor liveness still
-  uses `ir_daemon_running` (fresh heartbeat AND compose).
+  `daemon`, label `dev-team.intercom=daemon`): still invoke
+  `start-daemon.sh` (CDT-567: `up -d --build --force-recreate`; its 75
+  lock refuse is skipped while identity runs). Then print daemon mode. Do not
+  arm `watch.sh`. No Y prompt on this path. Heartbeat MAY be empty or stale.
+  Doctor liveness still uses `ir_daemon_running` (fresh heartbeat AND compose).
 - Available and identity down: prompt to start. TTY-less default Y
   (empty, `Y`/`y`/`yes`, EOF) invokes `start-daemon.sh`. Answer `n`/`N`/`no`
   keeps C1. TTY-less Y is the pull approval for the CDT-509 alpine digest
@@ -271,8 +273,12 @@ Hermetic suites never `docker pull` or `docker run` a real image.
 
 `start-daemon.sh` is a subprocess CLI. Never source it. It starts the
 shipped compose sidecar with the host uid:gid (never uid 0). Token mount
-is `:ro`. Command: `docker compose -p intercom up -d --build`. After `up`
-returns 0, setup prints daemon mode even if the heartbeat is empty.
+is `:ro`. Command: `docker compose -p intercom up -d --build
+--force-recreate` (CDT-567: every start recreates the same project/service —
+never a second getUpdates consumer). The `poller.lock` 75 refuse applies
+only when identity is down; while identity runs, the holder is the daemon
+being replaced. After `up` returns 0, setup prints daemon mode even if the
+heartbeat is empty.
 
 `probe.sh` is the operator pre-deploy gate. It must pass every SPEC-038
 § Verified-vs-assumed behavior before a live operator start. Suites never

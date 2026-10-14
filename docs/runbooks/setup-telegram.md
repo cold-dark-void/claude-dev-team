@@ -46,8 +46,11 @@ It prints a host-aware block:
 
 - Docker missing: print the C1 `watch.sh` block. Missing Docker is not
   a setup failure. Arm `watch.sh`, not `poller.sh`, every 45 seconds.
-- Docker available and daemon identity running: print daemon mode. Do
-  not arm `watch.sh`. Heartbeat may be empty or stale.
+- Docker available and daemon identity running: still invoke
+  `skills/intercom/start-daemon.sh` (CDT-567: `up -d --build
+  --force-recreate`; its `poller.lock` 75 refuse is skipped while identity
+  runs). Then print daemon mode. Do not arm `watch.sh`. No Y prompt on this
+  path. Heartbeat may be empty or stale.
 - Docker available and daemon identity down: the script asks to start.
   TTY-less default is Y. Y invokes `skills/intercom/start-daemon.sh`.
   That Y is the pull approval for the CDT-509 alpine digest pin.
@@ -141,7 +144,8 @@ CDT-509 alpine digest pin. Answer `n` to keep the C1 `watch.sh` block.
 Already paired: `/setup telegram --start-daemon`. The flag is the
 confirm. There is no Y prompt.
 
-`start-daemon.sh` runs `docker compose -p intercom up -d --build` with
+`start-daemon.sh` runs
+`docker compose -p intercom up -d --build --force-recreate` with
 host uid:gid. Never put the token in env, argv, or compose
 `environment`. The compose file mounts the token file read-only.
 

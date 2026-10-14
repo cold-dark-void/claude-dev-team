@@ -1542,24 +1542,31 @@ out=$(printf 'n\n' | bash "$SETUP" 2>&1)
 rc=$?
 if [ "$rc" -ne 0 ]; then
   bad "CDT-509 AC10 keep-existing daemon-up rc=$rc out=$out"
-else
+elif docker_mock_logged_up; then
   assert_daemon_mode "CDT-509 AC10 keep-existing + daemon up: daemon-mode, no watch.sh schedule" "$out"
+else
+  bad "CDT-509 AC10 keep-existing daemon-up: no up (CDT-567 requires recreate) log=$(tr '\n' ' ' < "${DOCKER_MOCK_LOG:-/dev/null}")"
 fi
 assert_no_docker_pull "CDT-509 AC10 setup keep-existing daemon-up"
+if printf '%s' "$out" | grep -q 'Start the Intercom daemon'; then
+  bad "CDT-509 AC10 keep-existing daemon-up: residual Y prompt (identity running must not prompt) out=$out"
+else
+  ok "CDT-509 AC10 keep-existing daemon-up: no Y prompt while identity runs"
+fi
 
 # Keep-existing + stale heartbeat + identity running → daemon-mode
-# (CDT-527 AC3 supersedes CDT-509 AC10 heartbeat conjunct for setup mode).
+# (CDT-527 AC3 supersedes CDT-509 AC10 heartbeat conjunct for setup mode;
+# CDT-567: start-daemon.sh runs and recreates).
 fresh_case
 seed_paired "197372681"
 touch_ago "$STATE_ROOT/state/heartbeat" 300
 install_docker_mock running
 out=$(printf 'n\n' | bash "$SETUP" 2>&1)
 rc=$?
-assert_no_compose_up "CDT-527 AC3 keep-existing + stale heartbeat"
-if [ "$rc" -eq 0 ]; then
+if [ "$rc" -eq 0 ] && docker_mock_logged_up; then
   assert_daemon_mode "CDT-527 AC3 keep-existing + stale heartbeat: daemon-mode, no C1" "$out"
 else
-  bad "CDT-527 AC3 keep-existing stale hb rc=$rc out=$out"
+  bad "CDT-527 AC3 keep-existing stale hb rc=$rc up=$(docker_mock_logged_up && echo yes || echo no) out=$out"
 fi
 
 # Keep-existing + docker missing → C1, not a setup failure.
@@ -1583,10 +1590,17 @@ out=$(printf '%s\n' "$TEST_TOKEN" "Alexander" "" | bash "$SETUP" 2>&1)
 rc=$?
 if [ "$rc" -ne 0 ]; then
   bad "CDT-509 AC10 pairing daemon-up rc=$rc out=$out"
-else
+elif docker_mock_logged_up; then
   assert_daemon_mode "CDT-509 AC10 pairing + daemon up: daemon-mode, no watch.sh schedule" "$out"
+else
+  bad "CDT-509 AC10 pairing daemon-up: no up (CDT-567 requires recreate) log=$(tr '\n' ' ' < "${DOCKER_MOCK_LOG:-/dev/null}")"
 fi
 assert_no_docker_pull "CDT-509 AC10 setup pairing daemon-up"
+if printf '%s' "$out" | grep -q 'Start the Intercom daemon'; then
+  bad "CDT-509 AC10 pairing daemon-up: residual Y prompt (identity running must not prompt; EOF-Y would still up) out=$out"
+else
+  ok "CDT-509 AC10 pairing daemon-up: no Y prompt while identity runs"
+fi
 
 # Pairing + docker missing: fail closed to C1 (lock-in; missing docker is not a setup failure).
 fresh_case
@@ -1879,7 +1893,8 @@ else
   bad "CDT-527 AC2 keep-existing no-engine missing-check: out=$out"
 fi
 
-# running + empty hb → daemon-mode, no C1 (identity, not ir_daemon_running)
+# running + empty hb → daemon-mode, no C1 (identity, not ir_daemon_running;
+# CDT-567: start-daemon.sh runs and recreates)
 fresh_case
 seed_paired "197372681"
 seed_token "$SENTINEL"
@@ -1887,12 +1902,16 @@ rm -f "$STATE_ROOT/state/heartbeat"
 install_docker_mock running
 out=$(printf 'n\n' | bash "$SETUP" 2>&1)
 rc=$?
-assert_no_compose_up "CDT-527 AC3 keep-existing running empty-hb"
 assert_no_docker_pull "CDT-527 AC3 keep-existing running empty-hb"
-if [ "$rc" -eq 0 ]; then
+if [ "$rc" -eq 0 ] && docker_mock_logged_up; then
   assert_daemon_mode "CDT-527 AC3 keep-existing running + empty hb: daemon-mode, no C1" "$out"
 else
-  bad "CDT-527 AC3 keep-existing running empty-hb rc=$rc out=$out"
+  bad "CDT-527 AC3 keep-existing running empty-hb rc=$rc up=$(docker_mock_logged_up && echo yes || echo no) out=$out"
+fi
+if printf '%s' "$out" | grep -q 'Start the Intercom daemon'; then
+  bad "CDT-527 AC3 keep-existing running empty-hb: residual Y prompt (identity running must not prompt) out=$out"
+else
+  ok "CDT-527 AC3 keep-existing running empty-hb: no Y prompt while identity runs"
 fi
 
 # up-ok + EOF after keep-existing → start invoked, daemon-mode, no C1
@@ -1970,19 +1989,19 @@ else
   bad "CDT-527 AC7 --start-daemon unpaired: rc=$rc out=$out"
 fi
 
-# --start-daemon running → daemon-mode rc 0, no up, no keep-existing prompt
+# --start-daemon running → up --force-recreate, daemon-mode rc 0, no keep-existing prompt
 fresh_case
 seed_paired "197372681"
 install_docker_mock running
 out=$(bash "$SETUP" --start-daemon 2>&1)
 rc=$?
-assert_no_compose_up "CDT-527 AC7 --start-daemon running"
 assert_no_docker_pull "CDT-527 AC7 --start-daemon running"
-if [ "$rc" -eq 0 ] && ! printf '%s' "$out" | grep -qi 'keeping existing' \
+if [ "$rc" -eq 0 ] && docker_mock_logged_up \
+  && ! printf '%s' "$out" | grep -qi 'keeping existing' \
   && ! printf '%s' "$out" | grep -qi 'Overwrite'; then
-  assert_daemon_mode "CDT-527 AC7 --start-daemon running: daemon-mode rc 0, no keep-existing prompt" "$out"
+  assert_daemon_mode "CDT-527 AC7 --start-daemon running: up --force-recreate, daemon-mode rc 0, no keep-existing prompt" "$out"
 else
-  bad "CDT-527 AC7 --start-daemon running: rc=$rc out=$out"
+  bad "CDT-527 AC7 --start-daemon running: rc=$rc up=$(docker_mock_logged_up && echo yes || echo no) out=$out"
 fi
 
 # --start-daemon up-ok paired → up logged, daemon-mode rc 0
@@ -2072,6 +2091,7 @@ if grep -q 'ir_docker_available' "$SKILL_MD" \
   && grep -qi 'inspect' "$SKILL_MD" \
   && grep -q 'start-daemon.sh' "$SKILL_MD" \
   && grep -q -- '--start-daemon' "$SKILL_MD" \
+  && grep -q -- '--force-recreate' "$SKILL_MD" \
   && grep -qi 'TTY-less' "$SKILL_MD" \
   && grep -qi 'alpine' "$SKILL_MD" \
   && grep -qi 'remaining args' "$SKILL_MD" \
@@ -2090,6 +2110,7 @@ fi
 if [ -f "$RB" ] \
   && grep -q 'start-daemon.sh' "$RB" \
   && grep -q -- '--start-daemon' "$RB" \
+  && grep -q -- '--force-recreate' "$RB" \
   && grep -qi 'TTY-less' "$RB" \
   && grep -qi 'alpine' "$RB" \
   && grep -qi 'watch.sh' "$RB" \

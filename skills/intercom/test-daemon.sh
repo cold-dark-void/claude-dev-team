@@ -559,7 +559,45 @@ else
     bad "CDT-527 AC6 start-daemon held lock: test could not take exclusive lock"
   fi
 
-  # up-ok argv has -p intercom up -d --build and -f compose path
+  # CDT-567 AC1: identity running → up --force-recreate (no exit-0 short-circuit)
+  fresh_case
+  seed_paired "197372681"
+  seed_token "$SENTINEL"
+  install_docker_mock running
+  out=$(bash "$START_DAEMON" 2>&1)
+  rc=$?
+  assert_no_docker_pull "CDT-567 AC1 start-daemon identity running"
+  if [ "$rc" -eq 0 ] && docker_mock_logged_up \
+    && ! printf '%s' "$out" | grep -q 'watch.sh'; then
+    ok "CDT-567 AC1 identity running: up -d --build --force-recreate (no exit-0 skip)"
+  else
+    bad "CDT-567 AC1 identity running: rc=$rc log=$(tr '\n' ' ' < "${DOCKER_MOCK_LOG:-/dev/null}") out=$out"
+  fi
+
+  # CDT-567 AC2: identity running + held poller.lock → up, not 75 (the holder
+  # is the daemon's own cycle); stderr must not name watch.sh.
+  fresh_case
+  seed_paired "197372681"
+  seed_token "$SENTINEL"
+  install_docker_mock running
+  mkdir -m 700 -p "$STATE_ROOT/state"
+  exec 8>"$STATE_ROOT/state/poller.lock"
+  if flock -n 8; then
+    out=$(bash "$START_DAEMON" 2>&1)
+    rc=$?
+    assert_no_docker_pull "CDT-567 AC2 start-daemon lock-held running"
+    if [ "$rc" -eq 0 ] && docker_mock_logged_up \
+      && ! printf '%s' "$out" | grep -q 'watch.sh'; then
+      ok "CDT-567 AC2 identity running + held lock: up --force-recreate, rc 0 (not 75)"
+    else
+      bad "CDT-567 AC2 lock-held running: rc=$rc out=$out log=$(tr '\n' ' ' < "${DOCKER_MOCK_LOG:-/dev/null}")"
+    fi
+    exec 8>&-
+  else
+    bad "CDT-567 AC2 start-daemon lock-held running: test could not take exclusive lock"
+  fi
+
+  # up-ok argv has -p intercom up -d --build --force-recreate and -f compose path
   fresh_case
   seed_paired "197372681"
   seed_token "$SENTINEL"
@@ -569,8 +607,9 @@ else
   assert_no_docker_pull "CDT-527 AC5 start-daemon up-ok"
   if [ "$rc" -eq 0 ] && docker_mock_logged_up \
     && grep -q 'docker-compose.yml' "$DOCKER_MOCK_LOG" \
-    && grep -q -- '-f' "$DOCKER_MOCK_LOG"; then
-    ok "CDT-527 AC5 start-daemon.sh up-ok argv: -p intercom -f compose up -d --build"
+    && grep -q -- '-f' "$DOCKER_MOCK_LOG" \
+    && grep -q -- '--force-recreate' "$DOCKER_MOCK_LOG"; then
+    ok "CDT-527 AC5 start-daemon.sh up-ok argv: -p intercom -f compose up -d --build --force-recreate"
   else
     bad "CDT-527 AC5 start-daemon up-ok argv: rc=$rc log=$(tr '\n' ' ' < "${DOCKER_MOCK_LOG:-/dev/null}") out=$out"
   fi

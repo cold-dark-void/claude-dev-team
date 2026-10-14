@@ -10,9 +10,12 @@
 # the pairing message carried a thread id) / seen.tsv / state dirs / offset
 # under the state
 # root (INTERCOM_STATE_ROOT honored, AC23) -> after pairing / keep-existing:
-# docker unavailable → C1 + first failed check (exit 0); identity running →
-# daemon mode (heartbeat optional); else prompt to start-daemon.sh (TTY-less
-# Y). --start-daemon is confirm for a paired box (unknown flags exit 2).
+# docker unavailable → C1 + first failed check (exit 0); identity running or
+# down → start-daemon.sh (up -d --build --force-recreate; the poller.lock 75
+# refuse is skipped while identity runs — CDT-567). Up 0 prints daemon mode
+# (no watch.sh arming); failure keeps the C1 rc-0 contract for pairing /
+# keep-existing and exits rc for --start-daemon. Identity running prompts no
+# Y. --start-daemon is confirm for a paired box (unknown flags exit 2).
 # Missing docker is not a setup failure (fail closed to C1). Re-run with a
 # valid config asks before overwriting. bash/jq/curl only (AC21); token never
 # in argv/logs (AC4): every call goes through the tg_api funnel in common.sh.
@@ -101,21 +104,22 @@ after_ready() {
     printf '%s\n' "${miss:-unknown}" || exit 1
     exit 0
   fi
-  if ir_daemon_identity_running; then
-    print_daemon_mode || exit 1
-    exit 0
+  if ! ir_daemon_identity_running; then
+    # CDT-567: identity running skips the Y prompt — start-daemon.sh below
+    # recreates (up --force-recreate; its 75 refuse is skipped while identity
+    # runs). Failure stays C1 rc 0.
+    printf 'Start the Intercom daemon? [Y/n] ' >&2
+    ans=""
+    IFS= read -r ans || ans=""
+    ans="${ans#"${ans%%[![:space:]]*}"}"
+    ans="${ans%"${ans##*[![:space:]]}"}"
+    case "$ans" in
+      n|N|no|NO)
+        print_c1_arming || exit 1
+        exit 0
+        ;;
+    esac
   fi
-  printf 'Start the Intercom daemon? [Y/n] ' >&2
-  ans=""
-  IFS= read -r ans || ans=""
-  ans="${ans#"${ans%%[![:space:]]*}"}"
-  ans="${ans%"${ans##*[![:space:]]}"}"
-  case "$ans" in
-    n|N|no|NO)
-      print_c1_arming || exit 1
-      exit 0
-      ;;
-  esac
   bash "$SCRIPT_DIR/start-daemon.sh"
   rc=$?
   case "$rc" in
@@ -143,10 +147,8 @@ if [ "$START_DAEMON" -eq 1 ]; then
     printf '%s\n' "${miss:-unknown}" || exit 1
     exit 1
   fi
-  if ir_daemon_identity_running; then
-    print_daemon_mode || exit 1
-    exit 0
-  fi
+  # CDT-567: no identity-running short-circuit — start-daemon.sh always runs
+  # (up --force-recreate) so a rerun recreates the sidecar.
   bash "$SCRIPT_DIR/start-daemon.sh"
   rc=$?
   case "$rc" in

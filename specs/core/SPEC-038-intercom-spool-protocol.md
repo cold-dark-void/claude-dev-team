@@ -491,25 +491,33 @@ keep-existing:
   naming the first failed check; exit 0. Missing Docker is not a setup
   failure.
 - Available and identity running (compose project `intercom`, service
-  `daemon`, label `dev-team.intercom=daemon`) → daemon mode; do not arm
-  `watch.sh`; do not start a second consumer. Heartbeat MAY be empty or
-  stale (CDT-527 AC3; supersedes CDT-509 AC10 heartbeat conjunct for
-  setup mode). `ir_daemon_running` (heartbeat AND compose) stays the
-  doctor liveness check and is NOT the setup-mode predicate. Setup uses
-  `ir_daemon_identity_running` (compose/label only).
+  `daemon`, label `dev-team.intercom=daemon`) → invoke
+  `start-daemon.sh` (CDT-567: recreate the same service via
+  `up -d --build --force-recreate`; brief restart is OK; not a second
+  consumer); print daemon mode; do not arm `watch.sh`; no Y prompt on
+  this path. Heartbeat MAY be empty or stale (CDT-527 AC3; supersedes
+  CDT-509 AC10 heartbeat conjunct for setup mode). `ir_daemon_running`
+  (heartbeat AND compose) stays the doctor liveness check and is NOT
+  the setup-mode predicate. Setup uses `ir_daemon_identity_running`
+  (compose/label only) to choose this path, then still calls
+  `start-daemon.sh`.
 - Available and identity down → prompt to start. TTY-less default Y
   (empty, `Y`/`y`/`yes`, EOF) invokes `skills/intercom/start-daemon.sh`.
   Answer `n`/`N`/`no` keeps C1 and MUST NOT start. After `up` returns 0,
   print daemon mode even if `state/heartbeat` is empty or stale. Host
   uid 0 or compose `up` failure on pairing/keep-existing: refuse line
-  plus C1, exit 0. Held `state/poller.lock`: `start-daemon.sh` exits 75
-  (stop host `watch.sh` first); setup MUST NOT print C1 on that path.
+  plus C1, exit 0. Held `state/poller.lock` when identity is down:
+  `start-daemon.sh` exits 75 (stop host `watch.sh` first); setup MUST
+  NOT print C1 on that path. Held lock when identity is running: skip
+  the 75 refuse and recreate (the holder is the daemon being replaced;
+  CDT-567 AC2).
 
 `--start-daemon` is for an already-paired box (`config.json` has ≥1
 member and the token file exists). The flag is the confirm (no Y
 prompt). Unpaired: fail closed, no start, nonzero. Already running:
-daemon mode, exit 0, no second consumer. uid 0 or `up` failure on this
-flag: nonzero, no C1. `commands/setup.md` forwards remaining args to
+invoke `start-daemon.sh` (recreate), daemon mode, exit 0, no second
+consumer (CDT-567 AC3). uid 0 or `up` failure on this flag: nonzero,
+no C1. `commands/setup.md` forwards remaining args to
 `setup-telegram.sh`. Blocks stay token-free and ≤ 4 KiB. First-time
 start is no longer runbook-only.
 
@@ -598,14 +606,16 @@ Surface (`commands/*.md`).
 - MUST (CDT-509) pin a Docker Official Image by digest. The CDT-509 alpine
   digest is approved. TTY-less Y on `/setup telegram` and `--start-daemon`
   are the pull approval for that digest only.
-- MUST (CDT-527) treat Docker as available only via `ir_docker_available`
-  (`command -v docker` + `docker compose version` + `docker info`, inspect
-  only); MUST start the sidecar only through `start-daemon.sh` (host
-  uid:gid, never uid 0, token file `:ro` via compose, never token in
-  env/argv, `INTERCOM_PLUGIN_ROOT` = plugin root via `plugin-dir.sh` not
-  cwd, `docker compose -p intercom up -d --build`); MUST print daemon mode
+- MUST (CDT-527 / CDT-567) treat Docker as available only via
+  `ir_docker_available` (`command -v docker` + `docker compose version` +
+  `docker info`, inspect only); MUST start the sidecar only through
+  `start-daemon.sh` (host uid:gid, never uid 0, mode-600 file `:ro` via
+  compose, never that file's bytes in env/argv, `docker compose -p
+  intercom up -d --build --force-recreate`); MUST print daemon mode
   after `up` rc 0 even if heartbeat is empty; MUST refuse a held
-  `state/poller.lock` with exit 75 and no C1 re-arm.
+  `state/poller.lock` with exit 75 and no C1 re-arm when identity is
+  down; MUST skip that refuse when identity is running and recreate
+  (CDT-567 AC2).
 - SHOULD keep `probe.sh` as the operator pre-deploy gate; MUST NOT invoke
   it from `start-daemon.sh` or `/setup telegram` (CDT-527 AC8).
 - SHOULD keep the temp-path rule (`${TMPDIR:-/tmp}` or `mktemp`) in every
@@ -1122,7 +1132,9 @@ Format and rules: SPEC-033 M14(g) and M14(h).
   conjunct for `/setup telegram` mode selection). Walkie-talkie,
   Escalation, and Away mode stay unchanged. Doctor heartbeat health is
   out of scope (stale heartbeat remains a liveness signal, not a
-  setup-mode conjunct).
+  setup-mode conjunct). CDT-567 AC1/AC3: still MUST NOT start a second
+  consumer, but MUST invoke `start-daemon.sh` (recreate the same
+  service) rather than skip `up`.
   Verify: bash skills/intercom/test.sh
 - **AC4.** After pairing and on keep-existing, when Docker is available
   and the daemon identity is down: prompt to start the Intercom daemon.
@@ -1140,13 +1152,15 @@ Format and rules: SPEC-033 M14(g) and M14(h).
   command is `docker compose -p intercom up -d --build`. After `up`
   returns 0, `/setup telegram` prints daemon mode even if
   `state/heartbeat` is empty or stale, and MUST NOT arm `watch.sh`. Uses
-  the CDT-509 AC11 alpine digest pin; no new image.
+  the CDT-509 AC11 alpine digest pin; no new image. CDT-567 AC1 adds
+  `--force-recreate`; identity-running no longer skips `up`.
   Verify: bash skills/intercom/test-daemon.sh
 - **AC6.** When `state/poller.lock` is held, `start-daemon.sh` refuses
   (exit 75): one getUpdates consumer. Copy tells the operator to stop
   host `watch.sh` first. `/setup telegram` (pairing, keep-existing, and
   `--start-daemon`) MUST NOT start the daemon and MUST NOT print the C1
-  arming block on this path.
+  arming block on this path. CDT-567 AC2: this 75 refuse applies only
+  when identity is down; identity running + held lock recreates.
   Verify: bash skills/intercom/test-daemon.sh
 - **AC7.** `/setup telegram --start-daemon` is for an already-paired
   Intercom (`config.json` has ≥1 member and the token file exists).
@@ -1155,7 +1169,9 @@ Format and rules: SPEC-033 M14(g) and M14(h).
   `start-daemon.sh`. Unpaired: fail closed, no start, nonzero exit.
   Already running: print daemon mode, exit 0, no second consumer. The
   flag is the confirm (no Y prompt). `--start-daemon` on uid 0 or compose
-  failure exits nonzero (no C1).
+  failure exits nonzero (no C1). CDT-567 AC3: already-running invokes
+  `start-daemon.sh` (recreate); still daemon mode, no second consumer,
+  no Y prompt.
   Verify: bash skills/intercom/test.sh
 - **AC8.** Hermetic suites never `docker pull` or `docker run` a real
   image. `probe.sh` stays operator-only: `start-daemon.sh` and `/setup
@@ -1460,7 +1476,8 @@ cycle; the CDT-529 ACs pin it.
   when the image does not exist yet (built on first `up`). A running
   daemon keeps its last-built image until then (acceptable for a
   poller). Host-side `watch.sh`/`poller.sh` users are unaffected —
-  neither script changes.
+  neither script changes. CDT-567 AC1 supersedes the
+  running-daemon-keeps-last-built-image clause: a re-run recreates.
   Verify: bash skills/intercom/test-daemon.sh
 - **AC5.** A compose up/build failure means `start-daemon.sh` exits
   nonzero without a daemon-mode print; the bot token never appears in
@@ -1468,6 +1485,38 @@ cycle; the CDT-529 ACs pin it.
   `:ro` mount of the mode-600 token file.
   Verify: bash skills/intercom/test-daemon.sh
 - **AC6.** [process] `bash skills/intercom/test-daemon.sh` and `bash
+  skills/intercom/test.sh` stay green; `bash tools/run-all-tests.sh`
+  exits 0 (skill-lint, docs-drift, spec-lint pass). Release bump is
+  patch; no new `commands/*.md`.
+
+### CDT-567
+
+- **AC1.** `start-daemon.sh` MUST NOT exit 0 on
+  `ir_daemon_identity_running` without `up`. The start command is
+  always `docker compose -p intercom -f <compose> up -d --build
+  --force-recreate` (identity running and identity down). Recreate
+  replaces the same project/service — not a second getUpdates consumer.
+  Brief restart is OK (poller + durable spool). uid-0 refuse, mode-600
+  file `:ro` mount, and leak checks stay intact. Hermetic docker mock
+  `running` mode MUST accept `compose up` (rc 0) so this path is
+  testable; `docker_mock_logged_up` requires `--force-recreate`.
+  Verify: bash skills/intercom/test-daemon.sh
+- **AC2.** Identity running + `state/poller.lock` held: `start-daemon.sh`
+  MUST still `up --force-recreate` (skip the 75 refuse — the holder is
+  the daemon being replaced). Identity down + lock held: still exit 75,
+  no `up`, stderr still names `watch.sh`.
+  Verify: bash skills/intercom/test-daemon.sh
+- **AC3.** `/setup telegram` after pairing, on keep-existing, and
+  `--start-daemon` MUST invoke `start-daemon.sh` when identity is
+  running (no skip). After `up` rc 0: print daemon mode, MUST NOT arm
+  `watch.sh`, no Y prompt on the already-running path. uid 0 / `up`
+  failure contracts stay: pairing/keep-existing → C1 rc 0;
+  `--start-daemon` → nonzero. `skills/intercom/SKILL.md` and
+  `docs/runbooks/setup-telegram.md` name `--force-recreate` on the
+  start command. CDT-527 start cases that asserted exit-0-on-running /
+  no-`up` MUST assert `up` with `--force-recreate` instead.
+  Verify: bash skills/intercom/test.sh
+- **AC4.** [process] `bash skills/intercom/test-daemon.sh` and `bash
   skills/intercom/test.sh` stay green; `bash tools/run-all-tests.sh`
   exits 0 (skill-lint, docs-drift, spec-lint pass). Release bump is
   patch; no new `commands/*.md`.
@@ -1554,14 +1603,20 @@ cycle; the CDT-529 ACs pin it.
 - Docker missing: C1 `watch.sh` arming + one missing-check line, rc 0
       (CDT-527 AC2)
 - Identity running: daemon mode, no second consumer, heartbeat optional
-      (CDT-527 AC3)
+      (CDT-527 AC3); CDT-567 invokes `start-daemon.sh` (recreate) rather
+      than skip `up`
 - Daemon down: TTY-less Y starts helper; n keeps C1; uid 0 / up-fail
       fall back to C1 on pairing path (CDT-527 AC4)
-- `start-daemon.sh`: host uid:gid, refuse uid 0, token `:ro`,
-      `compose -p intercom up -d --build`; daemon mode after up (CDT-527 AC5)
-- `poller.lock` held: start-daemon exit 75, no C1 re-arm (CDT-527 AC6)
+- `start-daemon.sh`: host uid:gid, refuse uid 0, mode-600 file `:ro`,
+      `compose -p intercom up -d --build --force-recreate`; daemon mode
+      after up (CDT-527 AC5 / CDT-567 AC1)
+- `poller.lock` held + identity down: start-daemon exit 75, no C1 re-arm
+      (CDT-527 AC6); identity running + held lock: recreate (CDT-567 AC2)
 - `--start-daemon` + remaining args forwarded; unpaired fail-closed
-      (CDT-527 AC7)
+      (CDT-527 AC7); already-running recreates (CDT-567 AC3)
+- Identity running: start-daemon still `up -d --build --force-recreate`
+      (CDT-567 AC1); `/setup telegram` / `--start-daemon` invoke it
+      (CDT-567 AC3)
 - Hermetic never pull/run a real image; probe not invoked (CDT-527 AC8)
 - setup.md / SKILL.md / runbook document start vs C1 (CDT-527 AC9)
 - Mapped topic + active sid routes to that sid's inbox (CDT-529 AC1)
@@ -1633,6 +1688,7 @@ cycle; the CDT-529 ACs pin it.
 
 | Date | Change |
 |------|--------|
+| 2026-10-14 | CDT-567 — `start-daemon.sh` recreates the running Intercom daemon on re-run (`up -d --build --force-recreate`); `/setup telegram` applies plugin updates unattended; `poller.lock` 75 refuse only when identity is down; patch, no new Surface |
 | 2026-10-05 | CDT-501 — initial ACTIVE spec: spool protocol, `intercom` CLI, poller cycle, escalation, away, longread, `/setup telegram`/`slack`, doctor check, phase-2 contract |
 | 2026-10-05 | CDT-501 — command-relay clarification (only `/away`/`/afk` are intercepted; other slash text relays) and AC consolidation to the M14 budget: 2+3→2, 6+7+8→6, 12+13→12, 14+15+16→14, 17+18+19+20→17 |
 | 2026-10-07 | CDT-512-C1 — host adapter `watch.sh`: poller stays one-shot; idle injects no parent turn; host-aware arming (Grok silent watcher + Claude CronCreate-if-zero-parent-turn); wake-line grammar; edge-triggered failure wake |

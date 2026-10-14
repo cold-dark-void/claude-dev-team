@@ -4,6 +4,11 @@ All notable changes to **claude-dev-team**, newest first.
 Authoritative version history. Prefer **`/release`** to add `### vX.Y.Z` headings.
 Pre-written headings (release-train M5c, orchestrate version-sync tasks) are kept
 via skip-if-present when `/release` is given an explicit version — do not invent a
+### v1.27.9
+- **Intercom daemon update path automated — start-daemon.sh recreates the running sidecar on re-run** — the `ir_daemon_identity_running` exit-0 is gone; every start runs `docker compose -p intercom up -d --build --force-recreate`, so `/setup telegram` (or a plain re-run) applies plugin updates unattended (CDT-567)
+- **`poller.lock` 75 refuse now identity-scoped** — held lock with the daemon identity down still exits 75 (stderr names `watch.sh`); a held lock while the daemon runs is its own recreate cycle and proceeds (CDT-567)
+- **Setup seam and docs follow** — `setup-telegram.sh` after_ready/`--start-daemon` no longer skip `start-daemon.sh` when the daemon runs (no Y prompt, no watch.sh arming, failure contracts kept); SKILL.md, runbook, and commands/setup.md name `--force-recreate`; CDT-527 start cases flipped to assert the recreate (CDT-567)
+
 second heading for the same version.
 
 ### v1.27.8
