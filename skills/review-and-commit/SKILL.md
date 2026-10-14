@@ -26,6 +26,13 @@ only from `skills/council/templates/legacy-review.md`.
   investigator slot (CDV-207; passthrough to council preflight). Detection
   order codex → gemini; graceful skip if none installed. Never replaces the
   5 internal specialists.
+- `/review-and-commit --with-advisor`: opt-in advisor for this run
+  (SPEC-039 M10). Parsed by the sibling parser `skills/advisor/parse-flags.sh`
+  (not the six-key autopilot parser); env `ADVISOR` in `{1,true}` also enables.
+  Byte-identical off (M11): disabled → zero advisor spawns, no `ask.sh` calls,
+  no `actor:advisor` cards. When enabled, the run records the enablement (M12:
+  first decision card; if source=env the rationale MUST mention `ADVISOR=1`).
+  Resolved in the Step 1 fence (same PDH carry — one stanza per caller file).
 
 ## Step 1: Stage and inspect
 
@@ -33,11 +40,19 @@ only from `skills/council/templates/legacy-review.md`.
 # lint-ok: C3 — marketplace */ for-loop + -f guarded (SPEC-021 Q2 residual, CDT-82 PDH)
 PDH=$( { [ -n "${CLAUDE_PLUGIN_ROOT:-}" ] && [ -f "$CLAUDE_PLUGIN_ROOT/skills/plugin-dir.sh" ] && printf '%s\n' "$CLAUDE_PLUGIN_ROOT"; } || { [ -f skills/plugin-dir.sh ] && [ -f agents/pm.md ] && grep -qF '"name": "dev-team"' .claude-plugin/plugin.json 2>/dev/null && pwd; } || { _pr='${CLAUDE_PLUGIN_ROOT}'; [ "${_pr#\$}" = "$_pr" ] && [ -f "$_pr/skills/plugin-dir.sh" ] && printf '%s\n' "$_pr"; } || { for _mp in "$HOME"/.claude/plugins/marketplaces/*/; do [ -f "${_mp}skills/plugin-dir.sh" ] && [ -f "${_mp}agents/pm.md" ] && grep -qF '"name": "dev-team"' "${_mp}.claude-plugin/plugin.json" 2>/dev/null && printf '%s\n' "${_mp%/}" && break; done; } || find ~/.claude/plugins/cache \( -path '*/dev-team/*/skills/plugin-dir.sh' -o -path '*/dev-team-edge/*/skills/plugin-dir.sh' \) 2>/dev/null | awk -F/ '{ver=""; for(i=1;i<=NF;i++) if(($i=="dev-team"||$i=="dev-team-edge")&&i<NF){ver=$(i+1);break}; if(ver=="") next; m=ver; gsub(/-pre\./,"~pre.",m); p=($0 ~ /\/cache\/cold-dark-void\/dev-team\//)?2:(($0 ~ /\/cache\/cold-dark-void\/dev-team-edge\//)?1:0); print m "\t" p "\t" $0}' | sort -t $'\t' -k1,1V -k2,2n -k3,3 | tail -1 | cut -f3 | xargs -r dirname | xargs -r dirname )
 printf 'PDH=%s\n' "$PDH" >&2
+ADVISOR_PF=$(bash "$PDH/skills/plugin-dir.sh" file skills/advisor/parse-flags.sh)
+ADVISOR_JSON=$(bash "$ADVISOR_PF" "$@") || { echo "$ADVISOR_JSON" >&2; exit 64; }
+ADVISOR_ON=$(jq -r .enabled <<<"$ADVISOR_JSON")
+ADVISOR_SOURCE=$(jq -r .source <<<"$ADVISOR_JSON")
 CHANGED=$(bash "$PDH/skills/plugin-dir.sh" file skills/lib/changed-set.sh)
 bash "$CHANGED" paths
 git diff --cached
 git diff
 ```
+
+When `ADVISOR_ON=false`, continue with zero advisor behavior (byte-identical
+off, M11). When `true`, the run's first decision card records the enablement;
+if source=env the rationale MUST mention `ADVISOR=1` (M12).
 
 The path list is the reviewed set: committed range, staged, unstaged, and
 untracked files. Save it. If it is empty, stop. Read every path in full,

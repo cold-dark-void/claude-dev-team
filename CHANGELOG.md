@@ -4,6 +4,12 @@ All notable changes to **claude-dev-team**, newest first.
 Authoritative version history. Prefer **`/release`** to add `### vX.Y.Z` headings.
 Pre-written headings (release-train M5c, orchestrate version-sync tasks) are kept
 via skip-if-present when `/release` is given an explicit version — do not invent a
+### v1.27.10
+- **`--with-advisor` opt-in flag on `/orchestrate` and `/review-and-commit` (SPEC-039 C3, cdt-557)** — new sibling parser `skills/advisor/parse-flags.sh` prints exactly one JSON object (`{"enabled":true|false,"source":"flag|env|none"}`): flag wins over env, duplicate `--with-advisor` exits 64, the omp host flag `--advisor` neither enables nor errors, unknown tokens pass through; the six-key autopilot parser stays six-key
+- **Epic advisor inheritance (M10)** — orchestrate reroute blocks (02-scope/06-design/08-execute) run `epic-lib set-with-advisor <EPIC-ID> true` and pass `ADVISOR=1` into the `/epic` child environment; mode-b B.4 exports `ADVISOR=1` when epic state carries `with_advisor: true`; standalone `/epic` persists nothing; `epic-lib show` projects `with_advisor`
+- **Byte-identical off (M11) + first-card enablement (M12)** — disabled runs spawn no advisor, make no `ask.sh` calls, write no `actor:advisor` cards; enabled runs record enablement in the run's first decision card (env-sourced rationale mentions `ADVISOR=1`)
+- **Bite-tests: 36 checks** — M9 semantics, six-key invariant, surface wiring, epic persistence + standalone no-persist run-level tests, B.4 fence-condition runs, omp `--advisor` collision doc (AC25)
+
 ### v1.27.9
 - **Intercom daemon update path automated — start-daemon.sh recreates the running sidecar on re-run** — the `ir_daemon_identity_running` exit-0 is gone; every start runs `docker compose -p intercom up -d --build --force-recreate`, so `/setup telegram` (or a plain re-run) applies plugin updates unattended (CDT-567)
 - **`poller.lock` 75 refuse now identity-scoped** — held lock with the daemon identity down still exits 75 (stderr names `watch.sh`); a held lock while the daemon runs is its own recreate cycle and proceeds (CDT-567)

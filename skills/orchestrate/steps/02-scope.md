@@ -48,6 +48,11 @@ confidence, rationale}` (exactly one `decided_by:"auto"` card is appended). Act 
   `--autopilot[=<bump>]` (or `AUTOPILOT=1`). When `<bump>` ∈ {patch,minor,major},
   also pass `--worktree --release <bump>` (seal-intent; MUST NOT land each child
   on master). `/epic` persists that bump as `release_bump` (SPEC-033 M11a / CDT-196).
+  When the advisor is enabled for this run (Step 0 `ADVISOR_ON=true`,
+  SPEC-039 M10), also run `epic-lib set-with-advisor <EPIC-ID> true` before the
+  handoff and pass `ADVISOR=1` into the `/epic` child environment — epic state
+  persists `with_advisor: true` so children inherit it. Advisor off: nothing
+  is persisted and no env is exported (byte-identical off, M11).
 <!-- include: skills/autopilot/halt-verdict.md agent=scope-confirm -->
 - `halt` → emit `task_blocked` (detail = the one-line message below) via **Passive
   notifications → Tier B** (fail-open; § in `cross-cutting.md`), then print the one-line message below and

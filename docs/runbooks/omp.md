@@ -58,6 +58,11 @@ Verified on omp v18.7.0 (CDT-550 dogfood, 2026-10-13):
   skill copy.
 - Memory store and recall script paths work (schema init, write,
   query, load-session). The embeddings path is untested.
+- The omp host flag `--advisor` is an omp-native flag and is unrelated to
+  the plugin's advisor feature (SPEC-039 AC25). The plugin's opt-in is
+  `--with-advisor` on `/orchestrate` and `/review-and-commit`, parsed by
+  `skills/advisor/parse-flags.sh`; `--advisor` never enables it and never
+  errors in that parser.
 
 ## Approval mode
 

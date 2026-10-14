@@ -518,6 +518,31 @@ cmd_set_last_seed() {
   )
 }
 
+cmd_set_with_advisor() {
+  # set-with-advisor <EPIC-ID> <true|false>
+  # SPEC-039 M10: persist with_advisor on the epic so the B.4 child handoff
+  # exports ADVISOR=1. Additive top-level field; standalone /epic without the
+  # flag never sets it (stays false/absent). Exit 1 = epic not found; 64 = usage.
+  local epic_id="${1:-}" val="${2:-}"
+  [ -n "$epic_id" ] || die 64 "set-with-advisor: missing <EPIC-ID>"
+  [ $# -eq 2 ] || die 64 "set-with-advisor: missing <true|false>"
+  case "$val" in
+    true|false) ;;
+    *) die 64 "set-with-advisor: value must be true|false, got $val" ;;
+  esac
+
+  epic_paths "$epic_id"
+  [ -f "$STATE" ] || die 1 "set-with-advisor: epic $epic_id not found"
+  local st
+  (
+    portable_lock_acquire "$EPICS_LOCK" || exit 1
+    st=$(read_state "$epic_id")
+    st=$(echo "$st" | jq --argjson v "$val" '.with_advisor = $v')
+    write_state "$epic_id" "$st"
+    echo "$st" | jq -c '{with_advisor}'
+  )
+}
+
 cmd_ensure_integration_worktree() {
   # ensure-integration-worktree <EPIC-ID>
   # CDT-141-C2 / M14: one epic integration worktree when worktree_enabled.
@@ -1592,6 +1617,7 @@ cmd_show() {
       last_seed_path: (.last_seed_path // null),
       worktree_enabled: (.worktree_enabled // false),
       release_bump: (.release_bump // null),
+      with_advisor: (.with_advisor // false),
       sealed: (.sealed // false),
       integration_slug: (.integration_slug // null),
       integration_path: (.integration_path // null),
@@ -2278,6 +2304,7 @@ case "$SUBCMD" in
   set-status)  cmd_set_status "$@" ;;
   set-linear-project) cmd_set_linear_project "$@" ;;
   set-last-seed) cmd_set_last_seed "$@" ;;
+  set-with-advisor) cmd_set_with_advisor "$@" ;;
   ensure-integration-worktree) cmd_ensure_integration_worktree "$@" ;;
   resolve-resume-flags) cmd_resolve_resume_flags "$@" ;;
   resolve-child-worktree) cmd_resolve_child_worktree "$@" ;;

@@ -35,6 +35,19 @@
   MUST NOT add a `--max-loc` analog for iteration/wall-clock caps (N12 — no
   cap flags; `parse-flags.sh` stays six-key). MUST NOT export
   `AUTOPILOT_BUDGET_META` on `reroute-epic` (N13 — child derives its own freeze).
+- `[--with-advisor]` — optional, any position: opt-in advisor for this run
+  (SPEC-039 M9/M10). Parsed once at Step 0 by the sibling parser
+  `skills/advisor/parse-flags.sh` — the six-key autopilot parser stays
+  six-key (MUST NOT gain a 7th key). Flag on → enabled/source=flag; no flag
+  and env `ADVISOR` in `{1,true}` → enabled/source=env; else disabled/none.
+  Flag wins over env. Duplicate `--with-advisor` exits 64. The omp host flag
+  `--advisor` neither enables the advisor nor exits 64. Default off.
+  Byte-identical off (M11): disabled → zero advisor spawns, no `ask.sh`
+  calls, no `actor:advisor` cards. When enabled, the run's FIRST decision
+  card records the enablement; if source=env the rationale MUST mention
+  `ADVISOR=1` (M12). On a `reroute-epic` with the advisor on: run
+  `epic-lib set-with-advisor <EPIC-ID> true` before handing off and pass
+  `ADVISOR=1` into the `/epic` child environment (M10).
 - `[--resume-ship[=<patch|minor|major|master>]]` — optional (CDT-135 / SPEC-033 /
   CDT-195): after a human overrides a BC7 ship-choice halt, run the **single
   confirmed ship sequence** (end-state land path + wrap) without re-running the
@@ -123,6 +136,18 @@ ORCH_TIER=$(jq -r '.tier // "null"' <<<"$AP_JSON")
 # iteration/wall-clock caps (N12). MUST NOT export AUTOPILOT_BUDGET_META on
 # reroute-epic (N13).
 MAX_LOC=$(jq -r '.max_loc // "null"' <<<"$AP_JSON")
+
+# SPEC-039 M9/M10: sibling --with-advisor parser — resolved once for the
+# whole run. Independent of the six-key autopilot parser above (which MUST
+# NOT gain a 7th key). Byte-identical off (M11): when ADVISOR_ON=false,
+# nothing downstream changes — no advisor spawn, no ask.sh call, no
+# actor:advisor card. When ADVISOR_ON=true, the run's FIRST decision card
+# (Step 2 scope-confirm) records the enablement in its rationale; when
+# ADVISOR_SOURCE=env that rationale MUST mention `ADVISOR=1` (M12).
+ADVISOR_PF=$(bash "$PDH/skills/plugin-dir.sh" file skills/advisor/parse-flags.sh)
+ADVISOR_JSON=$(bash "$ADVISOR_PF" "$@") || { echo "$ADVISOR_JSON" >&2; exit 64; }
+ADVISOR_ON=$(jq -r .enabled <<<"$ADVISOR_JSON")
+ADVISOR_SOURCE=$(jq -r .source <<<"$ADVISOR_JSON")
 
 # Resume detection (CDT-111-C8): only when THIS invocation gave neither
 # --autopilot nor AUTOPILOT= (flag/env always win over recorded state).

@@ -429,6 +429,15 @@ Format and rules: SPEC-033 M14(g) and M14(h).
 - **AC3.** `resolve-model.sh`, `write-model.sh` (guard plus `list` loop), and `skills/doctor/checks/models.sh` call `mappable-names.sh`; no hand-copied case list remains in any of the three.
   Verify: bash skills/doctor/test.sh
 
+### CDT-557
+
+- **AC1.** `skills/advisor/parse-flags.sh` is a subprocess CLI printing exactly one JSON object `{"enabled":true|false,"source":"flag|env|none"}`: `--with-advisor` → flag; no flag and `ADVISOR` in `{1,true}` → env; else disabled/none; flag wins over env; duplicate `--with-advisor` exits 64; `--advisor` (omp host flag) neither enables nor exits 64; unknown tokens pass through. `skills/autopilot/parse-flags.sh` stays six-key (`--with-advisor` passes through it unchanged).
+  Verify: bash skills/advisor/parse-flags-test.sh
+- **AC2.** `--with-advisor` is accepted and parsed on `/orchestrate` (Step 0, `skills/orchestrate/steps/00-resolve.md`) and `/review-and-commit` (Step 0) via the sibling parser; default off and byte-identical when disabled (M11: no advisor spawn, no `ask.sh` call, no `actor:advisor` card); the run's first decision card records enablement and an env-sourced rationale mentions `ADVISOR=1` (M12); no new `commands/*.md`; the omp `--advisor` name collision is documented in `docs/runbooks/omp.md` (AC25).
+  Verify: bash skills/advisor/parse-flags-test.sh
+- **AC3.** When `/orchestrate --with-advisor` reroutes to `/epic`, the orchestrate reroute blocks (`02-scope.md`, `06-design.md`, `08-execute.md`) run `epic-lib set-with-advisor <EPIC-ID> true` (persists `with_advisor: true`) and pass `ADVISOR=1` into the `/epic` child environment; `skills/epic/mode-b-execute.md` B.4 exports `ADVISOR=1` when the epic state carries `with_advisor: true`; standalone `/epic` without the flag persists nothing.
+  Verify: bash skills/advisor/parse-flags-test.sh
+
 ## Alternatives considered
 
 - **Spawn from bash via host CLI.** Rejected: host CLI is not portable across

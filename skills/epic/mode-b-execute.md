@@ -197,6 +197,26 @@ When `use_shared=false` (default / no `--worktree`): omit the shared-WT block;
 per-child worktree behavior is unchanged. Still export `EPIC_RELEASE_END` when
 `release_bump` is set (release=end always couples to `--worktree` at parse time).
 
+**Advisor inheritance (SPEC-039 M10):** when the epic state carries
+`with_advisor: true` (persisted by an orchestrate reroute via
+`epic-lib set-with-advisor`), export `ADVISOR=1` in the environment of every
+child `/kickoff` / `/orchestrate` invocation. When `with_advisor` is absent or
+false, export nothing (byte-identical off, M11).
+
+```bash
+# From show / state (durable — resume-safe); re-resolve (fresh shell — C1)
+_gc=$(git rev-parse --git-common-dir 2>/dev/null) \
+  && MROOT=$(cd "$(dirname "$_gc")" && pwd) \
+  || MROOT=$(pwd)
+PDH="${PDH:-$( { [ -n "${CLAUDE_PLUGIN_ROOT:-}" ] && [ -f "$CLAUDE_PLUGIN_ROOT/skills/plugin-dir.sh" ] && printf '%s\n' "$CLAUDE_PLUGIN_ROOT"; } || { [ -f skills/plugin-dir.sh ] && [ -f agents/pm.md ] && grep -qF '"name": "dev-team"' .claude-plugin/plugin.json 2>/dev/null && pwd; } || { _pr='${CLAUDE_PLUGIN_ROOT}'; [ "${_pr#\$}" = "$_pr" ] && [ -f "$_pr/skills/plugin-dir.sh" ] && printf '%s\n' "$_pr"; } || { for _mp in "$HOME"/.claude/plugins/marketplaces/*/; do [ -f "${_mp}skills/plugin-dir.sh" ] && [ -f "${_mp}agents/pm.md" ] && grep -qF '"name": "dev-team"' "${_mp}.claude-plugin/plugin.json" 2>/dev/null && printf '%s\n' "${_mp%/}" && break; done; } || find ~/.claude/plugins/cache \( -path '*/dev-team/*/skills/plugin-dir.sh' -o -path '*/dev-team-edge/*/skills/plugin-dir.sh' \) 2>/dev/null | awk -F/ '{ver=""; for(i=1;i<=NF;i++) if(($i=="dev-team"||$i=="dev-team-edge")&&i<NF){ver=$(i+1);break}; if(ver=="") next; m=ver; gsub(/-pre\./,"~pre.",m); p=($0 ~ /\/cache\/cold-dark-void\/dev-team\//)?2:(($0 ~ /\/cache\/cold-dark-void\/dev-team-edge\//)?1:0); print m "\t" p "\t" $0}' | sort -t $'\t' -k1,1V -k2,2n -k3,3 | tail -1 | cut -f3 | xargs -r dirname | xargs -r dirname )}"
+EPIC_LIB=$(bash "$PDH/skills/plugin-dir.sh" file skills/epic/epic-lib.sh)
+EPIC_ID="<EPIC-ID>"
+WA=$(bash "$EPIC_LIB" show "$EPIC_ID" | jq -r '.with_advisor // false')
+if [ "$WA" = "true" ]; then
+  export ADVISOR=1
+fi
+```
+
 Always export `DEVTEAM_NEST_DEPTH=1` in the child `/kickoff` or `/orchestrate`
 environment (CDT-512-C6 / SPEC-033 M14(l)). Depth 1 on Grok cannot spawn
 `/council`; the child returns `needs-parent-M14` after tests.
