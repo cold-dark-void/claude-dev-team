@@ -4,7 +4,6 @@
 #   INTERCOM_UID INTERCOM_GID
 #   INTERCOM_TOKEN_FILE=$HOME/.config/telegram/bot_token
 #   INTERCOM_STATE_DIR=$HOME/.claude/telegram-router
-#   INTERCOM_PLUGIN_ROOT=<plugin root>
 name: intercom
 services:
   daemon:
@@ -25,7 +24,5 @@ services:
     volumes:
       - ${INTERCOM_TOKEN_FILE:?}:/home/intercom/.config/telegram/bot_token:ro
       - ${INTERCOM_STATE_DIR:?}:/home/intercom/.claude/telegram-router
-      - ${INTERCOM_PLUGIN_ROOT:?}:/plugin:ro
-    working_dir: /plugin
-    command: ["bash", "/plugin/skills/intercom/daemon.sh"]
+    command: ["bash", "/app/skills/intercom/daemon.sh"]
     restart: unless-stopped

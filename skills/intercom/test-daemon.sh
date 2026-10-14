@@ -356,10 +356,14 @@ else
   bad "CDT-509 AC2 state volume telegram-router missing"
 fi
 
-if file_has "$COMPOSE" '/plugin:ro'; then
-  ok "CDT-509 AC11 plugin tree bind is :ro"
+# CDT-566 AC2: no code bind mount — no /plugin volume, no working_dir,
+# and no service requires INTERCOM_PLUGIN_ROOT.
+if [ -f "$COMPOSE" ] && ! grep -q 'INTERCOM_PLUGIN_ROOT' "$COMPOSE" \
+  && ! file_has "$COMPOSE" '/plugin' \
+  && ! file_has "$COMPOSE" 'working_dir'; then
+  ok "CDT-566 AC2 compose has no /plugin bind, working_dir, or INTERCOM_PLUGIN_ROOT"
 else
-  bad "CDT-509 AC11 plugin :ro bind missing"
+  bad "CDT-566 AC2 compose still references /plugin or INTERCOM_PLUGIN_ROOT"
 fi
 
 if [ -f "$COMPOSE" ] && grep -Eq '^[[:space:]]+ports[[:space:]]*:' "$COMPOSE"; then
@@ -372,10 +376,36 @@ else
   fi
 fi
 
-if [ -f "$COMPOSE" ] && file_has "$COMPOSE" 'daemon\.sh'; then
-  ok "CDT-509 AC5 compose command runs daemon.sh"
+# CDT-566 AC3: compose command runs the baked daemon path.
+if [ -f "$COMPOSE" ] && file_has "$COMPOSE" 'command:[[:space:]]*\["bash",[[:space:]]*"/app/skills/intercom/daemon.sh"\]'; then
+  ok "CDT-566 AC3 compose command is [\"bash\", \"/app/skills/intercom/daemon.sh\"]"
 else
-  bad "CDT-509 AC5 compose command daemon.sh missing"
+  bad "CDT-566 AC3 compose command must be [\"bash\", \"/app/skills/intercom/daemon.sh\"]"
+fi
+
+# CDT-566 AC1: Dockerfile bakes the runtime chain into /app/skills/intercom.
+for _rt in daemon.sh poller.sh common.sh; do
+  if [ -f "$DOCKERFILE" ] && grep -Eq "^COPY[[:space:]]+$_rt[[:space:]]+/app/skills/intercom/$_rt\$" "$DOCKERFILE"; then
+    ok "CDT-566 AC1 Dockerfile COPY $_rt into /app/skills/intercom/"
+  else
+    bad "CDT-566 AC1 Dockerfile missing COPY $_rt into /app/skills/intercom/"
+  fi
+done
+
+_copy_bad=""
+if [ -f "$DOCKERFILE" ]; then
+  while IFS= read -r _line; do
+    case "$_line" in
+      *test*|*token*|*Token*|*TOKEN*|*fixture*|*SKILL.md*|*docker-compose*|*Dockerfile*) _copy_bad="$_copy_bad $_line" ;;
+    esac
+  done <<EOF
+$(grep -E '^[[:space:]]*COPY[[:space:]]' "$DOCKERFILE")
+EOF
+fi
+if [ -f "$DOCKERFILE" ] && [ -z "$_copy_bad" ]; then
+  ok "CDT-566 AC1 Dockerfile COPY list has no test/token/fixture files"
+else
+  bad "CDT-566 AC1 Dockerfile COPY list contains forbidden entries:$_copy_bad"
 fi
 
 if [ -f "$COMPOSE" ] && grep -Eq '^[[:space:]]+user:' "$COMPOSE" \
@@ -538,6 +568,16 @@ else
     ok "CDT-527 AC5 start-daemon.sh sentinel absent from argv/env log and print"
   else
     bad "CDT-527 AC5 start-daemon sentinel leaked to:$leak rc=$rc"
+  fi
+
+  # CDT-566 AC2/AC4: start-daemon no longer passes INTERCOM_PLUGIN_ROOT
+  pgroot=""
+  grep -q 'INTERCOM_PLUGIN_ROOT' "$DOCKER_MOCK_LOG" 2>/dev/null && pgroot="$pgroot argv-log"
+  grep -q 'INTERCOM_PLUGIN_ROOT' "$DOCKER_MOCK_ENV" 2>/dev/null && pgroot="$pgroot env-log"
+  if [ -z "$pgroot" ] && [ "$rc" -eq 0 ]; then
+    ok "CDT-566 AC4 start-daemon.sh up-ok passes no INTERCOM_PLUGIN_ROOT"
+  else
+    bad "CDT-566 AC4 start-daemon INTERCOM_PLUGIN_ROOT in:$pgroot rc=$rc"
   fi
 
   if grep -q 'probe.sh' "$START_DAEMON" || grep -q 'probe.sh' "$SETUP"; then

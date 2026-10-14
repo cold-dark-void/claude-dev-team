@@ -23,7 +23,6 @@ fi
 
 INTERCOM_TOKEN_FILE="${INTERCOM_TOKEN_FILE:-$HOME/.config/telegram/bot_token}"
 INTERCOM_STATE_DIR="${INTERCOM_STATE_DIR:-$(ir_state_root)}"
-INTERCOM_PLUGIN_ROOT=$(CDPATH= cd -- "$SCRIPT_DIR/../.." && pwd) || exit 1
 COMPOSE_FILE="$SCRIPT_DIR/docker-compose.yml"
 
 miss=""
@@ -41,6 +40,6 @@ if ir_lock_held; then
   exit 75
 fi
 
-export INTERCOM_UID INTERCOM_GID INTERCOM_TOKEN_FILE INTERCOM_STATE_DIR INTERCOM_PLUGIN_ROOT
+export INTERCOM_UID INTERCOM_GID INTERCOM_TOKEN_FILE INTERCOM_STATE_DIR
 docker compose -p intercom -f "$COMPOSE_FILE" up -d --build >/dev/null || exit 1
 exit 0
