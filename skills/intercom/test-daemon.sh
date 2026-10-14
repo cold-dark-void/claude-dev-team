@@ -385,12 +385,28 @@ fi
 
 # CDT-566 AC1: Dockerfile bakes the runtime chain into /app/skills/intercom.
 for _rt in daemon.sh poller.sh common.sh; do
-  if [ -f "$DOCKERFILE" ] && grep -Eq "^COPY[[:space:]]+$_rt[[:space:]]+/app/skills/intercom/$_rt\$" "$DOCKERFILE"; then
+  if [ -f "$DOCKERFILE" ] && grep -Eq "^COPY[[:space:]]+skills/intercom/$_rt[[:space:]]+/app/skills/intercom/$_rt\$" "$DOCKERFILE"; then
     ok "CDT-566 AC1 Dockerfile COPY $_rt into /app/skills/intercom/"
   else
     bad "CDT-566 AC1 Dockerfile missing COPY $_rt into /app/skills/intercom/"
   fi
 done
+
+# CDT-566 AC1 (live-verify fix): the runtime sources ../lib/portable.sh, so
+# the image must bake it from the plugin-root build context.
+if [ -f "$DOCKERFILE" ] && grep -Eq "^COPY[[:space:]]+skills/lib/portable\.sh[[:space:]]+/app/skills/lib/portable\.sh\$" "$DOCKERFILE"; then
+  ok "CDT-566 AC1 Dockerfile COPY skills/lib/portable.sh into /app/skills/lib/"
+else
+  bad "CDT-566 AC1 Dockerfile missing COPY skills/lib/portable.sh"
+fi
+
+# CDT-566 AC1: build context is the plugin root so the lib can be baked.
+if [ -f "$COMPOSE" ] && grep -Eq '^[[:space:]]+context:[[:space:]]*\.\./\.\.[[:space:]]*$' "$COMPOSE" \
+  && grep -Eq '^[[:space:]]+dockerfile:[[:space:]]*skills/intercom/Dockerfile[[:space:]]*$' "$COMPOSE"; then
+  ok "CDT-566 AC1 compose build context is the plugin root with skills/intercom/Dockerfile"
+else
+  bad "CDT-566 AC1 compose build context/dockerfile wrong for plugin-root bake"
+fi
 
 _copy_bad=""
 if [ -f "$DOCKERFILE" ]; then

@@ -8,8 +8,8 @@ name: intercom
 services:
   daemon:
     build:
-      context: .
-      dockerfile: Dockerfile
+      context: ../..
+      dockerfile: skills/intercom/Dockerfile
     labels:
       dev-team.intercom: daemon
     user: "${INTERCOM_UID:?}:${INTERCOM_GID:?}"
