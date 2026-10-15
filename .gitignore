@@ -32,6 +32,9 @@
 # Autopilot per-ticket decision cards (SPEC-033)
 .claude/autopilot/
 
+# Advisor probe/finalize seam state (SPEC-039 / CDT-556-C4)
+.claude/advisor/
+
 # Per-agent Model map local layer (SPEC-037 / CDT-222)
 .claude/dev-team/models.local.json
 .claude/dev-team/models.local.json.lock

@@ -438,6 +438,15 @@ Format and rules: SPEC-033 M14(g) and M14(h).
 - **AC3.** When `/orchestrate --with-advisor` reroutes to `/epic`, the orchestrate reroute blocks (`02-scope.md`, `06-design.md`, `08-execute.md`) run `epic-lib set-with-advisor <EPIC-ID> true` (persists `with_advisor: true`) and pass `ADVISOR=1` into the `/epic` child environment; `skills/epic/mode-b-execute.md` B.4 exports `ADVISOR=1` when the epic state carries `with_advisor: true`; standalone `/epic` without the flag persists nothing.
   Verify: bash skills/advisor/parse-flags-test.sh
 
+### CDT-559
+
+- **AC1.** `skills/advisor/ask.sh` is a subprocess CLI (never sourced) with `probe` and `finalize`. `probe` prints exactly one JSON object `{action, model, spawn_request_path, cached_ruling_path, reason}` with `action` ∈ `spawn|cache-hit|refuse|cap`; probe never spawns an agent; a re-entrant probe (advisor lock `$MROOT/.claude/advisor/lock` already held) exits 64; state lives under `$MROOT/.claude/advisor/` (gitignored) and `ADVISOR_STATE_ROOT` reroutes it for tests.
+  Verify: bash skills/advisor/test.sh
+- **AC2.** Model resolution probes `resolve-model.sh --mapped advisor` first: unmapped → `action=refuse`, reason `advisor not configured`, never a tier default. `finalize --ruling-file` rejects any `ruling` other than `AGREE|CONTRADICT|INSUFFICIENT` (exit 64), requires integer `confidence` 0–100 and `evidence[].locator` of `path:line` (M18); `--timeout`/`--spawn-fail`/`--refuse` record run status and never write the cache — a timeout is not a partial ruling; a valid ruling caches under the question hash so the next identical probe is a free `cache-hit`.
+  Verify: bash skills/advisor/test.sh
+- **AC3.** Caps per M26: per-trigger reserves a=3, b=4, c=2; global per-run total 5; `ADVISOR_MAX_CALLS` only lowers the global 5 (integer ≥ 1, any other value ignored); retries count; dedupe by question hash (sha256 of trigger + whitespace-normalized question + evidence-dir content hash) so changed evidence is a new question; cache hits never increment caps; epic children share an epic total default 8 stored under `.claude/advisor/epic/<epic_id>/counters.json`; exhaustion → `action=cap` with no spawn.
+  Verify: bash skills/advisor/test.sh
+
 ## Alternatives considered
 
 - **Spawn from bash via host CLI.** Rejected: host CLI is not portable across
