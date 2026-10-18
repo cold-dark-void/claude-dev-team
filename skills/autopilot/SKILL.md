@@ -463,7 +463,8 @@ The schema is **frozen** here (this SKILL fixes the shape). The writer and reade
   "max_loc": null,
   "rationale": "<one-line why>",
   "budget": { "iteration": 0, "iteration_cap": 25, "wall_clock_s": 0, "wall_clock_cap_s": 2700, "tier": null, "source": null, "signals": null },
-  "actor": "orchestrator"
+  "actor": "orchestrator",
+  "advisor": null
 }
 ```
 
@@ -526,13 +527,23 @@ The schema is **frozen** here (this SKILL fixes the shape). The writer and reade
 - `budget` snapshots the run-budget counters at decision time. Four numeric keys stay.
   **CDT-224 / M9b** adds nested additive-nullable `tier` (`S|M|L|null`), `source`
   (`auto|env|default|mixed|null`), and `signals` (`{tasks,projected_loc,waves}|null`).
-  Top-level key count stays 18. Gate enum stays the frozen 3-value set. `type` stays
+  Top-level key count is 19 since CDT-565 (SPEC-039 M30 adds the nullable
+  `advisor` key; 18 before it). Gate enum stays the frozen 3-value set. `type` stays
   `autopilot_decision`. `schema_version` stays 1. `read-cards.sh` MUST backfill absent
   nested keys as `null`. Pre-freeze / kickoff / epic Mode A write nested nulls.
   Plan-approve freeze and later `/orchestrate` cards copy the freeze. `rationale`
   MUST mention `budget_tier` when `source` is `auto` or `mixed`, and env when `source`
   is `env` or `mixed`. Nested `budget.tier` is not `--tier` and is not `council_tier`.
 - `actor` names the writer (e.g. `orchestrator`).
+- `advisor` (**CDT-565**, SPEC-039 M30) is an additive nullable object (the ruling
+  record) or null, 19th key after `actor`. `schema_version` stays 1; absent ≡ null;
+  `read-cards.sh` backfills a missing `advisor` as `null`. `append-card.sh` sets it
+  via `--advisor-json PATH` (file-path only). Written by `ask.sh finalize` (M28) per
+  the M29 map (`AGREE` at confidence ≥ 80 → `decision: proceed`,
+  `blocking_condition: null`; `CONTRADICT`/`INSUFFICIENT` or confidence < 80 →
+  `decision: halt`, `blocking_condition: 7`), and by the autopilot BC8 unavailable
+  fallback (M27 — exact marker `advisor unavailable — fell back`,
+  `blocking_condition: 8`; no ninth BC).
 
 ---
 

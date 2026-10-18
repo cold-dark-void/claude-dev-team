@@ -9,13 +9,13 @@
 #                  <bump|null> <confidence> <blocking_condition|null> \
 #                  <run_id> <iteration> <wall_clock_s> <actor> <rationale> \
 #                  [<max_loc|null> | <council_tier|null> <grading_reason|null> \
-#                   [<max_loc|null>]]
+#                   [<max_loc|null>]] [--advisor-json PATH]
 #
 # Appends ONE JSONL decision card to $MROOT/.claude/autopilot/<ticket_id>.jsonl
 # with the M13-frozen key order:
 #   { schema_version, type, ts, run_id, workflow, ticket_id, gate, decision,
 #     decided_by, bump, confidence, blocking_condition, council_tier,
-#     grading_reason, max_loc, rationale, budget, actor }
+#     grading_reason, max_loc, rationale, budget, actor, advisor }
 #   budget = { iteration, iteration_cap, wall_clock_s, wall_clock_cap_s,
 #              tier, source, signals }
 #
@@ -25,6 +25,17 @@
 # CDT-224: nested budget.{tier,source,signals} additive + nullable (still 18
 # top-level keys). Snapshot via process-local AUTOPILOT_BUDGET_META; MUST NOT
 # export META; MUST NOT write AUTOPILOT_*_CAP.
+# CDT-565: optional flag --advisor-json PATH (SPEC-039 M30) appends the
+# additive nullable top-level key `advisor` (object or null) as the 19th key,
+# after actor. schema_version stays 1; argc 13-16 is unchanged. The flag
+# takes a FILE PATH — the ruling object travels on disk, never inside argv
+# or shell interpolation (untrusted-input rule). Flag absent or an empty
+# file → advisor: null. A present, non-empty file must parse as exactly one
+# JSON object with the M30 shape (ruling AGREE|CONTRADICT|INSUFFICIENT|null,
+# corrected_claim string|null, evidence array of {cmd,exit,sha256,locator}
+# objects, model string, evidence_over_memory boolean, question_hash string,
+# trigger a|b|c, cache_hit boolean, timeout boolean, marker string|null) —
+# any other shape is a hard 64 with no ledger line.
 # Argc is 13 (all optionals null) | 14 (max_loc, council pair null) |
 # 15 (council pair, max_loc null) | 16 (council pair + max_loc).
 # Any other argc → 64. Council_tier without grading_reason is not a valid shape.
@@ -50,13 +61,43 @@
 set -euo pipefail
 # THIS SCRIPT IS A SUBPROCESS CLI — NEVER SOURCE IT.
 
-USAGE='Usage: append-card.sh <workflow> <ticket_id> <gate> <decision> <decided_by> <bump|null> <confidence> <blocking_condition|null> <run_id> <iteration> <wall_clock_s> <actor> <rationale> [<max_loc|null> | <council_tier|null> <grading_reason|null> [<max_loc|null>]]'
+USAGE='Usage: append-card.sh <workflow> <ticket_id> <gate> <decision> <decided_by> <bump|null> <confidence> <blocking_condition|null> <run_id> <iteration> <wall_clock_s> <actor> <rationale> [<max_loc|null> | <council_tier|null> <grading_reason|null> [<max_loc|null>]] [--advisor-json PATH]'
 
 die() {
   echo "error: $1" >&2
   echo "$USAGE" >&2
   exit 64
 }
+
+# ---- Optional flag: --advisor-json PATH (CDT-565 / SPEC-039 M30) ------------
+# Pre-scanned out of argv so the frozen 13/14/15/16 positional shape is
+# unchanged. File-path only: the advisor object is read from disk, never
+# embedded in argv (untrusted-input rule).
+ADVISOR_JSON_PATH=""
+_ADV_ARGS=()
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --advisor-json)
+      [ $# -ge 2 ] || die "--advisor-json requires a path argument"
+      case "${2:-}" in
+        --*) die "--advisor-json requires a path argument (got flag-like token '$2')" ;;
+      esac
+      [ -z "$ADVISOR_JSON_PATH" ] || die "--advisor-json specified more than once"
+      ADVISOR_JSON_PATH="$2"
+      shift 2 ;;
+    --advisor-json=*)
+      [ -z "$ADVISOR_JSON_PATH" ] || die "--advisor-json specified more than once"
+      ADVISOR_JSON_PATH="${1#*=}"
+      [ -n "$ADVISOR_JSON_PATH" ] || die "--advisor-json requires a non-empty path"
+      shift ;;
+    *) _ADV_ARGS+=("$1"); shift ;;
+  esac
+done
+if [ "${#_ADV_ARGS[@]}" -gt 0 ]; then
+  set -- "${_ADV_ARGS[@]}"
+else
+  set --
+fi
 
 # ---- Usage ------------------------------------------------------------------
 # 13: all optionals null · 14: max_loc, council pair null
@@ -181,6 +222,45 @@ case "$MAX_LOC" in
   null|unbound) ;;
   ''|*[!0-9]*|0*) die "invalid max_loc '$MAX_LOC' (expected null|unbound|^[1-9][0-9]*$)" ;;
 esac
+
+# ---- advisor object (CDT-565 / SPEC-039 M30) --------------------------------
+# Flag absent or an EMPTY file → JSON null (additive nullable: argc 13-16
+# callers keep writing advisor: null). A present, non-empty file must parse
+# as exactly one JSON object with the M30 shape; anything else is a hard 64
+# before any ledger write (this writer never exits 0 on failure).
+ADVISOR_JSON=null
+if [ -n "$ADVISOR_JSON_PATH" ]; then
+  [ -r "$ADVISOR_JSON_PATH" ] || die "cannot read --advisor-json file: $ADVISOR_JSON_PATH"
+  if [ -s "$ADVISOR_JSON_PATH" ]; then
+    if ! ADVISOR_JSON=$(jq -s -ce '
+      (if length != 1 then error("expected exactly one JSON value") else .[0] end)
+      | select(
+          type == "object"
+          and has("ruling")
+          and (.ruling == null or .ruling == "AGREE"
+               or .ruling == "CONTRADICT" or .ruling == "INSUFFICIENT")
+          and has("corrected_claim")
+          and (.corrected_claim == null or (.corrected_claim | type == "string"))
+          and has("evidence") and (.evidence | type == "array")
+          and (.evidence | all(.[];
+                (type == "object")
+                and has("cmd") and (.cmd | type == "string")
+                and has("exit") and (.exit | type == "number")
+                and has("sha256") and (.sha256 | type == "string")
+                and has("locator") and (.locator | type == "string")))
+          and has("model") and (.model == null or (.model | type == "string"))
+          and has("evidence_over_memory") and (.evidence_over_memory | type == "boolean")
+          and has("question_hash") and (.question_hash | type == "string")
+          and has("trigger") and (.trigger == "a" or .trigger == "b" or .trigger == "c")
+          and has("cache_hit") and (.cache_hit | type == "boolean")
+          and has("timeout") and (.timeout | type == "boolean")
+          and has("marker") and (.marker == null or (.marker | type == "string"))
+        )
+    ' "$ADVISOR_JSON_PATH" 2>/dev/null) || [ -z "$ADVISOR_JSON" ]; then
+      die "--advisor-json file is not a valid M30 advisor object: $ADVISOR_JSON_PATH"
+    fi
+  fi
+fi
 
 # ---- Cross-field invariants (M13) -------------------------------------------
 # (a) bump non-null ONLY on a ship-choice card.
@@ -346,6 +426,7 @@ if ! card_line=$(jq -cn \
   --argjson budget_source "$BUDGET_SOURCE_JSON" \
   --argjson budget_signals "$BUDGET_SIGNALS_JSON" \
   --arg actor "$ACTOR" \
+  --argjson advisor "$ADVISOR_JSON" \
   '{
     schema_version: $schema_version,
     type: "autopilot_decision",
@@ -372,7 +453,8 @@ if ! card_line=$(jq -cn \
       source: $budget_source,
       signals: $budget_signals
     },
-    actor: $actor
+    actor: $actor,
+    advisor: $advisor
   }' 2>/dev/null); then
   die "cannot write decision card to $card_file"
 fi

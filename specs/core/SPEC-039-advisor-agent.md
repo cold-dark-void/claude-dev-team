@@ -305,15 +305,19 @@ Glossary term: Advisor (`CONTEXT.md`).
   floor, BC8 unavailable marker, static-check-before-probe, trigger (c)
   residue skip on clean council, `advisor-gathered` label, trigger (a)
   denylist, shadow N default, gitignore line, CONTEXT.md Advisor row,
-  README/AGENTS.md roster lines.
+  README/AGENTS.md roster lines, the M29 decision-map card (proceed at
+  AGREE ≥ 80; halt/BC7 otherwise; fail-closed 0 on a high-confidence
+  refutation; no-card backward compatibility; card-context misuse), and the
+  BC8 unavailable card with the exact marker.
 - `bash skills/advisor/test-classify.sh` covers disposition `--action`,
   identity-claim hits (`omp is Open MPI`, `omp on this machine is Open MPI`),
   misses (`ic4 is the well-defined seat`), and miss-sample modulo.
 - `bash skills/model-map/spawn-site-test.sh` includes `advisor:opus:high`
   and tools exactly `Read, Grep, Glob, Bash`.
 - `bash install-test.sh` strips `tools:` from `agents/advisor.md`.
-- `bash skills/autopilot/test-card-validation.sh` accepts `--advisor-json`
-  and backfills `advisor: null` on old cards.
+- `bash skills/autopilot/test-card-validation.sh` accepts `--advisor-json`,
+  backfills `advisor: null` on old cards, and extracts/runs the
+  `self-answer.md` §3g BC8 fence for all four unavailable modes.
 - `bash skills/doctor/test.sh` reports advisor memory status.
 - `bash skills/spec-tooling/check-format.sh specs/core/SPEC-039-advisor-agent.md`
   exits 0.
@@ -332,6 +336,13 @@ Glossary term: Advisor (`CONTEXT.md`).
   `blocking_condition: 8` and marker `advisor unavailable — fell back`
   (`skills/advisor/test.sh`).
 - `append-card.sh` 13-arg form still writes `advisor: null`
+  (`skills/autopilot/test-card-validation.sh`).
+- A ruling finalize with card context writes the M29 map: `AGREE` ≥ 80 →
+  `proceed`/null at the ruling's confidence; `CONTRADICT`/`INSUFFICIENT` or
+  < 80 → `halt`/7 at the ruling's confidence when below 80, else fail-closed 0
+  (`skills/advisor/test.sh`).
+- The card envelope is 19 top-level keys with `advisor` last; `read-cards.sh`
+  materializes absent ≡ null in frozen order
   (`skills/autopilot/test-card-validation.sh`).
 - `/doctor` prints an advisor memory row (`skills/doctor/test.sh`).
 - `install-test.sh` passes with `agents/advisor.md` present.
@@ -446,6 +457,23 @@ Format and rules: SPEC-033 M14(g) and M14(h).
   Verify: bash skills/advisor/test.sh
 - **AC3.** Caps per M26: per-trigger reserves a=3, b=4, c=2; global per-run total 5; `ADVISOR_MAX_CALLS` only lowers the global 5 (integer ≥ 1, any other value ignored); retries count; dedupe by question hash (sha256 of trigger + whitespace-normalized question + evidence-dir content hash) so changed evidence is a new question; cache hits never increment caps; epic children share an epic total default 8 stored under `.claude/advisor/epic/<epic_id>/counters.json`; exhaustion → `action=cap` with no spawn.
   Verify: bash skills/advisor/test.sh
+
+### CDT-565
+
+- **AC1.** `skills/autopilot/append-card.sh` accepts an optional `--advisor-json PATH` flag (position-independent, at most once, value must not be flag-like); when given it reads the M30 advisor ruling object from disk and writes it as the 19th top-level key `advisor` (after `actor`); `schema_version` stays 1; argc 13–16 stays valid with the flag present or absent; the object travels on disk, never embedded in argv or shell interpolation.
+  Verify: bash skills/autopilot/test-card-validation.sh
+- **AC2.** Flag absent or an empty advisor file writes `advisor: null`. A present non-empty file must parse as exactly one JSON object with the M30 shape (`ruling` AGREE|CONTRADICT|INSUFFICIENT|null, `corrected_claim` string|null, `evidence` array of `{cmd, exit, sha256, locator}` objects, `model` string, `evidence_over_memory` boolean, `question_hash` string, `trigger` a|b|c, `cache_hit` boolean, `timeout` boolean, `marker` string|null) — malformed JSON, a non-object, a multi-object file, or an unknown ruling exits 64 with no ledger line; injection content inside the object is data (no execution, verbatim on the card).
+  Verify: bash skills/autopilot/test-card-validation.sh
+- **AC3.** `skills/autopilot/read-cards.sh` backfills a missing top-level `advisor` as explicit `null` in frozen key order (19th, after `actor`); pre-CDT-565 18-key cards read back with the full 19-key shape and `schema_version` 1; a mixed ledger round-trips (the object intact on new cards, explicit null on old cards).
+  Verify: bash skills/autopilot/test-card-validation.sh
+- **AC4.** Decision map (M29): with card context (all five of `--card-workflow` `--card-ticket` `--card-gate` `--card-iteration` `--card-run-start-epoch`), a `--ruling-file` finalize writes the advisor decision card via `append-card.sh --advisor-json` — `AGREE` at confidence ≥ 80 → `decision: proceed`, `blocking_condition: null`, `confidence` = the ruling's (the autopilot self-answer recorded as the decision); `actor: advisor`, `decided_by: auto`, `bump: null`; rationale one-line `trigger=<t> ruling=<r> model=<m>`; the M30 advisor object written to `runs/<run_id>/advisor-object.json` and passed as a path.
+  Verify: bash skills/advisor/test.sh
+- **AC5.** `CONTRADICT` or `INSUFFICIENT`, or confidence < 80 regardless of ruling → `decision: halt`, `blocking_condition: 7`. The BC7 card carries the ruling confidence when it is below 80, else fail-closed 0: append-card cross-field invariant (b) rejects a BC7 card at confidence ≥ 80, so a high-confidence refutation cannot carry its own confidence (the M14(b) CONTRADICTED→0 precedent); `AGREE` at exactly 80 proceeds.
+  Verify: bash skills/advisor/test.sh
+- **AC6.** A ruling finalize without card context writes no card (the C4 seam records status + cache only); a partial card context exits 64; card context on a `--timeout`/`--spawn-fail`/`--refuse` finalize exits 64; a card-writer reject exits 64 and leaves the ruling uncached and the ledger untouched, so a retry re-spawns instead of silently losing the card.
+  Verify: bash skills/advisor/test.sh
+- **AC7.** Under autopilot, advisor unavailable (probe `refuse`/`cap`, or a `--timeout`/`--spawn-fail` finalize) halts with exactly one BC8 card — `decision: halt`, `blocking_condition: 8`, `decided_by: auto`, `actor: advisor`, `confidence: 0` — carrying the exact marker `advisor unavailable — fell back` inside the `advisor` object (`ruling: null`). The `self-answer.md` §3g fence is the one executable pattern (fresh `budget-check.sh` wall_clock_s, mktemp advisor-object file under TMPDIR, writer reject → exit 64, no silent retry) and it accepts only `refuse|cap|timeout|spawn-fail`; no ninth blocking condition exists anywhere (the writer still rejects `blocking_condition: 9`).
+  Verify: bash skills/autopilot/test-card-validation.sh
 
 ## Alternatives considered
 

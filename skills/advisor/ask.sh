@@ -48,9 +48,19 @@
 # unmapped -> action=refuse, reason "advisor not configured" — never a tier
 # default. resolve-model.sh advisor (plain) runs only when mapped.
 #
-# Card writes happen ONLY in finalize (T6); the append-card advisor object
-# integration is T9 / epic child CDT-556-C8 — this C4 seam records outcomes
-# under runs/<run_id>/ and the cache, and writes no decision cards.
+# Card writes (SPEC-039 M28/M29/M30, C4 seam + C8 integration): finalize is
+# the only place decision cards are written. With --ruling-file plus the
+# card-context flags (all five of --card-workflow --card-ticket --card-gate
+# --card-iteration --card-run-start-epoch), finalize applies the M29 decision
+# map and writes the advisor card via skills/autopilot/append-card.sh
+# --advisor-json (actor advisor, decided_by auto, bump null, rationale
+# `trigger=<t> ruling=<r> model=<m>`); the M30 advisor object is written to
+# runs/<run_id>/advisor-object.json and handed over as a file path. A card
+# write failure exits 64 BEFORE the ruling is cached, so a retry re-spawns
+# instead of silently losing the card. Without card context, finalize records
+# outcomes under runs/<run_id>/ and the cache and writes no card. The BC8
+# unavailable card is written by the CALLER under autopilot (M27 — this seam
+# only reports; see skills/autopilot/self-answer.md §3g).
 
 set -u
 
@@ -59,11 +69,28 @@ usage() {
 usage: ask.sh probe --trigger a|b|c --question TEXT [--evidence-dir PATH]
                     [--run-id ID] [--epic-id ID] [--bc N]
        ask.sh finalize --run-id ID (--ruling-file PATH | --timeout | --spawn-fail | --refuse)
+                       [--card-workflow W --card-ticket T --card-gate G
+                        --card-iteration N --card-run-start-epoch E]
 EOF
   exit 64
 }
 
 die64() { echo "ask.sh: $1" >&2; exit 64; }
+
+# require_nnint <label> <value> — AC9 pattern check (non-negative integer, no
+# leading zero except literal 0, at most 15 digits) before any arithmetic.
+# Defined before arg parsing: the finalize flag validation calls it there.
+require_nnint() {
+  case "$2" in
+    0) return 0 ;;
+    [1-9]*) ;;
+    *) die64 "finalize: $1 must be a non-negative integer" ;;
+  esac
+  case "$2" in
+    *[!0-9]*) die64 "finalize: $1 must be a non-negative integer" ;;
+  esac
+  [ "${#2}" -le 15 ] || die64 "finalize: $1 must be a non-negative integer (at most 15 digits)"
+}
 
 CMD="${1:-}"
 [ -n "$CMD" ] || usage
@@ -82,6 +109,7 @@ ADVISOR_DIR="${ADVISOR_STATE_ROOT:-$MROOT/.claude/advisor}"
 
 TRIGGER="" QUESTION="" EVIDENCE_DIR="" RUN_ID="" EPIC_ID="" BC=""
 RULING_FILE="" FIN_MODE=""
+CARD_WORKFLOW="" CARD_TICKET="" CARD_GATE="" CARD_ITERATION="" CARD_RUN_START_EPOCH=""
 case "$CMD" in
   probe)
     while [ $# -gt 0 ]; do
@@ -115,6 +143,16 @@ case "$CMD" in
         --timeout) FIN_MODE="timeout"; shift ;;
         --spawn-fail) FIN_MODE="spawn-fail"; shift ;;
         --refuse) FIN_MODE="refuse"; shift ;;
+        --card-workflow) [ $# -ge 2 ] || usage; CARD_WORKFLOW="$2"; shift 2 ;;
+        --card-workflow=*) CARD_WORKFLOW="${1#*=}"; shift ;;
+        --card-ticket) [ $# -ge 2 ] || usage; CARD_TICKET="$2"; shift 2 ;;
+        --card-ticket=*) CARD_TICKET="${1#*=}"; shift ;;
+        --card-gate) [ $# -ge 2 ] || usage; CARD_GATE="$2"; shift 2 ;;
+        --card-gate=*) CARD_GATE="${1#*=}"; shift ;;
+        --card-iteration) [ $# -ge 2 ] || usage; CARD_ITERATION="$2"; shift 2 ;;
+        --card-iteration=*) CARD_ITERATION="${1#*=}"; shift ;;
+        --card-run-start-epoch) [ $# -ge 2 ] || usage; CARD_RUN_START_EPOCH="$2"; shift 2 ;;
+        --card-run-start-epoch=*) CARD_RUN_START_EPOCH="${1#*=}"; shift ;;
         *) usage ;;
       esac
     done
@@ -123,6 +161,23 @@ case "$CMD" in
     [ -n "$RULING_FILE" ] && MODES=$((MODES + 1))
     [ -n "$FIN_MODE" ] && MODES=$((MODES + 1))
     [ "$MODES" -eq 1 ] || die64 "finalize: exactly one of --ruling-file | --timeout | --spawn-fail | --refuse"
+    # Card context (CDT-565 / M28-M30): all five flags or none. Only a ruling
+    # finalize writes a card; a status finalize (--timeout etc.) never does
+    # (the CALLER maps unavailable-under-autopilot to BC8, M27).
+    CARD_CTX=0
+    for _cv in "$CARD_WORKFLOW" "$CARD_TICKET" "$CARD_GATE" "$CARD_ITERATION" "$CARD_RUN_START_EPOCH"; do
+      [ -n "$_cv" ] && CARD_CTX=$((CARD_CTX + 1))
+    done
+    if [ "$CARD_CTX" -ne 0 ] && [ "$CARD_CTX" -ne 5 ]; then
+      die64 "finalize: card writing requires all of --card-workflow --card-ticket --card-gate --card-iteration --card-run-start-epoch"
+    fi
+    if [ "$CARD_CTX" -eq 5 ] && [ -n "$FIN_MODE" ]; then
+      die64 "finalize: card context applies only to --ruling-file finalize"
+    fi
+    if [ "$CARD_CTX" -eq 5 ]; then
+      require_nnint "--card-iteration" "$CARD_ITERATION"
+      require_nnint "--card-run-start-epoch" "$CARD_RUN_START_EPOCH"
+    fi
     ;;
   *) usage ;;
 esac
@@ -196,6 +251,58 @@ if [ "$CMD" = "finalize" ]; then
     # missing/empty array would pass vacuously and cache an evidence-free ruling.
     NEV=$(jq -r '(.evidence // []) | length' "$RULING_FILE" 2>/dev/null)
     case "$NEV" in ''|*[!0-9]*|0) die64 "finalize: evidence[] must be a non-empty array (M18)" ;; esac
+    if [ "$CARD_CTX" -eq 5 ]; then
+      # M29 decision map: AGREE + confidence >= 80 -> proceed/null; CONTRADICT
+      # or INSUFFICIENT, or confidence < 80 regardless of ruling, -> halt/BC7.
+      # M29 says the card confidence is the ruling's 0-100, but append-card
+      # cross-field invariant (b) (SPEC-033 M13) hard-rejects a BC7 card with
+      # confidence >= 80 — a high-confidence CONTRADICT/INSUFFICIENT (the C4
+      # fixture itself rules CONTRADICT at 92) would be unwritable. Fail closed
+      # to 0 there, the M14(b) CONTRADICTED->BC7->confidence-0 precedent.
+      case "$RULING" in
+        AGREE)
+          if [ "$CONF" -ge 80 ]; then CARD_DECISION="proceed"; CARD_BC="null"; CARD_CONF="$CONF"
+          else CARD_DECISION="halt"; CARD_BC="7"; CARD_CONF="$CONF"; fi ;;
+        *)
+          CARD_DECISION="halt"; CARD_BC="7"
+          if [ "$CONF" -ge 80 ]; then CARD_CONF=0; else CARD_CONF="$CONF"; fi ;;
+      esac
+      SRP_MODEL=$(json_get "$SRP" ".model"); SRP_MODEL=${SRP_MODEL:-}
+      SRP_TRIGGER=$(json_get "$SRP" ".trigger"); SRP_TRIGGER=${SRP_TRIGGER:-}
+      # wall_clock_s measured at write time via budget-check.sh argc=2 (the
+      # self-answer §3f C5 discipline); a breach (6) is an outcome — only a
+      # validation failure (64) aborts the card.
+      BUDGET_CHECK=$(bash "$PDH/skills/plugin-dir.sh" file skills/autopilot/budget-check.sh)
+      BC_RC=0
+      if ! BC_OUT=$(bash "$BUDGET_CHECK" "$CARD_ITERATION" "$CARD_RUN_START_EPOCH" 2>/dev/null); then
+        BC_RC=$?
+        [ "$BC_RC" -eq 6 ] || die64 "finalize: budget-check.sh failed (rc $BC_RC) — no decision card written"
+      fi
+      WALL_CLOCK_S=$(printf '%s' "$BC_OUT" | jq -r '.wall_clock_s')
+      # The advisor object rides on disk (M30: argv/file-path only, never
+      # embedded in shell interpolation) and stays as the run's audit artifact.
+      ADVISOR_OBJ="$RUN_DIR/advisor-object.json"
+      jq -cn --slurpfile r "$RULING_FILE" \
+        --arg model "$SRP_MODEL" --arg qhash "$HASH" --arg trigger "$SRP_TRIGGER" \
+        '{ruling: $r[0].ruling,
+          corrected_claim: ($r[0].corrected_claim // null),
+          evidence: ($r[0].evidence),
+          model: $model,
+          evidence_over_memory: (if ($r[0] | has("evidence_over_memory")) and ($r[0].evidence_over_memory | type == "boolean") then $r[0].evidence_over_memory else true end),
+          question_hash: $qhash,
+          trigger: $trigger,
+          cache_hit: false,
+          timeout: false,
+          marker: null}' > "$ADVISOR_OBJ" \
+        || die64 "finalize: cannot write the advisor object to $ADVISOR_OBJ"
+      RATIONALE="trigger=$SRP_TRIGGER ruling=$RULING model=$SRP_MODEL"
+      APPEND_CARD=$(bash "$PDH/skills/plugin-dir.sh" file skills/autopilot/append-card.sh)
+      bash "$APPEND_CARD" "$CARD_WORKFLOW" "$CARD_TICKET" "$CARD_GATE" \
+        "$CARD_DECISION" auto null "$CARD_CONF" "$CARD_BC" "$RUN_ID" \
+        "$CARD_ITERATION" "$WALL_CLOCK_S" advisor "$RATIONALE" \
+        --advisor-json "$ADVISOR_OBJ" \
+        || die64 "finalize: append-card.sh rejected the decision card — ruling not cached"
+    fi
     jq -cn --arg hash "$HASH" --arg run_id "$RUN_ID" --arg ts "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
         --slurpfile ruling "$RULING_FILE" \
       '{question_hash:$hash, run_id:$run_id, ts:$ts, ruling:$ruling[0]}' \

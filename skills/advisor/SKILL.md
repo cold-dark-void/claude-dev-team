@@ -59,6 +59,27 @@ the question-hash cache — the next identical probe is a free cache-hit.
 never a partial ruling: nothing is cached, so a retry probe is a fresh spawn
 (retries count against caps).
 
+### Decision card (SPEC-039 M28/M29/M30)
+
+A `--ruling-file` finalize writes the decision card when the caller also passes
+ALL five card-context flags: `--card-workflow <orchestrate|kickoff|epic>`,
+`--card-ticket <id>`, `--card-gate <scope-confirm|plan-approve|ship-choice>`
+(the enclosing run's closest canonical gate), `--card-iteration <n>` and
+`--card-run-start-epoch <n>`. Without them, finalize records outcomes only
+(no card) — the C4 behavior is unchanged. The card is written via
+`skills/autopilot/append-card.sh --advisor-json` with `actor: advisor`,
+`decided_by: auto`, `bump: null`, and rationale
+`trigger=<t> ruling=<r> model=<m>`; the M30 advisor object is written to
+`runs/<run_id>/advisor-object.json` and passed as a file path (never embedded
+in argv). The M29 map: `AGREE` + confidence ≥ 80 → `decision: proceed`,
+`blocking_condition: null`; `CONTRADICT`, `INSUFFICIENT`, or confidence < 80 →
+`decision: halt`, `blocking_condition: 7`. A BC7 card carries the ruling confidence when it is below 80,
+else fail-closed 0 — append-card cross-field invariant (b) rejects a BC7 card
+at confidence ≥ 80 (the M14(b) CONTRADICTED→0 precedent). The card is written
+BEFORE the cache: a writer reject exits 64 and leaves nothing cached, so a
+retry re-spawns instead of losing the card. A status finalize rejects card
+context (exit 64).
+
 ## Caps (M26)
 
 - Per-trigger reserves per run: `a`=3, `b`=4, `c`=2.
@@ -69,7 +90,10 @@ never a partial ruling: nothing is cached, so a retry probe is a fresh spawn
   `.claude/advisor/epic/<epic_id>/counters.json`.
 - Exhaustion → `action=cap`, no spawn. Under autopilot the caller maps
   unavailable (unconfigured / timeout / spawn-fail / cap with no cache) to
-  BC8 (M27) — this seam only reports.
+  BC8 (M27) — this seam only reports. The halt card (exact marker
+  `advisor unavailable — fell back`, `blocking_condition: 8`) is written by
+  the caller per `skills/autopilot/self-answer.md` §3g; interactively the
+  run continues with the fallback and does not halt.
 
 ## State
 

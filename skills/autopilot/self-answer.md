@@ -216,7 +216,9 @@ the freeze-card caps. Env `AUTOPILOT_WALLCLOCK_CAP` set → M10.6 vs that env
 value. Unfrozen BC6 stays argc=2 (25/2700 unless env). M10.6 MUST NOT suppress
 M10.1–5. BC7 is the answering agent's own confidence in the default
 answer falling below the M6/M13 threshold. BC8 fires only in `/kickoff`'s pre-spec
-phase; BC2 only in the `ship-choice` IC/QA loop.
+phase; BC2 only in the `ship-choice` IC/QA loop. The one deterministic BC8 is the
+advisor-unavailable fallback (§3g): the probe/finalize outcome decides it, not
+judgment.
 
 ### e. Map the outcome to a decision
 - **Clean** (no BC fired) → the gate's default answer per M4:
@@ -388,6 +390,84 @@ reroute, or hard-block halt alike, **including when `max_loc` is non-null**. A h
 card records **autopilot's own** decision to stop or reroute, not a human's answer.
 **C3 never writes a `decided_by:"user"` card**; `user` cards are written later by the
 halt-resume owner when a human resolves a halt — out of scope for this engine.
+
+### g. Advisor ruling — consumption and the BC8 unavailable fallback (SPEC-039 C8)
+
+When the run carries the advisor (`--with-advisor`, SPEC-039 M10), the orchestrator
+drives `skills/advisor/ask.sh` probe → native spawn → finalize before answering the
+gate. Still **exactly one** card per gate answer:
+
+- **Ruling present.** `ask.sh finalize` (the only writer of advisor outcome cards,
+  SPEC-039 M28) applies the **M29** decision map and writes the advisor card when the
+  caller passes the card context: `AGREE` at confidence ≥ 80 → `decision: proceed`,
+  `blocking_condition: null` — the autopilot self-answer, recorded as the decision.
+  `CONTRADICT`, `INSUFFICIENT`, or confidence < 80 → `decision: halt`,
+  `blocking_condition: 7` (SPEC-039 AC10/AC14) — if this gate's own answer halts on
+  the ruling, it goes through the §3d walk and the §3f fence unchanged. The card
+  carries the M30 `advisor` object via `append-card.sh --advisor-json`. A BC7 card
+  carries the ruling confidence when it is below 80, else fail-closed 0: append-card
+  cross-field invariant (b) forbids confidence ≥ 80 on a BC7 card, and a refuted
+  answer has no confidence to carry (the M14(b) CONTRADICTED→0 precedent). This
+  engine writes no second card for a ruling.
+- **Advisor unavailable.** A probe `refuse`/`cap`, or a `--timeout` / `--spawn-fail`
+  finalize, means no ruling exists. Under autopilot this HALTS with **BC8**
+  (documented reuse, SPEC-039 M27 — the BC list stays eight; no ninth condition is
+  invented anywhere). The halt card — `decision: halt`, `blocking_condition: 8`,
+  `confidence: 0` — carries the exact marker
+  `advisor unavailable — fell back` inside the `advisor` object (`ruling: null`,
+  `marker` set). Write it with the fence below — the §3f argv discipline plus the
+  `--advisor-json` slot. `<gate>` is the closest canonical gate per the M5 mapping.
+  Interactive runs (autopilot off) do NOT halt: continue with the fallback and do
+  not run this fence. The `self-verified — refuters unavailable` contract is
+  unchanged.
+
+```bash template
+# Later fence: the single-line PDH wrapper (skills/lib/pdh-later-fence.sh,
+# CDT-502-C5) — §3f already carries the one full-stanza emission this file owns.
+PDH="${PDH:-$( { [ -n "${CLAUDE_PLUGIN_ROOT:-}" ] && [ -f "$CLAUDE_PLUGIN_ROOT/skills/plugin-dir.sh" ] && printf '%s\n' "$CLAUDE_PLUGIN_ROOT"; } || { [ -f skills/plugin-dir.sh ] && [ -f agents/pm.md ] && grep -qF '"name": "dev-team"' .claude-plugin/plugin.json 2>/dev/null && pwd; } || { _pr='${CLAUDE_PLUGIN_ROOT}'; [ "${_pr#\$}" = "$_pr" ] && [ -f "$_pr/skills/plugin-dir.sh" ] && printf '%s\n' "$_pr"; } || { for _mp in "$HOME"/.claude/plugins/marketplaces/*/; do [ -f "${_mp}skills/plugin-dir.sh" ] && [ -f "${_mp}agents/pm.md" ] && grep -qF '"name": "dev-team"' "${_mp}.claude-plugin/plugin.json" 2>/dev/null && printf '%s\n' "${_mp%/}" && break; done; } || find ~/.claude/plugins/cache \( -path '*/dev-team/*/skills/plugin-dir.sh' -o -path '*/dev-team-edge/*/skills/plugin-dir.sh' \) 2>/dev/null | awk -F/ '{ver=""; for(i=1;i<=NF;i++) if(($i=="dev-team"||$i=="dev-team-edge")&&i<NF){ver=$(i+1);break}; if(ver=="") next; m=ver; gsub(/-pre\./,"~pre.",m); p=($0 ~ /\/cache\/cold-dark-void\/dev-team\//)?2:(($0 ~ /\/cache\/cold-dark-void\/dev-team-edge\//)?1:0); print m "\t" p "\t" $0}' | sort -t $'\t' -k1,1V -k2,2n -k3,3 | tail -1 | cut -f3 | xargs -r dirname | xargs -r dirname )}"
+BUDGET_CHECK=$(bash "$PDH/skills/plugin-dir.sh" file skills/autopilot/budget-check.sh)
+APPEND_CARD=$(bash "$PDH/skills/plugin-dir.sh" file skills/autopilot/append-card.sh)
+
+case "<mode>" in refuse|cap|timeout|spawn-fail) ;; *) exit 64 ;; esac
+case "<trigger>" in a|b|c) ;; *) exit 64 ;; esac
+REASON=$(cat <<'ADVISOR_REASON_EOF'
+<reason>
+ADVISOR_REASON_EOF
+)
+
+if BC_OUT=$(bash "$BUDGET_CHECK" "<iteration>" "<run_start_epoch>"); then BC_RC=0; else BC_RC=$?; fi
+if [ "$BC_RC" -eq 64 ]; then
+  # Validation failure — no wall_clock_s, no card (§3b discipline).
+  exit 64
+fi
+WALL_CLOCK_S=$(printf '%s' "$BC_OUT" | jq -r '.wall_clock_s')
+
+# The advisor object travels on disk (SPEC-039 M30: argv/file-path only).
+ADVISOR_OBJ=$(mktemp "${TMPDIR:-/tmp}/advisor-unavailable.XXXXXX.json")
+jq -cn --arg trigger "<trigger>" \
+  '{ruling: null, corrected_claim: null, evidence: [], model: "",
+    evidence_over_memory: true, question_hash: "", trigger: $trigger,
+    cache_hit: false, timeout: ("<mode>" == "timeout"),
+    marker: "advisor unavailable — fell back"}' > "$ADVISOR_OBJ"
+RATIONALE="advisor unavailable — fell back (<mode>): $REASON"
+
+bash "$APPEND_CARD" \
+  "<workflow>" "<ticket_id>" "<gate>" halt auto null 0 8 \
+  "<run_id>" "<iteration>" "$WALL_CLOCK_S" advisor "$RATIONALE" \
+  --advisor-json "$ADVISOR_OBJ"
+APPEND_RC=$?
+rm -f "$ADVISOR_OBJ"
+if [ "$APPEND_RC" -ne 0 ]; then
+  exit "$APPEND_RC"
+fi
+```
+
+`<mode>` ∈ `refuse|cap|timeout|spawn-fail`; `<trigger>` is the probe's `--trigger`;
+`<reason>` is the probe `reason` or the finalize status, one line. `<iteration>` /
+`<run_start_epoch>` feed the §3f-fresh `budget-check.sh` measure; `<workflow>`,
+`<ticket_id>`, `<run_id>` copy the envelope. `confidence` is 0: no ruling backs any
+confidence. A writer reject (exit 64) means no card was appended — escalate, never
+retry silently.
 
 ## 4. Writer-invariant preconditions
 

@@ -36,6 +36,11 @@
 #     in frozen order (tier, source, signals). Pre-CDT-224 4-key budget objects
 #     remain valid (absent ≡ null). Top-level key count stays 18.
 #
+# CDT-565 — advisor (SPEC-039 M30, additive + nullable):
+#   * Absent top-level `advisor` is backfilled as explicit null in its frozen
+#     position (19th key, after actor). Pre-CDT-565 18-key cards remain valid
+#     (absent ≡ null). schema_version stays 1. Top-level key count is 19.
+#
 # Exit codes:
 #   0   success (including the empty/missing-ledger case)
 #  64   usage error (wrong argc), jq absent, unparseable ledger, or a card
@@ -91,6 +96,7 @@ fi
 # blocking_condition when absent, then max_loc after grading_reason, so legacy
 # cards read back in the frozen M13 key order rather than silently lacking keys.
 # Nested budget.tier/source/signals: absent ≡ null after wall_clock_cap_s.
+# Top-level advisor (CDT-565 / SPEC-039 M30): absent ≡ null after actor.
 if ! cards=$(jq -s '
   def insert_after($after; $pairs):
     to_entries
@@ -116,6 +122,7 @@ if ! cards=$(jq -s '
            )
          else .
          end)
+      | ensure_null("advisor"; "actor")
     end
   )
 ' "$ledger_file" 2>/dev/null); then

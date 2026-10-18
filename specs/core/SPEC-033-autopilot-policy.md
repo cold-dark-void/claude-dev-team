@@ -450,7 +450,8 @@ target.
     "max_loc": null,
     "rationale": "<one-line why>",
     "budget": { "iteration": 0, "iteration_cap": 25, "wall_clock_s": 0, "wall_clock_cap_s": 2700, "tier": null, "source": null, "signals": null },
-    "actor": "orchestrator"
+    "actor": "orchestrator",
+    "advisor": null
   }
   ```
 
@@ -515,7 +516,9 @@ target.
     keys (`iteration`, `iteration_cap`, `wall_clock_s`, `wall_clock_cap_s`). **CDT-224 /
     M9b** adds three nested keys, **additive and nullable**, inside `budget` only:
     `tier` (`S|M|L|null`), `source` (`auto|env|default|mixed|null`), and `signals`
-    (`{tasks, projected_loc, waves}|null`). Top-level key count stays **18**. Gate enum
+    (`{tasks, projected_loc, waves}|null`). The count stayed **18** through
+    CDT-224; **CDT-565** (SPEC-039 M30) adds the additive nullable `advisor`
+    key and makes it **19**. Gate enum
     stays the frozen 3-value set. `type` stays `autopilot_decision`. `schema_version`
     stays `1`. MUST NOT add a fourth `gate` value. MUST NOT add a new `type`.
     `read-cards.sh` MUST backfill absent nested keys as explicit `null` (absent ≡ null).
@@ -534,6 +537,15 @@ target.
     a reader of an old ledger falls back to append order within the `run_id`. When card #1 is
     unreadable, the fresh §2a halt card uses `run_id` `orchestrate-<ISSUE-ID>-<RUN_START_EPOCH>`
     (the `/orchestrate` Step 0 formula, with the run's current `RUN_START_EPOCH`).
+  - `advisor` (**CDT-565**, SPEC-039 M30) is an additive nullable top-level object
+    (the advisor ruling record) or `null`, 19th key after `actor`. `schema_version`
+    stays `1`; absent ≡ null; `read-cards.sh` MUST backfill a missing `advisor` as
+    explicit `null` in frozen key order. `append-card.sh` sets it via the optional
+    `--advisor-json PATH` flag (the object travels on disk, never in argv). Writer
+    provenance and the M29 decision map live in SPEC-039 M28–M30; the BC8
+    unavailable card (`blocking_condition: 8`, exact marker
+    `advisor unavailable — fell back`) is SPEC-039 M27 documented reuse — the BC
+    list stays eight.
 
 ### AC7 — Council ship-gate pass (CDT-111-C5)
 

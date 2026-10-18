@@ -145,7 +145,8 @@ ledger() { echo "$AUTODIR/$1.jsonl"; }
 # order: workflow ticket gate decision decided_by bump confidence blocking run_id iter wall actor rationale
 
 # =============================================================================
-# (a) happy-path append → rc 0, 1 line, jq . parses, 18 keys, type/schema/ts
+# (a) happy-path append → rc 0, 1 line, jq . parses, 19 keys, type/schema/ts
+# (CDT-565: M30 adds the additive nullable 19th key `advisor`)
 # =============================================================================
 reset
 RC=$(rc_of bash "$APPEND" orchestrate CDT-111 ship-choice merge auto patch 90 null run-1 3 120 orchestrator "ship it")
@@ -157,13 +158,15 @@ else
   fail "a1 rc=$RC lines=${LINES:-?} (want 0/1, jq-parseable)"
 fi
 KEYS_OK=$(jq -e '
-  (keys_unsorted | length) == 18
+  (keys_unsorted | length) == 19
   and has("schema_version") and has("type") and has("ts") and has("run_id")
   and has("workflow") and has("ticket_id") and has("gate") and has("decision")
   and has("decided_by") and has("bump") and has("confidence")
   and has("blocking_condition") and has("council_tier") and has("grading_reason")
   and has("max_loc") and has("rationale") and has("budget") and has("actor")
+  and has("advisor")
   and .council_tier == null and .grading_reason == null and .max_loc == null
+  and .advisor == null
   and .schema_version == 1 and .type == "autopilot_decision"
   and (.ts | test("^[0-9T:-]+Z$"))
   and (.budget | (has("iteration") and has("iteration_cap")
@@ -171,7 +174,7 @@ KEYS_OK=$(jq -e '
   and .budget.iteration_cap == 25 and .budget.wall_clock_cap_s == 2700
 ' "$L" >/dev/null 2>&1 && echo y || echo n)
 if [ "$KEYS_OK" = "y" ]; then
-  pass "a2 all 18 keys + type/schema_version/ts-shape + default budget caps"
+  pass "a2 all 19 keys (incl. CDT-565 advisor) + type/schema_version/ts-shape + default budget caps"
 else
   fail "a2 schema mismatch: $(cat "$L" 2>/dev/null)"
 fi
@@ -1603,8 +1606,8 @@ rm -rf "$WT_LOC"
 reset
 RC=$(rc_of bash "$APPEND" orchestrate CDT-T3 plan-approve proceed auto null 70 null run-1 1 10 orch "r")
 L=$(ledger CDT-T3)
-if [ "$RC" -eq 0 ] && jq -e '.max_loc == null and .schema_version == 1 and (keys_unsorted | length) == 18' "$L" >/dev/null 2>&1; then
-  pass "t3-13 13-arg append writes max_loc:null, schema_version=1, 18 keys"
+if [ "$RC" -eq 0 ] && jq -e '.max_loc == null and .schema_version == 1 and (keys_unsorted | length) == 19' "$L" >/dev/null 2>&1; then
+  pass "t3-13 13-arg append writes max_loc:null, schema_version=1, 19 keys"
 else
   fail "t3-13 rc=$RC card=$(cat "$L" 2>/dev/null)"
 fi
@@ -1937,7 +1940,7 @@ RC=$(rc_of env -u AUTOPILOT_BUDGET_META -u AUTOPILOT_ITERATION_CAP -u AUTOPILOT_
   bash "$APPEND" orchestrate CDT-T2 plan-approve proceed auto null 70 null run-1 1 10 orch "r")
 L=$(ledger CDT-T2)
 if [ "$RC" -eq 0 ] && jq -e --argjson bk "$BUDGET_KEYS" '
-  (keys_unsorted | length) == 18
+  (keys_unsorted | length) == 19
   and .budget.iteration_cap == 25 and .budget.wall_clock_cap_s == 2700
   and .budget.tier == null and .budget.source == null and .budget.signals == null
   and (.budget | keys_unsorted) == $bk
@@ -1953,7 +1956,7 @@ RC=$(rc_of env AUTOPILOT_BUDGET_META="$META_S_AUTO" \
   bash "$APPEND" orchestrate CDT-T2 plan-approve approve auto null 85 null run-1 1 10 orch "budget_tier=S")
 L=$(ledger CDT-T2)
 if [ "$RC" -eq 0 ] && jq -e --argjson bk "$BUDGET_KEYS" '
-  (keys_unsorted | length) == 18
+  (keys_unsorted | length) == 19
   and .budget.iteration_cap == 10 and .budget.wall_clock_cap_s == 1200
   and .budget.tier == "S" and .budget.source == "auto"
   and .budget.signals.tasks == 2 and .budget.signals.projected_loc == 150
@@ -2013,13 +2016,13 @@ else
   fail "t2-bf rc=$RC out=$OUT"
 fi
 
-# t3-13 still 18 keys (13-arg append after nested budget)
+# t3-13 still 19 keys (13-arg append after nested budget; CDT-565 advisor)
 reset
 RC=$(rc_of env -u AUTOPILOT_BUDGET_META \
   bash "$APPEND" orchestrate CDT-T3 plan-approve proceed auto null 70 null run-1 1 10 orch "r")
 L=$(ledger CDT-T3)
-if [ "$RC" -eq 0 ] && jq -e '.max_loc == null and .schema_version == 1 and (keys_unsorted | length) == 18' "$L" >/dev/null 2>&1; then
-  pass "t2-t3-13 13-arg append still max_loc:null, schema_version=1, 18 keys"
+if [ "$RC" -eq 0 ] && jq -e '.max_loc == null and .schema_version == 1 and (keys_unsorted | length) == 19' "$L" >/dev/null 2>&1; then
+  pass "t2-t3-13 13-arg append still max_loc:null, schema_version=1, 19 keys"
 else
   fail "t2-t3-13 rc=$RC card=$(cat "$L" 2>/dev/null)"
 fi
