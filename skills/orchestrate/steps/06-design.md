@@ -79,6 +79,35 @@ process_acs: <ids|none>
 Approve this plan? Want changes?
 ```
 
+### Step 6 trigger-(b) classifier at the wave-plan write (SPEC-039 M13.1; CDT-564)
+
+When the advisor is enabled for this run (`ADVISOR_ON=true`, Step 0) and
+`ADVISOR_SKIP_TRIGGER` is not `1` (interactive bypass), classify the composed
+plan — including any mid-run rewrite of its `## Waves` / Task Map sections —
+BEFORE persisting it or answering `plan-approve`. A zero-hit scan is a silent
+skip (M17 miss sampling runs inside `classify.sh` under `--run-id`); advisor
+off or bypassed, skip silently.
+
+```bash
+# Fresh shell — re-resolve PDH (SPEC-021 C1). CDT-564 trigger-(b) classifier.
+# lint-ok: C3 — marketplace */ for-loop + -f guarded (SPEC-021 Q2 residual, CDT-82 PDH)
+# Later fence: the single-line PDH wrapper (skills/lib/pdh-later-fence.sh,
+# CDT-502-C5) — the file's first fence already carries the full stanza.
+PDH="${PDH:-$( { [ -n "${CLAUDE_PLUGIN_ROOT:-}" ] && [ -f "$CLAUDE_PLUGIN_ROOT/skills/plugin-dir.sh" ] && printf '%s\n' "$CLAUDE_PLUGIN_ROOT"; } || { [ -f skills/plugin-dir.sh ] && [ -f agents/pm.md ] && grep -qF '"name": "dev-team"' .claude-plugin/plugin.json 2>/dev/null && pwd; } || { _pr='${CLAUDE_PLUGIN_ROOT}'; [ "${_pr#\$}" = "$_pr" ] && [ -f "$_pr/skills/plugin-dir.sh" ] && printf '%s\n' "$_pr"; } || { for _mp in "$HOME"/.claude/plugins/marketplaces/*/; do [ -f "${_mp}skills/plugin-dir.sh" ] && [ -f "${_mp}agents/pm.md" ] && grep -qF '"name": "dev-team"' "${_mp}.claude-plugin/plugin.json" 2>/dev/null && printf '%s\n' "${_mp%/}" && break; done; } || find ~/.claude/plugins/cache \( -path '*/dev-team/*/skills/plugin-dir.sh' -o -path '*/dev-team-edge/*/skills/plugin-dir.sh' \) 2>/dev/null | awk -F/ '{ver=""; for(i=1;i<=NF;i++) if(($i=="dev-team"||$i=="dev-team-edge")&&i<NF){ver=$(i+1);break}; if(ver=="") next; m=ver; gsub(/-pre\./,"~pre.",m); p=($0 ~ /\/cache\/cold-dark-void\/dev-team\//)?2:(($0 ~ /\/cache\/cold-dark-void\/dev-team-edge\//)?1:0); print m "\t" p "\t" $0}' | sort -t $'\t' -k1,1V -k2,2n -k3,3 | tail -1 | cut -f3 | xargs -r dirname | xargs -r dirname )}"
+if [ "${ADVISOR_ON:-}" = "true" ] && [ "${ADVISOR_SKIP_TRIGGER:-}" != "1" ]; then
+  CLASSIFY=$(bash "$PDH/skills/plugin-dir.sh" file skills/advisor/classify.sh)
+  HITS=$(bash "$CLASSIFY" --kind wave-plan --file "<plan-path>" --run-id "<RUN_ID>") || exit $?
+  if [ "$HITS" != "[]" ]; then
+    # One probe per hit (reserve b=4, M26): static-check.sh first (M19), then
+    # ask.sh probe --trigger b --question <hit span> --evidence-dir <plan dir>
+    # -> native spawn -> finalize, per skills/advisor/SKILL.md. A halt outcome
+    # (BC7/BC8) MUST NOT persist the plan: emit task_blocked per
+    # cross-cutting.md Tier B and return control.
+    echo "advisor trigger-(b) hits at the wave-plan write: $HITS" >&2
+  fi
+fi
+```
+
 **Autopilot:** if `AUTOPILOT_ON` (Step 0), do NOT wait for the user here — this is the
 autopilot-only `plan-approve` branch; when autopilot is off nothing changes and the
 existing approval gate below fires as the sole gate. Compute AC9 freeze signals from

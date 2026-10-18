@@ -80,6 +80,38 @@ BEFORE the cache: a writer reject exits 64 and leaves nothing cached, so a
 retry re-spawns instead of losing the card. A status finalize rejects card
 context (exit 64).
 
+## Trigger (b) — classifier and static checks (SPEC-039 M13–M19, CDT-564)
+
+The mechanical front-end decides WHEN a trigger-(b) probe is warranted; the
+probe itself is the two-phase seam above. Order at every hook point
+(wave-plan write: `skills/orchestrate/steps/06-design.md`, `07-tasks.md`,
+and mid-run rewrites; disposition write: `12-wrap.md`,
+`skills/epic/mode-b-execute.md` B.5, `skills/backlog/SKILL.md` close):
+
+1. `classify.sh` — deterministic POSIX-ERE scan, no LLM, no spawn. CLI:
+   `classify.sh --kind wave-plan (--file PATH | --text TEXT) [--run-id ID]`
+   or `classify.sh --kind disposition --action <close|block|descope|reassign>
+   (--file PATH | --text TEXT) [--run-id ID]`; stdin is scanned when neither
+   `--file` nor `--text` is given. stdout is
+   exactly one JSON array of hits
+   `{"trigger":"b","class":"identity|disposition","span":...,"question_hash":...}`;
+   empty array = no fire (silent skip, M17). `--kind disposition` fires its
+   structured hit only for `--action close|block|descope|reassign` (M15 —
+   never scanned from prose). With `--run-id`, a zero-hit scan appends one
+   `class=miss-sample` row to `runs/<run_id>/shadow.jsonl` when
+   `sha256(input) % 10 == 0` and never spawns (M17).
+2. `static-check.sh run --question <hit span> --evidence-dir DIR --run-id ID`
+   — cheap pre-probe checks before the probe is spent (M19): `command -v`
+   per candidate token, repo-docs grep, and `pacman -Q` / `file` / `strings`
+   only when `ADVISOR_STATIC_HOST_CMDS=1` (host safeguards). Every output
+   lands as a file in the evidence dir; docs hits are `path:line` locators;
+   `static-check.json` holds paths and exit codes, never embedded prose.
+   It prints the question hash and writes a receipt —
+   `static-check.sh verify --run-id ID --question-hash H` exits 0 only after
+   the run. Probe MUST NOT start without it (M19).
+3. `ask.sh probe --trigger b ...` — the seam above. `ADVISOR_SKIP_TRIGGER=1`
+   bypasses steps 1–2 interactively; advisor off means both skip silently.
+
 ## Caps (M26)
 
 - Per-trigger reserves per run: `a`=3, `b`=4, `c`=2.

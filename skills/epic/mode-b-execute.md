@@ -234,6 +234,35 @@ Do **not** reimplement their internals here.
 Prefer optional `--outcome "<≤1 line>"` on `set-status … completed|blocked`
 (Mode D) so seeds carry status+summary without re-reading child sessions.
 
+#### B.5 trigger-(b) classifier before the child disposition (SPEC-039 M13.2; CDT-564)
+
+When the epic carries the advisor (`with_advisor: true` → `ADVISOR=1`, B.4)
+and `ADVISOR_SKIP_TRIGGER` is not `1` (interactive bypass), classify the
+disposition BEFORE `set-status … completed|blocked` (close / block). A
+zero-hit scan is a silent skip (M17 miss sampling runs inside `classify.sh`
+under `--run-id`). `descope` / `reassign` state changes use the same fence
+with that `--action` value.
+
+```bash
+# Fresh shell — re-resolve PDH (SPEC-021 C1). CDT-564 trigger-(b) classifier.
+# lint-ok: C3 — marketplace */ for-loop + -f guarded (SPEC-021 Q2 residual, CDT-82 PDH)
+# Later fence: the single-line PDH wrapper (skills/lib/pdh-later-fence.sh,
+# CDT-502-C5) — the file's first fence already carries the full stanza.
+PDH="${PDH:-$( { [ -n "${CLAUDE_PLUGIN_ROOT:-}" ] && [ -f "$CLAUDE_PLUGIN_ROOT/skills/plugin-dir.sh" ] && printf '%s\n' "$CLAUDE_PLUGIN_ROOT"; } || { [ -f skills/plugin-dir.sh ] && [ -f agents/pm.md ] && grep -qF '"name": "dev-team"' .claude-plugin/plugin.json 2>/dev/null && pwd; } || { _pr='${CLAUDE_PLUGIN_ROOT}'; [ "${_pr#\$}" = "$_pr" ] && [ -f "$_pr/skills/plugin-dir.sh" ] && printf '%s\n' "$_pr"; } || { for _mp in "$HOME"/.claude/plugins/marketplaces/*/; do [ -f "${_mp}skills/plugin-dir.sh" ] && [ -f "${_mp}agents/pm.md" ] && grep -qF '"name": "dev-team"' "${_mp}.claude-plugin/plugin.json" 2>/dev/null && printf '%s\n' "${_mp%/}" && break; done; } || find ~/.claude/plugins/cache \( -path '*/dev-team/*/skills/plugin-dir.sh' -o -path '*/dev-team-edge/*/skills/plugin-dir.sh' \) 2>/dev/null | awk -F/ '{ver=""; for(i=1;i<=NF;i++) if(($i=="dev-team"||$i=="dev-team-edge")&&i<NF){ver=$(i+1);break}; if(ver=="") next; m=ver; gsub(/-pre\./,"~pre.",m); p=($0 ~ /\/cache\/cold-dark-void\/dev-team\//)?2:(($0 ~ /\/cache\/cold-dark-void\/dev-team-edge\//)?1:0); print m "\t" p "\t" $0}' | sort -t $'\t' -k1,1V -k2,2n -k3,3 | tail -1 | cut -f3 | xargs -r dirname | xargs -r dirname )}"
+if [ "${ADVISOR_ON:-}" = "true" ] && [ "${ADVISOR_SKIP_TRIGGER:-}" != "1" ]; then
+  CLASSIFY=$(bash "$PDH/skills/plugin-dir.sh" file skills/advisor/classify.sh)
+  HITS=$(bash "$CLASSIFY" --kind disposition --action "<close|block|descope|reassign>" --text "<disposition rationale>" --run-id "<RUN_ID>") || exit $?
+  if [ "$HITS" != "[]" ]; then
+    # One probe per hit (reserve b=4, M26): static-check.sh first (M19), then
+    # ask.sh probe --trigger b --question <hit span> --evidence-dir <evidence
+    # dir> -> native spawn -> finalize, per skills/advisor/SKILL.md. A halt
+    # outcome (BC7/BC8) MUST NOT run set-status: emit task_blocked per
+    # cross-cutting.md Tier B and return control.
+    echo "advisor trigger-(b) hits at the disposition write: $HITS" >&2
+  fi
+fi
+```
+
 After a child leaves the active handoff (`completed`, or `blocked` with no
 mid-path successor) and `epic-lib ready-set` is non-empty: continue Mode B
 in the **same run**. Order: **B.6** (if M13 applies) → **B.1** → **B.2** →

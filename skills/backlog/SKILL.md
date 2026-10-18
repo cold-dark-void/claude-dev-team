@@ -264,6 +264,16 @@ Linear-first; M8 proceed-gated).
 
 Mark a backlog item completed. **Linear terminal when MCP up + always local flip.**
 
+**Trigger-(b) classifier before the disposition write (SPEC-039 M13.2;
+CDT-564).** When the advisor is enabled for the run (`ADVISOR_ON=true`, Step
+0) and `ADVISOR_SKIP_TRIGGER` is not `1` (interactive bypass), classify the
+close rationale — `--kind disposition --action close` — BEFORE `close.sh` or
+the Linear terminal call. A zero-hit scan is a silent skip (M17 miss sampling
+runs inside `classify.sh` under `--run-id`). `descope` / `reassign` state
+changes on Linear use the same fence with that `--action` value. A halt
+outcome (BC7/BC8) MUST NOT apply the state change. The block below sits in
+the same fresh-shell fence as the CLI call (it needs the same PDH).
+
 Prefer the deterministic CLI (shared with `/orchestrate` ship and `/wrap-ticket`)
 for the **local** write-through:
 
@@ -272,6 +282,17 @@ for the **local** write-through:
 PDH=$( { [ -n "${CLAUDE_PLUGIN_ROOT:-}" ] && [ -f "$CLAUDE_PLUGIN_ROOT/skills/plugin-dir.sh" ] && printf '%s\n' "$CLAUDE_PLUGIN_ROOT"; } || { [ -f skills/plugin-dir.sh ] && [ -f agents/pm.md ] && grep -qF '"name": "dev-team"' .claude-plugin/plugin.json 2>/dev/null && pwd; } || { _pr='${CLAUDE_PLUGIN_ROOT}'; [ "${_pr#\$}" = "$_pr" ] && [ -f "$_pr/skills/plugin-dir.sh" ] && printf '%s\n' "$_pr"; } || { for _mp in "$HOME"/.claude/plugins/marketplaces/*/; do [ -f "${_mp}skills/plugin-dir.sh" ] && [ -f "${_mp}agents/pm.md" ] && grep -qF '"name": "dev-team"' "${_mp}.claude-plugin/plugin.json" 2>/dev/null && printf '%s\n' "${_mp%/}" && break; done; } || find ~/.claude/plugins/cache \( -path '*/dev-team/*/skills/plugin-dir.sh' -o -path '*/dev-team-edge/*/skills/plugin-dir.sh' \) 2>/dev/null | awk -F/ '{ver=""; for(i=1;i<=NF;i++) if(($i=="dev-team"||$i=="dev-team-edge")&&i<NF){ver=$(i+1);break}; if(ver=="") next; m=ver; gsub(/-pre\./,"~pre.",m); p=($0 ~ /\/cache\/cold-dark-void\/dev-team\//)?2:(($0 ~ /\/cache\/cold-dark-void\/dev-team-edge\//)?1:0); print m "\t" p "\t" $0}' | sort -t $'\t' -k1,1V -k2,2n -k3,3 | tail -1 | cut -f3 | xargs -r dirname | xargs -r dirname )
 printf 'PDH=%s\n' "$PDH" >&2
 CLOSE=$(bash "$PDH/skills/plugin-dir.sh" file skills/backlog/close.sh)
+# CDT-564: trigger-(b) classifier before the close write (M13.2); silent skip
+# when the advisor is off or ADVISOR_SKIP_TRIGGER=1 (interactive bypass).
+if [ "${ADVISOR_ON:-}" = "true" ] && [ "${ADVISOR_SKIP_TRIGGER:-}" != "1" ]; then
+  CLASSIFY=$(bash "$PDH/skills/plugin-dir.sh" file skills/advisor/classify.sh)
+  HITS=$(bash "$CLASSIFY" --kind disposition --action close --text "<close rationale>" --run-id "<RUN_ID>") || exit $?
+  if [ "$HITS" != "[]" ]; then
+    # static-check.sh first (M19), then ask.sh probe --trigger b per
+    # skills/advisor/SKILL.md; a halt outcome (BC7/BC8) MUST NOT close.
+    echo "advisor trigger-(b) hits at the disposition write: $HITS" >&2
+  fi
+fi
 # ROOT = MROOT by default (shared store; SPEC-009 § Backlog root rule); --root overrides
 bash "$CLOSE" <slug-or-title> \
   [--ticket <ISSUE-ID>] [--sha <sha>] [--note <text>] \

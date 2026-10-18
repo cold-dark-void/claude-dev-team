@@ -311,7 +311,9 @@ Glossary term: Advisor (`CONTEXT.md`).
   BC8 unavailable card with the exact marker.
 - `bash skills/advisor/test-classify.sh` covers disposition `--action`,
   identity-claim hits (`omp is Open MPI`, `omp on this machine is Open MPI`),
-  misses (`ic4 is the well-defined seat`), and miss-sample modulo.
+  misses (`ic4 is the well-defined seat`), miss-sample modulo, static-check
+  paths-only evidence, the receipt/verify gate and probe hash parity
+  (CDT-564), and the wave-plan/disposition hook wiring asserts.
 - `bash skills/model-map/spawn-site-test.sh` includes `advisor:opus:high`
   and tools exactly `Read, Grep, Glob, Bash`.
 - `bash install-test.sh` strips `tools:` from `agents/advisor.md`.
@@ -351,6 +353,7 @@ Glossary term: Advisor (`CONTEXT.md`).
 
 | Date | Change |
 |------|--------|
+| 2026-10-18 | CDT-564: `### CDT-564` ACs for the trigger-(b) mechanical front-end — `classify.sh`, `static-check.sh`, both hook points, M17 miss sampling, receipt/verify probe gate (epic child C5). |
 | 2026-10-13 | CDT-558: `### CDT-558` ACs for the agent file + `advisor-protocol.md` include (epic child C1). M4 roster-docs and the 14-file SPEC-003 count stay with CDT-562. |
 | 2026-10-13 | Initial DRAFT (CDT-556). Third roster category; two-phase ask.sh; `--with-advisor`; triggers (b)/(c)/(a); BC8 reuse for unavailable; additive card key `advisor`. |
 
@@ -474,6 +477,27 @@ Format and rules: SPEC-033 M14(g) and M14(h).
   Verify: bash skills/advisor/test.sh
 - **AC7.** Under autopilot, advisor unavailable (probe `refuse`/`cap`, or a `--timeout`/`--spawn-fail` finalize) halts with exactly one BC8 card — `decision: halt`, `blocking_condition: 8`, `decided_by: auto`, `actor: advisor`, `confidence: 0` — carrying the exact marker `advisor unavailable — fell back` inside the `advisor` object (`ruling: null`). The `self-answer.md` §3g fence is the one executable pattern (fresh `budget-check.sh` wall_clock_s, mktemp advisor-object file under TMPDIR, writer reject → exit 64, no silent retry) and it accepts only `refuse|cap|timeout|spawn-fail`; no ninth blocking condition exists anywhere (the writer still rejects `blocking_condition: 9`).
   Verify: bash skills/autopilot/test-card-validation.sh
+
+### CDT-564
+
+- **AC1.** `skills/advisor/classify.sh` is a deterministic POSIX-ERE classifier invoked as a subprocess CLI and never sourced; its source contains no LLM or spawn primitives (no Agent tool, no spawn-request, no `subagent_type`, no network calls). It scans `--file PATH`, `--text TEXT`, or stdin, prints exactly one JSON array of hits `{trigger:"b", class, span, question_hash}` (empty array = no fire), and exits 0 on any scan (64 only on usage errors: unknown `--kind`, `--action` on `wave-plan`, invalid `--action` value).
+  Verify: bash skills/advisor/test-classify.sh
+- **AC2.** The disposition class (M15) fires only from the structured `--action` in `close|block|descope|reassign` — one `disposition` hit per such write — and the verbs are never scanned from freeform prose; a disposition scan additionally reports identity-claim hits from the same text.
+  Verify: bash skills/advisor/test-classify.sh
+- **AC3.** The identity-claim class (M16) fires on `wave-plan` and `disposition` scans for the three case rules with a lowercase-token or absolute-path subject: (1) `<subject> on this (machine|host|box) (is|is not|isn't|are|aren't) …`; (2) `<subject> (is|is not|isn't) (installed|present|available|missing|not installed)`; (3) `<subject> (is|is not|isn't) <ProperName>` (`[A-Z]` start). `omp is Open MPI`, `omp on this machine is Open MPI`, and `omp is not installed` hit; `ic4 is the well-defined seat` and an uppercase subject miss; a later pattern match overlapping an earlier span on the same line is skipped (`omp on this machine is Open MPI` yields exactly one identity hit).
+  Verify: bash skills/advisor/test-classify.sh
+- **AC4.** Miss sampling (M17): a zero-hit scan is a silent skip that writes nothing without `--run-id`; with `--run-id`, `sha256(input) % 10 == 0` (first 13 hex chars) appends exactly one `class=miss-sample` row to `$ADVISOR_STATE_ROOT/runs/<run_id>/shadow.jsonl` and nothing else — no spawn-request, no spawn.
+  Verify: bash skills/advisor/test-classify.sh
+- **AC5.** The trigger-(b) probe is gated caller-side (M19): at every hook point the documented order places `static-check.sh run` between the classifier and `ask.sh probe` (AC9), and `static-check.sh verify --run-id ID --question-hash H` exits 0 only once `run` has recorded the receipt for that hash (nonzero before, nonzero for a wrong hash) — the probe MUST NOT start un-checked. `run` derives cheap checks from the question (`command -v` per candidate token, repo-docs grep, and `pacman -Q`/`file`/`strings` only when `ADVISOR_STATIC_HOST_CMDS=1`), writes every check output to a file inside the evidence dir and docs hits as `path:line` locators, and `static-check.json` carries paths + exit codes, never embedded command output or prose.
+  Verify: bash skills/advisor/test-classify.sh
+- **AC6.** The static-check question hash equals the `ask.sh probe` question hash over the same evidence dir (the hash covers the written evidence-dir content), and `static-check.sh verify --run-id ID --question-hash H` exits 0 only once `run` has recorded the receipt for that hash (nonzero before, nonzero for a wrong hash) — the caller-side gate that keeps the probe from starting un-checked.
+  Verify: bash skills/advisor/test-classify.sh
+- **AC7.** Hook point 1 — wave-plan write (M13.1): `skills/orchestrate/steps/06-design.md` and `skills/orchestrate/steps/07-tasks.md` each carry a `classify.sh --kind wave-plan` guard fence covering the composed plan and any mid-run rewrite of its `## Waves` / Task Map sections: the doc states the classifier runs BEFORE persisting and the fence states a halt MUST NOT persist; the fence is gated on `ADVISOR_ON=true` with an `ADVISOR_SKIP_TRIGGER=1` interactive bypass; and the fence text, extracted and executed, exits 0 with no output when the advisor is off or bypassed (silent skip) and emits the `advisor trigger-(b) hits` halt signal on stderr when the classifier returns hits.
+  Verify: bash skills/advisor/test-classify.sh
+- **AC8.** Hook point 2 — disposition write (M13.2): `skills/orchestrate/steps/12-wrap.md` (wrap-ticket close), `skills/epic/mode-b-execute.md` B.5 (child `set-status completed|blocked`, with `descope`/`reassign` named), and `skills/backlog/SKILL.md` (backlog close, Linear state change) each carry a `classify.sh --kind disposition --action <action>` guard fence placed before the state-change instruction; the doc states a halt outcome MUST NOT apply the state change; the fence has the same `ADVISOR_ON`/`ADVISOR_SKIP_TRIGGER` seams; and the fence text, extracted and executed, exits 0 with no output when the advisor is off and emits the halt signal on stderr when the classifier returns hits.
+  Verify: bash skills/advisor/test-classify.sh
+- **AC9.** `skills/advisor/SKILL.md` documents the classify-hits → static-check → probe order, the M17 miss-sample behavior, the receipt/verify gate, and evidence travel as directory paths end-to-end (the spawn-request carries the evidence dir path).
+  Verify: bash skills/advisor/test-classify.sh
 
 ## Alternatives considered
 
