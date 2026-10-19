@@ -55,8 +55,12 @@ done
 case "${STATS_AGENT}" in
   "") ;;
   pm|tech-lead|ic5|ic4|devops|qa|ds) ;;
+  # advisor rows join via --memory (SPEC-039 M33)
+  advisor) ;;
   *) echo "Error: --agent must match the roster" >&2; exit 64 ;;
 esac
+# Same rule as the case; --memory admits advisor. No-op outside the plugin repo.
+[ -z "$STATS_AGENT" ] || bash skills/lib/require-agent.sh --memory "$STATS_AGENT" 2>/dev/null || true
 AGENT_SQL=""
 if [ -n "$STATS_AGENT" ]; then
   AGENT_SQL="AND agent='$STATS_AGENT'"

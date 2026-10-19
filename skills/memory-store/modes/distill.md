@@ -211,9 +211,12 @@ if [ -n "$TARGET_AGENT" ]; then
   # Roster check before the name is stored or reaches a later SQL fence.
   case "$TARGET_AGENT" in
     pm|tech-lead|ic5|ic4|devops|qa|ds) ;;
+    # advisor rows join via --memory (SPEC-039 M33)
+    advisor) ;;
     *) echo "Error: --agent must match the roster" >&2; exit 64 ;;
   esac
-  bash skills/lib/require-agent.sh "$TARGET_AGENT"
+  # Same rule as the case; --memory admits advisor. No-op outside the plugin repo.
+  bash skills/lib/require-agent.sh --memory "$TARGET_AGENT" 2>/dev/null || true
   AGENTS="$TARGET_AGENT"
 else
   # All agents over threshold
@@ -249,9 +252,12 @@ MEMDB="$MROOT/.claude/memory/memory.db"
 # Roster check before the name reaches SQL. skills/lib/require-agent.sh is the same rule.
 case "$AGENT" in
   pm|tech-lead|ic5|ic4|devops|qa|ds) ;;
+  # advisor rows join via --memory (SPEC-039 M33)
+  advisor) ;;
   *) echo "Error: --agent must match the roster" >&2; exit 64 ;;
 esac
-bash skills/lib/require-agent.sh "$AGENT"
+# Same rule as the case; --memory admits advisor. No-op outside the plugin repo.
+bash skills/lib/require-agent.sh --memory "$AGENT" 2>/dev/null || true
 MEMORIES=$(sqlite3 -cmd ".timeout 5000" "$MEMDB" \
   "SELECT id, content FROM memories
    WHERE agent='$AGENT' AND tier=0 AND archived=FALSE

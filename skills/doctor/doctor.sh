@@ -135,6 +135,7 @@ register_check "memory.ext.vec" "memory" check_memory_ext_vec
 register_check "memory.ext.lembed" "memory" check_memory_ext_lembed
 register_check "memory.embedding_config" "memory" check_memory_embedding_config
 register_check "memory.embed_errors" "memory" check_memory_embed_errors
+register_check "memory.advisor" "memory" check_memory_advisor
 register_check "memory.mode" "memory" check_memory_mode
 register_check "memory.embed_roundtrip" "memory" check_memory_embed_roundtrip
 register_check "hooks.events" "hooks" check_hooks_events

@@ -51,8 +51,9 @@ Use `--dry-run` to preview every change without writing anything (`bash install.
 | `devops` | Sonnet | Deployments, CI/CD, infrastructure, monitoring, incident response |
 | `qa` | Sonnet | Test planning, validation, bug reports, **release gating** |
 | `ds` | Opus | Data analysis, ML/AI pipelines, A/B testing, metrics, statistical modeling |
+| `advisor` | Opus | Read-only adjudicator with per-agent memory — post-council appeal + BC-diagnosis claims, spawned only by the orchestrator (SPEC-039; opt-in `--with-advisor`) |
 
-The seven rows above are the behavioral/team agents you route work to, and they are the
+The first seven rows are the behavioral/team agents you route work to, and they are the
 ones with persistent per-project memory. Seven internal agents are never routed to directly.
 `finder`, `debugger`, `project-init`, `distiller`, `council-judge`, and `council-scribe` are
 invoked by specific commands

@@ -4,6 +4,13 @@ All notable changes to **claude-dev-team**, newest first.
 Authoritative version history. Prefer **`/release`** to add `### vX.Y.Z` headings.
 Pre-written headings (release-train M5c, orchestrate version-sync tasks) are kept
 via skip-if-present when `/release` is given an explicit version — do not invent a
+### v1.27.14
+
+- **CDT-562 (SPEC-039 C9) — advisor memory rules + advisory-internal roster.** `skills/agent-memory/advisor-protocol.md` documents the M31/M32 advisor memory-content rules (tool-backed facts with a `{cmd, sha256, version, ts}` re-verify predicate, stale-on-version-change, `evidence_over_memory` enforcement; the M32 never-persist list) and the `--memory` write-path gate.
+- `skills/lib/require-agent.sh` gains `--memory`: the 7 behavioral names plus `advisor` (default still rejects `advisor`, exit 64); wired into memory-store, `/memory distill`, memory-recall, and validate-memory.
+- SPEC-003 adds the third roster category **advisory-internal** (`advisor` alone, opus/high tier row, behavioral-7 / non-behavioral-6 counts unchanged); README + AGENTS.md rosters list `advisor`.
+- `/doctor` reports `memory.advisor` status (present/empty/n/a, T32) and the T33 doc-bite battery (dashboard exclusion, `--memory` docs, tier row, README/AGENTS rosters); `skills/advisor/test.sh` adds t35–t40 doc-bite tests (83 tests).
+
 ### v1.27.13
 - **Trigger-(b) mechanical front-end: classifier + static checks + hook fences (SPEC-039 C5, cdt-564)** — new `skills/advisor/classify.sh` (deterministic POSIX-ERE classifier: `--kind wave-plan|disposition [--action ...]`, `--file`/`--text`/stdin, one JSON hit array `{trigger,class,span,question_hash}`, exit 0 on scan / 64 on usage errors, no LLM or spawn primitives; M17 miss sampling appends one `class=miss-sample` shadow row on `sha256(input) % 10 == 0` with `--run-id`) and `skills/advisor/SKILL.md` trigger-(b) section; new `skills/advisor/static-check.sh` (M19 caller-side gate: `run` derives cheap checks from the question, writes evidence-dir files + `path:line` docs locators + paths/exit-codes-only `static-check.json`, prints the question hash and records a receipt; `verify --run-id --question-hash` exits 0 only after `run` — probe MUST NOT start un-checked); hook-point guard fences (gated `ADVISOR_ON=true`, `ADVISOR_SKIP_TRIGGER=1` bypass, halt signal `advisor trigger-(b) hits` on stderr, halt MUST NOT persist) in `orchestrate` steps 06-design/07-tasks (wave-plan write, M13.1) and 12-wrap + `epic` mode-b B.5 + `backlog` close (disposition write, M13.2); SPEC-039 `### CDT-564` AC1–AC9; bite suite `test-classify.sh` 96 tests 96/0 (including runtime fence-extraction exec exhibits); advisor suite 77/0
 

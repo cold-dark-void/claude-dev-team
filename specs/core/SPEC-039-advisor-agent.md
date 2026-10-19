@@ -499,6 +499,19 @@ Format and rules: SPEC-033 M14(g) and M14(h).
 - **AC9.** `skills/advisor/SKILL.md` documents the classify-hits → static-check → probe order, the M17 miss-sample behavior, the receipt/verify gate, and evidence travel as directory paths end-to-end (the spawn-request carries the evidence dir path).
   Verify: bash skills/advisor/test-classify.sh
 
+### CDT-562
+
+- **AC1.** `skills/agent-memory/advisor-protocol.md` documents the M31 memory rule with the re-verify predicate `{cmd, sha256, version, ts}` (a row goes stale when `version` changes) and the `evidence_over_memory` enforcement — persisted advisor memory rows are tool-backed facts; a row without reproducible evidence may suggest a check but never serves as a ruling reason — exhibited by `skills/advisor/test.sh` doc-bite tests.
+  Verify: bash skills/advisor/test.sh
+- **AC2.** `skills/agent-memory/advisor-protocol.md` documents the M32 never-persist list: rulings-as-facts, gate waivers / "we proceeded", unverified issue/PR/council text, secrets, per-run state; and that user-overridden rulings persist as a pattern only — exhibited by `skills/advisor/test.sh` doc-bite tests.
+  Verify: bash skills/advisor/test.sh
+- **AC3.** `bash skills/lib/require-agent.sh --memory advisor` exits 0 and plain `bash skills/lib/require-agent.sh advisor` exits 64 (run output exhibited by `skills/lib/require-agent-test.sh`); memory-store, `/memory distill`, and `/doctor` docs name `--memory` for advisor rows; `/doctor` reports advisor memory status (present/empty/n/a, exercised by `skills/doctor/test.sh` T32); the `/adjust-agent` dashboard does not list advisor (asserted by the `skills/doctor/test.sh` dashboard-exclusion test).
+  Verify: bash skills/doctor/test.sh
+- **AC4.** SPEC-003 documents the third category (advisory-internal) with tier-table row `advisor`/`opus`/`high`; the behavioral-7 and non-behavioral-6 counts are unchanged; the README and AGENTS.md rosters list `advisor` at HEAD.
+  Verify: bash skills/doctor/test.sh
+- **AC5.** The memory protocol (skills/agent-memory/) documents the M31/M32 advisor memory content rules and the `--memory` write-path gate.
+  Verify: bash skills/advisor/test.sh
+
 ## Alternatives considered
 
 - **Spawn from bash via host CLI.** Rejected: host CLI is not portable across

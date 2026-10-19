@@ -190,6 +190,31 @@ except Exception:
   esac
 }
 
+# memory.advisor (SPEC-039 M33): report advisor memory status — present / empty / n/a.
+# Advisor rows are written only via require-agent.sh --memory; the count is a
+# status report, never a FAIL (empty advisor memory is a normal state).
+check_memory_advisor() {
+  if ! have_cmd sqlite3; then
+    record "memory.advisor" "memory" "SKIP" "advisor memory: n/a (sqlite3 absent)" ""
+    return 0
+  fi
+  if [ ! -f "$MEMDB" ]; then
+    record "memory.advisor" "memory" "SKIP" "advisor memory: n/a (memory.db absent)" ""
+    return 0
+  fi
+  local n
+  n=$(sqlite3 -cmd ".timeout 5000" "$MEMDB" \
+    "SELECT COUNT(*) FROM memories WHERE agent='advisor' AND archived=FALSE;" 2>/dev/null || true)
+  case "$n" in
+    ""|*[!0-9]*) n=0 ;;
+  esac
+  if [ "$n" -gt 0 ]; then
+    record "memory.advisor" "memory" "PASS" "advisor memory: present ($n active rows)" ""
+  else
+    record "memory.advisor" "memory" "PASS" "advisor memory: empty" ""
+  fi
+}
+
 # memory.embed_errors (CDT-262 / SPEC-022 M2j): embed-one.sh and migrate-md.sh append
 # one line per failed embed to <MROOT>/.claude/memory/.errors.log as
 # "<UTC ts> embed <site> <detail>". Count the lines whose second field is "embed".

@@ -67,6 +67,12 @@ bash skills/lib/sqlq.sh "$MEMDB" \
   "$AGENT" "$TYPE" "$CONTENT"
 ```
 
+> **Advisor rows (SPEC-039 M33):** `advisor` is not a behavioral name — the
+> default check above rejects it. Tooling that handles advisor rows (the
+> advisor write path, `/memory distill`, `/memory stats`, `/doctor`) calls
+> `bash skills/lib/require-agent.sh --memory "$AGENT"` instead; the 7
+> behavioral names pass both forms unchanged.
+
 A quoted heredoc holds **literal SQL only**. It does not bind variables and it does not sidestep escaping. Dynamic agent, type, or content goes through `memdb.sh write` (bound `?`). The delimiter below is unique so a content line cannot close it. Cap dynamic `.md` fallback bodies at 8000 bytes.
 
 ```bash

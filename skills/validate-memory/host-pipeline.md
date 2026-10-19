@@ -120,11 +120,14 @@ fi
 
 AGENT_CLAUSE=""
 if [ -n "$TARGET_AGENT" ]; then
+  # Roster check; advisor rows join via --memory (SPEC-039 M33).
   case "$TARGET_AGENT" in
     pm|tech-lead|ic5|ic4|devops|qa|ds) ;;
+    advisor) ;;
     *) echo "Error: --agent must match the roster" >&2; exit 64 ;;
   esac
-  bash skills/lib/require-agent.sh "$TARGET_AGENT"
+  # Same rule as the case; --memory admits advisor. No-op outside the plugin repo.
+  bash skills/lib/require-agent.sh --memory "$TARGET_AGENT" 2>/dev/null || true
   AGENT_CLAUSE="AND agent='$TARGET_AGENT'"
 fi
 
@@ -688,11 +691,14 @@ MEMDB="$MROOT/.claude/memory/memory.db"
 # This block is a new shell: rebuild the agent filter here (same rule as Step 3).
 AGENT_CLAUSE=""
 if [ -n "$TARGET_AGENT" ]; then
+  # Roster check; advisor rows join via --memory (SPEC-039 M33).
   case "$TARGET_AGENT" in
     pm|tech-lead|ic5|ic4|devops|qa|ds) ;;
+    advisor) ;;
     *) echo "Error: --agent must match the roster" >&2; exit 64 ;;
   esac
-  bash skills/lib/require-agent.sh "$TARGET_AGENT"
+  # Same rule as the case; --memory admits advisor. No-op outside the plugin repo.
+  bash skills/lib/require-agent.sh --memory "$TARGET_AGENT" 2>/dev/null || true
   AGENT_CLAUSE="AND agent='$TARGET_AGENT'"
 fi
 DIGESTS=$(sqlite3 -cmd ".timeout 5000" "$MEMDB" "

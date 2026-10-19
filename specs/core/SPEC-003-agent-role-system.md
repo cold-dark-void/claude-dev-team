@@ -4,20 +4,20 @@
 **Category**: core
 **Created**: 2026-03-22
 
-**Covers**: `agents/pm.md`, `agents/tech-lead.md`, `agents/ic5.md`, `agents/ic4.md`, `agents/devops.md`, `agents/qa.md`, `agents/ds.md`, `agents/finder.md`, `agents/debugger.md`, `agents/council-judge.md`, `agents/council-scribe.md`, `agents/distiller.md`, `agents/project-init.md`, `commands/adjust-agent.md`
+**Covers**: `agents/pm.md`, `agents/tech-lead.md`, `agents/ic5.md`, `agents/ic4.md`, `agents/devops.md`, `agents/qa.md`, `agents/ds.md`, `agents/finder.md`, `agents/debugger.md`, `agents/council-judge.md`, `agents/council-scribe.md`, `agents/distiller.md`, `agents/project-init.md`, `agents/advisor.md`, `commands/adjust-agent.md`
 
 ## Overview
 
 The core concept of the plugin: a FAANG-style team of 7 specialized AI agents with distinct roles, responsibilities, model assignments, and tool access. Each agent has YAML frontmatter (name, description, tools, model), behavioral rules encoded in markdown, and a per-agent memory architecture. Behavioral directives provide persistent standing orders that agents cannot override.
 
-Alongside the 7 behavioral agents the plugin ships **non-behavioral roster agents** — single-purpose agent files invoked by a specific engine, with no per-agent memory, no cortex, and no directives surface. `council-judge`, `distiller`, and `project-init` established that category; `finder` and `debugger` (CDT-230) and `council-scribe` (CDT-380) join it. The full 13-file roster and its model/effort tier table are below.
+Alongside the 7 behavioral agents the plugin ships **non-behavioral roster agents** — single-purpose agent files invoked by a specific engine, with no per-agent memory, no cortex, and no directives surface. `council-judge`, `distiller`, and `project-init` established that category; `finder` and `debugger` (CDT-230) and `council-scribe` (CDT-380) join it. A third category, **advisory-internal** (SPEC-039 C9), holds `advisor` alone: it has per-agent memory (rows join only via `require-agent.sh --memory`) but no directives surface and no cortex, and it is spawned only by the orchestrator through the SPEC-039 ask.sh seam. The behavioral-7 and non-behavioral-6 counts stay unchanged. The full 14-file roster and its model/effort tier table are below.
 
 ## MUST
 
 ### Agent Identity
 - MUST define exactly 7 behavioral agents: pm, tech-lead, ic5, ic4, devops, qa, ds
 - MUST define exactly 6 non-behavioral roster agents: finder, debugger, council-judge, council-scribe, distiller, project-init. A non-behavioral agent MUST NOT have `.claude/memory/<agent>/`, a cortex, an `init-team` bootstrap entry, or a `/adjust-agent` directives surface. It MUST NOT carry the managed-inline memory-protocol include region (§ Memory Architecture). Precedent: `council-judge`.
-- MUST require YAML frontmatter with `name`, `description`, `tools`, `model`, and `effort` fields on all 13 agent definitions
+- MUST require YAML frontmatter with `name`, `description`, `tools`, `model`, and `effort` fields on all 14 agent definitions
 - MUST assign the model and effort tier for every roster agent per the Tier table below. This spec is SoT for both columns.
 - MUST treat shipped frontmatter `model:` as the **Tier default** and shipped frontmatter `effort:` as the **Effort tier default**. Runtime model routing via the **Model map** is SPEC-037. Per-agent effort is NOT runtime-routable on this host — frontmatter is the only substrate that reaches a namespaced roster spawn (SPEC-037 § Host capability findings F3, F6). SPEC-037 MUST NOT rewrite `agents/*.md`.
 
@@ -29,6 +29,7 @@ Alongside the 7 behavioral agents the plugin ships **non-behavioral roster agent
 | `council-judge` | opus | high | non-behavioral |
 | `council-scribe` | opus | high | non-behavioral |
 | `debugger` | opus | high | non-behavioral |
+| `advisor` | opus | high | advisory-internal |
 | `ds` | opus | medium | behavioral |
 | `pm` | opus | medium | behavioral |
 | `ic5` | sonnet | xhigh | behavioral |
@@ -41,6 +42,7 @@ Alongside the 7 behavioral agents the plugin ships **non-behavioral roster agent
 
 - `effort` values MUST be drawn from the host loader's accepted set: `low`, `medium`, `high`, `xhigh`, `max` (SPEC-037 F5). An omitted `effort:` key inherits the session `effortLevel` (F7) and MUST NOT be relied on as a tier assignment.
 - `model:` and `effort:` MUST both be present in the same frontmatter block; they resolve independently (SPEC-037 F8).
+- `advisory-internal` (SPEC-039 M33): `advisor` carries per-agent memory — tiered rows written and read only through the `require-agent.sh --memory` path — but has no directives surface and no cortex. Memory tooling (`memory-store`, `/memory distill`, `/doctor`) MUST use `--memory` for advisor rows, and the `/adjust-agent` directives dashboard MUST NOT list `advisor`.
 
 ### Role split (CDT-230)
 - `ic5` MUST be a pure senior implementer. It MUST NOT be the default agent for cheap parallel fan-out breadth or for causal root-cause depth.
@@ -101,7 +103,7 @@ Alongside the 7 behavioral agents the plugin ships **non-behavioral roster agent
 
 ## Test
 
-- Verify all 12 agent .md files have valid YAML frontmatter with `name`, `description`, `tools`, `model`, `effort`
+- Verify all 14 agent .md files have valid YAML frontmatter with `name`, `description`, `tools`, `model`, `effort`
 - Verify every `model:` and `effort:` value matches the Tier table row for that agent
 - Verify `finder` and `debugger` carry no memory directory, no cortex, and no memory-protocol include region
 - Verify `finder` and `debugger` tools are exactly `Read, Grep, Glob, Bash, SendMessage`
@@ -119,7 +121,8 @@ Alongside the 7 behavioral agents the plugin ships **non-behavioral roster agent
 ## Validation
 
 - Each agent .md has `name`, `description`, `tools`, `model`, `effort` in frontmatter
-- All 12 Tier table rows match the shipped frontmatter exactly
+- All 14 Tier table rows match the shipped frontmatter exactly
+- `advisor` memory rows join only via `require-agent.sh --memory`; the default 7-name check rejects `advisor` (SPEC-039 M33)
 - `finder` / `debugger` are read-only and memory-less
 - Role boundaries are enforced in agent behavioral rules
 - TDD gate exemption for config/docs is explicit in IC5 and IC4 agent definitions
@@ -135,6 +138,7 @@ Alongside the 7 behavioral agents the plugin ships **non-behavioral roster agent
 
 | Date | Change |
 |------|--------|
+| 2026-10-18 | CDT-562 (SPEC-039 C9): added the third roster category **advisory-internal** with `advisor` (opus/high, per-agent memory via `require-agent.sh --memory`, no directives/cortex). Tier table 13→14 rows, agent definitions 13→14. Behavioral-7 and non-behavioral-6 counts unchanged. Status stays ACTIVE. |
 | 2026-10-13 | spec-003-bootstrap-copy-reason: a this-diff copy of a SPEC-002-managed canonical text (byte-identity test-pinned — sync-includes.py, plugin-dir-test.sh, C5) is already extracted, not a waiver case; bootstrap text that cannot load a helper before it locates the plugin (PDH stanza, later-fence partial, hook bootstraps, managed includes) carries no `## Copy-extract` line. Codifies WP 1-11, accepted outside the written rule until now. Step 9 evaluator cites the carve-out. Status stays ACTIVE. |
 | 2026-10-03 | WP 8-B (rv-w3-18 + CDT-299): recorded the `finder`/`debugger` SendMessage decision (final-message hand-back; SendMessage only for a named running teammate). Behavioral agents gained the managed glossary + hand-back block; behavioral `tools:` order unified; ic5/ic4 commit rule defers to the orchestrator's fold; ic4 merge line dropped; tech-lead alternatives reconciled with the Technical Spec format; council-judge `suggestion` carve-out. |
 | 2026-10-02 | CDT-391 / CDT-413: Covers names the full roster, including council-judge, council-scribe, distiller, and project-init. The commands-directory check is a standing rule, not a ticket `git diff`. |

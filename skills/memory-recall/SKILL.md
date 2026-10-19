@@ -90,7 +90,8 @@ sqlite3 -cmd ".timeout 5000" -header -column "$MEMDB" \
 
 ```bash
 # Optional. Check the name, then bind it. Do not paste the name into SQL.
-# bash skills/lib/require-agent.sh "$AGENT_FILTER"
+# --memory admits advisor rows (SPEC-039 M33); the 7 behavioral names pass unchanged.
+# bash skills/lib/require-agent.sh --memory "$AGENT_FILTER"
 # AND agent=?
 ```
 

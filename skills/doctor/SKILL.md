@@ -96,6 +96,7 @@ non-bootstrap — gating is the caller's job.
 | `memory.ext.lembed` | memory |
 | `memory.embedding_config` | memory |
 | `memory.embed_errors` | memory |
+| `memory.advisor` | memory |
 | `hooks.events` | hooks |
 | `hooks.hygiene` | hooks |
 | `hooks.templates` | hooks (dev-checkout only; template hygiene, not dual-copy; SKIP in consumer) |
@@ -132,6 +133,10 @@ omp checks (CDT-551) are print-only — doctor never writes omp config or host
 state. Paths are injectable for tests: `OMP_CONFIG_FILE`,
 `OMP_MARKETPLACE_DIR`, `OMP_CACHE_DIR`; `OMP_BIN=none` simulates an omp-less
 host and `OMP_BIN=present` a deterministic omp host (both used by tests).
+
+`memory.advisor` (SPEC-039 M33) reports advisor memory status: present, empty,
+or n/a. It never FAILs — empty advisor memory is a normal state. Memory
+tooling writes advisor rows only through `require-agent.sh --memory`.
 
 ## Severity
 

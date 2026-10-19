@@ -3506,6 +3506,102 @@ else
 fi
 
 # =============================================================================
+# T32. advisor memory status (SPEC-039 M33): present / empty / n/a
+# =============================================================================
+check_field() { # check_field <id> <json> <field>
+  printf '%s' "$2" | jq -r --arg id "$1" \
+    '.checks[] | select(.id==$id) | .'"$3"' // ""'
+}
+
+if command -v sqlite3 >/dev/null 2>&1; then
+  ADVT="$TMP/advisor-mem"
+  make_bare_project "$ADVT"
+  init_memory_db "$ADVT"
+
+  # T32a — no advisor rows → PASS "advisor memory: empty"
+  RC=0
+  OUT=$(cd "$ADVT" && bash "$DOCTOR" --json --only memory.advisor 2>/dev/null) || RC=$?
+  STATUS=$(check_field memory.advisor "$OUT" status)
+  DETAIL=$(check_field memory.advisor "$OUT" detail)
+  if [ "$RC" -eq 0 ] && [ "$STATUS" = "PASS" ] && [ "$DETAIL" = "advisor memory: empty" ]; then
+    pass "T32a no advisor rows → PASS 'advisor memory: empty'"
+  else
+    fail "T32a status=$STATUS detail=$DETAIL rc=$RC"
+  fi
+
+  # T32b — one active advisor row → PASS "advisor memory: present (1 active rows)"
+  sqlite3 "$ADVT/.claude/memory/memory.db" \
+    "INSERT INTO memories(agent, type, content) VALUES ('advisor', 'memory', 'fact row');"
+  RC=0
+  OUT=$(cd "$ADVT" && bash "$DOCTOR" --json --only memory.advisor 2>/dev/null) || RC=$?
+  STATUS=$(check_field memory.advisor "$OUT" status)
+  DETAIL=$(check_field memory.advisor "$OUT" detail)
+  if [ "$RC" -eq 0 ] && [ "$STATUS" = "PASS" ] && [ "$DETAIL" = "advisor memory: present (1 active rows)" ]; then
+    pass "T32b advisor row → PASS 'advisor memory: present (1 active rows)'"
+  else
+    fail "T32b status=$STATUS detail=$DETAIL rc=$RC"
+  fi
+  sqlite3 "$ADVT/.claude/memory/memory.db" \
+    "DELETE FROM memories WHERE agent='advisor';"
+
+  # T32c — memory.db absent → SKIP "advisor memory: n/a …"
+  RC=0
+  OUT=$(cd "$BARE" && bash "$DOCTOR" --json --only memory.advisor 2>/dev/null) || RC=$?
+  STATUS=$(check_field memory.advisor "$OUT" status)
+  DETAIL=$(check_field memory.advisor "$OUT" detail)
+  if [ "$STATUS" = "SKIP" ] && [ "$DETAIL" = "advisor memory: n/a (memory.db absent)" ]; then
+    pass "T32c no memory.db → SKIP 'advisor memory: n/a'"
+  else
+    fail "T32c status=$STATUS detail=$DETAIL rc=$RC"
+  fi
+else
+  skip "T32a-c no sqlite3"
+fi
+
+# =============================================================================
+# T33. CDT-562 (SPEC-039 C9) doc-bites — dashboard exclusion, --memory doc,
+#      roster exhibits. Greps real plugin files (T16a pattern); no fixtures.
+# =============================================================================
+
+# T33a — the /adjust-agent dashboard source lists no advisor (M33: MUST NOT list)
+ADV_CNT=$(grep -c 'advisor' "$PLUGIN_ROOT/commands/adjust-agent.md" 2>/dev/null || true)
+if [ "$ADV_CNT" = "0" ]; then
+  pass "T33a /adjust-agent dashboard lists no advisor (grep -c = 0)"
+else
+  fail "T33a adjust-agent.md mentions advisor ${ADV_CNT:-?} times (want 0)"
+fi
+
+# T33b — doctor docs name the advisor memory check and the --memory write path
+if grep -q 'memory.advisor' "$PLUGIN_ROOT/skills/doctor/SKILL.md" \
+  && grep -q 'require-agent.sh --memory' "$PLUGIN_ROOT/skills/doctor/SKILL.md"; then
+  pass "T33b SKILL.md documents memory.advisor + require-agent.sh --memory for advisor rows"
+else
+  fail "T33b SKILL.md missing memory.advisor / require-agent.sh --memory doc line"
+fi
+
+# T33c — SPEC-003 tier-table row exhibits the advisory-internal category
+if grep -qF '| `advisor` | opus | high | advisory-internal |' \
+  "$PLUGIN_ROOT/specs/core/SPEC-003-agent-role-system.md"; then
+  pass "T33c SPEC-003 tier row '| \`advisor\` | opus | high | advisory-internal |'"
+else
+  fail "T33c SPEC-003 missing the advisory-internal tier row"
+fi
+
+# T33d — README agent roster table lists advisor
+if grep -q '^| `advisor` | Opus |' "$PLUGIN_ROOT/README.md"; then
+  pass "T33d README roster table lists advisor"
+else
+  fail "T33d README roster table has no '| \`advisor\` | Opus |' row"
+fi
+
+# T33e — AGENTS.md agent roster table lists advisor
+if grep -q '^| `advisor` | Opus |' "$PLUGIN_ROOT/AGENTS.md"; then
+  pass "T33e AGENTS.md roster table lists advisor"
+else
+  fail "T33e AGENTS.md roster table has no '| \`advisor\` | Opus |' row"
+fi
+
+# =============================================================================
 # Summary
 # =============================================================================
 echo ""

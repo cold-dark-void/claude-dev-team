@@ -24,6 +24,17 @@
 
   Each bash fence re-resolves path vars — fences are separate shells (SPEC-021 C1).
 -->
+### Memory content rules (SPEC-039 M31/M32)
+
+- Persist only tool-backed facts, each with a re-verify predicate
+  `{cmd, sha256, version, ts}`. A row goes stale when `version` changes.
+- A row without reproducible evidence MAY suggest a check; it MUST NOT serve
+  as a ruling reason (`evidence_over_memory` enforces this).
+- NEVER persist: rulings-as-facts; gate waivers / "we proceeded";
+  unverified issue/PR/council text; secrets; per-run state.
+- User-overturned rulings persist as a pattern only — never as a fact that
+  skips a check.
+
 ### Path resolution
 ```bash
 MROOT=$(cd "$(dirname "$(git rev-parse --git-common-dir 2>/dev/null)")" && pwd || pwd)
@@ -100,6 +111,11 @@ if [ "$USE_DB" = "true" ]; then
   fi
   MEMORY_ID=""
   if [ -n "$MEMDB_SH" ] && [ -f "$MEMDB_SH" ]; then
+    # Roster gate: advisor rows join memory only via --memory (SPEC-039 M33).
+    if ! bash "$PDH/skills/lib/require-agent.sh" --memory "<AGENT>"; then
+      echo "Error: memory row rejected by the roster gate (require-agent.sh --memory)" >&2
+      exit 64
+    fi
     MEMORY_ID=$(bash "$MEMDB_SH" write "$MEMDB" "<AGENT>" "<TYPE>" "$CONTENT" || true)
   fi
   [ -n "$EMB" ] && [ -n "$MEMORY_ID" ] && bash "$EMB" "$MEMDB" "$MEMORY_ID" "$CONTENT" 2>/dev/null || true

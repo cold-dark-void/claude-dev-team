@@ -13,6 +13,8 @@
 #     gitignored state root; sourcing attempt exits 64; single-object stdout;
 #     non-integer confidence 64; b/c reserves; retry counter increments;
 #     empty-evidence ruling 64
+#   CDT-562 (C9): doc-bite greps — M31/M32 memory content rules and the
+#     --memory write-path gate in skills/agent-memory/advisor-protocol.md
 
 set -u
 
@@ -576,6 +578,57 @@ fi
   "orchestrate-CDT-565-1" 1 5 advisor "ninth" --advisor-json "$BJ") >/dev/null 2>&1
 RC=$?
 [ "$RC" -eq 64 ] && pass "t31-no-ninth-bc-writer-64" || fail "t31-no-ninth-bc-writer-64: rc=$RC"
+
+# =============================================================================
+# CDT-562 (SPEC-039 C9) — doc-bite tests: the M31/M32 memory-content rules and
+# the --memory write-path gate, each as its own run-output PASS line. Greps the
+# actual bytes of skills/agent-memory/advisor-protocol.md; an absent clause
+# fails loudly (FAIL counter -> exit 1).
+# =============================================================================
+PROTO="$ROOT/skills/agent-memory/advisor-protocol.md"
+
+# ---- t35: M31 — persisted facts carry a re-verify predicate -------------------
+if grep -q 're-verify predicate' "$PROTO" \
+  && grep -qF '`{cmd, sha256, version, ts}`' "$PROTO"; then
+  pass "t35-m31-reverify-predicate-tuple-documented"
+else
+  fail "t35-m31-reverify-predicate-tuple-documented: advisor-protocol.md lacks 're-verify predicate' or '{cmd, sha256, version, ts}'"
+fi
+
+# ---- t36: M31 — a row goes stale when version changes -------------------------
+if grep -qF 'goes stale when `version` changes' "$PROTO"; then
+  pass "t36-m31-stale-when-version-changes-documented"
+else
+  fail "t36-m31-stale-when-version-changes-documented: missing 'goes stale when `version` changes'"
+fi
+
+# ---- t37: M31 — evidence_over_memory enforcement -------------------------------
+if grep -q 'evidence_over_memory' "$PROTO"; then
+  pass "t37-evidence-over-memory-enforcement-documented"
+else
+  fail "t37-evidence-over-memory-enforcement-documented: missing 'evidence_over_memory'"
+fi
+
+# ---- t38: M32 — the never-persist list -----------------------------------------
+if grep -qF 'NEVER persist: rulings-as-facts' "$PROTO"; then
+  pass "t38-m32-never-persist-list-documented"
+else
+  fail "t38-m32-never-persist-list-documented: missing 'NEVER persist: rulings-as-facts'"
+fi
+
+# ---- t39: M32 — user-overridden rulings persist as a pattern only --------------
+if grep -qF 'persist as a pattern only' "$PROTO"; then
+  pass "t39-m32-pattern-only-documented"
+else
+  fail "t39-m32-pattern-only-documented: missing 'persist as a pattern only'"
+fi
+
+# ---- t40: M33 — the --memory write-path gate in the write fence ----------------
+if grep -qF 'require-agent.sh" --memory' "$PROTO"; then
+  pass "t40-memory-write-path-gate-documented"
+else
+  fail "t40-memory-write-path-gate-documented: missing 'require-agent.sh\" --memory' gate in advisor-protocol.md"
+fi
 
 # =============================================================================
 echo ""
