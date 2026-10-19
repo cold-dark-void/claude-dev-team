@@ -305,6 +305,54 @@ mapping, §5's degraded-run rule, and the reuse-BC7 ruling are identical at both
 auto-action**: autopilot MUST NOT self-answer it, auto-re-run the council at `full`, or
 otherwise proceed past the halt (M14(f), N2 / M7).
 
+### 4a. Trigger-(c) advisor appeal on residue (SPEC-039 M20–M22; CDT-561)
+
+After §4's verdict mapper has produced its outcome and **before** §6 records card #2, this
+pass MAY ask the advisor for a second opinion — **only** when the verdict carries residue
+(any AC/finding below the pass threshold, `CONTRADICTED`/`UNVERIFIED`/`FABRICATED` splits,
+or a degraded/`self-verified` run, per SPEC-039 M20). `skills/advisor/appeal.sh gate` is the
+deterministic seam: a **clean pass** (no residue) writes nothing, prints nothing, and
+reaches no advisor spawn path — zero advisor calls (M20). Advisor off or bypassed
+(`ADVISOR_SKIP_TRIGGER=1`, interactive), the gate exits 0 without a probe (silent skip).
+
+```bash
+# Fresh shell — re-resolve PDH (SPEC-021 C1). CDT-561 trigger-(c) appeal.
+# lint-ok: C3 — marketplace */ for-loop + -f guarded (SPEC-021 Q2 residual, CDT-82 PDH)
+PDH="${PDH:-$( { [ -n "${CLAUDE_PLUGIN_ROOT:-}" ] && [ -f "$CLAUDE_PLUGIN_ROOT/skills/plugin-dir.sh" ] && printf '%s\n' "$CLAUDE_PLUGIN_ROOT"; } || { [ -f skills/plugin-dir.sh ] && [ -f agents/pm.md ] && grep -qF '"name": "dev-team"' .claude-plugin/plugin.json 2>/dev/null && pwd; } || { _pr='${CLAUDE_PLUGIN_ROOT}'; [ "${_pr#\$}" = "$_pr" ] && [ -f "$_pr/skills/plugin-dir.sh" ] && printf '%s\n' "$_pr"; } || { for _mp in "$HOME"/.claude/plugins/marketplaces/*/; do [ -f "${_mp}skills/plugin-dir.sh" ] && [ -f "${_mp}agents/pm.md" ] && grep -qF '"name": "dev-team"' "${_mp}.claude-plugin/plugin.json" 2>/dev/null && printf '%s\n' "${_mp%/}" && break; done; } || find ~/.claude/plugins/cache \( -path '*/dev-team/*/skills/plugin-dir.sh' -o -path '*/dev-team-edge/*/skills/plugin-dir.sh' \) 2>/dev/null | awk -F/ '{ver=""; for(i=1;i<=NF;i++) if(($i=="dev-team"||$i=="dev-team-edge")&&i<NF){ver=$(i+1);break}; if(ver=="") next; m=ver; gsub(/-pre\./,"~pre.",m); p=($0 ~ /\/cache\/cold-dark-void\/dev-team\//)?2:(($0 ~ /\/cache\/cold-dark-void\/dev-team-edge\//)?1:0); print m "\t" p "\t" $0}' | sort -t $'\t' -k1,1V -k2,2n -k3,3 | tail -1 | cut -f3 | xargs -r dirname | xargs -r dirname )}"
+APPEAL_META="<report>.finalize-meta.json"
+APPEAL_REPORT="<report>"
+if [ "${ADVISOR_ON:-}" = "true" ] && [ "${ADVISOR_SKIP_TRIGGER:-}" != "1" ]; then
+  APPEAL=$(bash "$PDH/skills/plugin-dir.sh" file skills/advisor/appeal.sh)
+  APPEAL_OUT=$(bash "$APPEAL" gate --meta "$APPEAL_META" --report "$APPEAL_REPORT" \
+    --run-id "<RUN_ID>") || exit $?
+  if [ -n "$APPEAL_OUT" ]; then
+    case "$(printf '%s' "$APPEAL_OUT" | jq -r '.action')" in
+      spawn|cache-hit)
+        # Spawn/finalize per skills/advisor/SKILL.md (probe never spawns; the
+        # caller spawns natively), then map the ruling with
+        # `appeal.sh authority --ruling-file <ruling> --run-id <RUN_ID>`:
+        # `sustain-halt` keeps card #2's halt — the appeal outcome MUST NOT
+        # persist any proceed/ship state; `re-council` runs a FRESH council
+        # pass with new tool evidence — the appeal's word alone never ships
+        # (M21, CONTRADICTED → fresh council pass only). Advisor-gathered
+        # evidence stays under the advisor state root (M22);
+        # `appeal.sh check-bundle-set --file <bundle set>` rejects any
+        # advisor_appeal-labelled object injected into a council bundle set.
+        echo "advisor trigger-(c) appeal on council residue: $APPEAL_OUT" >&2 ;;
+      *) : ;;  # cap/refuse: no second opinion available; the verdict stands
+    esac
+  fi
+fi
+```
+
+On `spawn`, the staged appeal evidence lives at
+`runs/<RUN_ID>/appeal-evidence/` under the advisor state root — structurally
+outside the council bundle directory (M22). On `cap`/`refuse` under autopilot,
+the advisor is unavailable for this optional second opinion: the §4 verdict
+stands unchanged (no BC8 card — the appeal is opt-in residue handling, not a
+confirmed-AC dependency). `/review-and-commit` follows the same seam after its
+own council verdict (`skills/advisor/appeal.sh gate --meta <report>.finalize-meta.json`).
+
 ## 5. Degraded-run rule
 
 The verdict mapper (`skills/autopilot/ship-gate-verdict.sh`) detects a degraded or

@@ -142,6 +142,45 @@ never sourced). The orchestrator runs it before any
 4. `mode --run-id ID` — prints `{"mode":"shadow","shadow_used":N,"shadow_n":N}`.
 5. Subprocess form: `gates.sh mode --run-id ID` — never sourced.
    Full form: `gates.sh shadow --run-id ID --bc <gate> --ruling <ruling>` — every allowed ruling logged as SHADOW.
+## Trigger (c) — council-residue appeal (SPEC-039 M20–M22, CDT-561)
+
+Council always runs first (M20). After a council verdict, the orchestrator
+(including `/review-and-commit`, `skills/autopilot/ship-gate-council.md` §4a)
+may ask for a second opinion — only on residue:
+
+1. `appeal.sh gate --meta <report>.finalize-meta.json [--report <report>]
+   [--run-id ID]` — deterministic. `residue.sh` classifies the sidecar
+   (`below-threshold`, `contradicted` (CONTRADICTED/FABRICATED), `unverified`,
+   `degraded` (`self-verified` mode or report banner), default threshold 80).
+   A clean pass exits 0 with no output and writes nothing — zero advisor
+   calls (M20). Advisor off or `ADVISOR_SKIP_TRIGGER=1`: silent skip. On
+   residue with the advisor on: stages the appeal evidence under
+   `runs/<run_id>/appeal-evidence/` (advisor state root — structurally
+   OUTSIDE the council bundle set, M22) and prints the `ask.sh probe
+   --trigger c` action JSON (reserve c=2). Spawn/finalize per the seam
+   above.
+2. `appeal.sh authority --ruling-file <ruling> [--run-id ID]` — the M21
+   authority fence. `AGREE` → `sustain-halt` (the halt stands; the appeal
+   outcome MUST NOT persist any proceed/ship state); `CONTRADICT` or
+   `INSUFFICIENT` → `re-council` (fail-closed): a FRESH council pass with
+   new tool evidence decides — the appeal's word alone never ships
+   (CONTRADICTED → fresh council pass only). Never `proceed`. With
+   `--run-id`, writes `runs/<run_id>/appeal.json` with the provenance key
+   `advisor_appeal: true`.
+3. `appeal.sh check-bundle-set --file <bundle set>` — M22 injection guard:
+   exits 64 when any object in a council bundle set carries
+   `advisor_appeal`, so advisor-gathered evidence cannot enter the bundle
+   set; the labelled record lives under the advisor state root instead.
+
+End-to-end order: `gate` → `probe` → `native spawn` → `finalize` → `authority`.
+
+Authority recipe (PATH form): `appeal.sh authority --ruling-file PATH [--run-id ID]` emits exactly one JSON object `{authority, advisor_appeal: true, ruling, confidence}` on stdout.
+
+`residue.sh` classifies the sidecar into four kind objects, each with the
+span `{present, count, items|reasons}`: `below_threshold`, `contradicted`,
+and `unverified` carry `{present, count, items}`; `degraded` carries
+`{present, count, reasons}`; the object also carries `threshold`.
+
 
 ## Caps (M26)
 

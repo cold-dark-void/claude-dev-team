@@ -3,7 +3,7 @@
 **Status**: DRAFT
 **Category**: core
 **Created**: 2026-10-13
-**Covers**: `agents/advisor.md`, `skills/advisor/` (`SKILL.md`, `ask.sh`, `parse-flags.sh`, `classify.sh`, `gates.sh`, `static-check.sh`, `test.sh`, `test-classify.sh`, `test-gates.sh`), `skills/agent-memory/advisor-protocol.md`, `skills/model-map/mappable-names.sh`, `skills/lib/require-agent.sh`, `.gitignore`, `AGENTS.md`, `README.md`, `docs/README.md`, `docs/runbooks/omp.md`, `commands/setup.md`, `commands/adjust-agent.md` <!-- drift-ok: skill-ref --> (skills/advisor/* and mappable-names.sh ship with later SPEC-039 children)
+**Covers**: `agents/advisor.md`, `skills/advisor/` (`SKILL.md`, `ask.sh`, `parse-flags.sh`, `classify.sh`, `gates.sh`, `residue.sh`, `appeal.sh`, `static-check.sh`, `test.sh`, `test-classify.sh`, `test-gates.sh`, `test-residue.sh`), `skills/agent-memory/advisor-protocol.md`, `skills/model-map/mappable-names.sh`, `skills/lib/require-agent.sh`, `.gitignore`, `AGENTS.md`, `README.md`, `docs/README.md`, `docs/runbooks/omp.md`, `commands/setup.md`, `commands/adjust-agent.md` <!-- drift-ok: skill-ref --> (skills/advisor/* and mappable-names.sh ship with later SPEC-039 children)
 
 ## Overview
 
@@ -358,6 +358,7 @@ Glossary term: Advisor (`CONTEXT.md`).
 
 | Date | Change |
 |------|--------|
+| 2026-10-18 | CDT-561: `### CDT-561` ACs for trigger (c) — `residue.sh` detector, `appeal.sh` gate/authority/check-bundle-set, the ship-gate-council §4a hook, M20 clean-pass zero-advisor, M21 authority fence, M22 label + outside-bundle evidence (epic child C6). |
 | 2026-10-18 | CDT-563: `### CDT-563` ACs for the trigger-(a) restricted gates + shadow mode — `gates.sh` (M23 denylist, M24 vocabularies, M25 shadow N=5), the `self-answer.md` §3g gate fence, and `SKILL.md` documentation (epic child C7). |
 | 2026-10-18 | CDT-564: `### CDT-564` ACs for the trigger-(b) mechanical front-end — `classify.sh`, `static-check.sh`, both hook points, M17 miss sampling, receipt/verify probe gate (epic child C5). |
 | 2026-10-13 | CDT-558: `### CDT-558` ACs for the agent file + `advisor-protocol.md` include (epic child C1). M4 roster-docs and the 14-file SPEC-003 count stay with CDT-562. |
@@ -504,6 +505,23 @@ Format and rules: SPEC-033 M14(g) and M14(h).
   Verify: bash skills/advisor/test-classify.sh
 - **AC9.** `skills/advisor/SKILL.md` documents the classify-hits → static-check → probe order, the M17 miss-sample behavior, the receipt/verify gate, and evidence travel as directory paths end-to-end (the spawn-request carries the evidence dir path).
   Verify: bash skills/advisor/test-classify.sh
+
+### CDT-561
+
+- **AC1.** `skills/advisor/residue.sh` is a deterministic subprocess CLI (never sourced; bash+jq only — its source contains no `ask.sh`/`resolve-model` reference, no Agent tool, no `spawn-request`, no network calls) invoked as `residue.sh --meta PATH.finalize-meta.json [--report PATH] [--threshold N]`; it prints exactly one JSON object with a `residue` boolean, a `kinds` array, and the four kind objects `below_threshold`, `contradicted`, `unverified`, `degraded` (each `{present, count, items|reasons}` plus `threshold`); exit 0 on any scan, 64 on usage errors (missing `--meta`, missing file, unparseable or non-object meta, missing `--report` file, `--threshold` not an integer 0–100).
+  Verify: bash skills/advisor/test-residue.sh
+- **AC2.** Residue kinds (M20): any unstruck verdict or finding with confidence < the threshold (default 80; `--threshold` overrides) fires `below-threshold` with per-item claim or `file:line` locator and confidence; `CONTRADICTED` and `FABRICATED` counts fire `contradicted`; `UNVERIFIED` fires `unverified`; `verification_mode == "self-verified"` and a `self-verified — refuters unavailable` banner in `--report` each fire `degraded` (one reason each); a residue-free sidecar (all unstruck verdicts `VERIFIED`/`PARTIALLY_VERIFIED` at confidence ≥ 80, `verification_mode` `full`, no banner) emits `residue: false` with an empty `kinds` array and all four kinds `present: false`; confidence exactly 80 is not below-threshold, 79 is.
+  Verify: bash skills/advisor/test-residue.sh
+- **AC3.** `skills/advisor/appeal.sh gate` is the trigger-(c) seam (M20): on a residue-free sidecar it exits 0 with no stdout and writes nothing under `ADVISOR_STATE_ROOT` — no probe, no `spawn-request.json` — so a clean council pass produces zero advisor calls even with the advisor mapped and `ADVISOR_ON=true`; on residue it exits 0 silently with no probe when `ADVISOR_ON` is unset or `ADVISOR_SKIP_TRIGGER=1`.
+  Verify: bash skills/advisor/test-residue.sh
+- **AC4.** On a residue sidecar with the advisor on, `gate` stages the appeal evidence as a directory (`runs/<RUN_ID>/appeal-evidence/` under the advisor state root, structurally outside the council bundle set, M22; `--evidence-dir` overrides) and prints exactly one `ask.sh probe` action object with `trigger: "c"`; the probe's `spawn-request.json` carries trigger `c`, the staged evidence dir, and a question hash that covers the staged evidence content (changed staged evidence is a new question hash).
+  Verify: bash skills/advisor/test-residue.sh
+- **AC5.** `appeal.sh authority --ruling-file PATH [--run-id ID]` is the M21 authority fence: `AGREE` maps to `sustain-halt`, `CONTRADICT` and `INSUFFICIENT` map to `re-council`; stdout is exactly one JSON object `{authority, advisor_appeal: true, ruling, confidence}` — `proceed` is not an emit-able authority; with `--run-id` it writes `runs/<RUN_ID>/appeal.json` carrying `advisor_appeal: true`; an unknown ruling value exits 64.
+  Verify: bash skills/advisor/test-residue.sh
+- **AC6.** `appeal.sh check-bundle-set --file PATH` (M22) exits 0 on a bundle set in which no object carries the `advisor_appeal` provenance key and exits 64 when any object carries `advisor_appeal: true` — advisor-gathered evidence is rejected if injected into a council bundle set; unparseable input exits 64.
+  Verify: bash skills/advisor/test-residue.sh
+- **AC7.** `skills/autopilot/ship-gate-council.md` §4a carries the trigger-(c) hook fence after the verdict mapper — gated on `ADVISOR_ON=true` with `ADVISOR_SKIP_TRIGGER=1` documented as the interactive bypass — and states a `sustain-halt` appeal outcome MUST NOT persist any proceed/ship state and `re-council` runs only a fresh council pass; the fence text, extracted and executed against a clean-pass fixture with the advisor on, exits 0 with no output, and against a residue fixture emits the `advisor trigger-(c) appeal` stderr signal with the probe recorded. `skills/advisor/SKILL.md` documents the trigger-(c) end-to-end order (gate → probe → native spawn → finalize → authority) and the M22 label/outside-bundle rule.
+  Verify: bash skills/advisor/test-residue.sh
 
 ### CDT-562
 
