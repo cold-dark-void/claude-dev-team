@@ -4,6 +4,14 @@ All notable changes to **claude-dev-team**, newest first.
 Authoritative version history. Prefer **`/release`** to add `### vX.Y.Z` headings.
 Pre-written headings (release-train M5c, orchestrate version-sync tasks) are kept
 via skip-if-present when `/release` is given an explicit version — do not invent a
+### v1.27.15
+
+- **trigger-(a) restricted gate + shadow (SPEC-039 C7, cdt-563).** New `skills/advisor/gates.sh` — deterministic trigger-(a) gate CLI (subprocess, never sourced): `allow --bc` exits 0 exactly for the M24 set (`bc7`, `bc2-diagnosis`, `bc6-diagnosis`, `bc1-mis-fire`); the M23 denylist (`bc3`, `bc8`, `bc6-extension`, `bc1-as-human-preference`) and unknown ids are structurally unreachable (exit 64, `allowed: false` JSON on stdout, stable stderr reason naming `SPEC-039 M23 denylist`); `ruling --bc --ruling` enforces the M24 vocabularies case-exactly (bc2/bc6-diagnosis: `halt|decompose`; bc1-mis-fire: `halt-stands|mis-fire`; bc7: M18 `AGREE|CONTRADICT|INSUFFICIENT`) with an exhaustive reject matrix incl. empty rulings; `shadow --run-id --bc --ruling` records every allowed ruling as one `class=gate-shadow` row (bc, ruling, question, card context, ts) in `runs/<run_id>/shadow.jsonl` with `applied: false` — logged, never auto-applied; run-ids sanitized (no `/`, no `..`).
+- M25 shadow window: `mode --run-id` reports `shadow_n` default 5; `ADVISOR_SHADOW_N` only lowers (invalid ignored); `shadow_used` increments per recorded ruling; the mode stays `shadow` before, at, and after the boundary — zero widen transitions in source, growth past shadow is a human config edit with no code path.
+- Autopilot surface: `skills/autopilot/self-answer.md` §3g carries the trigger-(a) fence (gated `ADVISOR_ON=true`, `ADVISOR_SKIP_TRIGGER=1` bypass; silent when off/bypassed; refusal emits `advisor trigger-(a) gate refused — the halt stands` on stderr; the halt MUST NOT persist).
+- `skills/advisor/SKILL.md` documents the gate: subcommands, M23 denylist ids, M24 vocabularies (incl. the M18 set), full invocation forms, and the shadow log path.
+- SPEC-039 `### CDT-563` AC1–AC7; bite suite `skills/advisor/test-gates.sh` — 70 tests, 70 pass / 0 fail.
+
 ### v1.27.14
 
 - **CDT-562 (SPEC-039 C9) — advisor memory rules + advisory-internal roster.** `skills/agent-memory/advisor-protocol.md` documents the M31/M32 advisor memory-content rules (tool-backed facts with a `{cmd, sha256, version, ts}` re-verify predicate, stale-on-version-change, `evidence_over_memory` enforcement; the M32 never-persist list) and the `--memory` write-path gate.

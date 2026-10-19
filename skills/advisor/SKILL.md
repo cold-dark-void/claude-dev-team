@@ -112,6 +112,37 @@ and mid-run rewrites; disposition write: `12-wrap.md`,
 3. `ask.sh probe --trigger b ...` — the seam above. `ADVISOR_SKIP_TRIGGER=1`
    bypasses steps 1–2 interactively; advisor off means both skip silently.
 
+## Trigger (a) — restricted gates + shadow (SPEC-039 M23–M25, CDT-563)
+
+`skills/advisor/gates.sh` is the deterministic trigger-(a) gate (subprocess CLI,
+never sourced). The orchestrator runs it before any
+`ask.sh probe --trigger a --bc <id>` (fence in `skills/autopilot/self-answer.md`
+§3g):
+
+1. `allow --bc <gate-id>` — exit 0 only for the M24 allowed set: `bc7`,
+   `bc2-diagnosis`, `bc6-diagnosis`, `bc1-mis-fire`. The M23 denylist — `bc3`,
+   `bc8`, `bc6-extension`, `bc1-as-human-preference` — and any unknown id exit
+   64 with a stable refusal reason on stderr
+   (`advisor gate refused: <id> ... — SPEC-039 M23 denylist`) and an
+   `allowed: false` JSON object on stdout. A denied id is structurally
+   unreachable: no probe, no spawn.
+2. `ruling --bc <gate> --ruling <ruling>` — the M24 outcome vocabularies:
+   `bc2-diagnosis`/`bc6-diagnosis` accept only `halt|decompose` (proceed can
+   never be emitted, exit 64 otherwise); `bc1-mis-fire` accepts only
+   `halt-stands|mis-fire`; `bc7` accepts the M18
+   `AGREE|CONTRADICT|INSUFFICIENT`.
+3. `shadow --run-id ID --bc <gate> --ruling <ruling> [--question TEXT]
+   [--card-context FILE]` — records an allowed ruling as SHADOW: one
+   `class=gate-shadow` row (bc, ruling, question, card context, ts) appended
+   to `runs/<run_id>/shadow.jsonl`. The ruling is never auto-applied
+   (`applied: false`) — the human decides. The first N=5 runs
+   (`ADVISOR_SHADOW_N`, only lowers) are the measured window; the mode stays
+   `shadow` at and after the boundary. Growth past shadow is a human config
+   edit — no code path transitions the mode (M25).
+4. `mode --run-id ID` — prints `{"mode":"shadow","shadow_used":N,"shadow_n":N}`.
+5. Subprocess form: `gates.sh mode --run-id ID` — never sourced.
+   Full form: `gates.sh shadow --run-id ID --bc <gate> --ruling <ruling>` — every allowed ruling logged as SHADOW.
+
 ## Caps (M26)
 
 - Per-trigger reserves per run: `a`=3, `b`=4, `c`=2.

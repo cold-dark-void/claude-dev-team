@@ -3,7 +3,7 @@
 **Status**: DRAFT
 **Category**: core
 **Created**: 2026-10-13
-**Covers**: `agents/advisor.md`, `skills/advisor/` (`SKILL.md`, `ask.sh`, `parse-flags.sh`, `classify.sh`, `static-check.sh`, `test.sh`, `test-classify.sh`), `skills/agent-memory/advisor-protocol.md`, `skills/model-map/mappable-names.sh`, `skills/lib/require-agent.sh`, `.gitignore`, `AGENTS.md`, `README.md`, `docs/README.md`, `docs/runbooks/omp.md`, `commands/setup.md`, `commands/adjust-agent.md` <!-- drift-ok: skill-ref --> (skills/advisor/* and mappable-names.sh ship with later SPEC-039 children)
+**Covers**: `agents/advisor.md`, `skills/advisor/` (`SKILL.md`, `ask.sh`, `parse-flags.sh`, `classify.sh`, `gates.sh`, `static-check.sh`, `test.sh`, `test-classify.sh`, `test-gates.sh`), `skills/agent-memory/advisor-protocol.md`, `skills/model-map/mappable-names.sh`, `skills/lib/require-agent.sh`, `.gitignore`, `AGENTS.md`, `README.md`, `docs/README.md`, `docs/runbooks/omp.md`, `commands/setup.md`, `commands/adjust-agent.md` <!-- drift-ok: skill-ref --> (skills/advisor/* and mappable-names.sh ship with later SPEC-039 children)
 
 ## Overview
 
@@ -314,6 +314,11 @@ Glossary term: Advisor (`CONTEXT.md`).
   misses (`ic4 is the well-defined seat`), miss-sample modulo, static-check
   paths-only evidence, the receipt/verify gate and probe hash parity
   (CDT-564), and the wave-plan/disposition hook wiring asserts.
+- `bash skills/advisor/test-gates.sh` covers the trigger-(a) restricted gate +
+  shadow (CDT-563): M23 denylist refusals with stable reasons, M24 outcome
+  vocabularies (halt|decompose for BC2/BC6 diagnosis), M25 shadow N=5 logging
+  to `runs/<run_id>/shadow.jsonl` with the no-grow invariant, and the
+  `self-answer.md` §3g gate fence.
 - `bash skills/model-map/spawn-site-test.sh` includes `advisor:opus:high`
   and tools exactly `Read, Grep, Glob, Bash`.
 - `bash install-test.sh` strips `tools:` from `agents/advisor.md`.
@@ -353,6 +358,7 @@ Glossary term: Advisor (`CONTEXT.md`).
 
 | Date | Change |
 |------|--------|
+| 2026-10-18 | CDT-563: `### CDT-563` ACs for the trigger-(a) restricted gates + shadow mode — `gates.sh` (M23 denylist, M24 vocabularies, M25 shadow N=5), the `self-answer.md` §3g gate fence, and `SKILL.md` documentation (epic child C7). |
 | 2026-10-18 | CDT-564: `### CDT-564` ACs for the trigger-(b) mechanical front-end — `classify.sh`, `static-check.sh`, both hook points, M17 miss sampling, receipt/verify probe gate (epic child C5). |
 | 2026-10-13 | CDT-558: `### CDT-558` ACs for the agent file + `advisor-protocol.md` include (epic child C1). M4 roster-docs and the 14-file SPEC-003 count stay with CDT-562. |
 | 2026-10-13 | Initial DRAFT (CDT-556). Third roster category; two-phase ask.sh; `--with-advisor`; triggers (b)/(c)/(a); BC8 reuse for unavailable; additive card key `advisor`. |
@@ -511,6 +517,23 @@ Format and rules: SPEC-033 M14(g) and M14(h).
   Verify: bash skills/doctor/test.sh
 - **AC5.** The memory protocol (skills/agent-memory/) documents the M31/M32 advisor memory content rules and the `--memory` write-path gate.
   Verify: bash skills/advisor/test.sh
+
+### CDT-563
+
+- **AC1.** `skills/advisor/gates.sh` is a deterministic trigger-(a) gate CLI (subprocess, never sourced): `gates.sh allow --bc <id>` exits 0 with `allowed: true` exactly for the M24 set `bc7`, `bc2-diagnosis`, `bc6-diagnosis`, `bc1-mis-fire`; the M23 denylist — `bc3`, `bc8`, `bc6-extension`, `bc1-as-human-preference` — is structurally unreachable, each id refused with exit 64, an `allowed: false` JSON object on stdout, and a stable stderr refusal reason naming `SPEC-039 M23 denylist`; an unknown id also exits 64.
+  Verify: bash skills/advisor/test-gates.sh
+- **AC2.** `gates.sh ruling --bc <gate> --ruling <ruling>` restricts trigger-(a) outcome vocabulary (M24): `bc2-diagnosis` and `bc6-diagnosis` accept only `halt` or `decompose` — a `proceed` ruling is rejected with exit 64 and can never be emitted; `bc1-mis-fire` accepts only `halt-stands` or `mis-fire`; `bc7` accepts the M18 vocabulary `AGREE`, `CONTRADICT`, `INSUFFICIENT`.
+  Verify: bash skills/advisor/test-gates.sh
+- **AC3.** `gates.sh shadow --run-id ID --bc <gate> --ruling <ruling>` records every allowed trigger-(a) ruling as SHADOW: one `class=gate-shadow` JSONL row carrying the bc id, ruling, question, card context, and timestamp appended to `$ADVISOR_STATE_ROOT/runs/<run_id>/shadow.jsonl` (default state root `$MROOT/.claude/advisor/`), with `applied: false` on stdout — the ruling is logged, never auto-applied; the human decides. A denylisted or unknown bc never reaches the log (exit 64 first), and an out-of-vocabulary ruling never reaches the log (exit 64 first).
+  Verify: bash skills/advisor/test-gates.sh
+- **AC4.** Shadow window defaults (M25): `gates.sh mode --run-id ID` reports `shadow_n` default `5`; `ADVISOR_SHADOW_N` only lowers it (an invalid value is ignored); `shadow_used` increments by one per recorded ruling; and `mode` reads `shadow` before, at, and after the N=5 boundary — the counter never flips the mode.
+  Verify: bash skills/advisor/test-gates.sh
+- **AC5.** No automatic growth past shadow: the `gates.sh` source contains zero widen transitions (a case-insensitive grep for `widen` over the file is empty) and after seven recorded rulings `gates.sh mode` still reports `mode: shadow` — growth past shadow is a human config edit with no code path.
+  Verify: bash skills/advisor/test-gates.sh
+- **AC6.** The autopilot surface wires the gate: `skills/autopilot/self-answer.md` §3g carries a trigger-(a) fence gated on `ADVISOR_ON=true` with the `ADVISOR_SKIP_TRIGGER=1` interactive bypass; the extracted fence text, executed, exits 0 with no output when the advisor is off or bypassed, and emits the `advisor trigger-(a) gate refused — the halt stands` signal on stderr when the gate refuses; the fence text states the halt `MUST NOT` persist.
+  Verify: bash skills/advisor/test-gates.sh
+- **AC7.** `skills/advisor/SKILL.md` documents the trigger-(a) gate: the `allow`, `ruling`, `shadow`, `mode` subcommands, the M23 denylist ids, the M24 vocabularies, and the `runs/<run_id>/shadow.jsonl` log path.
+  Verify: bash skills/advisor/test-gates.sh
 
 ## Alternatives considered
 

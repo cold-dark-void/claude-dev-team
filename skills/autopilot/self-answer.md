@@ -469,6 +469,42 @@ fi
 confidence. A writer reject (exit 64) means no card was appended — escalate, never
 retry silently.
 
+**Trigger (a) — restricted gates + shadow (SPEC-039 M23–M25, epic child C7).** Before
+any `ask.sh probe --trigger a --bc <gate-id>` second opinion, run the gate fence
+below. Only `bc7`, `bc2-diagnosis`, `bc6-diagnosis`, and `bc1-mis-fire` may pass. The
+M23 denylist — `bc3`, `bc8`, `bc6-extension`, `bc1-as-human-preference` — and any
+unknown id are refused with exit 64: no probe, no spawn, and the standing halt is
+unchanged. An allowed outcome is recorded SHADOW via `gates.sh shadow` (M25): one
+`class=gate-shadow` row in `runs/<run_id>/shadow.jsonl` with `applied` always
+`false` — the human decides, and growth past shadow is a human edit (no code path
+exists). `<gate-id>` is the blocking condition under second opinion; `<RUN_ID>`,
+`<ruling>`, and `<question>` copy the probe call per this section. The refusal is a
+halt signal on stderr: the halt it produced MUST NOT persist and MUST NOT be
+answered by the advisor.
+
+```bash template
+# Fresh shell — re-resolve PDH (SPEC-021 C1). CDT-563 trigger-(a) restricted gate.
+# lint-ok: C3 — marketplace */ for-loop + -f guarded (SPEC-021 Q2 residual, CDT-82 PDH)
+PDH="${PDH:-$( { [ -n "${CLAUDE_PLUGIN_ROOT:-}" ] && [ -f "$CLAUDE_PLUGIN_ROOT/skills/plugin-dir.sh" ] && printf '%s\n' "$CLAUDE_PLUGIN_ROOT"; } || { [ -f skills/plugin-dir.sh ] && [ -f agents/pm.md ] && grep -qF '"name": "dev-team"' .claude-plugin/plugin.json 2>/dev/null && pwd; } || { _pr='${CLAUDE_PLUGIN_ROOT}'; [ "${_pr#\$}" = "$_pr" ] && [ -f "$_pr/skills/plugin-dir.sh" ] && printf '%s\n' "$_pr"; } || { for _mp in "$HOME"/.claude/plugins/marketplaces/*/; do [ -f "${_mp}skills/plugin-dir.sh" ] && [ -f "${_mp}agents/pm.md" ] && grep -qF '"name": "dev-team"' "${_mp}.claude-plugin/plugin.json" 2>/dev/null && printf '%s\n' "${_mp%/}" && break; done; } || find ~/.claude/plugins/cache \( -path '*/dev-team/*/skills/plugin-dir.sh' -o -path '*/dev-team-edge/*/skills/plugin-dir.sh' \) 2>/dev/null | awk -F/ '{ver=""; for(i=1;i<=NF;i++) if(($i=="dev-team"||$i=="dev-team-edge")&&i<NF){ver=$(i+1);break}; if(ver=="") next; m=ver; gsub(/-pre\./,"~pre.",m); p=($0 ~ /\/cache\/cold-dark-void\/dev-team\//)?2:(($0 ~ /\/cache\/cold-dark-void\/dev-team-edge\//)?1:0); print m "\t" p "\t" $0}' | sort -t $'\t' -k1,1V -k2,2n -k3,3 | tail -1 | cut -f3 | xargs -r dirname | xargs -r dirname )}"
+if [ "${ADVISOR_ON:-}" = "true" ] && [ "${ADVISOR_SKIP_TRIGGER:-}" != "1" ]; then
+  GATES=$(bash "$PDH/skills/plugin-dir.sh" file skills/advisor/gates.sh)
+  # M23: a denylisted id (bc3, bc8, bc6-extension, bc1-as-human-preference) or
+  # an unknown id is refused (exit 64) — no probe, no spawn. The blocking
+  # condition stands and the halt it produced MUST NOT be persisted or
+  # answered by the advisor (no card, no auto-proceed).
+  if ! ALLOWED=$(bash "$GATES" allow --bc "<gate-id>" 2>"${TMPDIR:-/tmp}/advisor-gate-<RUN_ID>.err"); then
+    cat "${TMPDIR:-/tmp}/advisor-gate-<RUN_ID>.err" >&2
+    rm -f "${TMPDIR:-/tmp}/advisor-gate-<RUN_ID>.err"
+    echo "advisor trigger-(a) gate refused — the halt stands" >&2
+  elif ! SHADOW_OUT=$(bash "$GATES" shadow --run-id "<RUN_ID>" --bc "<gate-id>" \
+        --ruling "<ruling>" --question "<question>" 2>&1); then
+    echo "advisor trigger-(a) shadow record failed: $SHADOW_OUT" >&2
+  elif [ "$(printf '%s' "$SHADOW_OUT" | jq -r '.mode')" != "shadow" ]; then
+    echo "advisor trigger-(a) mode is not shadow — growth past shadow is a human edit" >&2
+  fi
+fi
+```
+
 ## 4. Writer-invariant preconditions
 
 `append-card.sh` **hard-fails with exit 64 on any bad arg** (deliberate inversion of
