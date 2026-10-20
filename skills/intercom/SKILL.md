@@ -37,8 +37,13 @@ bash "$INTERCOM" ask "Which staging tag is live?"
 
 - `ask [--sid S] TEXT` — write `pending/<qid>.json`; print the qid. No network.
   The poller escalates unanswered questions (§ Escalation in the spec).
-- `send [--sid S] [--summary T] [--file P] TEXT` — write one outbox record;
-  print its path. No network. The poller drains outbox to Telegram.
+- `send [--sid S] [--summary T] [--no-summary] [--file P] TEXT` — write one
+  outbox record; print its path. No network. The poller drains outbox to
+  Telegram. Away send length contract: keep the text under `concise_threshold`
+  chars or pass an explicit `--summary`; above the threshold without one,
+  `send` prints one stderr notice and takes the summary path (exit 0).
+  `--no-summary` refuses the downgrade instead (exit 1, no record) and is
+  mutually exclusive with `--summary` (usage error, exit 2).
 - `read [--sid S] [--ack]` — print `spool/<sid>/inbox/` records in filename
   order: one `qid=<id> kind=<kind>` line per record (`qid` falls back to
   `update_id`) plus the text body. `--ack` moves each printed record to
@@ -191,7 +196,12 @@ rows are `update_id<TAB>epoch`; keep at most 1000. All writes are tmp-plus-renam
 
 The poller is mechanical; `send` decides. The CLI sets `summary` when
 `--summary` is given, or when the text exceeds `concise_threshold`
-(generated: first paragraph, capped at 280 characters). The poller then:
+(generated: first paragraph, capped at 280 characters). Above the threshold
+without `--summary`, `send` prints one stderr notice,
+`intercom: text exceeds concise_threshold=<N>; sent a summary instead of the full text`,
+and still takes the summary path (CDT-570). `send --no-summary`
+refuses the downgrade: exit 1, one stderr line naming the threshold, no
+outbox record. The poller then:
 
 - record with `summary` — `sendMessage(summary)`, then `sendDocument(file)`
   when present, else materialize `text` as a UTF-8 `.md` and upload it.

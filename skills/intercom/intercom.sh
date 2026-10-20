@@ -2,7 +2,7 @@
 # intercom.sh — the intercom CLI (SPEC-038). Subprocess only: never source it.
 #
 #   intercom ask [--sid S] TEXT
-#   intercom send [--sid S] [--summary T] [--file P] TEXT
+#   intercom send [--sid S] [--summary T] [--no-summary] [--file P] TEXT
 #   intercom read [--sid S] [--ack]
 #   intercom away [on|off|status]
 #   intercom help
@@ -26,7 +26,7 @@ fi
 ir_usage() {
   cat <<'EOF'
 usage: intercom ask [--sid S] TEXT
-       intercom send [--sid S] [--summary T] [--file P] TEXT
+       intercom send [--sid S] [--summary T] [--no-summary] [--file P] TEXT
        intercom read [--sid S] [--ack]
        intercom away [on|off|status]
        intercom help
@@ -95,7 +95,7 @@ ir_cli_ask() {
 }
 
 ir_cli_send() {
-  local sid="" summary="" file="" text=""
+  local sid="" summary="" summary_set=0 no_summary=0 file="" text=""
   while [ $# -gt 0 ]; do
     case "$1" in
       --sid)
@@ -107,10 +107,16 @@ ir_cli_send() {
         ;;
       --summary)
         [ $# -ge 2 ] || { echo "intercom send: --summary needs a value" >&2; exit 2; }
-        summary="$2"; shift 2
+        summary="$2"; summary_set=1; shift 2
         ;;
       --summary=*)
-        summary="${1#*=}"; shift
+        summary="${1#*=}"; summary_set=1; shift
+        ;;
+      --no-summary)
+        no_summary=1; shift
+        ;;
+      --no-summary=*)
+        no_summary=1; shift
         ;;
       --file)
         [ $# -ge 2 ] || { echo "intercom send: --file needs a value" >&2; exit 2; }
@@ -134,6 +140,10 @@ ir_cli_send() {
         ;;
     esac
   done
+  if [ "$no_summary" -eq 1 ] && [ "$summary_set" -eq 1 ]; then
+    echo "intercom send: --no-summary and --summary are mutually exclusive" >&2
+    ir_usage_exit
+  fi
   if [ -z "$text" ]; then
     echo "intercom send: TEXT is required" >&2
     ir_usage_exit
@@ -147,19 +157,27 @@ ir_cli_send() {
     echo "intercom send: --file does not exist: $file" >&2
     exit 1
   fi
-  # Longread rule: above concise_threshold the record must carry a summary so
+  # Longread rule (CDT-570): above concise_threshold the record must carry a summary so
   # the poller sends one concise message plus one document — never chunk-split.
-  local threshold
+  # --no-summary refuses the downgrade (exit 1, no record, spool untouched);
+  # --summary opts in silently; the auto path prints exactly one stderr notice
+  # (stdout keeps only the record path, so stdout walkers stay parseable).
+  local threshold tlen=0
   threshold=$(ir_config_field concise_threshold 1024)
   case "$threshold" in
     ''|*[!0-9]*) threshold=1024 ;;
   esac
-  if [ -z "$summary" ]; then
-    local tlen
+  if [ -z "$summary" ] || [ "$no_summary" -eq 1 ]; then
     tlen=$(jq -rn --arg t "$text" '$t | length') || tlen=0
+  fi
+  if [ "$no_summary" -eq 1 ]; then
     if [ "$tlen" -gt "$threshold" ]; then
-      summary=$(ir_gen_summary "$text") || summary=""
+      printf 'intercom: send refused: text exceeds concise_threshold=%s; pass --summary to allow the summary downgrade\n' "$threshold" >&2
+      exit 1
     fi
+  elif [ "$summary_set" -eq 0 ] && [ "$tlen" -gt "$threshold" ]; then
+    printf 'intercom: text exceeds concise_threshold=%s; sent a summary instead of the full text\n' "$threshold" >&2
+    summary=$(ir_gen_summary "$text") || summary=""
   fi
   ir_outbox_write "$sid" "$text" "$summary" "$file" || exit 1
   # Owner-pinned away_sid refresh (CDT-569): no-op unless SID owns/first-pins; never fails the verb.

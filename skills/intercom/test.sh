@@ -1178,6 +1178,196 @@ echo "VERIFY exit=$M569_AC_FAIL"
 echo "CDT-569 away-sid owner-pin bundle: $M569_PASS passed, $M569_FAIL failed"
 echo "VERIFY exit=$M569_FAIL"
 
+# ---- CDT-570: send summary-downgrade notice + --no-summary refuse (AC1-AC5) ----
+# Hermetic send fixtures per the CDT-569 pattern: one INTERCOM_STATE_ROOT per
+# case, schema-1 config so the threshold is explicit. ~1200-char text sits above
+# concise_threshold=1024; ~900 sits under; a 1024-char text pins the "at" edge.
+# Each AC section ends with its VERIFY exit= marker; the bundle ends with the
+# aggregate. AC5 is asserted here by source-check; docs-drift is the canonical
+# verifier (SPEC-038 § CDT-570).
+
+M570_PASS=0
+M570_FAIL=0
+M570_AC_FAIL=0
+m570_ok()  { M570_PASS=$((M570_PASS + 1)); PASS=$((PASS + 1)); echo "PASS: $1"; }
+m570_bad() { M570_FAIL=$((M570_FAIL + 1)); FAIL=$((FAIL + 1)); echo "FAIL: $1" >&2; }
+
+M570_TMP="$HERMETIC_ROOT/m570"
+mkdir -m 700 -p "$M570_TMP"
+
+m570_fresh() { # fresh state + schema-1 config (concise_threshold 1024)
+  fresh_case
+  seed_token
+  base_config "111" > "$STATE_ROOT/config.json"
+}
+m570_snap() { find "$STATE_ROOT/spool/$1/outbox" -type f 2>/dev/null | sort; }
+
+m570_long=""; m570_mid=""; m570_at=""
+i=0
+while [ "$i" -lt 120 ]; do m570_long="${m570_long}0123456789"; i=$((i + 1)); done # 1200 chars
+i=0
+while [ "$i" -lt 90 ]; do m570_mid="${m570_mid}abcdefghij"; i=$((i + 1)); done   #  900 chars
+i=0
+while [ "$i" -lt 102 ]; do m570_at="${m570_at}0123456789"; i=$((i + 1)); done    # 1020...
+m570_at="${m570_at}abcd"                                                          # 1024 chars
+
+# AC1 — a send above concise_threshold without an explicit --summary prints
+# exactly one stderr notice naming the threshold and still records via the
+# summary path: record carries summary, text stays intact, verb exits 0.
+M570_AC_FAIL=0
+m570_fresh
+run_cli "$INTERCOM" send --sid main "$m570_long"
+M570_REC="$C_OUT"; M570_RC=$C_RC; M570_ERR_1024="$C_ERR"
+M570_NOTICE="intercom: text exceeds concise_threshold=1024; sent a summary instead of the full text"
+echo "--- exhibit AC1 rc=$M570_RC notice=[$C_ERR] stdout=[$M570_REC] threshold=1024 summary_len=$(jq -r '.summary | length' "$M570_REC" 2>/dev/null) text_len=$(jq -r '.text | length' "$M570_REC" 2>/dev/null) ---"
+# Capture the default-threshold record's fields before the second fixture wipes it.
+M570_SUM_LEN=$(jq -r '.summary | length' "$M570_REC" 2>/dev/null)
+M570_TXT_LEN=$(jq -r '.text | length' "$M570_REC" 2>/dev/null)
+M570_IN_MAIN=0
+[ "${M570_REC%/*}" = "$STATE_ROOT/spool/main/outbox" ] && M570_IN_MAIN=1
+# Threshold-from-config interplay: the notice names the configured value, not 1024.
+m570_fresh
+cfg_edit "$STATE_ROOT/config.json" '.concise_threshold = 10'
+run_cli "$INTERCOM" send --sid main "$m570_mid"
+M570_REC10="$C_OUT"; M570_RC10=$C_RC
+echo "--- exhibit AC1 config-threshold rc=$M570_RC10 notice=[$C_ERR] threshold=10 summary_len=$(jq -r '.summary | length' "$M570_REC10" 2>/dev/null) ---"
+if [ "$M570_RC" -eq 0 ] && [ "$M570_IN_MAIN" -eq 1 ] \
+  && [ "$M570_ERR_1024" = "$M570_NOTICE" ] \
+  && [ "$M570_SUM_LEN" -eq 280 ] \
+  && [ "$M570_TXT_LEN" -eq 1200 ] \
+  && [ "$M570_RC10" -eq 0 ] && [ "$C_ERR" = "intercom: text exceeds concise_threshold=10; sent a summary instead of the full text" ] \
+  && [ "$(jq -r 'has("summary")' "$M570_REC10")" = "true" ]; then
+  m570_ok "AC1 above-threshold send without --summary: one stderr notice naming the threshold, summary-path record, exit 0"
+else
+  m570_bad "AC1 notice/downgrade: rc=$M570_RC err=[$M570_ERR_1024] rec=$M570_REC rc10=$M570_RC10 err10=[$C_ERR]"
+  M570_AC_FAIL=1
+fi
+echo "VERIFY exit=$M570_AC_FAIL"
+
+# AC2 — send --summary prints no downgrade notice (no notice bytes on stdout
+# or stderr) and the record carries the explicit summary.
+M570_AC_FAIL=0
+m570_fresh
+run_cli "$INTERCOM" send --sid main --summary "hand written" "$m570_long"
+M570_REC="$C_OUT"; M570_RC=$C_RC
+echo "--- exhibit AC2 rc=$M570_RC stderr_bytes=${#C_ERR} stdout_notice=$(printf '%s' "$C_OUT" | grep -c 'intercom:' || true) summary=[$(jq -r '.summary' "$M570_REC" 2>/dev/null)] ---"
+if [ "$M570_RC" -eq 0 ] && [ -f "$M570_REC" ] \
+  && [ -z "$C_ERR" ] \
+  && ! printf '%s' "$C_OUT" | grep -q 'intercom:' \
+  && [ "$(jq -r '.summary' "$M570_REC")" = "hand written" ]; then
+  m570_ok "AC2 explicit --summary: zero notice bytes on stdout or stderr, record carries the explicit summary"
+else
+  m570_bad "AC2 explicit summary: rc=$M570_RC err=[$C_ERR] out=[$C_OUT] summary=[$(jq -r '.summary' "$M570_REC" 2>/dev/null)]"
+  M570_AC_FAIL=1
+fi
+echo "VERIFY exit=$M570_AC_FAIL"
+
+# AC3 — a send at or under concise_threshold prints no notice and delivers the
+# full text: record has no summary key (CDT-535/AC9 below-threshold behavior).
+M570_AC_FAIL=0
+m570_fresh
+run_cli "$INTERCOM" send --sid main "$m570_mid"
+M570_REC_UNDER="$C_OUT"; M570_RC_UNDER=$C_RC; M570_ERR_UNDER="$C_ERR"
+run_cli "$INTERCOM" send --sid main "$m570_at"
+M570_REC_AT="$C_OUT"; M570_RC_AT=$C_RC; M570_ERR_AT="$C_ERR"
+M570_OUT_NOTICE_UNDER=$(printf '%s' "$M570_REC_UNDER" | grep -c 'text exceeds' || true)
+M570_OUT_NOTICE_AT=$(printf '%s' "$M570_REC_AT" | grep -c 'text exceeds' || true)
+echo "--- exhibit AC3 under rc=$M570_RC_UNDER stderr_bytes=${#M570_ERR_UNDER} stdout_notice=$M570_OUT_NOTICE_UNDER has_summary=$(jq -r 'has("summary")' "$M570_REC_UNDER" 2>/dev/null) text_len=$(jq -r '.text | length' "$M570_REC_UNDER" 2>/dev/null) | at rc=$M570_RC_AT stderr_bytes=${#M570_ERR_AT} stdout_notice=$M570_OUT_NOTICE_AT has_summary=$(jq -r 'has("summary")' "$M570_REC_AT" 2>/dev/null) text_len=$(jq -r '.text | length' "$M570_REC_AT" 2>/dev/null) ---"
+if [ "$M570_RC_UNDER" -eq 0 ] && [ -z "$M570_ERR_UNDER" ] \
+  && [ "$M570_OUT_NOTICE_UNDER" -eq 0 ] \
+  && [ "$(jq -r 'has("summary")' "$M570_REC_UNDER")" = "false" ] \
+  && [ "$(jq -r '.text | length' "$M570_REC_UNDER")" -eq 900 ] \
+  && [ "$M570_RC_AT" -eq 0 ] && [ -z "$M570_ERR_AT" ] \
+  && [ "$M570_OUT_NOTICE_AT" -eq 0 ] \
+  && [ "$(jq -r 'has("summary")' "$M570_REC_AT")" = "false" ] \
+  && [ "$(jq -r '.text | length' "$M570_REC_AT")" -eq 1024 ]; then
+  m570_ok "AC3 at-or-under threshold: no notice on stdout or stderr, full text, record has no summary"
+else
+  m570_bad "AC3 under/at: rc=$M570_RC_UNDER err=[$M570_ERR_UNDER] out_notice=$M570_OUT_NOTICE_UNDER rec=$M570_REC_UNDER rc_at=$M570_RC_AT err_at=[$M570_ERR_AT] out_notice_at=$M570_OUT_NOTICE_AT rec_at=$M570_REC_AT"
+  M570_AC_FAIL=1
+fi
+echo "VERIFY exit=$M570_AC_FAIL"
+
+# AC4 — --no-summary refuses above the threshold: exit 1, actionable stderr
+# naming the threshold, no outbox record (spool byte-identical); at/under the
+# threshold it sends the full text normally; --summary conflict is a usage
+# error (exit 2) writing nothing.
+M570_AC_FAIL=0
+m570_fresh
+m570_snap main > "$M570_TMP/ac4.pre"
+run_cli "$INTERCOM" send --sid main --no-summary "$m570_long"
+M570_RC_REFUSE=$C_RC; M570_ERR_REFUSE="$C_ERR"; M570_OUT_REFUSE="$C_OUT"
+m570_snap main > "$M570_TMP/ac4.post"
+# Threshold-from-config interplay: the refuse line names the configured value.
+m570_fresh
+cfg_edit "$STATE_ROOT/config.json" '.concise_threshold = 10'
+run_cli "$INTERCOM" send --sid main --no-summary "$m570_mid"
+M570_RC_REFUSE10=$C_RC; M570_ERR_REFUSE10="$C_ERR"
+m570_fresh
+run_cli "$INTERCOM" send --sid main --no-summary "$m570_mid"
+M570_REC_OK="$C_OUT"; M570_RC_OK=$C_RC; M570_ERR_OK="$C_ERR"
+# Capture the under record's fields before the at-edge fixture wipes its spool.
+M570_OK_SUM=$(jq -r 'has("summary")' "$M570_REC_OK" 2>/dev/null)
+M570_OK_LEN=$(jq -r '.text | length' "$M570_REC_OK" 2>/dev/null)
+m570_snap main > "$M570_TMP/ac4.mid"
+run_cli "$INTERCOM" send --sid main --no-summary --summary "both" "$m570_mid"
+M570_RC_BOTH=$C_RC
+m570_snap main > "$M570_TMP/ac4.post2"
+# At-edge --no-summary: 1024 chars == threshold sends the full text normally.
+m570_fresh
+run_cli "$INTERCOM" send --sid main --no-summary "$m570_at"
+M570_REC_ATOK="$C_OUT"; M570_RC_ATOK=$C_RC; M570_ERR_ATOK="$C_ERR"
+M570_ATOK_OUT_NOTICE=$(printf '%s' "$M570_REC_ATOK" | grep -c 'text exceeds' || true)
+echo "--- exhibit AC4 refuse rc=$M570_RC_REFUSE stderr=[$M570_ERR_REFUSE] stdout=[$M570_OUT_REFUSE] outbox_cmp=$(cmp -s "$M570_TMP/ac4.pre" "$M570_TMP/ac4.post" && echo identical || echo CHANGED) | refuse_cfg rc=$M570_RC_REFUSE10 stderr=[$M570_ERR_REFUSE10] | under rc=$M570_RC_OK has_summary=$M570_OK_SUM text_len=$M570_OK_LEN | at rc=$M570_RC_ATOK stderr_bytes=${#M570_ERR_ATOK} has_summary=$(jq -r 'has("summary")' "$M570_REC_ATOK" 2>/dev/null) text_len=$(jq -r '.text | length' "$M570_REC_ATOK" 2>/dev/null) stdout_notice=$M570_ATOK_OUT_NOTICE | both rc=$M570_RC_BOTH outbox_cmp2=$(cmp -s "$M570_TMP/ac4.mid" "$M570_TMP/ac4.post2" && echo identical || echo CHANGED) ---"
+if [ "$M570_RC_REFUSE" -eq 1 ] \
+  && [ "$M570_ERR_REFUSE" = "intercom: send refused: text exceeds concise_threshold=1024; pass --summary to allow the summary downgrade" ] \
+  && [ -z "$M570_OUT_REFUSE" ] \
+  && cmp -s "$M570_TMP/ac4.pre" "$M570_TMP/ac4.post" \
+  && [ "$M570_RC_REFUSE10" -eq 1 ] \
+  && [ "$M570_ERR_REFUSE10" = "intercom: send refused: text exceeds concise_threshold=10; pass --summary to allow the summary downgrade" ] \
+  && [ "$M570_RC_OK" -eq 0 ] && [ -z "$M570_ERR_OK" ] \
+  && [ "$M570_OK_SUM" = "false" ] \
+  && [ "$M570_OK_LEN" -eq 900 ] \
+  && [ "$M570_RC_ATOK" -eq 0 ] && [ -z "$M570_ERR_ATOK" ] \
+  && [ "$(jq -r 'has("summary")' "$M570_REC_ATOK")" = "false" ] \
+  && [ "$(jq -r '.text | length' "$M570_REC_ATOK")" -eq 1024 ] \
+  && [ "$M570_ATOK_OUT_NOTICE" -eq 0 ] \
+  && [ "$M570_RC_BOTH" -eq 2 ] \
+  && cmp -s "$M570_TMP/ac4.mid" "$M570_TMP/ac4.post2"; then
+  m570_ok "AC4 --no-summary refuses above threshold (rc 1, threshold stderr, spool byte-identical), sends full text at/under, and --summary conflict exits 2"
+else
+  m570_bad "AC4 refuse/under/conflict: refuse_rc=$M570_RC_REFUSE err=[$M570_ERR_REFUSE] cfg_rc=$M570_RC_REFUSE10 under_rc=$M570_RC_OK at_rc=$M570_RC_ATOK at_err=[$M570_ERR_ATOK] at_out_notice=$M570_ATOK_OUT_NOTICE both_rc=$M570_RC_BOTH"
+  M570_AC_FAIL=1
+fi
+echo "VERIFY exit=$M570_AC_FAIL"
+
+# AC5 — SKILL.md § Verbs documents the away send length contract and § Outbox
+# delivery contract names the downgrade notice and the refuse mode (canonical
+# verifier: bash skills/docs-drift/test.sh).
+M570_AC_FAIL=0
+M570_SKILL="$PLUGIN_ROOT/skills/intercom/SKILL.md"
+echo "--- exhibit AC5 skill_md=[$M570_SKILL] needles=$(grep -cF -- '--no-summary' "$M570_SKILL" 2>/dev/null) ---"
+for M570_NEEDLE in \
+  'keep the text under `concise_threshold`' \
+  'pass an explicit `--summary`' \
+  '`--no-summary`' \
+  'sent a summary instead of the full text' \
+  'refuses the downgrade'; do
+  if grep -qF "$M570_NEEDLE" "$M570_SKILL" 2>/dev/null; then
+    PASS=$((PASS + 1))
+  else
+    FAIL=$((FAIL + 1)); echo "FAIL: AC5 SKILL.md contract needle missing: $M570_NEEDLE" >&2
+    M570_AC_FAIL=1
+  fi
+done
+if [ "$M570_AC_FAIL" -eq 0 ]; then
+  m570_ok "AC5 SKILL.md documents the away send length contract and the Outbox notice + refuse mode"
+fi
+echo "VERIFY exit=$M570_AC_FAIL"
+
+echo "CDT-570 send-summary-notice bundle: $M570_PASS passed, $M570_FAIL failed"
+echo "VERIFY exit=$M570_FAIL"
+
 
 # ---- AC5: /setup slack is a zero-write stub --------------------------------------
 

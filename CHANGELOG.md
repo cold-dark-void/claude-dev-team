@@ -4,6 +4,10 @@ All notable changes to **claude-dev-team**, newest first.
 Authoritative version history. Prefer **`/release`** to add `### vX.Y.Z` headings.
 Pre-written headings (release-train M5c, orchestrate version-sync tasks) are kept
 via skip-if-present when `/release` is given an explicit version — do not invent a
+### v1.27.19
+
+**CDT-570 — intercom send: summary-downgrade notice + `--no-summary` refuse gate.** A `send` whose text exceeds `concise_threshold` without an explicit `--summary` now prints one stderr notice naming the threshold (`intercom: text exceeds concise_threshold=<N>; sent a summary instead of the full text`) and still records via the summary path (exit 0). New `--no-summary` flag (both spellings) refuses the downgrade above the threshold (exit 1, actionable stderr, spool byte-identical, no sid refresh) and is mutually exclusive with `--summary` (exit 2); at/under the threshold it sends the full text. SKILL.md § Verbs documents the away send length contract; § Outbox names the notice and refuse mode; docs-drift T6d needles + copy-extract negatives; hermetic m570 bundle covers at/under edges on both streams (SPEC-038 § CDT-570 AC1–AC6). M14 full-tier ship gate: 5/5 VERIFIED min 92.
+
 ### v1.27.18
 
 - **CDT-569 — away-sid owner pin.** While Away is ON, `ir_away_sid_refresh` rewrites `state/away_sid` ONLY when the resolved sid equals the current away_sid (owner re-pin / byte-identical) or away_sid is absent/empty (first pin); a non-owner (or present-but-insane) value is never silently rewritten — the only recovery is an explicit `away on`, which keeps last-writer-wins re-pin over a different sid (atomic 0600 bare-sid publish). `away off` still removes only `state/away` and keeps `state/away_sid` (CDT-535); the file format is unchanged (bare sid, 0600, tmp+rename, config schema stays 1) and spool routing is untouched — a non-owner's record still lands in its own sid bucket, and `send --sid <away_sid>` from a side session delivers to the away endpoint without flipping ownership.

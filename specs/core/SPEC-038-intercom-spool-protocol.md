@@ -1819,6 +1819,46 @@ cycle; the CDT-529 ACs pin it.
   (no new `commands/*.md`). The bot token never appears in argv, logs,
   spool files, or error text.
 
+### CDT-570
+
+- **AC1.** A `send` whose text length exceeds `concise_threshold` and
+  which was not given an explicit `--summary` prints exactly one stderr
+  notice naming the threshold (e.g. `intercom: text exceeds
+  concise_threshold=<N>; sent a summary instead of the full text`) and
+  still records the send via the summary path: the outbox record carries
+  a `summary` field and the poller delivers `sendMessage(summary)` +
+  document, never the full text as a message. The verb still exits 0.
+  Verify: bash skills/intercom/test.sh
+- **AC2.** A `send --summary <T>` prints no downgrade notice (the
+  caller chose the summary path explicitly; no notice on stdout or
+  stderr) and the record carries the explicit summary.
+  Verify: bash skills/intercom/test.sh
+- **AC3.** A `send` whose text length is at or under `concise_threshold`
+  prints no notice (no notice on stdout or stderr) and delivers the
+  full text: the record has no `summary` and the poller sends
+  `sendMessage(text)` (CDT-535/AC9 below-threshold behavior unchanged).
+  Verify: bash skills/intercom/test.sh
+- **AC4.** `send --no-summary` with text exceeding `concise_threshold`
+  and no explicit `--summary` refuses: exit code nonzero, an actionable
+  stderr line naming the threshold, and no outbox record is written
+  (spool byte-identical). `--no-summary` with text at or under the
+  threshold sends normally (full text, exit 0). The flag is mutually
+  exclusive with `--summary` (usage error, exit 2).
+  Verify: bash skills/intercom/test.sh
+- **AC5.** `skills/intercom/SKILL.md` § Verbs documents the away send
+  length contract: away-mode sends stay under `concise_threshold` chars
+  or pass an explicit `--summary`; `--no-summary` is available when the
+  full text must not be downgraded. The § Outbox delivery contract
+  section names the downgrade notice and the refuse mode. Evidence
+  bar: every behavioral clause of AC1–AC4 is exhibited by a named
+  `PASS: AC<N> <clause>` line in `skills/intercom/test.sh`
+  (source-assert-only clauses do not satisfy the bar).
+  Verify: bash skills/docs-drift/test.sh
+- **AC6.** [process] `bash tools/run-all-tests.sh` exits 0; skill-lint
+  (SPEC-021), docs-drift, and spec-lint pass. Release bump is patch
+  (no new `commands/*.md`). The bot token never appears in argv, logs,
+  spool files, or error text.
+
 ## Test
 
 - Owner-continuity pin: non-owner send/ask leaves `away_sid`

@@ -770,6 +770,32 @@ for f in commands/away.md commands/afk.md; do
 done
 
 # ---------------------------------------------------------------------------
+# T6d send-summary-notice doc surface (CDT-570 AC5) — read-only
+# ---------------------------------------------------------------------------
+for needle in \
+  'keep the text under `concise_threshold`' \
+  'pass an explicit `--summary`' \
+  'refuses the downgrade' \
+  'mutually exclusive with `--summary`' \
+  'sent a summary instead of the full text'; do
+  if grep -qF "$needle" "$CANON"; then PASS=$((PASS+1)); else
+    FAIL=$((FAIL+1)); echo "FAIL: canonical send length contract missing: $needle"
+  fi
+done
+# Copy-extract: the send length contract lives only in SKILL.md — the away
+# Surfaces and pickup-pointer steps must not restate it.
+for f in commands/away.md commands/afk.md \
+         skills/orchestrate/steps/08-execute.md \
+         skills/epic/mode-b-execute.md skills/kickoff/SKILL.md; do
+  if grep -qF 'sent a summary instead of the full text' "$LIVE/$f" \
+     || grep -qF 'refuses the downgrade' "$LIVE/$f"; then
+    FAIL=$((FAIL+1)); echo "FAIL: send length contract pasted into $f (copy-extract)"
+  else
+    PASS=$((PASS+1))
+  fi
+done
+
+# ---------------------------------------------------------------------------
 # T7 restore discipline: no inject artifacts; harness never used git checkout
 # ---------------------------------------------------------------------------
 LIVE_STATUS_AFTER=$(cd "$LIVE" && git status --porcelain)
