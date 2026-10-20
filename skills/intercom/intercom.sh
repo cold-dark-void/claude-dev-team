@@ -90,6 +90,7 @@ ir_cli_ask() {
   fi
   ir_session_heartbeat_touch "$sid" # best-effort liveness (CDT-568); the touch never fails the verb
   ir_pending_write "$sid" "$text" || exit 1
+  # Owner-pinned away_sid refresh (CDT-569): no-op unless SID owns/first-pins; never fails the verb.
   ir_away_sid_refresh "$sid"
 }
 
@@ -161,6 +162,7 @@ ir_cli_send() {
     fi
   fi
   ir_outbox_write "$sid" "$text" "$summary" "$file" || exit 1
+  # Owner-pinned away_sid refresh (CDT-569): no-op unless SID owns/first-pins; never fails the verb.
   ir_away_sid_refresh "$sid"
 }
 
@@ -212,12 +214,21 @@ ir_cli_away() {
 }
 
 ir_away_sid_refresh() {
-  # ir_away_sid_refresh SID — while away is ON the speaking session owns the
-  # walkie-talkie: refresh state/away_sid (CDT-535). Best-effort: a failed
-  # write never fails the ask/send that triggered it. Away OFF → never create.
-  local statedir
+  # ir_away_sid_refresh SID — owner-pinned away endpoint refresh (CDT-569).
+  # While away is ON, state/away_sid is rewritten ONLY when SID already
+  # equals the current away_sid (owner continuity, incl. the re-pin-to-same
+  # --sid <away_sid> path) or when away_sid is absent/empty (first pin); any
+  # other sender is a no-op for away_sid. A present-but-insane away_sid is
+  # never silently rewritten — only an explicit `away on` re-pins (recovery).
+  # Best-effort: a failed write never fails the ask/send that triggered it.
+  # Away OFF → never create.
+  local statedir cur
   statedir=$(ir_state_root)/state
   [ -f "$statedir/away" ] || return 0
+  cur=$(ir_away_sid_read) || cur=""
+  if [ -n "$cur" ] && [ "$cur" != "$1" ]; then
+    return 0 # non-owner sender (or insane away_sid): never steal the pin
+  fi
   ir_away_sid_write "$1" >/dev/null 2>&1 || true
 }
 

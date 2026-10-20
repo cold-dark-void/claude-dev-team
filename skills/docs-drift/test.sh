@@ -749,6 +749,27 @@ for f in commands/away.md commands/afk.md \
 done
 
 # ---------------------------------------------------------------------------
+# T6c away-sid owner-pin doc surface (CDT-569) — read-only
+# ---------------------------------------------------------------------------
+for needle in \
+  'only from its owner session' \
+  'or on a first pin (absent/empty)' \
+  'without flipping ownership (CDT-569)' \
+  'recovered only by an explicit `away on`'; do
+  if grep -qF "$needle" "$CANON"; then PASS=$((PASS+1)); else
+    FAIL=$((FAIL+1)); echo "FAIL: canonical away-sid owner-pin sentence missing: $needle"
+  fi
+done
+# Copy-extract: the owner-pin rule is not restated in the toggle Surfaces.
+for f in commands/away.md commands/afk.md; do
+  if grep -qF 'without flipping ownership (CDT-569)' "$LIVE/$f"; then
+    FAIL=$((FAIL+1)); echo "FAIL: owner-pin protocol pasted into $f (copy-extract)"
+  else
+    PASS=$((PASS+1))
+  fi
+done
+
+# ---------------------------------------------------------------------------
 # T7 restore discipline: no inject artifacts; harness never used git checkout
 # ---------------------------------------------------------------------------
 LIVE_STATUS_AFTER=$(cd "$LIVE" && git status --porcelain)

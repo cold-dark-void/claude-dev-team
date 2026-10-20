@@ -392,14 +392,14 @@ else
 fi
 run_cli_env "INTERCOM_SID=main" "$INTERCOM" away on
 run_cli "$INTERCOM" ask --sid worker-1 "worker question"
-if [ "$C_RC" -eq 0 ] && [ "$(cat "$STATE_ROOT/state/away_sid" 2>/dev/null)" = "worker-1" ]; then
-  ok "CDT-535 ask while away ON refreshes away_sid to the asking session"
+if [ "$C_RC" -eq 0 ] && [ "$(cat "$STATE_ROOT/state/away_sid" 2>/dev/null)" = "main" ]; then
+  ok "CDT-535 ask while away ON refreshes away_sid only for the owner (CDT-569: worker-1 cannot steal)"
 else
   bad "CDT-535 ask refresh: rc=$C_RC sid=$(cat "$STATE_ROOT/state/away_sid" 2>/dev/null) err=$C_ERR"
 fi
 run_cli "$INTERCOM" send --sid worker-2 "worker update"
-if [ "$C_RC" -eq 0 ] && [ "$(cat "$STATE_ROOT/state/away_sid" 2>/dev/null)" = "worker-2" ]; then
-  ok "CDT-535 send while away ON refreshes away_sid to the sending session"
+if [ "$C_RC" -eq 0 ] && [ "$(cat "$STATE_ROOT/state/away_sid" 2>/dev/null)" = "main" ]; then
+  ok "CDT-535 send while away ON refreshes away_sid only for the owner (CDT-569: worker-2 cannot steal)"
 else
   bad "CDT-535 send refresh: rc=$C_RC sid=$(cat "$STATE_ROOT/state/away_sid" 2>/dev/null) err=$C_ERR"
 fi
@@ -1018,6 +1018,165 @@ fi
 
 echo "CDT-568 T1 per-session heartbeat bundle: $T1_PASS passed, $T1_FAIL failed"
 echo "VERIFY exit=$T1_FAIL"
+
+# ---- CDT-569: away-sid owner pin (two-session matrix, AC1-AC6) ----------------
+# Hermetic two-sid fixtures: one INTERCOM_STATE_ROOT with an owner sid and a
+# side sid; away ON and away_sid pinned to the owner before every case. The
+# exhibits print the away_sid bytes before/after; AC1/AC2/AC3 compare file
+# BYTES (cmp), never mtimes. Each AC section ends with its VERIFY exit=
+# marker; the bundle ends with the aggregate, and the suite-wide Results line
+# governs the process exit code.
+
+M569_PASS=0
+M569_FAIL=0
+M569_AC_FAIL=0
+m569_ok()  { M569_PASS=$((M569_PASS + 1)); PASS=$((PASS + 1)); echo "PASS: $1"; }
+m569_bad() { M569_FAIL=$((M569_FAIL + 1)); FAIL=$((FAIL + 1)); echo "FAIL: $1" >&2; }
+
+M569_OWNER="main"
+M569_SIDE="side-sid"
+M569_TMP="$HERMETIC_ROOT/m569"
+mkdir -m 700 -p "$M569_TMP"
+
+m569_two_sid() { # fresh state: away ON, away_sid pinned to the owner, side sid shares the root
+  fresh_case
+  seed_token
+  mkdir -m 700 -p "$STATE_ROOT/state"
+  printf '%s\n' "$M569_OWNER" > "$STATE_ROOT/state/away_sid"
+  chmod 600 "$STATE_ROOT/state/away_sid"
+  printf 'epoch\n' > "$STATE_ROOT/state/away"
+}
+m569_sid_bytes() { cat "$STATE_ROOT/state/away_sid" 2>/dev/null; }
+
+# AC1 — a non-owner send/ask (resolved sid != away_sid) does not modify
+# state/away_sid: byte-identical file, record still in the sending sid's own
+# spool bucket, nothing routed into the owner's buckets.
+M569_AC_FAIL=0
+m569_two_sid
+cp "$STATE_ROOT/state/away_sid" "$M569_TMP/ac1.pre"
+run_cli "$INTERCOM" send --sid "$M569_SIDE" "side update, not mine"
+M569_REC="$C_OUT"; M569_SEND_RC=$C_RC
+run_cli "$INTERCOM" ask --sid "$M569_SIDE" "side question, not mine"
+M569_QID="$C_OUT"; M569_ASK_RC=$C_RC
+echo "--- exhibit AC1 away_sid before=[$(cat "$M569_TMP/ac1.pre")] after=[$(m569_sid_bytes)] cmp=$(cmp -s "$M569_TMP/ac1.pre" "$STATE_ROOT/state/away_sid" && echo identical || echo CHANGED) send_rc=$M569_SEND_RC rec=$M569_REC qid=$M569_QID ---"
+if [ "$M569_SEND_RC" -eq 0 ] && [ -f "$M569_REC" ] \
+  && [ "${M569_REC%/*}" = "$STATE_ROOT/spool/$M569_SIDE/outbox" ] \
+  && [ "$M569_ASK_RC" -eq 0 ] \
+  && [ -f "$STATE_ROOT/spool/$M569_SIDE/pending/$M569_QID.json" ] \
+  && cmp -s "$M569_TMP/ac1.pre" "$STATE_ROOT/state/away_sid" \
+  && [ ! -e "$STATE_ROOT/spool/$M569_OWNER" ]; then
+  m569_ok "AC1 non-owner send/ask leaves away_sid byte-identical (record still in its own sid bucket)"
+else
+  m569_bad "AC1 non-owner steal: send_rc=$M569_SEND_RC rec=$M569_REC ask_rc=$M569_ASK_RC qid=$M569_QID away_sid=[$(m569_sid_bytes)] owner-spool=$([ -e "$STATE_ROOT/spool/$M569_OWNER" ] && echo present || echo absent) err=$C_ERR"
+  M569_AC_FAIL=1
+fi
+echo "VERIFY exit=$M569_AC_FAIL"
+
+# AC2 — send --sid <away_sid> from a non-owner session lands its record in
+# the away_sid outbox and leaves state/away_sid byte-identical (the presented
+# sid IS the away endpoint: re-pin to the same value, no ownership flip).
+M569_AC_FAIL=0
+m569_two_sid
+cp "$STATE_ROOT/state/away_sid" "$M569_TMP/ac2.pre"
+run_cli_env "INTERCOM_SID=$M569_SIDE" "$INTERCOM" send --sid "$M569_OWNER" "side session delivers to the away endpoint"
+M569_REC="$C_OUT"
+echo "--- exhibit AC2 away_sid before=[$(cat "$M569_TMP/ac2.pre")] after=[$(m569_sid_bytes)] cmp=$(cmp -s "$M569_TMP/ac2.pre" "$STATE_ROOT/state/away_sid" && echo identical || echo CHANGED) rc=$C_RC record=$M569_REC ---"
+if [ "$C_RC" -eq 0 ] && [ -f "$M569_REC" ] \
+  && [ "${M569_REC%/*}" = "$STATE_ROOT/spool/$M569_OWNER/outbox" ] \
+  && cmp -s "$M569_TMP/ac2.pre" "$STATE_ROOT/state/away_sid"; then
+  m569_ok "AC2 send --sid <away_sid> from a non-owner lands in the away_sid outbox with away_sid byte-identical"
+else
+  m569_bad "AC2 side delivery: rc=$C_RC rec=$M569_REC away_sid=[$(m569_sid_bytes)] err=$C_ERR"
+  M569_AC_FAIL=1
+fi
+echo "VERIFY exit=$M569_AC_FAIL"
+
+# AC3 — the owner session's ask/send keep ownership (refresh is a no-op /
+# re-pin of the same value: file content unchanged) and still write records.
+M569_AC_FAIL=0
+m569_two_sid
+cp "$STATE_ROOT/state/away_sid" "$M569_TMP/ac3.pre"
+run_cli "$INTERCOM" ask --sid "$M569_OWNER" "owner question"
+M569_QID="$C_OUT"; M569_ASK_RC=$C_RC
+run_cli "$INTERCOM" send --sid "$M569_OWNER" "owner update"
+M569_REC="$C_OUT"; M569_SEND_RC=$C_RC
+echo "--- exhibit AC3 away_sid before=[$(cat "$M569_TMP/ac3.pre")] after=[$(m569_sid_bytes)] cmp=$(cmp -s "$M569_TMP/ac3.pre" "$STATE_ROOT/state/away_sid" && echo identical || echo CHANGED) ask_rc=$M569_ASK_RC qid=$M569_QID send_rc=$M569_SEND_RC rec=$M569_REC ---"
+if [ "$M569_ASK_RC" -eq 0 ] && [ -f "$STATE_ROOT/spool/$M569_OWNER/pending/$M569_QID.json" ] \
+  && [ "$M569_SEND_RC" -eq 0 ] && [ -f "$M569_REC" ] \
+  && [ "${M569_REC%/*}" = "$STATE_ROOT/spool/$M569_OWNER/outbox" ] \
+  && cmp -s "$M569_TMP/ac3.pre" "$STATE_ROOT/state/away_sid"; then
+  m569_ok "AC3 owner refresh keeps ownership (no-op / re-pin same value) and writes its record"
+else
+  m569_bad "AC3 owner refresh: ask_rc=$M569_ASK_RC qid=$M569_QID send_rc=$M569_SEND_RC rec=$M569_REC away_sid=[$(m569_sid_bytes)] err=$C_ERR"
+  M569_AC_FAIL=1
+fi
+echo "VERIFY exit=$M569_AC_FAIL"
+
+# AC4 — away on re-pins over a different sid (explicit owner intent, the
+# recovery path): atomic tmp+rename publish (no temp left behind), bare sid
+# content, 0600 mode preserved.
+M569_AC_FAIL=0
+m569_two_sid
+run_cli_env "INTERCOM_SID=$M569_SIDE" "$INTERCOM" away on
+echo "--- exhibit AC4 re-pin: rc=$C_RC out=[$C_OUT] away_sid=[$(m569_sid_bytes)] mode=$(stat -c %a "$STATE_ROOT/state/away_sid" 2>/dev/null) tmp_leftover=[$(find "$STATE_ROOT/state" -maxdepth 1 -name '.*' -type f 2>/dev/null | tr '\n' ' ')] ---"
+if [ "$C_RC" -eq 0 ] && [ "$C_OUT" = "away: on" ] \
+  && [ "$(m569_sid_bytes)" = "$M569_SIDE" ] \
+  && [ "$(stat -c %a "$STATE_ROOT/state/away_sid" 2>/dev/null)" = "600" ] \
+  && [ -f "$STATE_ROOT/state/away" ] \
+  && [ -z "$(find "$STATE_ROOT/state" -maxdepth 1 -name '.*' -type f 2>/dev/null)" ]; then
+  m569_ok "AC4 away on re-pins over a different sid (atomic 0600 bare-sid publish)"
+else
+  m569_bad "AC4 re-pin: rc=$C_RC out=[$C_OUT] away_sid=[$(m569_sid_bytes)] mode=$(stat -c %a "$STATE_ROOT/state/away_sid" 2>/dev/null) err=$C_ERR"
+  M569_AC_FAIL=1
+fi
+echo "VERIFY exit=$M569_AC_FAIL"
+
+# AC5 — away off removes only state/away and keeps state/away_sid (bytes and
+# mode unchanged; CDT-535 behavior preserved).
+M569_AC_FAIL=0
+m569_two_sid
+cp "$STATE_ROOT/state/away_sid" "$M569_TMP/ac5.pre"
+run_cli "$INTERCOM" away off
+echo "--- exhibit AC5 off: rc=$C_RC out=[$C_OUT] away=$([ -f "$STATE_ROOT/state/away" ] && echo present || echo absent) away_sid=[$(m569_sid_bytes)] cmp=$(cmp -s "$M569_TMP/ac5.pre" "$STATE_ROOT/state/away_sid" && echo identical || echo CHANGED) mode=$(stat -c %a "$STATE_ROOT/state/away_sid" 2>/dev/null) ---"
+if [ "$C_RC" -eq 0 ] && [ "$C_OUT" = "away: off" ] \
+  && [ ! -f "$STATE_ROOT/state/away" ] \
+  && cmp -s "$M569_TMP/ac5.pre" "$STATE_ROOT/state/away_sid" \
+  && [ "$(stat -c %a "$STATE_ROOT/state/away_sid" 2>/dev/null)" = "600" ]; then
+  m569_ok "AC5 away off removes only state/away and keeps away_sid"
+else
+  m569_bad "AC5 off: rc=$C_RC out=[$C_OUT] away=$([ -f "$STATE_ROOT/state/away" ] && echo present || echo absent) away_sid=[$(m569_sid_bytes)] mode=$(stat -c %a "$STATE_ROOT/state/away_sid" 2>/dev/null)"
+  M569_AC_FAIL=1
+fi
+echo "VERIFY exit=$M569_AC_FAIL"
+
+# AC6 — away behavior otherwise unchanged: away status reads state/away (not
+# away_sid), the config schema stays 1, and the new code paths never print
+# the bot token.
+M569_AC_FAIL=0
+m569_two_sid
+run_cli "$INTERCOM" away status
+M569_STATUS_ON="$C_OUT"; M569_ON_RC=$C_RC
+run_cli "$INTERCOM" away off
+run_cli "$INTERCOM" away status
+M569_STATUS_OFF="$C_OUT"; M569_OFF_RC=$C_RC
+printf '{"schema": 1, "members": {}}\n' > "$STATE_ROOT/config.json"
+run_cli "$INTERCOM" send --sid "$M569_OWNER" "schema stays 1 under the owner pin"
+M569_SCHEMA=$(jq -r '.schema // "missing"' "$STATE_ROOT/config.json" 2>/dev/null)
+echo "--- exhibit AC6 status: on=[$M569_STATUS_ON] on_rc=$M569_ON_RC off=[$M569_STATUS_OFF] off_rc=$M569_OFF_RC schema=$M569_SCHEMA away_sid=[$(m569_sid_bytes)] ---"
+if [ "$M569_ON_RC" -eq 0 ] && [ "$M569_STATUS_ON" = "away: on" ] \
+  && [ "$M569_OFF_RC" -eq 0 ] && [ "$M569_STATUS_OFF" = "away: off" ] \
+  && [ "$M569_SCHEMA" = "1" ] \
+  && ! grep -qF "$TEST_TOKEN" "$STATE_ROOT/state/away_sid" "$STATE_ROOT/state/away" "$ERRF" 2>/dev/null \
+  && ! grep -qF "$SENTINEL" "$STATE_ROOT/state/away_sid" "$STATE_ROOT/state/away" "$ERRF" 2>/dev/null; then
+  m569_ok "AC6 away status reads the file + schema 1 + token-free"
+else
+  m569_bad "AC6 status/schema/token: on=[$M569_STATUS_ON] on_rc=$M569_ON_RC off=[$M569_STATUS_OFF] off_rc=$M569_OFF_RC schema=$M569_SCHEMA"
+  M569_AC_FAIL=1
+fi
+echo "VERIFY exit=$M569_AC_FAIL"
+
+echo "CDT-569 away-sid owner-pin bundle: $M569_PASS passed, $M569_FAIL failed"
+echo "VERIFY exit=$M569_FAIL"
 
 
 # ---- AC5: /setup slack is a zero-write stub --------------------------------------

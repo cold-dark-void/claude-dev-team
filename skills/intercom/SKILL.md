@@ -140,8 +140,11 @@ record to `spool/<sid>/consumed/`. Ad-hoc `mv`/`rm`-style acks bypass
 Away routing sends walkie-talkie traffic
 (plain chat, the general topic, unmapped threads) to `state/away_sid`
 (CDT-535): `away on` pins it to the session's sid, `ask`/`send` refresh
-it while away is ON, `away off` keeps it, and the phone `/away` path
-never writes it. `skills/intercom/inbox-watch.sh` is the optional
+it while away is ON only from its owner session (resolved sid ==
+`away_sid`) or on a first pin (absent/empty) — a side session passes
+`--sid <away_sid>` without flipping ownership (CDT-569), and a stolen
+endpoint is recovered only by an explicit `away on`. `away off` keeps
+it, and the phone `/away` path never writes it. `skills/intercom/inbox-watch.sh` is the optional
 session-driven monitor: run it in the background while away to print the
 wake grammar on new inbox records (it stamps `state/inbox-watch.stamp`
 and touches no other adapter or poller state).
@@ -179,8 +182,8 @@ the file. Readers compute staleness from the file mtime, not the content
 
 `state/away` holds the epoch when written; presence is the signal.
 `state/away_sid` (CDT-535) holds the bare away endpoint sid — written by CLI
-`away on` and refreshed by `ask`/`send` while away is ON; the phone path
-never writes it. `seen.tsv`
+`away on` and refreshed by `ask`/`send` while away is ON only from its owner
+session (CDT-569 owner pin); the phone path never writes it. `seen.tsv`
 rows are `update_id<TAB>epoch`; keep at most 1000. All writes are tmp-plus-rename
 (`ir_record_tmp` + `ir_record_publish`), never partial in place.
 

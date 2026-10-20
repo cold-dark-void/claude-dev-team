@@ -436,6 +436,29 @@ the watermark). This protocol is prompt-level hygiene; the sidecar
 (§ Inbox sidecar) is the enforcement mechanism that does not depend on
 the session cooperating.
 
+## Away-sid owner pin (CDT-569)
+
+`state/away_sid` is owner-pinned: while away is ON, the CDT-535 refresh
+(`ir_away_sid_refresh`) rewrites `state/away_sid` ONLY when the speaking
+session's resolved sid already equals the current `away_sid` (owner
+continuity) or when `away_sid` is absent or empty (first pin). Any other
+sender is a no-op for `away_sid` — its spool record still goes to its
+own sid's outbox/pending bucket and away routing is unchanged. A side
+session that runs `send --sid <away_sid>` keeps working end to end: the
+record lands in the `away_sid` outbox and ownership does not flip (the
+sid it presented already IS the away endpoint).
+
+`away on` always (re)pins `away_sid` to the running session — explicit
+owner intent, even mid-hijack; it is the recovery path for a stolen
+endpoint. `away off` removes only `state/away` and keeps `away_sid`
+(CDT-535, unchanged). The file format is unchanged: bare sid content,
+0600, atomic tmp + rename publish (`ir_away_sid_write`); the config
+schema stays 1; the refresh path never prints the bot token. This
+supersedes the last-writer-wins refresh sentence in § Away mode
+("whoever is speaking owns the walkie-talkie"): the walkie-talkie now
+stays with its pinned owner until that owner speaks again or an explicit
+`away on` re-pins it.
+
 ## Security
 
 - MUST read the token only from `~/.config/telegram/bot_token` (0600).
@@ -1763,8 +1786,45 @@ cycle; the CDT-529 ACs pin it.
   `VERIFY exit=` marker line in their run output. Release bump is
   patch; no new `commands/*.md`.
 
+### CDT-569
+
+- **AC1.** A `send`/`ask` from a session whose resolved sid differs from
+  the current `state/away_sid` (no `--sid` match) does not modify
+  `state/away_sid`: the file is byte-identical before and after the
+  verb, and the record still lands in the sending sid's own spool
+  bucket (routing unchanged).
+  Verify: bash skills/intercom/test.sh
+- **AC2.** A `send --sid <away_sid>` from a non-owner session lands its
+  record in the `away_sid` outbox and leaves `state/away_sid`
+  byte-identical (the side-session delivery path works without
+  flipping ownership).
+  Verify: bash skills/intercom/test.sh
+- **AC3.** A `send`/`ask` from the owner session (resolved sid ==
+  `away_sid`) keeps ownership — the refresh is a no-op or re-pins the
+  same value (file content unchanged) — and still writes its record.
+  Verify: bash skills/intercom/test.sh
+- **AC4.** `away on` re-pins `state/away_sid` to the running session's
+  sid even when the file held a different sid (explicit owner intent):
+  atomic tmp + rename publish, bare sid content, 0600 mode preserved.
+  Verify: bash skills/intercom/test.sh
+- **AC5.** `away off` removes only `state/away` and keeps
+  `state/away_sid` (existing CDT-535 behavior unchanged).
+  Verify: bash skills/intercom/test.sh
+- **AC6.** Existing away behavior is otherwise unchanged: `away status`
+  still reads `state/away`; the config schema stays 1; the new code
+  paths never print the bot token (token-free output).
+  Verify: bash skills/intercom/test.sh
+- **AC7.** [process] `bash tools/run-all-tests.sh` exits 0; skill-lint
+  (SPEC-021), docs-drift, and spec-lint pass. Release bump is patch
+  (no new `commands/*.md`). The bot token never appears in argv, logs,
+  spool files, or error text.
+
 ## Test
 
+- Owner-continuity pin: non-owner send/ask leaves `away_sid`
+      byte-identical; `--sid <away_sid>` side-session delivery without
+      an ownership flip; owner refresh no-op; `away on` re-pins; `away
+      off` keeps the endpoint (CDT-569 AC1–AC6)
 - Pickup protocol amendment in SKILL.md/away/afk + walker surfaces; failed
       drain never aborts; re-arm after fork/compaction (CDT-568 AC1–AC3)
 - Sidecar service hardening identical to daemon; bash+jq+curl only (CDT-568 AC4)
@@ -1948,6 +2008,7 @@ cycle; the CDT-529 ACs pin it.
 
 | Date | Change |
 |------|--------|
+| 2026-10-20 | CDT-569 — away-sid owner pin: `ir_away_sid_refresh` rewrites `state/away_sid` only from the owner session (resolved sid == `away_sid`) or on first pin (absent/empty); a side session's `send --sid <away_sid>` delivers without flipping ownership; `away on` re-pins (explicit owner intent); `away off` unchanged; patch, no new Surface |
 | 2026-10-19 | CDT-568 — notify-only inbox sidecar (compose service `sidecar`, per-sid batched Telegram notice when the owning session's `state/session/<sid>.heartbeat` is stale, persisted `<sid>.notify.seen` watermark, fail-soft, no lock/offset/consumer); per-session heartbeat touched by CLI `read`/`ask`/`send` + `session_stale_heartbeat_s` config key; `inbox-watch.stamp` becomes a persisted last-seen watermark (first run wakes once on the oldest record; `consumed/` never re-wakes); pickup protocol amended to phase boundaries/subagent waits/user turns with failed-drain logging and fork/compaction re-arm; `read --ack` is the sole sanctioned drain; patch, no new Surface |
 | 2026-10-14 | CDT-567 — `start-daemon.sh` recreates the running Intercom daemon on re-run (`up -d --build --force-recreate`); `/setup telegram` applies plugin updates unattended; `poller.lock` 75 refuse only when identity is down; patch, no new Surface |
 | 2026-10-05 | CDT-501 — initial ACTIVE spec: spool protocol, `intercom` CLI, poller cycle, escalation, away, longread, `/setup telegram`/`slack`, doctor check, phase-2 contract |
