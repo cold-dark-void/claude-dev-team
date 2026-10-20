@@ -46,6 +46,9 @@ Runtime state lives outside the repo (CDT-501 AC23). Test override:
     inbox-watch.stamp                 # session monitor watermark (CDT-535; never inbox.stamp)
     last_wake_exit                    # adapter: last non-{0,75} poller exit that already woke
     inbox.stamp                       # adapter: mtime watermark for new inbox files
+    session/                          # per-session liveness (CDT-568, additive)
+      <sid>.heartbeat                 # epoch seconds, touched by CLI verbs read/ask/send
+      <sid>.notify.seen               # sidecar notify watermark (record filenames, one per line)
   spool/<sid>/
     inbox/                            # inbound JSON for the session
     outbox/                           # outbound JSON the poller drains
@@ -63,6 +66,7 @@ Runtime state lives outside the repo (CDT-501 AC23). Test override:
  "concise_threshold": 1024,
  "escalation_timeout_s": 900,
  "stale_heartbeat_s": 180,
+ "session_stale_heartbeat_s": 900,
  "poll_timeout_s": 30}
 ```
 
@@ -324,6 +328,114 @@ the (a)/(c) rules. The away session drains its inbox each turn with
 `intercom read --ack`; `skills/intercom/inbox-watch.sh` is the optional
 session-driven monitor that wakes it (CDT-535 AC8).
 
+## Per-session heartbeat (CDT-568)
+
+`state/session/<sid>.heartbeat` is the per-session liveness signal (OQ1
+resolved): epoch seconds, touched best-effort by the `intercom` CLI verbs
+`read`, `ask`, and `send` every time they run. A failed touch never fails
+the verb. The file is additive to the `ir_state_root` layout; the
+`state/session/` directory is created 0700 on first touch. The daemon's
+`state/heartbeat` is poller liveness and MUST NOT be reused as the session
+signal: a fresh poller heartbeat says nothing about whether a session is
+still listening. A missing session heartbeat counts as stale (fail-notify).
+
+The staleness threshold is the additive `config.json` key
+`session_stale_heartbeat_s` (default 900). The schema stays 1; readers
+tolerate the key's absence by falling back to the default.
+
+## Inbox sidecar (CDT-568 — notify-only)
+
+A second compose service, `sidecar`, runs in project `intercom` (label
+`dev-team.intercom=sidecar`) from the same digest-pinned alpine build.
+Hardening is identical to the daemon service: non-root `user:` from
+`INTERCOM_UID:INTERCOM_GID` (never 0), `read_only: true`, `cap_drop:
+["ALL"]`, `no-new-privileges`, tmpfs `/tmp`, no published ports, and the
+token only via the `:ro` mount of the mode-600 file reached through a
+curl `-K -` stdin config. The cycle tools stay bash + jq + curl (AC21).
+It reuses the approved CDT-509 alpine digest — no new pull approval.
+
+Each sidecar cycle (OQ2) scans every `spool/*/inbox/*.json` — all sids,
+not just `away_sid`. For a sid whose per-session heartbeat is stale
+(OQ5: the sidecar runs always-on; notices fire only under staleness) and
+whose inbox holds ≥1 record, it sends ONE Telegram notice per sid per
+cycle: `reply received, queued to session <sid>` with the record count
+and the record qids. The notice goes to the operator chat through the
+same transport funnel as the poller (`sendMessage`, no typing action).
+The sidecar is the durable guarantee behind the pickup protocol —
+prompt-level hygiene (§ Pickup protocol) alone does not cover a session
+that never wakes.
+
+MUST (sidecar):
+
+- MUST batch per sid per cycle: one notice per stale sid per cycle,
+  never one per record.
+- MUST deduplicate via a persisted watermark under `state/`
+  (`state/session/<sid>.notify.seen`, record filenames, one per line):
+  at-most-once per record across restarts. A record that later reaches
+  `consumed/` before its sid's heartbeat goes stale MUST NOT be
+  notified (a live `read --ack` wins the race; the sidecar re-checks
+  inbox membership before sending).
+- MUST fail soft: a missing token, absent spool dirs, malformed record
+  JSON, and docker-down are logged and skipped — never fatal, the loop
+  continues and exits 0 per cycle. The sidecar loop runs inside the
+  container; a container-down state is fail-soft by absence (no
+  notices), never an error surfaced elsewhere.
+
+MUST NOT (sidecar):
+
+- MUST NOT move, rename, write, or delete anything under `spool/` — it
+  is notify-only and never acks.
+- MUST NOT start a second `getUpdates` consumer, MUST NOT take
+  `state/poller.lock`, and MUST NOT touch `state/offset`,
+  `state/seen.tsv`, `state/away`, `state/away_sid`, or
+  `state/inbox.stamp` (AC22 preserved).
+- MUST NOT read the token from anywhere but the `:ro` mount, and MUST
+  NOT place the token in argv, env, logs, or error text.
+
+## Inbox-watch watermark (CDT-568)
+
+`skills/intercom/inbox-watch.sh`'s `state/inbox-watch.stamp` becomes a
+persisted last-seen watermark across restarts (`inbox-watch.stamp` stays
+the only stamp filename; the adapter's `state/inbox.stamp` is untouched).
+Semantics:
+
+- On first-ever run (no stamp), the watcher wakes ONCE on the oldest
+  existing record (OQ3 resolved) and then updates the watermark — a
+  freshly armed watcher must not silently swallow a backlog.
+- After a restart, the watcher wakes on records newer than the
+  watermark; a re-armed watcher cannot miss replies that arrived while
+  it was down.
+- It MUST NOT re-wake on records already acked: a record moved to
+  `spool/<sid>/consumed/` is the acked signal and never wakes. The
+  watermark MUST NOT move backwards across restarts.
+
+Unchanged invariants (CDT-535 AC8): the wake grammar, the 1–60 s
+interval cap, away-gating, exit-0-on-away-gone, and the rule that it
+never writes `state/inbox.stamp`, never reads the token, and never
+takes the sole-consumer lock.
+
+## Pickup protocol (CDT-568 amendment)
+
+While Away mode is ON, a walker/orchestrate session runs
+`intercom read --ack`:
+
+(a) after every phase boundary,
+(b) after every subagent wait completes, and
+(c) at each user-visible turn.
+
+The amended walker surfaces are `/orchestrate`
+(`skills/orchestrate/steps/08-execute.md`), `/epic` mode-b
+(`skills/epic/mode-b-execute.md`), and `/kickoff` — any Surface not
+named is unchanged. A failed drain (nonzero `intercom read --ack` exit)
+MUST be logged and MUST NOT abort the phase or subagent flow. After a
+fork or compaction, the session MUST re-arm
+`skills/intercom/inbox-watch.sh`. `intercom read --ack` is the only
+sanctioned inbox drain: ad-hoc `mv`/`rm` acks that bypass the
+`consumed/` bucket are prohibited (they break the sidecar dedupe and
+the watermark). This protocol is prompt-level hygiene; the sidecar
+(§ Inbox sidecar) is the enforcement mechanism that does not depend on
+the session cooperating.
+
 ## Security
 
 - MUST read the token only from `~/.config/telegram/bot_token` (0600).
@@ -336,6 +448,9 @@ session-driven monitor that wakes it (CDT-535 AC8).
   other than compose project `intercom` (AC23 / CDT-527). `/setup telegram`
   writes box-level state in § State layout and MAY inspect or start project
   `intercom` only. MUST NOT mutate any other compose project or stack.
+- MUST reach the token in the CDT-568 sidecar the same way as the daemon:
+  `:ro` mount of the mode-600 file + curl `-K -` stdin config. One token
+  copy on disk, never a second.
 
 ## Verified vs assumed Bot API behavior
 
@@ -360,6 +475,14 @@ degrades to plain-chat General delivery).
   `probe.sh` passes for that behavior.
 - MUST NOT run `probe.sh` inside the hermetic test suites; it hits the live
   API by design and is operator-invoked only.
+
+Assumed and UNVERIFIED for the CDT-568 sidecar: `sendMessage` issued from a
+second process while the daemon's `getUpdates` long-poll is in flight is
+expected NOT to 409 (the conflict is getUpdates-scoped). `probe.sh` SHOULD
+verify this against the live bot; until then the sidecar's fail-soft
+contract (log, continue) keeps a 409 non-fatal, and no design depends on
+the assumption holding. `find -newer` mtime granularity is already relied
+on (CDT-535).
 
 ## `/setup telegram` and `/setup slack`
 
@@ -449,7 +572,9 @@ write the token file.
 lock across cycles (a held lock would make the next `poller.sh` exit 75
 forever). A second start (host `watch.sh`/`poller.sh`, a second container,
 or probe while a cycle holds the lock) MUST exit 75 with no state mutation,
-or surface `409` as exit 4 without advancing offset (AC22). `/setup telegram`
+or surface `409` as exit 4 without advancing offset (AC22). The CDT-568
+sidecar is NOT a updates consumer: it never calls `getUpdates`, never takes
+`state/poller.lock`, and never advances the offset. `/setup telegram`
 MUST NOT arm `watch.sh` as a second consumer when the daemon is running.
 
 **Loop placement.** The resident loop is `skills/intercom/daemon.sh` (container
@@ -461,7 +586,11 @@ bash, jq, curl, and flock (`apk add` `util-linux` on Alpine so `flock` is
 not BusyBox — BusyBox `flock -n` is UNVERIFIED). Fast `poller.sh` exit 0
 (unpaired, transport fail) MUST backoff; a long-poll success may re-invoke
 immediately. Exit 2 terminates the loop. Exit 75/4/other nonzero backoff and
-continue.
+continue. The CDT-568 sidecar service is the second container-scoped loop
+exception (same shape as the CDT-535 `inbox-watch.sh` exception): its own
+`inbox-sidecar.sh` loop is resident inside its own container service;
+`poller.sh`/`watch.sh` stay one-shot and the sidecar never rewrites the
+spool cycle.
 
 **Semantics preserved.** Topic map (`topics.json`) is the session registry.
 Walkie-talkie, fail-closed unmapped, auto-create, Escalation timestamp
@@ -521,8 +650,9 @@ no C1. `commands/setup.md` forwards remaining args to
 `setup-telegram.sh`. Blocks stay token-free and ≤ 4 KiB. First-time
 start is no longer runbook-only.
 
-**Compose identity (locked).** Project name `intercom`. Service `daemon`.
-Label `dev-team.intercom=daemon`. Setup and doctor detect that label or
+**Compose identity (locked).** Project name `intercom`. Services `daemon`
+and `sidecar` (CDT-568; labels `dev-team.intercom=daemon` and
+`dev-team.intercom=sidecar`). Setup and doctor detect that label or
 `docker compose -p intercom`. No inbound published ports. Runtime user is
 not uid 0. Numeric uid MUST be able to read the 0600 token (same host owner).
 
@@ -616,6 +746,11 @@ Surface (`commands/*.md`).
   `state/poller.lock` with exit 75 and no C1 re-arm when identity is
   down; MUST skip that refuse when identity is running and recreate
   (CDT-567 AC2).
+- MUST (CDT-568) touch `state/session/<sid>.heartbeat` best-effort on
+  every `intercom read`/`ask`/`send`; MUST keep the sidecar notify-only
+  with per-sid batching and a persisted `state/session/<sid>.notify.seen`
+  watermark (at-most-once per record); MUST fail soft on missing token,
+  absent spool dirs, malformed records, and docker-down.
 - SHOULD keep `probe.sh` as the operator pre-deploy gate; MUST NOT invoke
   it from `start-daemon.sh` or `/setup telegram` (CDT-527 AC8).
 - SHOULD keep the temp-path rule (`${TMPDIR:-/tmp}` or `mktemp`) in every
@@ -656,6 +791,14 @@ Surface (`commands/*.md`).
   `probe.sh` from setup or `start-daemon.sh`.
 - MUST NOT break the spool interface (additive compose/daemon assets and
   extra `config.json` keys only).
+- MUST NOT (CDT-568) reuse `state/heartbeat` (poller liveness) as the
+  per-session signal, or use anything but the additive
+  `state/session/<sid>.*` files for it. MUST NOT let the sidecar start a
+  second `getUpdates` consumer, take `state/poller.lock`, or touch
+  `state/offset`/`state/seen.tsv`/`state/inbox.stamp`. MUST NOT let any
+  surface ack the inbox except `intercom read --ack` (ad-hoc `mv`-style
+  acks are prohibited — they bypass `consumed/`, the sidecar dedupe, and
+  the watermark).
 
 ## Alternatives considered
 
@@ -701,6 +844,24 @@ Surface (`commands/*.md`).
 - **Rewriting misrouted CDT-528 records in `spool/main/inbox/`** —
   rejected as code (CDT-529 Q4): one-off operator `jq` move documented in
   the runbook; automated migration of past misroutes is out of scope.
+- **Reusing `state/heartbeat` as the session liveness signal** — rejected
+  (CDT-568 OQ1): that file measures poller liveness; a fresh poller says
+  nothing about whether a session is listening, and the daemon runs 24/7
+  regardless of session state.
+- **Sidecar moving/acking stale records** — rejected: the sidecar would
+  race live `read --ack` and split the ack authority. Notify-only keeps
+  `intercom read --ack` as the single sanctioned drain (D1).
+- **Notifying only `away_sid`** — rejected (CDT-568 OQ2): walker sessions
+  are not always the away endpoint; scanning all spool sids covers every
+  orchestrating session. Staleness gating (OQ5) prevents spam to live
+  sessions, making the all-sids scan safe.
+- **Doctor orphan-`*.ack` check** — rejected as out of scope (CDT-568
+  OQ4 resolved): `consumed/` is a whitelisted bucket since CDT-535 and
+  no orphan path exists in the confirmed ACs.
+- **Sidecar as a separate compose project** — rejected: the "inject into
+  an existing stack" rejection already covers it; one project `intercom`
+  with two services keeps setup, doctor, and start-daemon detection on
+  the locked compose identity.
 
 ## Acceptance criteria
 
@@ -1521,8 +1682,107 @@ cycle; the CDT-529 ACs pin it.
   exits 0 (skill-lint, docs-drift, spec-lint pass). Release bump is
   patch; no new `commands/*.md`.
 
+### CDT-568
+
+- **AC1.** The away-mode pickup protocol (skills/intercom/SKILL.md §
+  Away pickup protocol, commands/away.md, commands/afk.md) instructs
+  that while Away mode is ON a walker/orchestrate session runs
+  `intercom read --ack` (a) after every phase boundary, (b) after every
+  subagent wait completes, and (c) at each user-visible turn. The named
+  walker surfaces are `/orchestrate` (skills/orchestrate/steps/08-execute.md),
+  `/epic` mode-b (skills/epic/mode-b-execute.md), and `/kickoff`; any
+  Surface not named is unchanged.
+  Verify: bash skills/docs-drift/test.sh
+- **AC2.** The pickup protocol states that a failed drain (nonzero
+  `intercom read --ack` exit) in a walker loop is logged and never
+  aborts the phase or subagent flow.
+  Verify: bash skills/docs-drift/test.sh
+- **AC3.** The pickup protocol instructs the session to re-arm
+  skills/intercom/inbox-watch.sh after fork/compaction.
+  Verify: bash skills/docs-drift/test.sh
+- **AC4.** Compose project `intercom` gains a `sidecar` service (label
+  `dev-team.intercom=sidecar`) built from the same digest-pinned alpine
+  image with hardening identical to `daemon`: `user:` non-root from
+  `INTERCOM_UID:INTERCOM_GID` (never 0), `read_only: true`, `cap_drop:
+  ["ALL"]`, `no-new-privileges`, tmpfs `/tmp`, no published ports, and
+  the token only via the `:ro` mount reached through curl `-K -`
+  stdin. The sidecar runtime is bash+jq+curl only (AC21).
+  Verify: bash skills/intercom/test-daemon.sh
+- **AC5.** Each sidecar cycle scans every `spool/*/inbox/*.json`; for a
+  sid whose per-session heartbeat is stale it sends ONE Telegram notice
+  per cycle, `reply received, queued to session <sid>`, carrying the
+  record count and the record qids. The sidecar never moves, renames,
+  or writes anything under `spool/`.
+  Verify: bash skills/intercom/test-sidecar.sh
+- **AC6.** Per-session liveness is the additive
+  `state/session/<sid>.heartbeat`, touched best-effort by the
+  `intercom` CLI verbs `read`, `ask`, and `send`; the daemon's
+  `state/heartbeat` (poller liveness) is never reused. The staleness
+  threshold is the additive `config.json` key
+  `session_stale_heartbeat_s` (default 900); the schema stays 1.
+  Verify: bash skills/intercom/test.sh && bash skills/intercom/test-sidecar.sh
+- **AC7.** Sidecar notifications are deduplicated via the persisted
+  `state/session/<sid>.notify.seen` watermark: batched per sid per
+  cycle and at-most-once per record, including across sidecar
+  restarts; a record already in `consumed/` is never notified.
+  Verify: bash skills/intercom/test-sidecar.sh
+- **AC8.** The sidecar is fail-soft: a missing token, absent spool
+  dirs, malformed record JSON, and docker-down are logged and skipped
+  without aborting the cycle (cycle exits 0).
+  Verify: bash skills/intercom/test-sidecar.sh
+- **AC9.** The sidecar never starts a second updates consumer, never
+  takes `state/poller.lock`, and never touches `state/offset`,
+  `state/seen.tsv`, `state/away`, `state/away_sid`, or
+  `state/inbox.stamp`.
+  Verify: bash skills/intercom/test-sidecar.sh
+- **AC10.** `inbox-watch.sh` persists a last-seen watermark in
+  `state/inbox-watch.stamp` across restarts: on first-ever run it
+  wakes once on the oldest existing record and then updates the
+  watermark; after a restart it wakes on records newer than the
+  watermark; records already moved to `spool/<sid>/consumed/` never
+  re-wake, and the watermark never moves backwards.
+  Verify: bash skills/intercom/test.sh
+- **AC11.** `inbox-watch.sh` invariants are unchanged: the wake grammar
+  `intercom: inbound sid=<sid> path=<abs-inbox>`, the 1–60 s interval
+  cap, away-gating, exit-0-on-away-gone, and never writing
+  `state/inbox.stamp`.
+  Verify: bash skills/intercom/test.sh
+- **AC12.** skills/intercom/SKILL.md § Verbs states that
+  `intercom read --ack` is the only sanctioned inbox drain; ad-hoc
+  `mv`/`rm`-style acks that bypass `consumed/` are prohibited.
+  Verify: bash skills/docs-drift/test.sh
+- **AC13.** The sidecar notice path keeps the bot token out of argv,
+  env, logs, spool files, and error text; the token reaches curl only
+  via the `-K -` stdin config from the `:ro` mount, and the sentinel
+  is absent from the image, tests, and any written file.
+  Verify: bash skills/intercom/test-sidecar.sh
+- **AC14.** [process] `bash tools/run-all-tests.sh` exits 0;
+  skill-lint (SPEC-021), docs-drift, and spec-lint pass; the extended
+  verify bundles (skills/intercom/test.sh, test-daemon.sh,
+  test-sidecar.sh, skills/docs-drift/test.sh) each end with a literal
+  `VERIFY exit=` marker line in their run output. Release bump is
+  patch; no new `commands/*.md`.
+
 ## Test
 
+- Pickup protocol amendment in SKILL.md/away/afk + walker surfaces; failed
+      drain never aborts; re-arm after fork/compaction (CDT-568 AC1–AC3)
+- Sidecar service hardening identical to daemon; bash+jq+curl only (CDT-568 AC4)
+- Sidecar scans all spool inboxes; one notice per stale sid per cycle with
+      count + qids; never writes spool (CDT-568 AC5)
+- Per-sid heartbeat touched by read/ask/send; state/heartbeat not reused;
+      session_stale_heartbeat_s config key, schema 1 (CDT-568 AC6)
+- Sidecar dedupe watermark: at-most-once per record, restart-safe,
+      consumed/ wins the race (CDT-568 AC7)
+- Sidecar fail-soft: token/spool/malformed/docker-down non-fatal (CDT-568 AC8)
+- Sidecar: no second consumer, no poller.lock, no offset/seen/inbox.stamp
+      writes (CDT-568 AC9)
+- inbox-watch watermark persists across restarts; first run wakes once on
+      the oldest record; consumed/ never re-wakes (CDT-568 AC10)
+- Wake grammar, 1–60s cap, away-gating, exit-0-on-away-gone, never
+      state/inbox.stamp (CDT-568 AC11)
+- `read --ack` is the only sanctioned drain (CDT-568 AC12)
+- Token sentinel absent from sidecar argv/env/logs/spool/image (CDT-568 AC13)
 - Token file written 0600 with 700 parent; repo stays clean (AC1)
 - Unpaired cycle creates zero artifacts; non-allowlisted id ignored
       with zero artifacts beside a normal relay (AC2)
@@ -1688,6 +1948,7 @@ cycle; the CDT-529 ACs pin it.
 
 | Date | Change |
 |------|--------|
+| 2026-10-19 | CDT-568 — notify-only inbox sidecar (compose service `sidecar`, per-sid batched Telegram notice when the owning session's `state/session/<sid>.heartbeat` is stale, persisted `<sid>.notify.seen` watermark, fail-soft, no lock/offset/consumer); per-session heartbeat touched by CLI `read`/`ask`/`send` + `session_stale_heartbeat_s` config key; `inbox-watch.stamp` becomes a persisted last-seen watermark (first run wakes once on the oldest record; `consumed/` never re-wakes); pickup protocol amended to phase boundaries/subagent waits/user turns with failed-drain logging and fork/compaction re-arm; `read --ack` is the sole sanctioned drain; patch, no new Surface |
 | 2026-10-14 | CDT-567 — `start-daemon.sh` recreates the running Intercom daemon on re-run (`up -d --build --force-recreate`); `/setup telegram` applies plugin updates unattended; `poller.lock` 75 refuse only when identity is down; patch, no new Surface |
 | 2026-10-05 | CDT-501 — initial ACTIVE spec: spool protocol, `intercom` CLI, poller cycle, escalation, away, longread, `/setup telegram`/`slack`, doctor check, phase-2 contract |
 | 2026-10-05 | CDT-501 — command-relay clarification (only `/away`/`/afk` are intercepted; other slash text relays) and AC consolidation to the M14 budget: 2+3→2, 6+7+8→6, 12+13→12, 14+15+16→14, 17+18+19+20→17 |

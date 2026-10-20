@@ -43,7 +43,9 @@ bash "$INTERCOM" ask "Which staging tag is live?"
   order: one `qid=<id> kind=<kind>` line per record (`qid` falls back to
   `update_id`) plus the text body. `--ack` moves each printed record to
   `spool/<sid>/consumed/` (original filename preserved) and is idempotent;
-  without `--ack` the read is non-destructive. No network (CDT-535).
+  without `--ack` the read is non-destructive. `read --ack` is the only sanctioned
+  inbox drain; ad-hoc `mv`/`rm`-style acks bypass `consumed/`
+  and leave orphan records — prohibited (CDT-568). No network (CDT-535).
 - `away [on|off|status]` — toggle or read `state/away`; print `away: on` or
   `away: off`. Bare `away` means `status`. `on` also pins `state/away_sid`
   to the resolved session sid and exits 1 (writing no state) when the sid is
@@ -123,7 +125,19 @@ The poller resolves one sid per allowlisted update. First hit wins
 ## Away pickup protocol
 
 While away is ON, each session turn runs `intercom read --ack` and
-replies via `send`/`ask`. Away routing sends walkie-talkie traffic
+replies via `send`/`ask`. While Away mode is ON, a walker/orchestrate
+session runs `intercom read --ack` (a) after every phase boundary,
+(b) after every subagent wait completes, and
+(c) at each user-visible turn (CDT-568).
+A failed drain (nonzero `read --ack` exit) is logged and
+never aborts the phase or the subagent flow. After a fork or
+compaction, re-arm `skills/intercom/inbox-watch.sh`.
+
+`intercom read --ack` is the only sanctioned inbox drain: it moves each
+record to `spool/<sid>/consumed/`. Ad-hoc `mv`/`rm`-style acks bypass
+`consumed/` and leave orphan records — prohibited (CDT-568).
+
+Away routing sends walkie-talkie traffic
 (plain chat, the general topic, unmapped threads) to `state/away_sid`
 (CDT-535): `away on` pins it to the session's sid, `ask`/`send` refresh
 it while away is ON, `away off` keeps it, and the phone `/away` path

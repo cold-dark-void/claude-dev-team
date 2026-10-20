@@ -88,6 +88,7 @@ ir_cli_ask() {
   if ! sid=$(ir_resolve_sid "$sid"); then
     ir_usage_exit
   fi
+  ir_session_heartbeat_touch "$sid" # best-effort liveness (CDT-568); the touch never fails the verb
   ir_pending_write "$sid" "$text" || exit 1
   ir_away_sid_refresh "$sid"
 }
@@ -140,6 +141,7 @@ ir_cli_send() {
   if ! sid=$(ir_resolve_sid "$sid"); then
     ir_usage_exit
   fi
+  ir_session_heartbeat_touch "$sid" # best-effort liveness (CDT-568); the touch never fails the verb
   if [ -n "$file" ] && [ ! -f "$file" ]; then
     echo "intercom send: --file does not exist: $file" >&2
     exit 1
@@ -256,6 +258,7 @@ ir_cli_read() {
   if ! sid=$(ir_resolve_sid "$sid"); then
     ir_usage_exit
   fi
+  ir_session_heartbeat_touch "$sid" # best-effort liveness (CDT-568); the touch never fails the verb
   local inbox consumed rec qid kind text name tmp
   inbox=$(ir_spool_dir "$sid" inbox) || exit 1
   consumed=""

@@ -16,6 +16,7 @@ COPY skills/intercom/common.sh /app/skills/intercom/common.sh
 COPY skills/intercom/daemon.sh /app/skills/intercom/daemon.sh
 COPY skills/intercom/poller.sh /app/skills/intercom/poller.sh
 COPY skills/intercom/intercom.sh /app/skills/intercom/intercom.sh
+COPY skills/intercom/inbox-sidecar.sh /app/skills/intercom/inbox-sidecar.sh
 COPY skills/intercom/inbox-watch.sh /app/skills/intercom/inbox-watch.sh
 COPY skills/intercom/probe.sh /app/skills/intercom/probe.sh
 COPY skills/intercom/setup-telegram.sh /app/skills/intercom/setup-telegram.sh

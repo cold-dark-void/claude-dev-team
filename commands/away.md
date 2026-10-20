@@ -11,11 +11,8 @@ Toggles the Telegram intercom Away mode by calling the intercom CLI
 becomes the primary channel immediately; the main UI still mirrors messages.
 `status` shows the current mode without changing it.
 
-While away is ON, each session turn runs `intercom read --ack` and replies
-via `send`/`ask` — walkie-talkie traffic lands in `state/away_sid`, which
-`away on` pins to this session's sid (CDT-535). Run
-`skills/intercom/inbox-watch.sh` in the background for wake lines on new
-inbox records.
+While away is ON, the session drains its inbox per the canonical away
+pickup protocol: `skills/intercom/SKILL.md` § Away pickup protocol (CDT-568).
 
 ```bash
 # lint-ok: C3 — marketplace */ for-loop + -f guarded (SPEC-021 Q2 residual, CDT-82 PDH)

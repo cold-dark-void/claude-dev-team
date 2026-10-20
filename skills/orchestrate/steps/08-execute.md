@@ -163,6 +163,11 @@ After spawning, enter a monitoring cycle:
 2. When an agent completes a task, check if blocked tasks are now unblocked → spawn next agents
 3. Surface blockers or errors to user immediately
 
+While Away mode is ON, the walker drains the inbox with `intercom read --ack`
+after every phase boundary, subagent wait, and user-visible turn; a failed
+drain is logged, never aborts. Canonical protocol:
+`skills/intercom/SKILL.md` § Away pickup protocol.
+
 **TaskList ↔ Agent-spawn reconciliation.** The Agent tool reports
 `status: "async_launched"` when a spawn is fired-and-forgotten — that
 status lives on the *Agent tool result*, not on the TaskList. A spawned

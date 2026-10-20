@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# start-daemon.sh — start the Intercom compose sidecar (SPEC-038 CDT-527).
+# start-daemon.sh — start the Intercom compose project (SPEC-038 CDT-527):
+# services daemon + sidecar (CDT-568).
 # Subprocess CLI. Never sourced. Token file path only (never token bytes).
 # Host uid:gid; never uid 0. stdout empty on success (setup prints daemon mode).
 set -u
@@ -43,5 +44,8 @@ if ! ir_daemon_identity_running; then
 fi
 
 export INTERCOM_UID INTERCOM_GID INTERCOM_TOKEN_FILE INTERCOM_STATE_DIR
+# CDT-568: up has no service arg — project-wide, starts daemon AND sidecar.
+# The identity check stays sidecar-safe: label dev-team.intercom=sidecar
+# matches neither the daemon Service name nor the daemon label filter.
 docker compose -p intercom -f "$COMPOSE_FILE" up -d --build --force-recreate >/dev/null || exit 1
 exit 0

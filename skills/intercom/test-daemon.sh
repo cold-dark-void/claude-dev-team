@@ -2,7 +2,9 @@
 # test-daemon.sh — hermetic CDT-509 phase-2 daemon/compose suite (SPEC-038)
 # plus CDT-527 start-daemon.sh CLI cases. No network and no real container:
 # never docker-pull or docker-run an image. Loop cases drive daemon.sh with
-# INTERCOM_POLLER=mock. Compose/Dockerfile cases are static text.
+# INTERCOM_POLLER=mock. Compose/Dockerfile cases are static text; CDT-568 AC4
+# may also run a client-side `docker compose config` when a host CLI exists
+# (never pull/run).
 # poller.sh and watch.sh stay one-shot (lock-in). Docker mock lives in
 # test-lib.sh (install_docker_mock); CLI-absent is nodocker_bin PATH.
 set -u
@@ -53,6 +55,9 @@ fresh_case() {
 # Hide host docker without dropping /usr/bin (docker lives next to grep).
 # SHIM_DIR stays first so install_docker_mock wins command -v. No refuse-all
 # shim: CLI-absent is this PATH; CDT-527 cases call install_docker_mock.
+# REAL_DOCKER keeps the host CLI (if any) for CDT-568 AC4 client-side
+# `compose config` validation only — never pull/run.
+REAL_DOCKER=$(command -v docker 2>/dev/null || true)
 SAFE_BIN=$(nodocker_bin)
 export PATH="$SHIM_DIR:$SAFE_BIN"
 
@@ -659,6 +664,125 @@ for f in "$HERE"/*.sh; do
 done
 [ "$pull_527" -eq 1 ] && ok "CDT-527 AC8 shipped skills/intercom/*.sh never docker pull/run"
 
+# ---- CDT-568 AC4: sidecar compose service + start wiring -----------------------
+
+# compose config parses. Host docker CLI, client-side only (no pull/run);
+# dummy env satisfies the ${VAR:?} interpolations. Skipped when no host CLI.
+if [ -n "$REAL_DOCKER" ]; then
+  if env INTERCOM_UID=1000 INTERCOM_GID=1000 \
+      INTERCOM_TOKEN_FILE="$HERMETIC_ROOT/compose-token" \
+      INTERCOM_STATE_DIR="$HERMETIC_ROOT/compose-state" \
+      "$REAL_DOCKER" compose -f "$COMPOSE" config --quiet \
+      2>"$HERMETIC_ROOT/compose-config.err"; then
+    ok "CDT-568 AC4 docker compose config parses (project intercom)"
+  else
+    bad "CDT-568 AC4 docker compose config failed: $(cat "$HERMETIC_ROOT/compose-config.err")"
+  fi
+else
+  ok "CDT-568 AC4 compose config parse skipped (no host docker CLI)"
+fi
+
+# sidecar service present with every hardening key (identical to the daemon).
+side_block=""
+if [ -f "$COMPOSE" ]; then
+  side_block=$(awk '/^  sidecar:/{f=1; print; next} f && /^  [A-Za-z][A-Za-z-]*:/{f=0} f' "$COMPOSE")
+fi
+side_has() { # PATTERN — rc 0 when PATTERN matches the sidecar service block
+  [ -n "$side_block" ] && printf '%s\n' "$side_block" | grep -Eq "$1"
+}
+side_ac4() { # LABEL PATTERN
+  if side_has "$2"; then ok "CDT-568 AC4 sidecar $1"; else bad "CDT-568 AC4 sidecar $1 missing"; fi
+}
+if [ -n "$side_block" ]; then
+  ok "CDT-568 AC4 compose service sidecar"
+else
+  bad "CDT-568 AC4 compose service sidecar missing"
+fi
+side_ac4 "label dev-team.intercom=sidecar" 'dev-team\.intercom:[[:space:]]*sidecar([[:space:]]|$)'
+side_ac4 "non-root user from INTERCOM_UID:INTERCOM_GID" 'user:[[:space:]]*"\$\{INTERCOM_UID:\?\}:\$\{INTERCOM_GID:\?\}"'
+side_ac4 "read_only: true" 'read_only:[[:space:]]*true'
+side_ac4 "cap_drop ALL" 'cap_drop:.*ALL'
+side_ac4 "no-new-privileges" 'no-new-privileges:true'
+side_ac4 "tmpfs /tmp" 'tmpfs:|-[[:space:]]*/tmp:mode='
+side_ac4 "token volume :ro" 'bot_token:ro'
+side_ac4 "loop-mode command inbox-sidecar.sh" 'command:[[:space:]]*\["bash",[[:space:]]*"/app/skills/intercom/inbox-sidecar.sh"\]'
+side_ac4 "same plugin-root build as the daemon" 'dockerfile:[[:space:]]*skills/intercom/Dockerfile'
+if side_has 'ports:'; then
+  bad "CDT-568 AC4 sidecar publishes ports"
+else
+  ok "CDT-568 AC4 sidecar publishes no ports"
+fi
+if side_has 'telegram-router:ro'; then
+  bad "CDT-568 AC4 sidecar state volume must not be :ro"
+elif side_has 'telegram-router'; then
+  ok "CDT-568 AC4 sidecar state volume is rw bind"
+else
+  bad "CDT-568 AC4 sidecar state volume telegram-router missing"
+fi
+
+# CDT-568 AC4 exhibits: the sidecar image is digest-pinned (the service builds
+# from the same skills/intercom/Dockerfile whose FROM is an alpine
+# @sha256:<64hex> pin, carried in the compose file's base-pin comment), and
+# cap_drop is exactly the ["ALL"] span. Run-output lines the ship-gate council
+# can quote verbatim.
+AC4_PIN=$(grep -Eo 'docker\.io/library/alpine@sha256:[0-9a-f]{64}' "$COMPOSE" 2>/dev/null | head -n 1)
+AC4_FROM_PIN=$(grep -Eo '^FROM .*@sha256:[0-9a-f]{64}$' "$DOCKERFILE" 2>/dev/null | head -n 1)
+echo "--- exhibit AC4 sidecar image pin: compose-base-pin=[$AC4_PIN] dockerfile-from=[$AC4_FROM_PIN] ---"
+if [ -n "$side_block" ] && side_has 'dockerfile:[[:space:]]*skills/intercom/Dockerfile' \
+  && printf '%s' "$AC4_PIN" | grep -Eq '@sha256:[0-9a-f]{64}$' \
+  && printf '%s' "$AC4_FROM_PIN" | grep -Eq '@sha256:[0-9a-f]{64}$'; then
+  ok "AC4 sidecar service image is digest-pinned ($AC4_PIN)"
+else
+  bad "AC4 sidecar image pin missing: compose=[$AC4_PIN] from=[$AC4_FROM_PIN]"
+fi
+echo "--- exhibit AC4 sidecar cap_drop span: $(printf '%s\n' "$side_block" | grep 'cap_drop:' | head -n 1 | sed 's/^[[:space:]]*//') ---"
+if printf '%s\n' "$side_block" | grep -Eq '^[[:space:]]*cap_drop:[[:space:]]*\["ALL"\][[:space:]]*$'; then
+  ok 'AC4 sidecar cap_drop equals the exact span ["ALL"]'
+else
+  bad "AC4 sidecar cap_drop is not exactly [\"ALL\"]: $(printf '%s\n' "$side_block" | grep 'cap_drop:' | head -n 1)"
+fi
+
+# Dockerfile bakes the sidecar loop script.
+if [ -f "$DOCKERFILE" ] && grep -Eq '^COPY[[:space:]]+skills/intercom/inbox-sidecar\.sh[[:space:]]+/app/skills/intercom/inbox-sidecar\.sh$' "$DOCKERFILE"; then
+  ok "CDT-568 AC4 Dockerfile COPY inbox-sidecar.sh into /app/skills/intercom/"
+else
+  bad "CDT-568 AC4 Dockerfile missing COPY inbox-sidecar.sh"
+fi
+
+# start-daemon up is project-wide: no service pin after --force-recreate, so
+# the single up starts BOTH services.
+fresh_case
+seed_paired "197372681"
+seed_token "$SENTINEL"
+install_docker_mock up-ok
+out=$(bash "$START_DAEMON" 2>&1)
+rc=$?
+last_up=$(awk '/--force-recreate/ {print $NF}' "$DOCKER_MOCK_LOG" 2>/dev/null | tail -n 1)
+if [ "$rc" -eq 0 ] && [ "$last_up" = "--force-recreate" ]; then
+  ok "CDT-568 AC4 start-daemon up is project-wide (starts daemon + sidecar)"
+else
+  bad "CDT-568 AC4 start-daemon up pins a service or failed: last=$last_up rc=$rc out=$out"
+fi
+
+# Identity check stays correct with two services: daemon+sidecar ps output
+# satisfies it; a sidecar-only project must NOT.
+COMMON="$HERE/common.sh"
+two_blob='{"Service":"daemon","State":"running","Labels":"dev-team.intercom=daemon","Project":"intercom"}
+{"Service":"sidecar","State":"running","Labels":"dev-team.intercom=sidecar","Project":"intercom"}'
+side_blob='{"Service":"sidecar","State":"running","Labels":"dev-team.intercom=sidecar","Project":"intercom"}'
+if bash -c '. "'"$COMMON"'" 2>/dev/null; ir_compose_ps_running "$1"' id "$two_blob"; then
+  ok "CDT-568 AC4 daemon identity satisfied with daemon+sidecar up"
+else
+  bad "CDT-568 AC4 identity check fails when the sidecar joins ps output"
+fi
+if bash -c '. "'"$COMMON"'" 2>/dev/null; ir_compose_ps_running "$1"' id "$side_blob"; then
+  bad "CDT-568 AC4 sidecar alone satisfies the daemon identity"
+else
+  ok "CDT-568 AC4 sidecar alone is not a daemon identity"
+fi
+
 echo
 echo "Results: $PASS passed, $FAIL failed"
-[ "$FAIL" -eq 0 ]
+[ "$FAIL" -eq 0 ]; RC=$?
+echo "VERIFY exit=$RC"
+exit "$RC"

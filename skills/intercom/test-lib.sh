@@ -32,6 +32,12 @@ hermetic_curl_shim() { # install the no-network curl shim on PATH; sets SHIM_DIR
 for a in "$@"; do
   printf 'argv: %s\n' "$a" >> "$CURL_ARGV_LOG"
 done
+# Opt-in env capture (CDT-568 AC13): when CURL_ENV_LOG is set, record the curl
+# process environment verbatim so the caller can prove the token never
+# reaches it. The shim itself never receives the token, so the dump is honest.
+if [ -n "${CURL_ENV_LOG:-}" ]; then
+  env > "$CURL_ENV_LOG" 2>/dev/null || true
+fi
 cfg=$(cat)
 via=none
 tok=""

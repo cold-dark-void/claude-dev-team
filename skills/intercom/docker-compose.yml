@@ -1,4 +1,5 @@
-# Intercom daemon sidecar (SPEC-038 CDT-509). Project intercom / service daemon.
+# Intercom compose project (SPEC-038 CDT-509 / CDT-568). Project intercom /
+# services daemon + sidecar.
 # Base pin (Dockerfile FROM): docker.io/library/alpine@sha256:ce64758a109eb420d874a118f87920e625e12d3634e03b4a5573fd9f6e5d3507
 # Host env (required, never uid 0):
 #   INTERCOM_UID INTERCOM_GID
@@ -25,4 +26,27 @@ services:
       - ${INTERCOM_TOKEN_FILE:?}:/home/intercom/.config/telegram/bot_token:ro
       - ${INTERCOM_STATE_DIR:?}:/home/intercom/.claude/telegram-router
     command: ["bash", "/app/skills/intercom/daemon.sh"]
+    restart: unless-stopped
+
+  # CDT-568 notify-only inbox sidecar. Same digest-pinned build and hardening
+  # as the daemon; loop mode (no --cycle) via the baked inbox-sidecar.sh.
+  sidecar:
+    build:
+      context: ../..
+      dockerfile: skills/intercom/Dockerfile
+    labels:
+      dev-team.intercom: sidecar
+    user: "${INTERCOM_UID:?}:${INTERCOM_GID:?}"
+    read_only: true
+    cap_drop: ["ALL"]
+    security_opt: ["no-new-privileges:true"]
+    environment:
+      HOME: /home/intercom
+      INTERCOM_STATE_ROOT: /home/intercom/.claude/telegram-router
+    tmpfs:
+      - /tmp:mode=1777,size=16m
+    volumes:
+      - ${INTERCOM_TOKEN_FILE:?}:/home/intercom/.config/telegram/bot_token:ro
+      - ${INTERCOM_STATE_DIR:?}:/home/intercom/.claude/telegram-router
+    command: ["bash", "/app/skills/intercom/inbox-sidecar.sh"]
     restart: unless-stopped

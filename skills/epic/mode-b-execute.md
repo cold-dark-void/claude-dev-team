@@ -11,6 +11,11 @@ printf 'PDH=%s\n' "$PDH" >&2
 
 ## Mode B — Execute / Resume (prompt-driven walker)
 
+While Away mode is ON, the walker drains the inbox with `intercom read --ack`
+after every phase boundary, subagent wait, and user-visible turn; a failed
+drain is logged, never aborts. Canonical protocol:
+`skills/intercom/SKILL.md` § Away pickup protocol.
+
 ### B.1 Rollup
 
 ```bash

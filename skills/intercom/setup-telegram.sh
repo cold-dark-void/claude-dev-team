@@ -81,8 +81,9 @@ EOF
 
 print_daemon_mode() {
   cat <<'EOF' || return 1
-Intercom daemon is running (compose project intercom, service daemon).
-The daemon is the sole getUpdates consumer. Do not arm watch.sh.
+Intercom daemon is running (compose project intercom, services daemon and
+sidecar). The daemon is the sole getUpdates consumer; the sidecar is
+notify-only (inbox notices on stale session heartbeats). Do not arm watch.sh.
 EOF
 }
 

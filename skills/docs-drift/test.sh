@@ -711,6 +711,44 @@ OUT=$(bash "$CHECK" --root "$LIVE" 2>&1); RC=$?
 restore "$LIVE/docs/commands/status.md"
 
 # ---------------------------------------------------------------------------
+# T6b pickup-protocol doc surfaces (CDT-568 AC1/AC2/AC3/AC12) — read-only
+# ---------------------------------------------------------------------------
+CANON="$LIVE/skills/intercom/SKILL.md"
+for needle in \
+  '(a) after every phase boundary' \
+  '(b) after every subagent wait completes' \
+  '(c) at each user-visible turn' \
+  'never aborts the phase' \
+  'After a fork or' \
+  'compaction, re-arm `skills/intercom/inbox-watch.sh`' \
+  'only sanctioned inbox drain' \
+  'leave orphan records — prohibited'; do
+  if grep -qF "$needle" "$CANON"; then PASS=$((PASS+1)); else
+    FAIL=$((FAIL+1)); echo "FAIL: canonical pickup block missing: $needle"
+  fi
+done
+# AC1: every named surface carries a pointer to the canonical block
+for f in commands/away.md commands/afk.md \
+         skills/orchestrate/steps/08-execute.md \
+         skills/epic/mode-b-execute.md skills/kickoff/SKILL.md; do
+  if grep -qF '`skills/intercom/SKILL.md` § Away pickup protocol' "$LIVE/$f"; then
+    PASS=$((PASS+1))
+  else
+    FAIL=$((FAIL+1)); echo "FAIL: pickup pointer missing in $f"
+  fi
+done
+# Copy-extract: the canonical (a)/(b)/(c) trigger text appears ONLY in SKILL.md
+for f in commands/away.md commands/afk.md \
+         skills/orchestrate/steps/08-execute.md \
+         skills/epic/mode-b-execute.md skills/kickoff/SKILL.md; do
+  if grep -qF 'after every subagent wait completes' "$LIVE/$f"; then
+    FAIL=$((FAIL+1)); echo "FAIL: full protocol pasted into $f (copy-extract)"
+  else
+    PASS=$((PASS+1))
+  fi
+done
+
+# ---------------------------------------------------------------------------
 # T7 restore discipline: no inject artifacts; harness never used git checkout
 # ---------------------------------------------------------------------------
 LIVE_STATUS_AFTER=$(cd "$LIVE" && git status --porcelain)
@@ -754,4 +792,6 @@ bash "$CHECK" --root "$LIVE" 2>&1 | tail -20 || true
 
 echo "---"
 echo "docs-drift tests: $PASS passed, $FAIL failed"
-[ "$FAIL" -eq 0 ]
+[ "$FAIL" -eq 0 ]; RC=$?
+echo "VERIFY exit=$RC"
+exit "$RC"

@@ -16,6 +16,10 @@
 #   ir_config_field    read config.json (schema 1); never creates it
 #   ir_away_sid_read   first-line, edge-trimmed state/away_sid read (CDT-535)
 #   ir_away_sid_write  state/away_sid atomic bare-sid publish (CDT-535)
+#   ir_session_heartbeat_touch  best-effort per-session liveness (CDT-568)
+#   ir_session_heartbeat_age    per-session heartbeat age; missing = stale (CDT-568)
+#   ir_session_stale_s          session_stale_heartbeat_s threshold (CDT-568)
+#   ir_watch_clamp_interval     watch cadence clamp to [1,60] s (CDT-568 AC11)
 #   ir_require_tools   graceful jq/curl absence (AC21)
 #   ir_daemon_running  heartbeat fresh AND compose project intercom up (CDT-509 AC10)
 #   ir_docker_available  CLI + compose v2 + engine (CDT-527 AC1; inspect only)
@@ -380,6 +384,69 @@ ir_config_field() {
   else
     printf '%s\n' "$def"
   fi
+}
+
+# ---- per-session heartbeat (CDT-568) ------------------------------------------
+
+ir_session_heartbeat_touch() {
+  # ir_session_heartbeat_touch SID — best-effort epoch write to
+  # <root>/state/session/<sid>.heartbeat (CDT-568). The directory is created
+  # 0700 on first touch; the write is tmp + rename. Every failure is silent
+  # and returns 0: a failed touch NEVER fails the caller (the sidecar treats
+  # a missing file as stale — fail-notify). state/heartbeat (poller liveness)
+  # is never touched here.
+  local sid="$1" sessdir tmp
+  ir_sane_sid "$sid" || return 0
+  sessdir="$(ir_state_root)/state/session"
+  mkdir -m 700 -p "$sessdir" 2>/dev/null || return 0
+  tmp=$(mktemp "$sessdir/.hb.XXXXXX" 2>/dev/null) || return 0
+  date +%s > "$tmp" 2>/dev/null || { rm -f "$tmp"; return 0; }
+  mv -f "$tmp" "$sessdir/$sid.heartbeat" 2>/dev/null || { rm -f "$tmp"; return 0; }
+  return 0
+}
+
+ir_session_heartbeat_age() {
+  # ir_session_heartbeat_age SID — prints the heartbeat age in seconds; rc 1
+  # when the sid is unusable or the file is missing or unreadable (missing
+  # counts as stale — fail-notify, CDT-568).
+  local sid="$1" f mtime now
+  ir_sane_sid "$sid" || return 1
+  f="$(ir_state_root)/state/session/$sid.heartbeat"
+  [ -f "$f" ] || return 1
+  mtime=$(stat -c %Y "$f" 2>/dev/null || stat -f %m "$f" 2>/dev/null) || return 1
+  case "$mtime" in
+    ''|*[!0-9]*) return 1 ;;
+  esac
+  now=$(date +%s)
+  printf '%s\n' $((now - mtime))
+}
+
+ir_session_stale_s() {
+  # ir_session_stale_s — the session_stale_heartbeat_s threshold (CDT-568,
+  # default 900). Additive key on the schema-1 config.json; ir_config_field
+  # tolerates the key's absence, and a non-numeric value degrades to 900.
+  local s
+  s=$(ir_config_field session_stale_heartbeat_s 900)
+  case "$s" in
+    ''|*[!0-9]*) s=900 ;;
+  esac
+  printf '%s\n' "$s"
+}
+
+ir_watch_clamp_interval() {
+  # ir_watch_clamp_interval RAW [DEFAULT] — clamp a watch cadence to [1,60] s
+  # (CDT-568 AC11). Pure: echoes the clamped integer, no side effects. Empty or
+  # non-integer input (e.g. 0.5) falls back to DEFAULT (1 when omitted); 0
+  # clamps up to 1 and 61 down to 60. The inbox-watch default (2) is passed
+  # explicitly by the caller as DEFAULT.
+  local raw="$1" def="${2:-1}" v
+  case "$raw" in
+    ''|*[!0-9]*) printf '%s\n' "$def"; return 0 ;;
+  esac
+  v="$raw"
+  [ "$v" -ge 1 ] || v=1
+  [ "$v" -le 60 ] || v=60
+  printf '%s\n' "$v"
 }
 
 # ---- docker availability (CDT-527 AC1) ---------------------------------------

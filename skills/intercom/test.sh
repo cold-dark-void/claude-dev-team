@@ -519,6 +519,8 @@ fi
 
 # Away ON + sane away_sid: pre-existing records stay silent; one new-record
 # batch prints the grammar line exactly once; removing away exits 0 promptly.
+# CDT-568: the watermark already exists here (re-arm after a prior watch) —
+# a first-ever run with no watermark wakes once instead (AC10 cases below).
 fresh_case
 seed_token
 mkdir -m 700 -p "$STATE_ROOT/state" "$STATE_ROOT/spool/main/inbox"
@@ -526,6 +528,7 @@ printf 'main\n' > "$STATE_ROOT/state/away_sid"
 printf 'epoch\n' > "$STATE_ROOT/state/away"
 printf '%s\n' '{"ts": 1, "sid": "main", "dir": "in", "kind": "message", "text": "pre-existing", "from_id": 1, "update_id": 31, "thread_id": 0}' > "$STATE_ROOT/spool/main/inbox/0000000001_31.json"
 sleep 1
+touch "$STATE_ROOT/state/inbox-watch.stamp"
 WOUT="$HERMETIC_ROOT/watcher.out"
 : > "$WOUT"
 WATCH_INTERVAL_S=1 bash "$WATCHER" > "$WOUT" 2>"$ERRF" &
@@ -587,6 +590,435 @@ if [ "$rc" -eq 0 ] && [ -z "$out" ] && [ ! -d "$STATE_ROOT/spool/walkietalkie" ]
 else
   bad "CDT-535 watch corrupt: rc=$rc out=[$out] phantom=$([ -d "$STATE_ROOT/spool/walkietalkie" ] && echo yes || echo no) err=$(cat "$ERRF")"
 fi
+
+# ---- CDT-568 T5: inbox-watch last-seen watermark (SPEC-038 AC10/AC11) ------------
+# Each case runs the real watcher against a controlled state root (mktemp under
+# HERMETIC_ROOT via the hermetic shim, WATCH_INTERVAL_S=1) and prints the
+# captured wake decisions as the exhibit. The bundle ends with the VERIFY
+# exit= marker; the suite-wide Results line governs the process exit code.
+
+T5_PASS=0
+T5_FAIL=0
+T5_WPID=0
+T5_RC=0
+: > "$ARGV_LOG" 2>/dev/null || true
+: > "$CALLS_LOG" 2>/dev/null || true
+t5_ok()  { T5_PASS=$((T5_PASS + 1)); PASS=$((PASS + 1)); echo "PASS: $1"; }
+t5_bad() { T5_FAIL=$((T5_FAIL + 1)); FAIL=$((FAIL + 1)); echo "FAIL: $1" >&2; }
+
+t5_record() { # DIR NAME UPDATE_ID TEXT — one spool record fixture
+  printf '%s\n' "{\"ts\": 1, \"sid\": \"main\", \"dir\": \"in\", \"kind\": \"message\", \"text\": \"$4\", \"from_id\": 1, \"update_id\": $3, \"thread_id\": 0}" > "$1/$2"
+}
+
+t5_watch() { # OUT — start the watcher (1 s cadence) in the background into T5_WPID
+  : > "$1"
+  WATCH_INTERVAL_S=1 bash "$WATCHER" > "$1" 2>"$ERRF" &
+  T5_WPID=$!
+}
+
+t5_stop() { # drop state/away and reap the watcher into T5_RC
+  rm -f "$STATE_ROOT/state/away"
+  wait "$T5_WPID"
+  T5_RC=$?
+}
+
+t5_rearm_away() { # re-arm state/away mid-case (sid pin and spool stay put)
+  printf 'epoch\n' > "$STATE_ROOT/state/away"
+}
+
+t5_stamp_mtime() { # watermark mtime in epoch seconds (missing = -1)
+  stat -c %Y "$STATE_ROOT/state/inbox-watch.stamp" 2>/dev/null || echo -1
+}
+
+t5_away_on() { # arm away with sid=main and fresh inbox/consumed dirs
+  fresh_case
+  seed_token
+  mkdir -m 700 -p "$STATE_ROOT/state" "$STATE_ROOT/spool/main/inbox" "$STATE_ROOT/spool/main/consumed"
+  printf 'main\n' > "$STATE_ROOT/state/away_sid"
+  printf 'epoch\n' > "$STATE_ROOT/state/away"
+}
+
+# AC10 (1): first-ever run — no watermark — wakes ONCE on the oldest existing
+# record, then updates the watermark past the whole backlog.
+t5_away_on
+t5_record "$STATE_ROOT/spool/main/inbox" 0000000001_31.json 31 "backlog one"
+t5_record "$STATE_ROOT/spool/main/inbox" 0000000002_32.json 32 "backlog two"
+t5_record "$STATE_ROOT/spool/main/inbox" 0000000003_33.json 33 "backlog three"
+T5WANT="intercom: inbound sid=main path=$STATE_ROOT/spool/main/inbox"
+t5_watch "$HERMETIC_ROOT/t5-first.out"
+sleep 2
+echo "--- exhibit AC10 first-ever run: 3-record backlog, no watermark ---"
+cat "$HERMETIC_ROOT/t5-first.out"
+if [ "$(cat "$HERMETIC_ROOT/t5-first.out")" = "$T5WANT" ]; then
+  t5_ok "AC10 first-ever run wakes ONCE on the oldest existing record (one grammar line for the whole backlog)"
+else
+  t5_bad "AC10 first-run wake: got=[$(cat "$HERMETIC_ROOT/t5-first.out")] want=[$T5WANT]"
+fi
+sleep 2
+if [ "$(cat "$HERMETIC_ROOT/t5-first.out")" = "$T5WANT" ]; then
+  t5_ok "AC10 backlog wakes exactly once across later passes (no re-wake)"
+else
+  t5_bad "AC10 backlog re-wake: $(cat "$HERMETIC_ROOT/t5-first.out")"
+fi
+T5_STAMP=$(t5_stamp_mtime)
+T5_NEWEST=$(stat -c %Y "$STATE_ROOT/spool/main/inbox/0000000003_33.json" 2>/dev/null || echo missing)
+echo "--- exhibit AC10 watermark after first run: stamp=$T5_STAMP newest-backlog=$T5_NEWEST ---"
+if [ "$T5_STAMP" = "$T5_NEWEST" ]; then
+  t5_ok "AC10 watermark updated to the newest backlog record after the single wake"
+else
+  t5_bad "AC10 watermark seed: stamp=$T5_STAMP newest=$T5_NEWEST"
+fi
+t5_stop
+if [ "$T5_RC" -eq 0 ]; then
+  t5_ok "AC10 first-run watcher exits 0 when away is removed"
+else
+  t5_bad "AC10 first-run exit: rc=$T5_RC err=$(cat "$ERRF")"
+fi
+
+# AC10 (2): restart — the watermark persists; the re-armed watcher wakes on
+# records newer than the watermark and only on those.
+t5_away_on
+t5_record "$STATE_ROOT/spool/main/inbox" 0000000001_31.json 31 "while away"
+t5_watch "$HERMETIC_ROOT/t5-restart.out"
+sleep 2
+t5_stop
+if [ "$T5_RC" -eq 0 ] && [ "$(cat "$HERMETIC_ROOT/t5-restart.out")" = "$T5WANT" ]; then
+  t5_ok "AC10 first arm of the restart case seeds the watermark with one wake"
+else
+  t5_bad "AC10 restart arm 1: rc=$T5_RC out=[$(cat "$HERMETIC_ROOT/t5-restart.out")]"
+fi
+t5_rearm_away # re-arm: the restart sees the persisted watermark, not a fresh state
+t5_watch "$HERMETIC_ROOT/t5-restart.out"
+sleep 2
+echo "--- exhibit AC10 restart, nothing newer than the watermark ---"
+if [ -z "$(cat "$HERMETIC_ROOT/t5-restart.out")" ]; then
+  t5_ok "AC10 restart with no newer records stays silent"
+else
+  t5_bad "AC10 restart silent: $(cat "$HERMETIC_ROOT/t5-restart.out")"
+fi
+t5_record "$STATE_ROOT/spool/main/inbox" 0000000002_32.json 32 "arrived while down"
+sleep 2
+echo "--- exhibit AC10 restart wake on the newer record ---"
+cat "$HERMETIC_ROOT/t5-restart.out"
+if [ "$(cat "$HERMETIC_ROOT/t5-restart.out")" = "$T5WANT" ]; then
+  t5_ok "AC10 restart wakes on the record newer than the persisted watermark"
+else
+  t5_bad "AC10 restart wake: got=[$(cat "$HERMETIC_ROOT/t5-restart.out")] want=[$T5WANT]"
+fi
+t5_stop
+[ "$T5_RC" -eq 0 ] && t5_ok "AC10 restarted watcher exits 0 when away is removed" \
+  || t5_bad "AC10 restart exit: rc=$T5_RC err=$(cat "$ERRF")"
+
+# AC10 (3): records already in spool/<sid>/consumed/ never wake — both when
+# the acked record has left the inbox and when a same-named file is back in
+# the inbox (the acked basename is the signal).
+t5_away_on
+sleep 1
+touch "$STATE_ROOT/state/inbox-watch.stamp" # watermark older than the records below
+t5_record "$STATE_ROOT/spool/main/consumed" 0000000001_41.json 41 "acked and moved"
+t5_record "$STATE_ROOT/spool/main/inbox" 0000000002_42.json 42 "acked basename redelivered"
+cp "$STATE_ROOT/spool/main/inbox/0000000002_42.json" "$STATE_ROOT/spool/main/consumed/0000000002_42.json"
+t5_watch "$HERMETIC_ROOT/t5-consumed.out"
+sleep 3
+echo "--- exhibit AC10 consumed/ records: inbox holds 42, consumed holds 41+42 ---"
+echo "wake output: [$(cat "$HERMETIC_ROOT/t5-consumed.out")]"
+if [ -z "$(cat "$HERMETIC_ROOT/t5-consumed.out")" ]; then
+  t5_ok "AC10 consumed/ records never wake (moved-out and same-basename shapes)"
+else
+  t5_bad "AC10 consumed wake: $(cat "$HERMETIC_ROOT/t5-consumed.out")"
+fi
+t5_stop
+[ "$T5_RC" -eq 0 ] || t5_bad "AC10 consumed exit: rc=$T5_RC"
+
+# AC10 (4): the watermark never moves backwards — a wake moves it forward to
+# the newest waking record; an older-mtime record (restored backup / skew)
+# leaves it where it is.
+t5_away_on
+sleep 1
+touch "$STATE_ROOT/state/inbox-watch.stamp"
+T5_M0=$(t5_stamp_mtime)
+sleep 1
+t5_record "$STATE_ROOT/spool/main/inbox" 0000000001_51.json 51 "forward wake"
+t5_watch "$HERMETIC_ROOT/t5-backwards.out"
+sleep 2
+T5_M1=$(t5_stamp_mtime)
+echo "--- exhibit AC10 forward move: before=$T5_M0 after-wake=$T5_M1 record=51 mtime=$(stat -c %Y "$STATE_ROOT/spool/main/inbox/0000000001_51.json") ---"
+if [ "$(cat "$HERMETIC_ROOT/t5-backwards.out")" = "$T5WANT" ] \
+  && [ "$T5_M1" -ge "$T5_M0" ] \
+  && [ "$T5_M1" = "$(stat -c %Y "$STATE_ROOT/spool/main/inbox/0000000001_51.json")" ]; then
+  t5_ok "AC10 wake moves the watermark forward to the newest waking record"
+else
+  t5_bad "AC10 forward move: out=[$(cat "$HERMETIC_ROOT/t5-backwards.out")] m0=$T5_M0 m1=$T5_M1"
+fi
+t5_stop
+[ "$T5_RC" -eq 0 ] || t5_bad "AC10 forward exit: rc=$T5_RC"
+t5_rearm_away
+# The exit-on-away-gone touch moved the stamp to now; re-pin it to the exact
+# post-wake mtime of record 51 (ns copy — coarse fs granularity makes a
+# seconds-precision pin unreliable), so the backward run starts from exactly
+# the watermark the wake left.
+touch -r "$STATE_ROOT/spool/main/inbox/0000000001_51.json" "$STATE_ROOT/state/inbox-watch.stamp"
+sleep 1
+t5_record "$STATE_ROOT/spool/main/inbox" 0000000002_52.json 52 "older mtime than the watermark"
+# GNU/BSD-safe mtime pin (tests/lib/mtimes.sh pattern; C7 forbids touch -d).
+_t5_e=$((T5_M1 - 10))
+_t5_fmt=$(date -d "@$_t5_e" '+%Y%m%d%H%M.%S' 2>/dev/null) \
+  || _t5_fmt=$(date -r "$_t5_e" '+%Y%m%d%H%M.%S' 2>/dev/null)
+touch -t "$_t5_fmt" "$STATE_ROOT/spool/main/inbox/0000000002_52.json"
+t5_watch "$HERMETIC_ROOT/t5-backwards.out"
+sleep 2
+T5_M2=$(t5_stamp_mtime)
+echo "--- exhibit AC10 no backward move: record 52 pinned to mtime $((T5_M1 - 10)), watermark=$T5_M2 ---"
+if [ -z "$(cat "$HERMETIC_ROOT/t5-backwards.out")" ] && [ "$T5_M2" = "$T5_M1" ]; then
+  t5_ok "AC10 watermark never moves backwards (older record: no wake, stamp unchanged)"
+else
+  t5_bad "AC10 backward move: out=[$(cat "$HERMETIC_ROOT/t5-backwards.out")] m1=$T5_M1 m2=$T5_M2"
+fi
+t5_stop
+[ "$T5_RC" -eq 0 ] || t5_bad "AC10 backward exit: rc=$T5_RC"
+
+# AC11: invariants — exact wake grammar, 1–60 s cadence clamp, away-gating,
+# exit-0-on-away-gone, and zero contact with the adapter/token/lock surface.
+t5_away_on
+sleep 1
+touch "$STATE_ROOT/state/inbox-watch.stamp"
+sleep 1 # coarse fs mtime granularity: keep the record tick strictly after the stamp
+t5_record "$STATE_ROOT/spool/main/inbox" 0000000001_61.json 61 "grammar check"
+t5_watch "$HERMETIC_ROOT/t5-grammar.out"
+sleep 2
+echo "--- exhibit AC11 wake grammar (exact line) ---"
+cat "$HERMETIC_ROOT/t5-grammar.out"
+if [ "$(cat "$HERMETIC_ROOT/t5-grammar.out")" = "$T5WANT" ]; then
+  t5_ok "AC11 wake grammar unchanged: intercom: inbound sid=<sid> path=<abs-inbox>"
+else
+  t5_bad "AC11 grammar: got=[$(cat "$HERMETIC_ROOT/t5-grammar.out")] want=[$T5WANT]"
+fi
+t5_stop
+[ "$T5_RC" -eq 0 ] && t5_ok "AC11 exit-0-on-away-gone preserved" \
+  || t5_bad "AC11 away-gone exit: rc=$T5_RC"
+
+# AC11 1–60 s clamp: WATCH_INTERVAL_S=0 must clamp up to 1 s — with away
+# dropped at 0.5 s the watcher is still inside its first sleep, so exit lands
+# at ~1 s, not ~0.5 s.
+t5_away_on
+T5_T0=$(date +%s%N)
+WATCH_INTERVAL_S=0 bash "$WATCHER" >"$HERMETIC_ROOT/t5-clamp.out" 2>"$ERRF" &
+WPID=$!
+sleep 0.5
+rm -f "$STATE_ROOT/state/away"
+wait "$WPID"; T5_RC=$?
+T5_MS=$(( ($(date +%s%N) - T5_T0) / 1000000 ))
+echo "--- exhibit AC11 min clamp: WATCH_INTERVAL_S=0, away dropped at 500 ms, exit after ${T5_MS} ms ---"
+if [ "$T5_RC" -eq 0 ] && [ "$T5_MS" -ge 900 ]; then
+  t5_ok "AC11 interval floor: 0 clamps to 1 s (exit waited out the first sleep)"
+else
+  t5_bad "AC11 min clamp: rc=$T5_RC elapsed_ms=$T5_MS"
+fi
+if grep -q 'ir_watch_clamp_interval "\${WATCH_INTERVAL_S:-2}" 2' "$WATCHER" \
+  && grep -q 'ir_watch_clamp_interval()' "$COMMON"; then
+  t5_ok "AC11 interval cap: clamp extracted to ir_watch_clamp_interval in common.sh; the watcher routes through it"
+else
+  t5_bad "AC11 interval clamp helper missing from $COMMON / $WATCHER"
+fi
+
+# AC11 clamp behavior, exercised directly on the pure helper (no sleeps):
+# 0 clamps up to 1; 61 clamps down to 60; 0.5 is invalid and takes the default.
+T5_CLAMPS=$(bash -c '. "'"$COMMON"'"; ir_watch_clamp_interval 0; ir_watch_clamp_interval 1; ir_watch_clamp_interval 59; ir_watch_clamp_interval 60; ir_watch_clamp_interval 61; ir_watch_clamp_interval 0.5; ir_watch_clamp_interval "" 2' 2>/dev/null)
+echo "--- exhibit AC11 interval clamp: 0,1,59,60,61,0.5,(unset default 2) -> [$(printf '%s' "$T5_CLAMPS" | tr '\n' ' ')] ---"
+if [ "$T5_CLAMPS" = "$(printf '1\n1\n59\n60\n60\n1\n2')" ]; then
+  t5_ok "AC11 interval cap 61 clamps to 60 (0->1, 59 stays, 60 stays, 61->60, 0.5 invalid->1, unset default 2)"
+else
+  t5_bad "AC11 clamp behavior: got=[$(printf '%s' "$T5_CLAMPS" | tr '\n' ' ')] want=[1 1 59 60 60 1 2]"
+fi
+if [ ! -e "$STATE_ROOT/state/inbox.stamp" ] && [ ! -e "$STATE_ROOT/state/poller.lock" ] \
+  && [ ! -s "$ARGV_LOG" ] && [ ! -s "$CALLS_LOG" ] \
+  && ! grep -qF "$TEST_TOKEN" "$HERMETIC_ROOT"/t5-*.out 2>/dev/null \
+  && ! grep -qF "$SENTINEL" "$HERMETIC_ROOT"/t5-*.out 2>/dev/null; then
+  t5_ok "AC11 zero contact: no adapter stamp, no poller lock, no curl argv, token-free output"
+else
+  t5_bad "AC11 surface contact: inbox.stamp=$([ -e "$STATE_ROOT/state/inbox.stamp" ] && echo yes || echo no) lock=$([ -e "$STATE_ROOT/state/poller.lock" ] && echo yes || echo no) argv=[$(cat "$ARGV_LOG" 2>/dev/null)]"
+fi
+
+echo "CDT-568 T5 inbox-watch watermark bundle: $T5_PASS passed, $T5_FAIL failed"
+echo "VERIFY exit=$T5_FAIL"
+
+# ---- CDT-568 T1: per-session heartbeat + session_stale_heartbeat_s (AC6) ------
+# Each case runs the real CLI (or a subshell sourcing common.sh for the
+# library primitives) against the hermetic state root and PRINTS the actual
+# run output — heartbeat content, modes, ages, threshold reads — as the
+# exhibit. The bundle ends with the literal VERIFY exit= marker; the
+# suite-wide Results line governs the process exit code.
+
+T1_PASS=0
+T1_FAIL=0
+t1_ok()  { T1_PASS=$((T1_PASS + 1)); PASS=$((PASS + 1)); echo "PASS: $1"; }
+t1_bad() { T1_FAIL=$((T1_FAIL + 1)); FAIL=$((FAIL + 1)); echo "FAIL: $1" >&2; }
+
+t1_hb() { printf '%s/state/session/%s.heartbeat\n' "$STATE_ROOT" "$1"; }
+
+t1_epoch() { # VALUE — rc 0 when VALUE is a non-negative integer (epoch/age-shaped)
+  case "$1" in ''|*[!0-9]*) return 1 ;; esac
+  [ "$1" -ge 0 ]
+}
+
+t1_lib() { # EXPR — run EXPR in a subshell with common.sh loaded (hermetic root)
+  bash -c '. "'"$COMMON"'"; '"$1"
+}
+
+# AC6 (1): `ask` touches state/session/<sid>.heartbeat — epoch content, 0600
+# file under a 0700 dir, token-free.
+fresh_case
+seed_token
+run_cli "$INTERCOM" ask --sid main "heartbeat check"
+T1_QID="$C_OUT"
+T1_HB=$(t1_hb main)
+T1_CONTENT=$(cat "$T1_HB" 2>/dev/null)
+T1_MODE=$(stat -c %a "$T1_HB" 2>/dev/null)
+T1_DIRMODE=$(stat -c %a "$STATE_ROOT/state/session" 2>/dev/null)
+echo "--- exhibit AC6 ask touch: rc=$C_RC qid=$T1_QID heartbeat=[$T1_CONTENT] mode=$T1_MODE dir=$T1_DIRMODE ---"
+if [ "$C_RC" -eq 0 ] && [ -f "$T1_HB" ] && t1_epoch "$T1_CONTENT" \
+  && [ "$T1_MODE" = "600" ] && [ "$T1_DIRMODE" = "700" ] \
+  && ! grep -qF "$TEST_TOKEN" "$T1_HB" && ! grep -qF "$SENTINEL" "$T1_HB"; then
+  t1_ok "AC6 ask touches state/session/main.heartbeat (epoch content, 0600/0700, token-free)"
+else
+  t1_bad "AC6 ask touch: rc=$C_RC content=[$T1_CONTENT] mode=$T1_MODE dir=$T1_DIRMODE err=$C_ERR"
+fi
+
+# AC6 (2): `send` touches the resolved session's heartbeat.
+fresh_case
+seed_token
+run_cli "$INTERCOM" send --sid mailer "heartbeat send"
+T1_REC="$C_OUT"
+T1_HB=$(t1_hb mailer)
+T1_CONTENT=$(cat "$T1_HB" 2>/dev/null)
+echo "--- exhibit AC6 send touch: rc=$C_RC record=$T1_REC heartbeat=[$T1_CONTENT] ---"
+if [ "$C_RC" -eq 0 ] && [ -f "$T1_REC" ] && [ -f "$T1_HB" ] && t1_epoch "$T1_CONTENT"; then
+  t1_ok "AC6 send touches state/session/mailer.heartbeat while writing the outbox record"
+else
+  t1_bad "AC6 send touch: rc=$C_RC hb=$T1_HB content=[$T1_CONTENT] err=$C_ERR"
+fi
+
+# AC6 (3): `read` (without --ack) touches too; the inbox stays unchanged.
+fresh_case
+seed_token
+mkdir -m 700 -p "$STATE_ROOT/spool/main/inbox"
+printf '%s\n' '{"ts": 1, "sid": "main", "dir": "in", "kind": "message", "text": "inbound", "from_id": 1, "update_id": 71, "thread_id": 0}' > "$STATE_ROOT/spool/main/inbox/0000000001_71.json"
+run_cli "$INTERCOM" read --sid main
+T1_HB=$(t1_hb main)
+T1_CONTENT=$(cat "$T1_HB" 2>/dev/null)
+echo "--- exhibit AC6 read touch: rc=$C_RC out=[$C_OUT] heartbeat=[$T1_CONTENT] inbox=$(inbox_n main) ---"
+if [ "$C_RC" -eq 0 ] && [ -f "$T1_HB" ] && t1_epoch "$T1_CONTENT" \
+  && [ "$(inbox_n main)" = "1" ]; then
+  t1_ok "AC6 read touches state/session/main.heartbeat and leaves the inbox unchanged"
+else
+  t1_bad "AC6 read touch: rc=$C_RC hb=$T1_HB content=[$T1_CONTENT] inbox=$(inbox_n main) err=$C_ERR"
+fi
+
+# AC6 (4): the touch refreshes liveness — a second touch resets the age to ~0.
+T1_AGE=$(t1_lib 'ir_session_heartbeat_touch t1-refresh; sleep 1; ir_session_heartbeat_touch t1-refresh; ir_session_heartbeat_age t1-refresh')
+echo "--- exhibit AC6 touch refresh: age after re-touch=${T1_AGE}s ---"
+if t1_epoch "$T1_AGE" && [ "$T1_AGE" -le 1 ]; then
+  t1_ok "AC6 re-touch resets the heartbeat age (tmp + rename, same path)"
+else
+  t1_bad "AC6 touch refresh: age=[$T1_AGE]"
+fi
+
+# AC6 (5): best-effort — an unwritable session dir never fails the verb and
+# leaves no temp file behind.
+fresh_case
+seed_token
+mkdir -m 700 -p "$STATE_ROOT/state/session"
+chmod 500 "$STATE_ROOT/state/session"
+run_cli "$INTERCOM" ask --sid main "touch must fail silently"
+T1_QID="$C_OUT"
+echo "--- exhibit AC6 best-effort: rc=$C_RC qid=$T1_QID pending=$(ls "$STATE_ROOT/spool/main/pending" 2>/dev/null | wc -l | tr -d ' ') session-dir=[$(ls -A "$STATE_ROOT/state/session" 2>/dev/null)] err=[$C_ERR] ---"
+if [ "$C_RC" -eq 0 ] && [ -f "$STATE_ROOT/spool/main/pending/$T1_QID.json" ] \
+  && [ -z "$(ls -A "$STATE_ROOT/state/session" 2>/dev/null)" ]; then
+  t1_ok "AC6 failed touch never fails the verb (pending record written, no heartbeat, no tmp left)"
+else
+  t1_bad "AC6 best-effort: rc=$C_RC qid=$T1_QID leftover=[$(ls -A "$STATE_ROOT/state/session" 2>/dev/null)]"
+fi
+chmod 700 "$STATE_ROOT/state/session"
+
+# AC6 (6): the daemon's state/heartbeat (poller liveness) is never reused or
+# created by the CLI verbs — only the per-session path exists.
+fresh_case
+seed_token
+run_cli "$INTERCOM" ask --sid main "poller heartbeat untouched" >/dev/null
+run_cli "$INTERCOM" send --sid main "poller heartbeat untouched" >/dev/null
+run_cli "$INTERCOM" read --sid main >/dev/null
+echo "--- exhibit AC6 poller heartbeat untouched: state/=[$(ls "$STATE_ROOT/state" 2>/dev/null | tr '\n' ' ')] session/=[$(ls "$STATE_ROOT/state/session" 2>/dev/null | tr '\n' ' ')] ---"
+if [ ! -e "$STATE_ROOT/state/heartbeat" ] && [ -f "$(t1_hb main)" ]; then
+  t1_ok "AC6 state/heartbeat (poller liveness) never written; only state/session/<sid>.heartbeat"
+else
+  t1_bad "AC6 poller heartbeat: state/heartbeat=$([ -e "$STATE_ROOT/state/heartbeat" ] && echo present || echo absent) session-hb=$([ -f "$(t1_hb main)" ] && echo present || echo absent)"
+fi
+
+# AC6 (7): age — a fresh heartbeat is young; a missing heartbeat is stale
+# (rc 1); a backdated heartbeat reads old against the threshold.
+T1_FRESH=$(t1_lib 'ir_session_heartbeat_touch t1-age; ir_session_heartbeat_age t1-age')
+echo "--- exhibit AC6 age fresh: age=${T1_FRESH}s ---"
+if t1_epoch "$T1_FRESH" && [ "$T1_FRESH" -le 2 ]; then
+  t1_ok "AC6 age of a fresh heartbeat is ~0 (rc 0)"
+else
+  t1_bad "AC6 fresh age: [$T1_FRESH]"
+fi
+T1_MISS_RC=0
+t1_lib 'ir_session_heartbeat_age t1-never-touched' >/dev/null 2>&1 || T1_MISS_RC=$?
+echo "--- exhibit AC6 age missing: rc=$T1_MISS_RC (stale) ---"
+if [ "$T1_MISS_RC" -ne 0 ]; then
+  t1_ok "AC6 missing heartbeat counts as stale (age rc 1)"
+else
+  t1_bad "AC6 missing heartbeat: rc=$T1_MISS_RC"
+fi
+T1_OLD=$(t1_lib 'ir_session_heartbeat_touch t1-old; touch -d "@$(( $(date +%s) - 1200 ))" "'"$STATE_ROOT"'/state/session/t1-old.heartbeat"; ir_session_heartbeat_age t1-old')
+echo "--- exhibit AC6 age backdated: age=${T1_OLD}s (threshold=$(t1_lib ir_session_stale_s)) ---"
+if t1_epoch "$T1_OLD" && [ "$T1_OLD" -ge 1200 ]; then
+  t1_ok "AC6 backdated heartbeat reads >= 1200s old"
+else
+  t1_bad "AC6 backdated age: [$T1_OLD]"
+fi
+
+# AC6 (8): the additive session_stale_heartbeat_s key rides the existing
+# schema-1 config reader — default 900 when absent, honored when present,
+# 900 on invalid JSON (schema stays 1).
+T1_CFG="$STATE_ROOT/config.json"
+printf '{"schema": 1, "members": {}}\n' > "$T1_CFG"
+T1_DEF=$(t1_lib ir_session_stale_s)
+printf '{"schema": 1, "members": {}, "session_stale_heartbeat_s": 60}\n' > "$T1_CFG"
+T1_SET=$(t1_lib ir_session_stale_s)
+printf 'not json at all\n' > "$T1_CFG"
+T1_BAD=$(t1_lib ir_session_stale_s)
+echo "--- exhibit AC6 threshold: absent=$T1_DEF set=[$T1_SET] invalid-json=$T1_BAD (reader degrades) ---"
+if [ "$T1_DEF" = "900" ] && [ "$T1_SET" = "60" ] && [ "$T1_BAD" = "900" ]; then
+  t1_ok "AC6 session_stale_heartbeat_s via ir_config_field: default 900, configured 60, invalid JSON degrades to 900"
+else
+  t1_bad "AC6 threshold reads: absent=$T1_DEF set=$T1_SET invalid=$T1_BAD"
+fi
+# Schema stays 1: a schema-1 config that gains the key is untouched by reads.
+printf '{"schema": 1, "members": {}, "session_stale_heartbeat_s": 60}\n' > "$T1_CFG"
+run_cli "$INTERCOM" ask --sid main "schema stays 1" >/dev/null
+T1_SCHEMA=$(jq -r '.schema // "missing"' "$T1_CFG" 2>/dev/null)
+echo "--- exhibit AC6 schema after CLI run: schema=$T1_SCHEMA ---"
+if [ "$T1_SCHEMA" = "1" ]; then
+  t1_ok "AC6 config.json schema stays 1 (reads never rewrite the file)"
+else
+  t1_bad "AC6 schema drift: [$T1_SCHEMA]"
+fi
+
+# AC6 (9): token sentinel absent from the heartbeat file and the CLI stderr.
+if ! grep -qF "$TEST_TOKEN" "$STATE_ROOT/state/session"/*.heartbeat 2>/dev/null \
+  && ! grep -qF "$SENTINEL" "$STATE_ROOT/state/session"/*.heartbeat 2>/dev/null \
+  && ! grep -qF "$TEST_TOKEN" "$ERRF" 2>/dev/null \
+  && ! grep -qF "$SENTINEL" "$ERRF" 2>/dev/null; then
+  t1_ok "AC6 token sentinel absent from heartbeat files and CLI stderr"
+else
+  t1_bad "AC6 sentinel leak into state/session or stderr"
+fi
+
+echo "CDT-568 T1 per-session heartbeat bundle: $T1_PASS passed, $T1_FAIL failed"
+echo "VERIFY exit=$T1_FAIL"
+
 
 # ---- AC5: /setup slack is a zero-write stub --------------------------------------
 
@@ -2155,4 +2587,6 @@ fi
 
 echo
 echo "Results: $PASS passed, $FAIL failed"
-[ "$FAIL" -eq 0 ]
+[ "$FAIL" -eq 0 ]; RC=$?
+echo "VERIFY exit=$RC"
+exit "$RC"

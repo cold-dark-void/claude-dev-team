@@ -11,7 +11,9 @@
 #   getMe identity; getUpdates offset/timeout long-poll semantics; 409 Conflict
 #   shape on a simulated second consumer (probe starts a background long-poll,
 #   then issues a second one — equivalently, run two probe.sh instances at
-#   once); sendMessage 4096-char limit + parse_mode=HTML + link-preview
+#   once); sendMessage succeeding from a second process while a getUpdates
+#   long-poll is in flight (SPEC-038 assumed-unverified: the conflict is
+#   getUpdates-scoped); sendMessage 4096-char limit + parse_mode=HTML + link-preview
 #   suppression; createForumTopic + message_thread_id routing (topics chats
 #   only); sendChatAction typing; sendDocument field name; 429 retry_after
 #   shape (bounded burst; SKIP when flood limits are not reached); operator
@@ -183,7 +185,37 @@ else
   report FAIL "409 second consumer" "no 409 shape captured (got: $(printf '%s' "$body1" | head -c 120))"
 fi
 
-# ---- 4. sendMessage: 4096 limit, parse_mode=HTML, link-preview suppression ------
+# ---- 4. sendMessage while a getUpdates long-poll is in flight --------------------
+# SPEC-038 § "Verified vs assumed" (sidecar): a sendMessage from a second
+# process (this foreground shell, while consumer #1 holds the poll) is expected
+# to succeed — the 409 conflict is getUpdates-scoped. If it 409s, the sidecar's
+# fail-soft contract is load-bearing, not just defensive. offset=-1 confirms
+# nothing, so the poller's offset is untouched.
+
+tmpf || exit 1
+fpoll=$TMPF
+tg_api "getUpdates?timeout=30&offset=-1" --max-time 40 > "$fpoll" 2>/dev/null &
+pid1=$!
+sleep 2
+body=$(jq -n --arg chat "$chat_id" \
+  --arg t "intercom-probe: sendMessage while a getUpdates long-poll is in flight" \
+  '{chat_id: $chat, text: $t}')
+resp=$(tg_post sendMessage "$body" --max-time 15)
+kill "$pid1" 2>/dev/null
+wait "$pid1" 2>/dev/null
+if [ -n "$resp" ] && jq -e '.ok == true and (.result.message_id | type == "number")' <<<"$resp" >/dev/null 2>&1; then
+  report PASS "sendMessage during long-poll" \
+    "sendMessage delivered while a getUpdates long-poll was in flight (no 409; conflict is getUpdates-scoped)"
+  tg_del "$chat_id" "$(jq -r '.result.message_id' <<<"$resp")"
+elif jq -e '.ok == false and .error_code == 409' <<<"$resp" >/dev/null 2>&1; then
+  report FAIL "sendMessage during long-poll" \
+    "sendMessage 409'd while a long-poll was in flight — conflict is NOT getUpdates-scoped: $(jq -r '.description // "no description"' <<<"$resp" | head -c 120)"
+else
+  report FAIL "sendMessage during long-poll" \
+    "sendMessage failed (non-409): $(printf '%s' "${resp:-<empty>}" | head -c 120)"
+fi
+
+# ---- 5. sendMessage: 4096 limit, parse_mode=HTML, link-preview suppression ------
 
 big4096=$(jq -rn '"a" * 4096')
 big4097=$(jq -rn '"a" * 4097')
@@ -230,7 +262,7 @@ else
   fi
 fi
 
-# ---- 5. createForumTopic + message_thread_id routing (topics chats only) -------
+# ---- 6. createForumTopic + message_thread_id routing (topics chats only) -------
 
 if resp=$(tg_api "getChat?chat_id=${chat_id}" --max-time 15) \
   && jq -e '.ok == true and .result.is_forum == true' <<<"$resp" >/dev/null 2>&1; then
@@ -263,7 +295,7 @@ else
   report SKIP "createForumTopic + routing" "not a topics-enabled chat"
 fi
 
-# ---- 6. sendChatAction typing ---------------------------------------------------
+# ---- 7. sendChatAction typing ---------------------------------------------------
 
 body=$(jq -n --arg chat "$chat_id" '{chat_id: $chat, action: "typing"}')
 if resp=$(tg_post sendChatAction "$body" --max-time 15) && jq -e '.ok == true' <<<"$resp" >/dev/null 2>&1; then
@@ -272,7 +304,7 @@ else
   report FAIL "sendChatAction typing" "call rejected"
 fi
 
-# ---- 7. sendDocument field name -------------------------------------------------
+# ---- 8. sendDocument field name -------------------------------------------------
 
 tmpf || exit 1
 fdoc=$TMPF
@@ -286,7 +318,7 @@ else
   report FAIL "sendDocument field name" "'document' upload rejected"
 fi
 
-# ---- 8. 429 retry_after shape (bounded burst; SKIP when not triggered) ----------
+# ---- 9. 429 retry_after shape (bounded burst; SKIP when not triggered) ----------
 # Hard deadline: 30 iterations x (5s max-time + 0.2s sleep) ~= 2.5 min worst case.
 
 retry_after=""

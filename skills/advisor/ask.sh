@@ -274,9 +274,11 @@ if [ "$CMD" = "finalize" ]; then
       # validation failure (64) aborts the card.
       BUDGET_CHECK=$(bash "$PDH/skills/plugin-dir.sh" file skills/autopilot/budget-check.sh)
       BC_RC=0
-      if ! BC_OUT=$(bash "$BUDGET_CHECK" "$CARD_ITERATION" "$CARD_RUN_START_EPOCH" 2>/dev/null); then
-        BC_RC=$?
-        [ "$BC_RC" -eq 6 ] || die64 "finalize: budget-check.sh failed (rc $BC_RC) — no decision card written"
+      BC_OUT=$(bash "$BUDGET_CHECK" "$CARD_ITERATION" "$CARD_RUN_START_EPOCH" 2>/dev/null)
+      BC_RC=$?
+      # CDT-568 fix: $? after `!` is always 0 - capture the raw rc instead.
+      if [ "$BC_RC" != 0 ] && [ "$BC_RC" != 6 ]; then
+        die64 "finalize: budget-check.sh failed (rc $BC_RC) — no decision card written"
       fi
       WALL_CLOCK_S=$(printf '%s' "$BC_OUT" | jq -r '.wall_clock_s')
       # The advisor object rides on disk (M30: argv/file-path only, never

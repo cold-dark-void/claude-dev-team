@@ -13,6 +13,11 @@ Collapse Phase 1 (intake) and Phase 2 (planning) of the Linear-to-prod workflow 
 single orchestrated command. Fires PM and Tech Lead in parallel, produces a spec, plan,
 and task graph ready for IC agents to claim.
 
+While Away mode is ON, the kickoff session drains the inbox with
+`intercom read --ack` after every phase boundary, subagent wait, and
+user-visible turn; a failed drain is logged, never aborts. Canonical protocol:
+`skills/intercom/SKILL.md` § Away pickup protocol.
+
 ## Arguments
 
 - `/kickoff <TICKET-ID> "<ticket text>"` — ticket ID and full ticket text inline
