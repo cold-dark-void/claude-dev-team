@@ -24,11 +24,24 @@ drives:
 
 ```bash
 bash skills/advisor/ask.sh probe --trigger a|b|c --question TEXT \
-  [--evidence-dir PATH] [--run-id ID] [--epic-id ID] [--bc N]
+  [--evidence-dir PATH] [--run-id ID] [--epic-id ID] [--bc N] [--model MODEL]
 ```
 
 stdout: exactly one JSON object
 `{action, model, spawn_request_path, cached_ruling_path, reason}`.
+
+Model resolution (SPEC-039 M8/M36/M37 own the rule): `--model` wins over the
+ambient `ADVISOR_MODEL` env, and either override wins over the Model map and
+enables an unmapped advisor. A token MUST match `[A-Za-z0-9._:+@~/-]+`; `null`
+and `--clear` are reserved. `ask.sh` validates an ambient `ADVISOR_MODEL` even
+when `--model` wins, and refuses with `advisor model invalid` rather than fall
+back silently. A duplicate `--model` exits 64. An override that replaces a
+mapped choice warns on stderr. The caller passes the run's model explicitly with
+`--model` on both `ask.sh probe` and `appeal.sh gate`. The question hash stays
+model-blind, so a cache hit is still free — and it reports the model that
+produced the cached ruling, not the one this run asked for. The override is
+per-run and never written to a Model map layer; a durable choice is
+`/setup models set advisor <model>`.
 
 - `spawn` — caller spawns the advisor with `model`; drive it with
   `spawn_request_path` (run dir `spawn-request.json` carries the question,
@@ -149,7 +162,7 @@ Council always runs first (M20). After a council verdict, the orchestrator
 may ask for a second opinion — only on residue:
 
 1. `appeal.sh gate --meta <report>.finalize-meta.json [--report <report>]
-   [--run-id ID]` — deterministic. `residue.sh` classifies the sidecar
+   [--run-id ID] [--model MODEL]` — deterministic. `residue.sh` classifies the sidecar
    (`below-threshold`, `contradicted` (CONTRADICTED/FABRICATED), `unverified`,
    `degraded` (`self-verified` mode or report banner), default threshold 80).
    A clean pass exits 0 with no output and writes nothing — zero advisor

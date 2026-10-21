@@ -26,12 +26,18 @@ only from `skills/council/templates/legacy-review.md`.
   investigator slot (CDV-207; passthrough to council preflight). Detection
   order codex → gemini; graceful skip if none installed. Never replaces the
   5 internal specialists.
-- `/review-and-commit --with-advisor`: opt-in advisor for this run
-  (SPEC-039 M10). Parsed by the sibling parser `skills/advisor/parse-flags.sh`
-  (not the six-key autopilot parser); env `ADVISOR` in `{1,true}` also enables.
+- `/review-and-commit --with-advisor[=<model>]`: opt-in advisor for this run
+  (SPEC-039 M10/M37). Parsed by the sibling parser
+  `skills/advisor/parse-flags.sh` (not the six-key autopilot parser); env
+  `ADVISOR` in `{1,true}` also enables. `--with-advisor=<model>` selects the
+  advisor model for this run and wins over the Model map; a bare flag plus env
+  `ADVISOR_MODEL=<model>` does the same. Pass the resolved model explicitly as
+  `--model "$ADVISOR_MODEL"` (only when non-empty) on every `ask.sh probe` and
+  `appeal.sh gate` invocation — a shell variable does not cross fences.
   Byte-identical off (M11): disabled → zero advisor spawns, no `ask.sh` calls,
   no `actor:advisor` cards. When enabled, the run records the enablement (M12:
-  first decision card; if source=env the rationale MUST mention `ADVISOR=1`).
+  first decision card; if source=env the rationale MUST mention `ADVISOR=1`;
+  a model override MUST appear as `advisor_model=<model>`).
   Resolved in the Step 1 fence (same PDH carry — one stanza per caller file).
 
 ## Step 1: Stage and inspect
@@ -44,6 +50,8 @@ ADVISOR_PF=$(bash "$PDH/skills/plugin-dir.sh" file skills/advisor/parse-flags.sh
 ADVISOR_JSON=$(bash "$ADVISOR_PF" "$@") || { echo "$ADVISOR_JSON" >&2; exit 64; }
 ADVISOR_ON=$(jq -r .enabled <<<"$ADVISOR_JSON")
 ADVISOR_SOURCE=$(jq -r .source <<<"$ADVISOR_JSON")
+# M37: empty when no --with-advisor=<model> / ADVISOR_MODEL override is active.
+ADVISOR_MODEL=$(jq -r '.model // empty' <<<"$ADVISOR_JSON")
 CHANGED=$(bash "$PDH/skills/plugin-dir.sh" file skills/lib/changed-set.sh)
 bash "$CHANGED" paths
 git diff --cached

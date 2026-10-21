@@ -395,7 +395,10 @@ halt-resume owner when a human resolves a halt — out of scope for this engine.
 
 When the run carries the advisor (`--with-advisor`, SPEC-039 M10), the orchestrator
 drives `skills/advisor/ask.sh` probe → native spawn → finalize before answering the
-gate. Still **exactly one** card per gate answer:
+gate. When Step 0 resolved a model override (`--with-advisor=<model>` or
+`ADVISOR_MODEL`), pass it explicitly as `--model "$ADVISOR_MODEL"` on the probe
+(omit the flag when the variable is empty); the probe returns that model for the
+native spawn (SPEC-039 M37). Still **exactly one** card per gate answer:
 
 - **Ruling present.** `ask.sh finalize` (the only writer of advisor outcome cards,
   SPEC-039 M28) applies the **M29** decision map and writes the advisor card when the

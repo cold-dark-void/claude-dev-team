@@ -23,6 +23,7 @@ in agent worktrees. Phase bodies live in `steps/` — this file is the router.
 - `[--resume-ship[=<patch|minor|major|master>]]` — CDT-135/195; `steps/11-ship.md`
 - `[--tier=<light|standard|full>]` — CDT-206; `steps/00-resolve.md` + `steps/02-scope.md`
 - `[--max-loc=<n|unbound>]` — CDT-223; `steps/00-resolve.md`
+- `[--with-advisor[=<model>]]` — SPEC-039 M9/M10/M37; `steps/00-resolve.md`
 
 | `--tier` | Steps | pipeline |
 |----------|-------|----------|
@@ -44,7 +45,7 @@ Read **only the current phase**. Do not Read every `steps/*.md` up front.
 
 | Step | File | What |
 |------|------|------|
-| 0 | `00-resolve.md` | Roots, memory, autopilot, council-tier, tier, max-loc, resume |
+| 0 | `00-resolve.md` | Roots, memory, autopilot, council-tier, tier, max-loc, advisor, resume |
 | 1 | `01-fetch.md` | Linear / backlog / freeform |
 | 2 | `02-scope.md` | Scope-confirm gate |
 | 3 | `03-worktree.md` | Branch, worktree, glossary 3b |

@@ -100,6 +100,9 @@ can spawn `/council`. Resolve `skills/autopilot/nest-host.sh` through plugin-dir
 and run it with `--ticket <ticket_id>`:
 
 ```bash
+# Fresh shell — re-resolve PDH (SPEC-021 C1); managed later fence (SPEC-002 § Caller integration).
+# lint-ok: C3 — marketplace */ for-loop + -f guarded (SPEC-021 Q2 residual, CDT-82 PDH)
+PDH="${PDH:-$( { [ -n "${CLAUDE_PLUGIN_ROOT:-}" ] && [ -f "$CLAUDE_PLUGIN_ROOT/skills/plugin-dir.sh" ] && printf '%s\n' "$CLAUDE_PLUGIN_ROOT"; } || { [ -f skills/plugin-dir.sh ] && [ -f agents/pm.md ] && grep -qF '"name": "dev-team"' .claude-plugin/plugin.json 2>/dev/null && pwd; } || { _pr='${CLAUDE_PLUGIN_ROOT}'; [ "${_pr#\$}" = "$_pr" ] && [ -f "$_pr/skills/plugin-dir.sh" ] && printf '%s\n' "$_pr"; } || { for _mp in "$HOME"/.claude/plugins/marketplaces/*/; do [ -f "${_mp}skills/plugin-dir.sh" ] && [ -f "${_mp}agents/pm.md" ] && grep -qF '"name": "dev-team"' "${_mp}.claude-plugin/plugin.json" 2>/dev/null && printf '%s\n' "${_mp%/}" && break; done; } || find ~/.claude/plugins/cache \( -path '*/dev-team/*/skills/plugin-dir.sh' -o -path '*/dev-team-edge/*/skills/plugin-dir.sh' \) 2>/dev/null | awk -F/ '{ver=""; for(i=1;i<=NF;i++) if(($i=="dev-team"||$i=="dev-team-edge")&&i<NF){ver=$(i+1);break}; if(ver=="") next; m=ver; gsub(/-pre\./,"~pre.",m); p=($0 ~ /\/cache\/cold-dark-void\/dev-team\//)?2:(($0 ~ /\/cache\/cold-dark-void\/dev-team-edge\//)?1:0); print m "\t" p "\t" $0}' | sort -t $'\t' -k1,1V -k2,2n -k3,3 | tail -1 | cut -f3 | xargs -r dirname | xargs -r dirname )}"
 NEST_HOST=$(bash "$PDH/skills/plugin-dir.sh" file skills/autopilot/nest-host.sh)
 NEST_JSON=$(bash "$NEST_HOST" --ticket "<ticket_id>")
 CAN=$(jq -r .can_spawn_council <<<"$NEST_JSON")
@@ -323,8 +326,10 @@ APPEAL_META="<report>.finalize-meta.json"
 APPEAL_REPORT="<report>"
 if [ "${ADVISOR_ON:-}" = "true" ] && [ "${ADVISOR_SKIP_TRIGGER:-}" != "1" ]; then
   APPEAL=$(bash "$PDH/skills/plugin-dir.sh" file skills/advisor/appeal.sh)
-  APPEAL_OUT=$(bash "$APPEAL" gate --meta "$APPEAL_META" --report "$APPEAL_REPORT" \
-    --run-id "<RUN_ID>") || exit $?
+  APPEAL_ARGS=(gate --meta "$APPEAL_META" --report "$APPEAL_REPORT" --run-id "<RUN_ID>")
+  # SPEC-039 M37: forward the run's model override to the appeal probe.
+  [ -z "${ADVISOR_MODEL:-}" ] || APPEAL_ARGS+=(--model "$ADVISOR_MODEL")
+  APPEAL_OUT=$(bash "$APPEAL" "${APPEAL_ARGS[@]}") || exit $?
   if [ -n "$APPEAL_OUT" ]; then
     case "$(printf '%s' "$APPEAL_OUT" | jq -r '.action')" in
       spawn|cache-hit)

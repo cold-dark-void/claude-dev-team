@@ -111,6 +111,134 @@ else
   fail "t2-probe-never-spawns: ruling or cache written by probe"
 fi
 
+# ---- 2b. model override (SPEC-039 M37) --------------------------------------
+# --model wins over the Model map.
+plant_advisor
+OUT=$(run_probe --trigger b --question "model override question" --run-id r-model --model override-model)
+check_json "t2b-model-flag-action" "$OUT" ".action" "spawn"
+check_json "t2b-model-flag-model" "$OUT" ".model" "override-model"
+SRP=$(printf '%s' "$OUT" | jq -r .spawn_request_path)
+check_json "t2b-model-flag-spawn-request" "$(cat "$SRP" 2>/dev/null)" ".model" "override-model"
+
+# An explicit override enables the advisor even when the map is empty.
+clear_layers
+OUT=$(run_probe --trigger b --question "unmapped override question" --run-id r-model2 --model override-model)
+check_json "t2b-model-override-unmapped-action" "$OUT" ".action" "spawn"
+check_json "t2b-model-override-unmapped-model" "$OUT" ".model" "override-model"
+
+# ADVISOR_MODEL env fills the model when the flag is bare.
+plant_advisor
+OUT=$(ADVISOR_STATE_ROOT="$TSTATE" ADVISOR_MODEL=env-model bash "$ASK" probe \
+  --trigger b --question "env model question" --run-id r-model3 2>"$TMP/err.txt")
+check_json "t2b-model-env-action" "$OUT" ".action" "spawn"
+check_json "t2b-model-env-model" "$OUT" ".model" "env-model"
+
+# --model wins over ADVISOR_MODEL.
+OUT=$(ADVISOR_STATE_ROOT="$TSTATE" ADVISOR_MODEL=env-model bash "$ASK" probe \
+  --trigger b --question "flag wins model question" --run-id r-model4 --model flag-model 2>"$TMP/err.txt")
+check_json "t2b-model-flag-wins-env" "$OUT" ".model" "flag-model"
+
+# Invalid ambient model refuses instead of falling back to the map.
+OUT=$(ADVISOR_STATE_ROOT="$TSTATE" ADVISOR_MODEL='bad model' bash "$ASK" probe \
+  --trigger b --question "invalid env model question" --run-id r-model5 2>"$TMP/err.txt")
+check_json "t2b-model-env-invalid-action" "$OUT" ".action" "refuse"
+check_json "t2b-model-env-invalid-reason" "$OUT" ".reason" "advisor model invalid"
+
+# Duplicate or empty --model exits 64.
+ADVISOR_STATE_ROOT="$TSTATE" bash "$ASK" probe --trigger b --question "dup model" \
+  --model a --model b >/dev/null 2>"$TMP/err.txt"
+RC=$?
+if [ "$RC" -eq 64 ]; then pass "t2b-model-duplicate-64"; else fail "t2b-model-duplicate-64: rc=$RC"; fi
+ADVISOR_STATE_ROOT="$TSTATE" bash "$ASK" probe --trigger b --question "empty model" \
+  --model= >/dev/null 2>"$TMP/err.txt"
+RC=$?
+if [ "$RC" -eq 64 ]; then pass "t2b-model-empty-64"; else fail "t2b-model-empty-64: rc=$RC"; fi
+
+# ---- 2c. a model override NEVER persists to the Model map (SPEC-039 M37) -----
+plant_advisor
+MAP_SHA_BEFORE=$(sha256sum "$MAP" | cut -d" " -f1)
+ADVISOR_STATE_ROOT="$TSTATE" bash "$ASK" probe --trigger b --question "no-persist question" \
+  --run-id r-nopersist --model no-persist-model >/dev/null 2>"$TMP/err.txt"
+ADVISOR_MODEL=no-persist-model bash "$ROOT/skills/advisor/parse-flags.sh" --with-advisor >/dev/null 2>&1
+MAP_SHA_AFTER=$(sha256sum "$MAP" | cut -d" " -f1)
+if [ "$MAP_SHA_BEFORE" = "$MAP_SHA_AFTER" ] && [ "$(bash "$RESOLVE" advisor)" = "test-model-x" ]; then
+  pass "t2c-override-leaves-model-map-byte-identical"
+else
+  fail "t2c-override-leaves-model-map-byte-identical: map $MAP_SHA_BEFORE -> $MAP_SHA_AFTER"
+fi
+if grep -q 'write-model' "$ASK" "$ROOT/skills/advisor/parse-flags.sh"; then
+  fail "t2c-advisor-seam-calls-no-model-map-writer"
+else
+  pass "t2c-advisor-seam-calls-no-model-map-writer"
+fi
+
+# ---- 2d. council follow-ups (SPEC-039 M37 hardening) ------------------------
+# The absent sentinel can never reach the override leg (council critical).
+plant_advisor
+OUT=$(ADVISOR_STATE_ROOT="$TSTATE" ADVISOR_MODEL=null bash "$ASK" probe \
+  --trigger b --question "sentinel null question" --run-id r-sentinel 2>"$TMP/err.txt")
+check_json "t2d-sentinel-null-refuses-action" "$OUT" ".action" "refuse"
+check_json "t2d-sentinel-null-refuses-reason" "$OUT" ".reason" "advisor model invalid"
+
+# Token grammar: shell metacharacters and traversal never parse as a model.
+RC=0
+ADVISOR_STATE_ROOT="$TSTATE" bash "$ASK" probe --trigger b --question "meta q" --model '$(id)' >/dev/null 2>"$TMP/err.txt" || RC=$?
+if [ "$RC" -eq 64 ]; then pass "t2d-model-metachar-64"; else fail "t2d-model-metachar-64: rc=$RC"; fi
+RC=0
+ADVISOR_STATE_ROOT="$TSTATE" bash "$ASK" probe --trigger b --question "trav q" --model '../../etc/passwd' >/dev/null 2>"$TMP/err.txt" || RC=$?
+if [ "$RC" -eq 64 ]; then pass "t2d-model-traversal-64"; else fail "t2d-model-traversal-64: rc=$RC"; fi
+OUT=$(run_probe --trigger b --question "namespaced model question" --run-id r-ns --model spark-llama/ornith1.5-35b-a3b)
+check_json "t2d-model-namespaced-spawn" "$OUT" ".action" "spawn"
+
+# A malformed ambient value is caught even when --model wins precedence.
+OUT=$(ADVISOR_STATE_ROOT="$TSTATE" ADVISOR_MODEL='bad model' bash "$ASK" probe \
+  --trigger b --question "env invalid with flag question" --run-id r-envflag --model good-model 2>"$TMP/err.txt")
+check_json "t2d-env-invalid-wins-over-flag-refuse" "$OUT" ".action" "refuse"
+check_json "t2d-env-invalid-wins-over-flag-reason" "$OUT" ".reason" "advisor model invalid"
+
+# model_source is recorded for the audit trail.
+OUT=$(run_probe --trigger b --question "source flag question" --run-id r-src1 --model src-model-flag)
+SRP=$(printf '%s' "$OUT" | jq -r .spawn_request_path)
+check_json "t2d-source-flag" "$(cat "$SRP" 2>/dev/null)" ".model_source" "flag"
+OUT=$(ADVISOR_STATE_ROOT="$TSTATE" ADVISOR_MODEL=src-model-env bash "$ASK" probe \
+  --trigger b --question "source env question" --run-id r-src2 2>"$TMP/err.txt")
+SRP=$(printf '%s' "$OUT" | jq -r .spawn_request_path)
+check_json "t2d-source-env" "$(cat "$SRP" 2>/dev/null)" ".model_source" "env"
+plant_advisor
+OUT=$(run_probe --trigger b --question "source map question" --run-id r-src3)
+SRP=$(printf '%s' "$OUT" | jq -r .spawn_request_path)
+check_json "t2d-source-map" "$(cat "$SRP" 2>/dev/null)" ".model_source" "model-map"
+
+# An override that replaces a mapped choice warns on stderr.
+plant_advisor
+OUT=$(run_probe --trigger b --question "warn question" --run-id r-warn --model replace-me)
+grep -qF "replaces the Model map choice" "$TMP/err.txt" \
+  && pass "t2d-override-warns-when-replacing-map" \
+  || fail "t2d-override-warns-when-replacing-map: err=$(cat "$TMP/err.txt")"
+# An unmapped advisor enabled by an override must not warn about a map it lacks.
+clear_layers
+OUT=$(run_probe --trigger b --question "no-warn question" --run-id r-nowarn --model only-model)
+grep -qF "replaces the Model map choice" "$TMP/err.txt" \
+  && fail "t2d-no-warn-when-unmapped" \
+  || pass "t2d-no-warn-when-unmapped"
+
+# Cache stays model-blind, and a cache hit reports the model that ruled.
+plant_advisor
+cat > "$TMP/ruling-prov.json" <<'EOF'
+{"ruling":"AGREE","confidence":88,"evidence":[{"cmd":"true","exit":0,"sha256":"abc","locator":"docs/runbooks/omp.md:63"}]}
+EOF
+OUT=$(run_probe --trigger b --question "cache provenance question" --run-id r-prov1 --model model-alpha)
+check_json "t2d-probe-alpha-spawn" "$OUT" ".action" "spawn"
+ADVISOR_STATE_ROOT="$TSTATE" bash "$ASK" finalize --run-id r-prov1 --ruling-file "$TMP/ruling-prov.json" >/dev/null 2>"$TMP/err.txt"
+RC=$?
+if [ "$RC" -eq 0 ]; then pass "t2d-probe-finalize-alpha"; else fail "t2d-probe-finalize-alpha: rc=$RC err=$(cat "$TMP/err.txt")"; fi
+CNT_ALPHA=$(jq -r .total "$TSTATE/runs/r-prov1/counters.json")
+OUT=$(run_probe --trigger b --question "cache provenance question" --run-id r-prov2 --model model-beta)
+check_json "t2d-probe-beta-cache-hit" "$OUT" ".action" "cache-hit"
+check_json "t2d-probe-beta-reports-alpha" "$OUT" ".model" "model-alpha"
+CNT_BETA=$(jq -r ".total // 0" "$TSTATE/runs/r-prov2/counters.json" 2>/dev/null)
+if [ "${CNT_BETA:-0}" = "0" ]; then pass "t2d-cache-hit-free-across-overrides"; else fail "t2d-cache-hit-free-across-overrides: counters=$CNT_BETA"; fi
+
 # ---- 3. re-entrant probe -> 64 ----------------------------------------------
 flock -w 5 "$TSTATE/lock" -c "sleep 3" &
 HOLD_PID=$!

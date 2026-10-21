@@ -64,7 +64,7 @@ single source of truth; read the skill.)
 | `distiller` | Haiku | Memory compression specialist (invoked by `/memory distill` only) |
 | `council-judge` | Opus | Tool-less final arbiter for `/council` tribunals (invoked by the council engine only) |
 | `council-scribe` | Opus | Tool-less internal council role (extractor, classifier, prosecutor, advocate, cross-reviewer, quorum analyst). No memory. Invoked by the council engine only |
-| `advisor` | Opus | Read-only adjudicator with per-agent memory — post-council appeal + BC-diagnosis claims, spawned only by the orchestrator (SPEC-039; opt-in `--with-advisor`) |
+| `advisor` | Opus | Read-only adjudicator with per-agent memory — post-council appeal + BC-diagnosis claims, spawned only by the orchestrator (SPEC-039; opt-in `--with-advisor[=<model>]`) |
 
 The first 7 rows are the behavioral/team agents. The remaining 7 — `finder`,
 `debugger`, `project-init`, `distiller`, `council-judge`, `council-scribe`, and

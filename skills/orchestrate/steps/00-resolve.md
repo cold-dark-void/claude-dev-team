@@ -35,19 +35,25 @@
   MUST NOT add a `--max-loc` analog for iteration/wall-clock caps (N12 — no
   cap flags; `parse-flags.sh` stays six-key). MUST NOT export
   `AUTOPILOT_BUDGET_META` on `reroute-epic` (N13 — child derives its own freeze).
-- `[--with-advisor]` — optional, any position: opt-in advisor for this run
-  (SPEC-039 M9/M10). Parsed once at Step 0 by the sibling parser
-  `skills/advisor/parse-flags.sh` — the six-key autopilot parser stays
-  six-key (MUST NOT gain a 7th key). Flag on → enabled/source=flag; no flag
-  and env `ADVISOR` in `{1,true}` → enabled/source=env; else disabled/none.
-  Flag wins over env. Duplicate `--with-advisor` exits 64. The omp host flag
-  `--advisor` neither enables the advisor nor exits 64. Default off.
-  Byte-identical off (M11): disabled → zero advisor spawns, no `ask.sh`
-  calls, no `actor:advisor` cards. When enabled, the run's FIRST decision
-  card records the enablement; if source=env the rationale MUST mention
-  `ADVISOR=1` (M12). On a `reroute-epic` with the advisor on: run
-  `epic-lib set-with-advisor <EPIC-ID> true` before handing off and pass
-  `ADVISOR=1` into the `/epic` child environment (M10).
+- `[--with-advisor[=<model>]]` — optional, any position: opt-in advisor for
+  this run (SPEC-039 M9/M10/M37). Parsed once at Step 0 by the sibling parser
+  `skills/advisor/parse-flags.sh`; the six-key autopilot parser stays six-key.
+  Flag on → enabled/source=flag; no flag and env `ADVISOR` in `{1,true}` →
+  enabled/source=env; else disabled/none. Flag wins over env. Duplicate
+  `--with-advisor` exits 64. The omp host flag `--advisor` neither enables the
+  advisor nor exits 64. Default off; byte-identical off (M11) means no advisor
+  spawn, no `ask.sh` call, no `actor:advisor` card.
+  `=<model>` is the run's advisor model override: it wins over the Model map,
+  it enables an unmapped advisor, and Step 0 records it in `ADVISOR_MODEL`
+  (empty when absent). Pass it to every probe as `--model "$ADVISOR_MODEL"`
+  only when `[ -n "$ADVISOR_MODEL" ]`, and pass it to `appeal.sh gate` the same
+  way — SPEC-039 M37 owns the full rule, including the token charset and the
+  reserved `null` / `--clear` values. The first decision card records
+  enablement, `ADVISOR=1` when source=env (M12), and `advisor_model=<model>`
+  when overridden. On `reroute-epic` with the advisor on: run
+  `epic-lib set-with-advisor <EPIC-ID> true` (plus the model as the third
+  argument when non-empty) before handing off, and export `ADVISOR=1` plus
+  `ADVISOR_MODEL="<model>"` into the `/epic` child environment (M10/M37).
 - `[--resume-ship[=<patch|minor|major|master>]]` — optional (CDT-135 / SPEC-033 /
   CDT-195): after a human overrides a BC7 ship-choice halt, run the **single
   confirmed ship sequence** (end-state land path + wrap) without re-running the
@@ -148,6 +154,10 @@ ADVISOR_PF=$(bash "$PDH/skills/plugin-dir.sh" file skills/advisor/parse-flags.sh
 ADVISOR_JSON=$(bash "$ADVISOR_PF" "$@") || { echo "$ADVISOR_JSON" >&2; exit 64; }
 ADVISOR_ON=$(jq -r .enabled <<<"$ADVISOR_JSON")
 ADVISOR_SOURCE=$(jq -r .source <<<"$ADVISOR_JSON")
+# M37: a --with-advisor=<model> (or ADVISOR_MODEL env) override for this run.
+# Empty when absent — ADVISOR_MODEL is a live env channel the probe reads, so
+# never carry a sentinel string here. Pass --model only when it is non-empty.
+ADVISOR_MODEL=$(jq -r '.model // empty' <<<"$ADVISOR_JSON")
 
 # Resume detection (CDT-111-C8): only when THIS invocation gave neither
 # --autopilot nor AUTOPILOT= (flag/env always win over recorded state).
@@ -251,7 +261,8 @@ echo "RUN_START_EPOCH=$RUN_START_EPOCH"   # RUN_ID unchanged (SPEC-033 M9a)
 ```
 
 Every later reference to `AUTOPILOT_ON` / `AUTOPILOT_BUMP` / `RUN_ID` /
-`RUN_START_EPOCH` / `ITER` / `COUNCIL_TIER_OVERRIDE` / `ORCH_TIER` / `MAX_LOC`
-below means these values, carried forward from this step.
+`RUN_START_EPOCH` / `ITER` / `COUNCIL_TIER_OVERRIDE` / `ORCH_TIER` / `MAX_LOC` /
+`ADVISOR_ON` / `ADVISOR_SOURCE` / `ADVISOR_MODEL` below means these values,
+carried forward from this step.
 
 ---

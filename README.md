@@ -51,7 +51,7 @@ Use `--dry-run` to preview every change without writing anything (`bash install.
 | `devops` | Sonnet | Deployments, CI/CD, infrastructure, monitoring, incident response |
 | `qa` | Sonnet | Test planning, validation, bug reports, **release gating** |
 | `ds` | Opus | Data analysis, ML/AI pipelines, A/B testing, metrics, statistical modeling |
-| `advisor` | Opus | Read-only adjudicator with per-agent memory — post-council appeal + BC-diagnosis claims, spawned only by the orchestrator (SPEC-039; opt-in `--with-advisor`) |
+| `advisor` | Opus | Read-only adjudicator with per-agent memory — post-council appeal + BC-diagnosis claims, spawned only by the orchestrator (SPEC-039; opt-in `--with-advisor[=<model>]`) |
 
 The first seven rows are the behavioral/team agents you route work to, and they are the
 ones with persistent per-project memory. Seven internal agents are never routed to directly.
@@ -61,7 +61,7 @@ invoked by specific commands
 and carry no memory, cortex, or directives — `finder` and `debugger` are read-only investigators;
 `council-scribe` is a tool-less internal council role. `advisor` (SPEC-039) is the orchestrator-only
 adjudicator **with** per-agent memory: post-council appeals and critical-claim checks during
-unsupervised runs, opt-in via `--with-advisor`.
+unsupervised runs, opt-in via `--with-advisor[=<model>]`.
 
 ### Memory
 

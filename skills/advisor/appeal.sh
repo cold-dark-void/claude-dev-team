@@ -8,7 +8,7 @@
 #
 # Subcommands:
 #   appeal.sh gate --meta PATH.finalize-meta.json [--report PATH]
-#                  [--run-id ID] [--evidence-dir DIR]
+#                  [--run-id ID] [--evidence-dir DIR] [--model MODEL]
 #       Runs residue.sh on the council sidecar. CLEAN PASS (residue:false):
 #       exit 0, no output, nothing written — the M20 zero-advisor guarantee
 #       (no spawn-request, no probe, no state). Residue with the advisor off
@@ -17,8 +17,9 @@
 #       (default $ADVISOR_STATE_ROOT/runs/<run_id>/appeal-evidence/ —
 #       structurally OUTSIDE the council bundle directory, M22) and run
 #       `ask.sh probe --trigger c` (reserve c=2, M26), printing the probe's
-#       one JSON action object on stdout. The caller then spawns natively
-#       and finalizes per skills/advisor/SKILL.md.
+#       one JSON action object on stdout. `--model` (SPEC-039 M37) is forwarded
+#       to the probe; a reserved or malformed token exits 64. The caller then
+#       spawns natively and finalizes per skills/advisor/SKILL.md.
 #
 #   appeal.sh authority --ruling-file PATH [--run-id ID]
 #       M21 authority fence. Maps the trigger-(c) ruling to one of exactly
@@ -46,7 +47,7 @@ set -u
 usage() {
   cat >&2 <<'EOF'
 usage: appeal.sh gate --meta PATH.finalize-meta.json [--report PATH]
-                      [--run-id ID] [--evidence-dir DIR]
+                      [--run-id ID] [--evidence-dir DIR] [--model MODEL]
        appeal.sh authority --ruling-file PATH [--run-id ID]
        appeal.sh check-bundle-set --file PATH
 EOF
@@ -74,7 +75,7 @@ ADVISOR_DIR="${ADVISOR_STATE_ROOT:-$MROOT/.claude/advisor}"
 
 case "$CMD" in
   gate)
-    META="" REPORT="" RUN_ID="" EVIDENCE_DIR=""
+    META="" REPORT="" RUN_ID="" EVIDENCE_DIR="" MODEL=""
     while [ $# -gt 0 ]; do
       case "$1" in
         --meta) [ $# -ge 2 ] || usage; META="$2"; shift 2 ;;
@@ -85,10 +86,21 @@ case "$CMD" in
         --run-id=*) RUN_ID="${1#*=}"; shift ;;
         --evidence-dir) [ $# -ge 2 ] || usage; EVIDENCE_DIR="$2"; shift 2 ;;
         --evidence-dir=*) EVIDENCE_DIR="${1#*=}"; shift ;;
+        --model) [ $# -ge 2 ] || usage; MODEL="$2"; shift 2 ;;
+        --model=*) MODEL="${1#*=}"; shift ;;
         *) usage ;;
       esac
     done
     [ -n "$META" ] || usage
+    # M37: the appeal is the one path that can overturn a council verdict, so
+    # the run's model override must reach the probe explicitly — an env carry
+    # alone does not survive the separate-shell fence discipline.
+    case "$MODEL" in
+      '') : ;;
+      null|--clear) die64 "gate: --model '$MODEL' is reserved; omit the flag to use the Model map" ;;
+      *..*) die64 "gate: --model '$MODEL' must not contain '..'" ;;
+      *[!A-Za-z0-9._:+@~/-]*) die64 "gate: --model '$MODEL' is not a valid model token [A-Za-z0-9._:+@~/-]" ;;
+    esac
 
     RES=$(bash "$RESIDUE" --meta "$META" ${REPORT:+--report "$REPORT"}) \
       || die64 "residue detector failed: $RES"
@@ -117,6 +129,7 @@ case "$CMD" in
     QUESTION="council-residue appeal: kinds=$KINDS threshold=$THRESHOLD report=$(basename "$META")"
     PROBE_ARGS=(probe --trigger c --question "$QUESTION" --evidence-dir "$EVIDENCE_DIR")
     [ -z "$RUN_ID" ] || PROBE_ARGS+=(--run-id "$RUN_ID")
+    [ -z "$MODEL" ] || PROBE_ARGS+=(--model "$MODEL")
     bash "$ASK" "${PROBE_ARGS[@]}" || die64 "ask.sh probe failed"
     exit 0
     ;;

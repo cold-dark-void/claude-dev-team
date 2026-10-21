@@ -79,6 +79,110 @@ check "M9-omp-advisor-plus-flag" 0 '{"enabled":true,"source":"flag"}' ""
 OUT=$(bash "$PF" --autopilot some-positional); RC=$?
 check "M9-passthrough" 0 '{"enabled":false,"source":"none"}' ""
 
+# ---- M37: --with-advisor=<model> model override ----------------------------
+OUT=$(bash "$PF" --with-advisor=grok-4.6); RC=$?
+check "M37-model-flag" 0 '{"enabled":true,"source":"flag","model":"grok-4.6"}' ""
+
+OUT=$(ADVISOR_MODEL=grok-4.7 bash "$PF" --with-advisor); RC=$?
+check "M37-model-env-bare-flag" 0 '{"enabled":true,"source":"flag","model":"grok-4.7"}' ""
+
+OUT=$(ADVISOR=1 ADVISOR_MODEL=grok-4.7 bash "$PF"); RC=$?
+check "M37-model-env-enabled" 0 '{"enabled":true,"source":"env","model":"grok-4.7"}' ""
+
+# Flag model wins over env model.
+OUT=$(ADVISOR_MODEL=grok-4.7 bash "$PF" --with-advisor=grok-4.6); RC=$?
+check "M37-model-flag-wins-env" 0 '{"enabled":true,"source":"flag","model":"grok-4.6"}' ""
+
+# Disabled advisor ignores ADVISOR_MODEL — a pre-M37 output shape, kept as a
+# regression guard (it passes with M37 removed), not an M37 bite test.
+OUT=$(ADVISOR_MODEL=grok-4.7 bash "$PF"); RC=$?
+check "guard-model-env-ignored-when-off" 0 '{"enabled":false,"source":"none"}' ""
+
+# Empty / whitespace / duplicate model values -> 64.
+OUT=$(bash "$PF" --with-advisor= 2>"$TMP/err.txt"); RC=$?
+ERR=$(cat "$TMP/err.txt")
+check "M37-model-empty-64" 64 "" "--with-advisor=<model>"
+
+OUT=$(bash "$PF" --with-advisor='grok 4.6' 2>"$TMP/err.txt"); RC=$?
+ERR=$(cat "$TMP/err.txt")
+check "M37-model-whitespace-64" 64 "" "--with-advisor=<model>"
+
+OUT=$(bash "$PF" --with-advisor --with-advisor=grok-4.6 2>"$TMP/err.txt"); RC=$?
+ERR=$(cat "$TMP/err.txt")
+check "M37-model-duplicate-mixed-64" 64 "" "duplicate --with-advisor"
+
+OUT=$(bash "$PF" --with-advisor=grok-4.6 --with-advisor=grok-4.7 2>"$TMP/err.txt"); RC=$?
+ERR=$(cat "$TMP/err.txt")
+check "M37-model-duplicate-eq-64" 64 "" "duplicate --with-advisor"
+
+OUT=$(ADVISOR_MODEL='grok 4.7' bash "$PF" --with-advisor 2>"$TMP/err.txt"); RC=$?
+ERR=$(cat "$TMP/err.txt")
+check "M37-model-env-invalid-64" 64 "" "ADVISOR_MODEL"
+
+# M37 token grammar: a charset allowlist, not a whitespace denylist.
+OUT=$(bash "$PF" --with-advisor='$(id)' 2>"$TMP/err.txt"); RC=$?
+check "M37-model-commandsub-64" 64 "" "not a valid model token"
+OUT=$(bash "$PF" --with-advisor='a;b' 2>"$TMP/err.txt"); RC=$?
+check "M37-model-semicolon-64" 64 "" "not a valid model token"
+OUT=$(bash "$PF" --with-advisor='*' 2>"$TMP/err.txt"); RC=$?
+check "M37-model-glob-64" 64 "" "not a valid model token"
+OUT=$(bash "$PF" --with-advisor='../../etc/passwd' 2>"$TMP/err.txt"); RC=$?
+check "M37-model-traversal-64" 64 "" "not a valid model token"
+OUT=$(bash "$PF" --with-advisor='a'"$(printf '\t')"'b' 2>"$TMP/err.txt"); RC=$?
+check "M37-model-tab-64" 64 "" "not a valid model token"
+
+# Reserved sentinels can never name a model.
+OUT=$(bash "$PF" --with-advisor=null 2>"$TMP/err.txt"); RC=$?
+check "M37-model-null-reserved-64" 64 "" "reserved"
+OUT=$(bash "$PF" --with-advisor=--clear 2>"$TMP/err.txt"); RC=$?
+check "M37-model-clear-reserved-64" 64 "" "reserved"
+OUT=$(ADVISOR_MODEL=null bash "$PF" --with-advisor 2>"$TMP/err.txt"); RC=$?
+check "M37-model-env-null-reserved-64" 64 "" "reserved"
+
+# A real host slug with a namespace separator stays legal.
+OUT=$(bash "$PF" --with-advisor=spark-llama/ornith1.5-35b-a3b); RC=$?
+check "M37-model-namespaced-ok" 0 '{"enabled":true,"source":"flag","model":"spark-llama/ornith1.5-35b-a3b"}' ""
+
+# Precedence must not hide a malformed ambient value (log_8).
+OUT=$(ADVISOR_MODEL='grok 4.7' bash "$PF" --with-advisor=grok-4.6 2>"$TMP/err.txt"); RC=$?
+check "M37-model-env-checked-even-when-flag-wins" 64 "" "ADVISOR_MODEL"
+
+# The parser stays jq-free: the model arms still print one JSON object.
+OUT_NOJQ=$(env PATH= /bin/bash "$PF" --with-advisor=grok-4.6 2>/dev/null); RC_NOJQ=$?
+if [ "$RC_NOJQ" -eq 0 ] && [ "$OUT_NOJQ" = '{"enabled":true,"source":"flag","model":"grok-4.6"}' ]; then
+  pass "M37-model-arm-prints-without-jq"
+else
+  fail "M37-model-arm-prints-without-jq: rc=$RC_NOJQ out='$OUT_NOJQ'"
+fi
+OUT_NOJQ_ENV=$(env PATH= ADVISOR=1 ADVISOR_MODEL=grok-4.6 /bin/bash "$PF" 2>/dev/null); RC_NOJQ_ENV=$?
+if [ "$RC_NOJQ_ENV" -eq 0 ] && [ "$OUT_NOJQ_ENV" = '{"enabled":true,"source":"env","model":"grok-4.6"}' ]; then
+  pass "M37-model-env-arm-prints-without-jq"
+else
+  fail "M37-model-env-arm-prints-without-jq: rc=$RC_NOJQ_ENV out='$OUT_NOJQ_ENV'"
+fi
+
+# M12 doc bite: both caller fences state the first-card rationale clause and the
+# empty-absence convention (AC2 / AC1).
+RAC="$ROOT/skills/review-and-commit/SKILL.md"
+STEP0="$ROOT/skills/orchestrate/steps/00-resolve.md"
+grep -qF 'advisor_model=<model>' "$STEP0" \
+  && pass "orchestrate-m12-model-rationale-doc" \
+  || fail "orchestrate-m12-model-rationale-doc missing"
+grep -qF 'advisor_model=<model>' "$RAC" \
+  && pass "rac-m12-model-rationale-doc" \
+  || fail "rac-m12-model-rationale-doc missing"
+grep -qF ".model // empty" "$STEP0" \
+  && pass "orchestrate-model-empty-absence" \
+  || fail "orchestrate-model-empty-absence: Step 0 must not carry a sentinel"
+grep -qF ".model // empty" "$RAC" \
+  && pass "rac-model-empty-absence" \
+  || fail "rac-model-empty-absence"
+if grep -rqF '.model // "null"' "$STEP0" "$RAC"; then
+  fail "no-null-sentinel-in-caller-fences"
+else
+  pass "no-null-sentinel-in-caller-fences"
+fi
+
 # ---- autopilot parse-flags stays six-key (M9 MUST NOT add a 7th key) -------
 AP="$ROOT/skills/autopilot/parse-flags.sh"
 [ -f "$AP" ] && pass "ap-parser-exists" || fail "ap-parser-exists missing"
@@ -88,6 +192,11 @@ if [ "$KEYS" = "6" ]; then pass "ap-parser-six-key"; else fail "ap-parser-six-ke
 if bash "$AP" --with-advisor >/dev/null 2>&1; then pass "ap-parser-with-advisor-passthrough"; else fail "ap-parser-with-advisor-passthrough exited non-zero"; fi
 KEYS2=$(bash "$AP" --with-advisor 2>/dev/null | jq -r 'keys | length')
 if [ "$KEYS2" = "6" ]; then pass "ap-parser-still-six-key-with-flag"; else fail "ap-parser-still-six-key-with-flag: $KEYS2"; fi
+# Guards, not M37 bite tests: the autopilot parser ignores an unknown token, so
+# these two also pass with M37 removed. They hold the six-key invariant.
+if bash "$AP" --with-advisor=grok-4.6 >/dev/null 2>&1; then pass "guard-ap-parser-with-advisor-model-passthrough"; else fail "guard-ap-parser-with-advisor-model-passthrough exited non-zero"; fi
+KEYS3=$(bash "$AP" --with-advisor=grok-4.6 2>/dev/null | jq -r 'keys | length')
+if [ "$KEYS3" = "6" ]; then pass "guard-ap-parser-still-six-key-with-model-flag"; else fail "guard-ap-parser-still-six-key-with-model-flag: $KEYS3"; fi
 
 # ---- M10 surfaces: orchestrate + review-and-commit call the sibling parser --
 RESOLVE="$ROOT/skills/orchestrate/steps/00-resolve.md"
@@ -129,6 +238,9 @@ MODE_B="$ROOT/skills/epic/mode-b-execute.md"
 grep -qF 'ADVISOR=1' "$MODE_B" \
   && pass "mode-b-advisor-env" \
   || fail "mode-b-advisor-env missing"
+grep -qF 'ADVISOR_MODEL' "$MODE_B" \
+  && pass "mode-b-advisor-model-env" \
+  || fail "mode-b-advisor-model-env missing"
 for STEP in 02-scope 06-design 08-execute; do
   if grep -qF 'set-with-advisor' "$ROOT/skills/orchestrate/steps/$STEP.md"; then
     pass "reroute-$STEP-persists-advisor"
@@ -152,6 +264,103 @@ else
 fi
 OUT=$(EPIC_ROOT="$SCRATCH" bash "$EPIC_LIB" set-with-advisor CDT-999 bogus 2>"$TMP/err.txt"); RC=$?
 if [ "$RC" -eq 64 ]; then pass "epic-lib-set-with-advisor-bad-value-64"; else fail "epic-lib-set-with-advisor-bad-value-64 rc=$RC"; fi
+
+# M37: optional model argument persists advisor_model.
+OUT=$(EPIC_ROOT="$SCRATCH" bash "$EPIC_LIB" set-with-advisor CDT-999 true grok-4.6 2>"$TMP/err.txt"); RC=$?
+if [ "$RC" -eq 0 ] \
+  && [ "$(printf '%s' "$OUT" | jq -r .advisor_model)" = "grok-4.6" ] \
+  && [ "$(jq -r '.advisor_model // "null"' "$SCRATCH/.claude/epics/CDT-999/state.json")" = "grok-4.6" ]; then
+  pass "epic-lib-set-with-advisor-model-writes"
+else
+  fail "epic-lib-set-with-advisor-model-writes rc=$RC out='$OUT' err=$(cat "$TMP/err.txt")"
+fi
+OUT=$(EPIC_ROOT="$SCRATCH" bash "$EPIC_LIB" show CDT-999 2>"$TMP/err.txt"); RC=$?
+if [ "$RC" -eq 0 ] && [ "$(printf '%s' "$OUT" | jq -r '.advisor_model // "null"')" = "grok-4.6" ]; then
+  pass "epic-lib-show-advisor-model"
+else
+  fail "epic-lib-show-advisor-model rc=$RC out='$OUT'"
+fi
+# A bare true clears the prior model override.
+OUT=$(EPIC_ROOT="$SCRATCH" bash "$EPIC_LIB" set-with-advisor CDT-999 true 2>"$TMP/err.txt"); RC=$?
+if [ "$RC" -eq 0 ] \
+  && [ "$(printf '%s' "$OUT" | jq -r '.advisor_model // "null"')" = "null" ] \
+  && [ "$(jq -r '.advisor_model // "null"' "$SCRATCH/.claude/epics/CDT-999/state.json")" = "null" ]; then
+  pass "epic-lib-set-with-advisor-model-cleared"
+else
+  fail "epic-lib-set-with-advisor-model-cleared rc=$RC out='$OUT'"
+fi
+OUT=$(EPIC_ROOT="$SCRATCH" bash "$EPIC_LIB" set-with-advisor CDT-999 true 'grok 4.6' 2>"$TMP/err.txt"); RC=$?
+if [ "$RC" -eq 64 ]; then pass "epic-lib-set-with-advisor-model-whitespace-64"; else fail "epic-lib-set-with-advisor-model-whitespace-64 rc=$RC"; fi
+OUT=$(EPIC_ROOT="$SCRATCH" bash "$EPIC_LIB" set-with-advisor CDT-999 true '$(id)' 2>"$TMP/err.txt"); RC=$?
+if [ "$RC" -eq 64 ]; then pass "epic-lib-set-with-advisor-model-metachar-64"; else fail "epic-lib-set-with-advisor-model-metachar-64 rc=$RC"; fi
+# Setter sentinel discipline (log_3): null/--clear clear, an unknown flag is
+# usage, and a model needs true.
+EPIC_ROOT="$SCRATCH" bash "$EPIC_LIB" set-with-advisor CDT-999 true grok-4.6 >/dev/null 2>&1
+OUT=$(EPIC_ROOT="$SCRATCH" bash "$EPIC_LIB" set-with-advisor CDT-999 true null 2>"$TMP/err.txt"); RC=$?
+if [ "$RC" -eq 0 ] && [ "$(printf '%s' "$OUT" | jq -r '.advisor_model // "null"')" = "null" ]; then
+  pass "epic-lib-set-with-advisor-null-clears"
+else
+  fail "epic-lib-set-with-advisor-null-clears rc=$RC out='$OUT'"
+fi
+EPIC_ROOT="$SCRATCH" bash "$EPIC_LIB" set-with-advisor CDT-999 true grok-4.6 >/dev/null 2>&1
+OUT=$(EPIC_ROOT="$SCRATCH" bash "$EPIC_LIB" set-with-advisor CDT-999 true --clear 2>"$TMP/err.txt"); RC=$?
+if [ "$RC" -eq 0 ] && [ "$(printf '%s' "$OUT" | jq -r '.advisor_model // "null"')" = "null" ]; then
+  pass "epic-lib-set-with-advisor-clear-flag-clears"
+else
+  fail "epic-lib-set-with-advisor-clear-flag-clears rc=$RC out='$OUT'"
+fi
+OUT=$(EPIC_ROOT="$SCRATCH" bash "$EPIC_LIB" set-with-advisor CDT-999 true --bogus 2>"$TMP/err.txt"); RC=$?
+if [ "$RC" -eq 64 ]; then pass "epic-lib-set-with-advisor-unknown-flag-64"; else fail "epic-lib-set-with-advisor-unknown-flag-64 rc=$RC"; fi
+OUT=$(EPIC_ROOT="$SCRATCH" bash "$EPIC_LIB" set-with-advisor CDT-999 false grok-4.6 2>"$TMP/err.txt"); RC=$?
+if [ "$RC" -eq 64 ]; then pass "epic-lib-set-with-advisor-model-with-false-64"; else fail "epic-lib-set-with-advisor-model-with-false-64 rc=$RC"; fi
+
+# B.4 read path (log_5): run the fence's own extraction against real show
+# output, not just a source grep on the markdown.
+EPIC_ROOT="$SCRATCH" bash "$EPIC_LIB" set-with-advisor CDT-999 true grok-4.6 >/dev/null 2>&1
+b4_export=$(
+  EPIC_ROOT="$SCRATCH" bash -c '
+    EPIC_STATE=$(EPIC_ROOT="'"$SCRATCH"'" '"$EPIC_LIB"' show CDT-999) || { echo "SHOW_FAILED"; exit 1; }
+    printf "%s" "$EPIC_STATE" | jq -e . >/dev/null || { echo "BAD_JSON"; exit 1; }
+    WA=$(printf "%s" "$EPIC_STATE" | jq -r ".with_advisor // false")
+    AM=$(printf "%s" "$EPIC_STATE" | jq -r ".advisor_model // empty")
+    if [ "$WA" = "true" ]; then
+      ADVISOR=1
+      [ -z "$AM" ] || ADVISOR_MODEL="$AM"
+    fi
+    printf "advisor=%s model=%s\n" "${ADVISOR:-unset}" "${ADVISOR_MODEL:-unset}"'
+)
+if [ "$b4_export" = "advisor=1 model=grok-4.6" ]; then
+  pass "mode-b-b4-fence-exports-advisor-model"
+else
+  fail "mode-b-b4-fence-exports-advisor-model: got '$b4_export'"
+fi
+# A cleared model must not export the env var at all.
+EPIC_ROOT="$SCRATCH" bash "$EPIC_LIB" set-with-advisor CDT-999 true >/dev/null 2>&1
+b4_clear=$(
+  EPIC_ROOT="$SCRATCH" bash -c '
+    EPIC_STATE=$('"$EPIC_LIB"' show CDT-999) || { echo "SHOW_FAILED"; exit 1; }
+    WA=$(printf "%s" "$EPIC_STATE" | jq -r ".with_advisor // false")
+    AM=$(printf "%s" "$EPIC_STATE" | jq -r ".advisor_model // empty")
+    if [ "$WA" = "true" ]; then
+      ADVISOR=1
+      [ -z "$AM" ] || ADVISOR_MODEL="$AM"
+    fi
+    printf "advisor=%s model=%s\n" "${ADVISOR:-unset}" "${ADVISOR_MODEL:-unset}"'
+)
+if [ "$b4_clear" = "advisor=1 model=unset" ]; then
+  pass "mode-b-b4-fence-no-empty-export"
+else
+  fail "mode-b-b4-fence-no-empty-export: got '$b4_clear'"
+fi
+# A failed show must be loud, never read as with_advisor:false.
+b4_fail=$(EPIC_ROOT="$TMP/no-such-epic-root" bash -c '
+  EPIC_STATE=$('"$EPIC_LIB"' show CDT-404 2>/dev/null) || { echo "SHOW_FAILED_LOUD"; exit 1; }
+  echo "SILENT"')
+if [ "$b4_fail" = "SHOW_FAILED_LOUD" ]; then
+  pass "mode-b-b4-fence-show-failure-is-loud"
+else
+  fail "mode-b-b4-fence-show-failure-is-loud: got '$b4_fail'"
+fi
 
 # ---- AC25: omp --advisor collision documented ------------------------------
 if grep -qF -- '--advisor' "$ROOT/docs/runbooks/omp.md" && grep -qF 'SPEC-039' "$ROOT/docs/runbooks/omp.md"; then

@@ -519,17 +519,37 @@ cmd_set_last_seed() {
 }
 
 cmd_set_with_advisor() {
-  # set-with-advisor <EPIC-ID> <true|false>
-  # SPEC-039 M10: persist with_advisor on the epic so the B.4 child handoff
-  # exports ADVISOR=1. Additive top-level field; standalone /epic without the
-  # flag never sets it (stays false/absent). Exit 1 = epic not found; 64 = usage.
-  local epic_id="${1:-}" val="${2:-}"
+  # set-with-advisor <EPIC-ID> <true|false> [model]
+  # SPEC-039 M10/M37: persist with_advisor on the epic so the B.4 child handoff
+  # exports ADVISOR=1, and persist an optional advisor_model so the child also
+  # exports ADVISOR_MODEL. Additive top-level fields; standalone /epic without
+  # the flag never sets them. A bare `true` clears any prior model override.
+  # Exit 1 = epic not found; 64 = usage.
+  local epic_id="${1:-}" val="${2:-}" model="${3:-}"
   [ -n "$epic_id" ] || die 64 "set-with-advisor: missing <EPIC-ID>"
-  [ $# -eq 2 ] || die 64 "set-with-advisor: missing <true|false>"
+  [ $# -ge 2 ] && [ $# -le 3 ] || die 64 "set-with-advisor: expected <EPIC-ID> <true|false> [model]"
   case "$val" in
     true|false) ;;
     *) die 64 "set-with-advisor: value must be true|false, got $val" ;;
   esac
+  if [ $# -eq 3 ]; then
+    # Sentinel discipline matches the sibling setters (set-linear-project,
+    # set-last-seed-path): null/--clear clear, an unknown flag is usage, and a
+    # real value must survive shell and env transport unchanged.
+    case "$model" in
+      ''|null|--clear) model="" ;;
+      -*) die 64 "set-with-advisor: unknown flag '$model' (a model value, null, or --clear is expected)" ;;
+      *..*)
+        die 64 "set-with-advisor: model '$model' must not contain '..'"
+        ;;
+      *[!A-Za-z0-9._:+@~/-]*)
+        die 64 "set-with-advisor: model '$model' is not a valid model token [A-Za-z0-9._:+@~/-]"
+        ;;
+    esac
+    if [ "$val" = "false" ] && [ -n "$model" ]; then
+      die 64 "set-with-advisor: a model requires <true|false>=true (false already clears it)"
+    fi
+  fi
 
   epic_paths "$epic_id"
   [ -f "$STATE" ] || die 1 "set-with-advisor: epic $epic_id not found"
@@ -537,9 +557,10 @@ cmd_set_with_advisor() {
   (
     portable_lock_acquire "$EPICS_LOCK" || exit 1
     st=$(read_state "$epic_id")
-    st=$(echo "$st" | jq --argjson v "$val" '.with_advisor = $v')
+    st=$(echo "$st" | jq --argjson v "$val" --arg m "$model" \
+      '.with_advisor = $v | .advisor_model = (if $v and $m != "" then $m else null end)')
     write_state "$epic_id" "$st"
-    echo "$st" | jq -c '{with_advisor}'
+    echo "$st" | jq -c '{with_advisor, advisor_model}'
   )
 }
 
@@ -1618,6 +1639,7 @@ cmd_show() {
       worktree_enabled: (.worktree_enabled // false),
       release_bump: (.release_bump // null),
       with_advisor: (.with_advisor // false),
+      advisor_model: (.advisor_model // null),
       sealed: (.sealed // false),
       integration_slug: (.integration_slug // null),
       integration_path: (.integration_path // null),

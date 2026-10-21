@@ -41,7 +41,7 @@ agent output. Do not reintroduce avoided aliases.
 | Walkie-talkie | Free-form async relay through the intercom's General topic | free chat, catch-all topic |
 | Escalation | No-answer timer pushing a pending session question to the intercom | nudge, reminder |
 | Away mode | Intercom-primary mode toggled by `/away` or `/afk`; main UI still mirrors | afk mode, do-not-disturb |
-| Advisor | Internal agent on a top-tier model (new `advisor` role in the model map), spawned only by the orchestrator through one seam (`skills/advisor/ask.sh`), resolving critical questions advisory-but-logged; never ships or lands code; orchestrator may disagree but must record why. Opt-in via `--with-advisor` (byte-identical without). Third SPEC-003 roster category (internal + tiered memory, no directives, no cortex) | consultant, expert, second-opinion agent |
+| Advisor | Internal agent on a top-tier model (new `advisor` role in the model map), spawned only by the orchestrator through one seam (`skills/advisor/ask.sh`), resolving critical questions advisory-but-logged; never ships or lands code; orchestrator may disagree but must record why. Opt-in via `--with-advisor[=<model>]` (byte-identical without). Third SPEC-003 roster category (internal + tiered memory, no directives, no cortex) | consultant, expert, second-opinion agent |
 
 ## Decisions
 

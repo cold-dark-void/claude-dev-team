@@ -737,6 +737,40 @@ if [ -n "$FENCE" ]; then
 fi
 
 # =============================================================================
+# M37 — the appeal forwards the run's model override to the probe.
+# =============================================================================
+
+rm -rf "$ST"; plant_advisor
+OUT=$(ADVISOR_ON=true gate --meta "$TMP/below.json" --run-id r8-model --model appeal-model-z); RC=$?
+SRP="$ST/runs/r8-model/spawn-request.json"
+if [ "$RC" -eq 0 ] && [ "$(printf '%s' "$OUT" | jq -r '.model // empty')" = "appeal-model-z" ]; then
+  pass "r8-gate-forwards-model-to-probe"
+else
+  fail "r8-gate-forwards-model-to-probe: rc=$RC out=$OUT"
+fi
+if [ -f "$SRP" ] && [ "$(jq -r '.model_source // empty' "$SRP")" = "flag" ]; then
+  pass "r8-gate-probe-records-model-source-flag"
+else
+  fail "r8-gate-probe-records-model-source-flag: $(cat "${SRP:-/dev/null}" 2>/dev/null)"
+fi
+
+# Without --model the mapped choice still wins (no silent change).
+rm -rf "$ST"; plant_advisor
+OUT=$(ADVISOR_ON=true gate --meta "$TMP/below.json" --run-id r8-nomodel); RC=$?
+if [ "$RC" -eq 0 ] && [ "$(printf '%s' "$OUT" | jq -r '.model // empty')" = "test-model-x" ]; then
+  pass "r8-gate-without-model-uses-map"
+else
+  fail "r8-gate-without-model-uses-map: rc=$RC out=$OUT"
+fi
+
+# A reserved or malformed token is usage, never a fallback.
+rm -rf "$ST"; plant_advisor
+RC=0; gate --meta "$TMP/below.json" --run-id r8-bad --model '$(id)' >/dev/null 2>&1 || RC=$?
+if [ "$RC" -eq 64 ]; then pass "r8-gate-model-metachar-64"; else fail "r8-gate-model-metachar-64: rc=$RC"; fi
+RC=0; gate --meta "$TMP/below.json" --run-id r8-null --model null >/dev/null 2>&1 || RC=$?
+if [ "$RC" -eq 64 ]; then pass "r8-gate-model-null-64"; else fail "r8-gate-model-null-64: rc=$RC"; fi
+
+# =============================================================================
 echo
 echo "test-residue.sh: $PASS pass, $FAIL fail"
 [ "$FAIL" -eq 0 ] || exit 1

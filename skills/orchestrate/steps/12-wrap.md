@@ -32,7 +32,8 @@ if [ "${ADVISOR_ON:-}" = "true" ] && [ "${ADVISOR_SKIP_TRIGGER:-}" != "1" ]; the
   if [ "$HITS" != "[]" ]; then
     # One probe per hit (reserve b=4, M26): static-check.sh first (M19), then
     # ask.sh probe --trigger b --question <hit span> --evidence-dir <evidence
-    # dir> -> native spawn -> finalize, per skills/advisor/SKILL.md. A halt
+    # dir> [--model "<ADVISOR_MODEL>" when Step 0 set one — SPEC-039 M37]
+    # -> native spawn -> finalize, per skills/advisor/SKILL.md. A halt
     # outcome (BC7/BC8) MUST NOT apply the state change: emit task_blocked
     # per cross-cutting.md Tier B and return control.
     echo "advisor trigger-(b) hits at the disposition write: $HITS" >&2

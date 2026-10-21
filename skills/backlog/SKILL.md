@@ -289,7 +289,8 @@ if [ "${ADVISOR_ON:-}" = "true" ] && [ "${ADVISOR_SKIP_TRIGGER:-}" != "1" ]; the
   HITS=$(bash "$CLASSIFY" --kind disposition --action close --text "<close rationale>" --run-id "<RUN_ID>") || exit $?
   if [ "$HITS" != "[]" ]; then
     # static-check.sh first (M19), then ask.sh probe --trigger b per
-    # skills/advisor/SKILL.md; a halt outcome (BC7/BC8) MUST NOT close.
+    # skills/advisor/SKILL.md [--model "<ADVISOR_MODEL>" when the run set one —
+    # SPEC-039 M37]; a halt outcome (BC7/BC8) MUST NOT close.
     echo "advisor trigger-(b) hits at the disposition write: $HITS" >&2
   fi
 fi

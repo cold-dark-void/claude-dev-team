@@ -74,28 +74,37 @@ Glossary term: Advisor (`CONTEXT.md`).
   default for other agents; that path is forbidden here). MUST NOT retry
   onto frontmatter `model:`. MUST NOT pass an empty Agent `model` param.
   `resolve-model.sh --mapped` is new; default resolve behavior is unchanged.
+  The one exception is an explicit M37 model override: it replaces the mapped
+  choice, and enables the probe when unmapped, by design.
 
 ### Flag (AC1, AC3, AC25)
 
 - **M9 — Sibling parser.** `skills/advisor/parse-flags.sh` is a subprocess
   CLI. stdout one JSON object:
-  `{"enabled":true|false,"source":"flag|env|none"}`.
-  `--with-advisor` → enabled, source=flag. No flag and `ADVISOR` in
+  `{"enabled":true|false,"source":"flag|env|none"}`, plus an optional
+  `"model":"<model>"` key when M37 resolves an override.
+  `--with-advisor` → enabled, source=flag. `--with-advisor=<model>` →
+  enabled, source=flag, model=<model>. No flag and `ADVISOR` in
   `{1,true}` → enabled, source=env. Else disabled, source=none. Flag wins
-  over env. Duplicate `--with-advisor` → exit 64. `--advisor` (omp host
-  flag) MUST NOT enable this feature and MUST NOT exit 64. Default off.
-  `skills/autopilot/parse-flags.sh` stays six-key. MUST NOT add a 7th key.
-- **M10 — Surfaces.** `--with-advisor` is accepted on `/orchestrate`
-  (including its autopilot mode) and `/review-and-commit`. Standalone
-  `/kickoff`, `/debug`, `/bug-hunt` are out of this spec. When
-  `/orchestrate --with-advisor` reroutes to `/epic`, epic state MUST persist
-  `with_advisor: true` so children inherit env `ADVISOR=1`. Standalone
+  over env. Duplicate `--with-advisor` or `--with-advisor=*` → exit 64.
+  An empty model or one carrying whitespace/control characters → exit 64.
+  `--advisor` (omp host flag) MUST NOT enable this feature and MUST NOT
+  exit 64. Default off. When disabled, `ADVISOR_MODEL` is ignored and the
+  output stays the two-key object. `skills/autopilot/parse-flags.sh` stays
+  six-key. MUST NOT add a 7th key.
+- **M10 — Surfaces.** `--with-advisor[=<model>]` is accepted on
+  `/orchestrate` (including its autopilot mode) and `/review-and-commit`.
+  Standalone `/kickoff`, `/debug`, `/bug-hunt` are out of this spec. When
+  `/orchestrate --with-advisor[=<model>]` reroutes to `/epic`, epic state
+  MUST persist `with_advisor: true` and, when overridden, `advisor_model`,
+  so children inherit env `ADVISOR=1` and `ADVISOR_MODEL`. Standalone
   `/epic` without the flag stays off.
 - **M11 — Byte-identical off.** Flag absent and `ADVISOR` unset → no
   advisor spawn, no `ask.sh` invocation, no `actor:advisor` cards.
 - **M12 — First card.** When enabled, the run's first decision-card MUST
   record enablement. Flag is primary. If source=env, rationale MUST mention
-  `ADVISOR=1`.
+  `ADVISOR=1`. When M37 resolves a model override, the rationale MUST
+  mention `advisor_model=<model>`.
 
 ### Trigger (b) — empirical claims (AC8, AC9, AC10, AC12)
 
@@ -277,6 +286,50 @@ Glossary term: Advisor (`CONTEXT.md`).
   `resolve-model.sh`, `write-model.sh`, and `skills/doctor/checks/models.sh`
   MUST call that helper. MUST NOT keep a third hand-copied case list.
   `spawn-site-test.sh` ROSTER gains `advisor:opus:high`.
+- **M37 — Model override.** A per-run model override wins over the Model
+  map. `--with-advisor=<model>` supplies it; a bare flag or `ADVISOR=1` may
+  take it from env `ADVISOR_MODEL`. Precedence: `ask.sh probe --model` >
+  `ADVISOR_MODEL` env > Model map. An explicit override enables the advisor
+  even when no Model map layer carries `advisor`; without one, M8's mapped
+  rule and `advisor not configured` refusal stay in force.
+  - **Token grammar.** A model MUST match `[A-Za-z0-9._:+@~/-]+` and MUST NOT
+    contain `..`. `null` and `--clear` are reserved and never name a model, so
+    an "absent" sentinel cannot be mistaken for one. The allowlist (not a
+    whitespace denylist) keeps the token safe in an env assignment, in jq
+    transport, and in state.
+  - **Absence is empty.** Callers represent "no override" as an empty
+    `ADVISOR_MODEL`, never a sentinel string: the variable name is the live
+    env channel the probe reads, and bash keeps the export attribute across
+    reassignment. Identity test is `[ -n "$ADVISOR_MODEL" ]`.
+  - **Malformed input.** A malformed flag value exits 64 at the parser. A
+    malformed ambient `ADVISOR_MODEL` makes `ask.sh probe` refuse with reason
+    `advisor model invalid` (never a silent fallback), and is validated even
+    when `--model` wins precedence. A duplicate `--model` exits 64.
+    `appeal.sh gate --model` validates the same grammar and forwards it to the
+    probe, so the trigger-(c) appeal cannot silently fall back to the map.
+  - **Visibility.** When an override replaces a mapped choice, the probe
+    prints one stderr line naming the model and its source, and
+    `spawn-request.json` records `model_source` (`flag|env|model-map`).
+  - **Cache.** The override does not change the question hash, so a cached
+    ruling for the same question is still a free cache hit. The cache entry
+    records the model that produced the ruling, and a `cache-hit` emits that
+    model — never the requesting run's — so a ruling is never attributed to a
+    model that did not compute it.
+  - **Persistence.** The override is per-run: the parser and the seam MUST NOT
+    write any Model map layer (`write-model.sh` stays the only local writer —
+    a durable model choice is a `/setup models` action). It lives only in
+    `runs/<run_id>/spawn-request.json` and, on a reroute, in epic state.
+    On a reroute to `/epic`, `epic-lib set-with-advisor` accepts an optional
+    model, follows the sibling-setter discipline (`null`/`--clear` clear it, an
+    unknown `- flag` exits 64, a model with `false` exits 64), and persists
+    `advisor_model`. B.4 reads it, MUST fail loudly when `epic-lib show` errors
+    or returns non-JSON, and exports `ADVISOR_MODEL="<model>"` only when the
+    value is non-empty. A child re-validates it, so a tampered state value
+    refuses rather than spawns. `advisor_model` is null when no override is
+    active.
+  - **Parser dependency.** `skills/advisor/parse-flags.sh` stays jq-free: every
+    output path prints with `printf`, because exit 0 with empty stdout would
+    read as "advisor off" to a fence that gates only on exit status.
 
 ### MUST NOT
 
@@ -286,6 +339,8 @@ Glossary term: Advisor (`CONTEXT.md`).
 - MUST NOT change the marker `self-verified — refuters unavailable`.
 - MUST NOT spawn advisor when the flag is off and `ADVISOR` is unset.
 - MUST NOT use Tier default or frontmatter retry when unmapped.
+- MUST NOT accept `null` or `--clear` as an advisor model name, and MUST NOT
+  write a resolved override into any Model map layer.
 - MUST NOT fall back to `ic5` on advisor host-reject.
 - MUST NOT let the advisor ship, land, Write, or Edit.
 - MUST NOT pass evidence summaries in place of paths.
@@ -358,6 +413,7 @@ Glossary term: Advisor (`CONTEXT.md`).
 
 | Date | Change |
 |------|--------|
+| 2026-10-20 | M37: per-run advisor model override — `--with-advisor=<model>`, `ADVISOR_MODEL`, `ask.sh probe --model`, `appeal.sh gate --model`, epic `advisor_model` persistence; M8/M9/M10/M12 amended (council diff-mode review). |
 | 2026-10-18 | CDT-561: `### CDT-561` ACs for trigger (c) — `residue.sh` detector, `appeal.sh` gate/authority/check-bundle-set, the ship-gate-council §4a hook, M20 clean-pass zero-advisor, M21 authority fence, M22 label + outside-bundle evidence (epic child C6). |
 | 2026-10-18 | CDT-563: `### CDT-563` ACs for the trigger-(a) restricted gates + shadow mode — `gates.sh` (M23 denylist, M24 vocabularies, M25 shadow N=5), the `self-answer.md` §3g gate fence, and `SKILL.md` documentation (epic child C7). |
 | 2026-10-18 | CDT-564: `### CDT-564` ACs for the trigger-(b) mechanical front-end — `classify.sh`, `static-check.sh`, both hook points, M17 miss sampling, receipt/verify probe gate (epic child C5). |
@@ -452,18 +508,20 @@ Format and rules: SPEC-033 M14(g) and M14(h).
 
 ### CDT-557
 
-- **AC1.** `skills/advisor/parse-flags.sh` is a subprocess CLI printing exactly one JSON object `{"enabled":true|false,"source":"flag|env|none"}`: `--with-advisor` → flag; no flag and `ADVISOR` in `{1,true}` → env; else disabled/none; flag wins over env; duplicate `--with-advisor` exits 64; `--advisor` (omp host flag) neither enables nor exits 64; unknown tokens pass through. `skills/autopilot/parse-flags.sh` stays six-key (`--with-advisor` passes through it unchanged).
+- **AC1.** `skills/advisor/parse-flags.sh` is a subprocess CLI printing exactly one JSON object `{"enabled":true|false,"source":"flag|env|none"}`, plus an optional `"model"` key when M37 resolves an override. Every path prints with `printf` — the parser takes no jq dependency, so a missing jq can never yield exit 0 with empty stdout. `--with-advisor` → flag; `--with-advisor=<model>` → flag+model; a bare flag plus `ADVISOR_MODEL` → flag+model; no flag and `ADVISOR` in `{1,true}` → env (plus model when `ADVISOR_MODEL` is set); else disabled/none (model ignored). A model MUST match `[A-Za-z0-9._:+@~/-]+`; `null` and `--clear` are reserved. `ADVISOR_MODEL` is validated even when a flag value wins precedence. Duplicate `--with-advisor` or `--with-advisor=*` exits 64; so does a malformed value. `--advisor` (omp host flag) neither enables nor exits 64; unknown tokens pass through. `skills/autopilot/parse-flags.sh` stays six-key (`--with-advisor` and `--with-advisor=<model>` pass through it unchanged).
   Verify: bash skills/advisor/parse-flags-test.sh
-- **AC2.** `--with-advisor` is accepted and parsed on `/orchestrate` (Step 0, `skills/orchestrate/steps/00-resolve.md`) and `/review-and-commit` (Step 0) via the sibling parser; default off and byte-identical when disabled (M11: no advisor spawn, no `ask.sh` call, no `actor:advisor` card); the run's first decision card records enablement and an env-sourced rationale mentions `ADVISOR=1` (M12); no new `commands/*.md`; the omp `--advisor` name collision is documented in `docs/runbooks/omp.md` (AC25).
+- **AC2.** `--with-advisor[=<model>]` is accepted and parsed on `/orchestrate` (Step 0, `skills/orchestrate/steps/00-resolve.md`) and `/review-and-commit` (Step 0) via the sibling parser; default off and byte-identical when disabled (M11: no advisor spawn, no `ask.sh` call, no `actor:advisor` card); the run's first decision card records enablement, an env-sourced rationale mentions `ADVISOR=1`, and an overridden model appears as `advisor_model=<model>` (M12 — asserted as a doc bite on both caller fences); no new `commands/*.md`; the omp `--advisor` name collision is documented in `docs/runbooks/omp.md` (AC25).
   Verify: bash skills/advisor/parse-flags-test.sh
-- **AC3.** When `/orchestrate --with-advisor` reroutes to `/epic`, the orchestrate reroute blocks (`02-scope.md`, `06-design.md`, `08-execute.md`) run `epic-lib set-with-advisor <EPIC-ID> true` (persists `with_advisor: true`) and pass `ADVISOR=1` into the `/epic` child environment; `skills/epic/mode-b-execute.md` B.4 exports `ADVISOR=1` when the epic state carries `with_advisor: true`; standalone `/epic` without the flag persists nothing.
+- **AC3.** When `/orchestrate --with-advisor[=<model>]` reroutes to `/epic`, the orchestrate reroute blocks (`02-scope.md`, `06-design.md`, `08-execute.md`) run `epic-lib set-with-advisor <EPIC-ID> true` (persists `with_advisor: true`, and `advisor_model` when overridden; the setter clears on `null`/`--clear`, rejects an unknown `- flag` and a model paired with `false`, all exit 64) and pass `ADVISOR=1` plus a quoted `ADVISOR_MODEL` into the `/epic` child environment. `skills/epic/mode-b-execute.md` B.4 exits nonzero when `epic-lib show` fails or returns non-JSON, exports `ADVISOR=1` when the epic carries `with_advisor: true`, and exports the model only when `advisor_model` is non-empty; a bare `true` clears `advisor_model`; standalone `/epic` without the flag persists nothing.
   Verify: bash skills/advisor/parse-flags-test.sh
+- **AC4.** `ask.sh probe` accepts `--model MODEL` with precedence `--model` > `ADVISOR_MODEL` env > Model map. An explicit override spawns even when the advisor is unmapped; a malformed ambient `ADVISOR_MODEL` returns `action=refuse`, reason `advisor model invalid`, and is checked even when `--model` wins; duplicate or empty `--model` exits 64. `spawn-request.json` carries the model plus `model_source`, and an override that replaces a mapped choice warns once on stderr. The question hash excludes the model (cache hits stay free) and a `cache-hit` reports the model recorded in the cache entry, not the requesting run's. `appeal.sh gate` accepts `--model` and forwards it to the probe, rejecting a reserved or malformed token with exit 64. A resolved override leaves `$MROOT/.claude/dev-team/models.local.json` byte-identical, and neither `ask.sh` nor `parse-flags.sh` references `write-model.sh`.
+  Verify: bash skills/advisor/test.sh
 
 ### CDT-559
 
 - **AC1.** `skills/advisor/ask.sh` is a subprocess CLI (never sourced) with `probe` and `finalize`. `probe` prints exactly one JSON object `{action, model, spawn_request_path, cached_ruling_path, reason}` with `action` ∈ `spawn|cache-hit|refuse|cap`; probe never spawns an agent; a re-entrant probe (advisor lock `$MROOT/.claude/advisor/lock` already held) exits 64; state lives under `$MROOT/.claude/advisor/` (gitignored) and `ADVISOR_STATE_ROOT` reroutes it for tests.
   Verify: bash skills/advisor/test.sh
-- **AC2.** Model resolution probes `resolve-model.sh --mapped advisor` first: unmapped → `action=refuse`, reason `advisor not configured`, never a tier default. `finalize --ruling-file` rejects any `ruling` other than `AGREE|CONTRADICT|INSUFFICIENT` (exit 64), requires integer `confidence` 0–100 and `evidence[].locator` of `path:line` (M18); `--timeout`/`--spawn-fail`/`--refuse` record run status and never write the cache — a timeout is not a partial ruling; a valid ruling caches under the question hash so the next identical probe is a free `cache-hit`.
+- **AC2.** Model resolution applies M37 first (`--model` > `ADVISOR_MODEL` > Model map); without an override it probes `resolve-model.sh --mapped advisor`: unmapped → `action=refuse`, reason `advisor not configured`, never a tier default. `finalize --ruling-file` rejects any `ruling` other than `AGREE|CONTRADICT|INSUFFICIENT` (exit 64), requires integer `confidence` 0–100 and `evidence[].locator` of `path:line` (M18); `--timeout`/`--spawn-fail`/`--refuse` record run status and never write the cache — a timeout is not a partial ruling; a valid ruling caches under the question hash so the next identical probe is a free `cache-hit`.
   Verify: bash skills/advisor/test.sh
 - **AC3.** Caps per M26: per-trigger reserves a=3, b=4, c=2; global per-run total 5; `ADVISOR_MAX_CALLS` only lowers the global 5 (integer ≥ 1, any other value ignored); retries count; dedupe by question hash (sha256 of trigger + whitespace-normalized question + evidence-dir content hash) so changed evidence is a new question; cache hits never increment caps; epic children share an epic total default 8 stored under `.claude/advisor/epic/<epic_id>/counters.json`; exhaustion → `action=cap` with no spawn.
   Verify: bash skills/advisor/test.sh

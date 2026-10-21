@@ -100,6 +100,7 @@ if [ "${ADVISOR_ON:-}" = "true" ] && [ "${ADVISOR_SKIP_TRIGGER:-}" != "1" ]; the
   if [ "$HITS" != "[]" ]; then
     # One probe per hit (reserve b=4, M26): static-check.sh first (M19), then
     # ask.sh probe --trigger b --question <hit span> --evidence-dir <plan dir>
+    # [--model "<ADVISOR_MODEL>" when Step 0 set one — SPEC-039 M37]
     # -> native spawn -> finalize, per skills/advisor/SKILL.md. A halt outcome
     # (BC7/BC8) MUST NOT persist the plan: emit task_blocked per
     # cross-cutting.md Tier B and return control.
@@ -135,9 +136,11 @@ task-graph shape, destructive-op flags> }` and call
   also pass `--worktree --release <bump>` (seal-intent; MUST NOT land each child
   on master). `/epic` persists that bump as `release_bump` (SPEC-033 M11a / CDT-196).
   When the advisor is enabled for this run (Step 0 `ADVISOR_ON=true`,
-  SPEC-039 M10), also run `epic-lib set-with-advisor <EPIC-ID> true` before the
-  handoff and pass `ADVISOR=1` into the `/epic` child environment. Advisor
-  off: nothing persisted, no env exported (byte-identical off, M11).
+  SPEC-039 M10/M37), also run `epic-lib set-with-advisor <EPIC-ID> true` before
+  the handoff; append `"$ADVISOR_MODEL"` as the third argument when
+  `[ -n "$ADVISOR_MODEL" ]`. Pass `ADVISOR=1`, plus `ADVISOR_MODEL="<model>"`
+  when non-empty, into the `/epic` child environment.
+  Advisor off: nothing persisted, no env exported (byte-identical off, M11).
 <!-- include: skills/autopilot/halt-verdict.md agent=plan-approve -->
 - `halt` → emit `task_blocked` (detail = the one-line message below) via **Passive
   notifications → Tier B** (fail-open; § in `cross-cutting.md`), then print the one-line message below and

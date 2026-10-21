@@ -7,7 +7,7 @@
 #
 #   bash skills/advisor/ask.sh probe \
 #     --trigger a|b|c --question TEXT [--evidence-dir PATH]
-#     [--run-id ID] [--epic-id ID] [--bc N]
+#     [--run-id ID] [--epic-id ID] [--bc N] [--model MODEL]
 #
 #   probe NEVER spawns an agent. On action=spawn the CALLER spawns the advisor
 #   Agent natively and then runs finalize. On action=cache-hit the caller reads
@@ -44,9 +44,15 @@
 # question. finalize --timeout/--spawn-fail/--refuse never write the cache —
 # a timeout is not a partial ruling (SPEC-039 T6 Verify).
 #
-# Model resolution (SPEC-039 M36/T6): resolve-model.sh --mapped advisor first;
-# unmapped -> action=refuse, reason "advisor not configured" — never a tier
-# default. resolve-model.sh advisor (plain) runs only when mapped.
+# Model resolution (SPEC-039 M36/T6/M37): --model wins over ADVISOR_MODEL, and
+# either override wins over the Model map. An override enables the advisor even
+# when no map layer carries `advisor`, and replaces the mapped choice loudly on
+# stderr. A token MUST match [A-Za-z0-9._:+@~/-]+ (`null` / `--clear` reserved);
+# an ambient ADVISOR_MODEL is validated even when a flag wins. Without an
+# override: resolve-model.sh --mapped advisor first; unmapped -> action=refuse,
+# reason "advisor not configured" — never a tier default. resolve-model.sh
+# advisor (plain) runs only when mapped. A cache hit reports the model that
+# produced the cached ruling, and the hash stays model-blind.
 #
 # Card writes (SPEC-039 M28/M29/M30, C4 seam + C8 integration): finalize is
 # the only place decision cards are written. With --ruling-file plus the
@@ -67,7 +73,7 @@ set -u
 usage() {
   cat >&2 <<'EOF'
 usage: ask.sh probe --trigger a|b|c --question TEXT [--evidence-dir PATH]
-                    [--run-id ID] [--epic-id ID] [--bc N]
+                    [--run-id ID] [--epic-id ID] [--bc N] [--model MODEL]
        ask.sh finalize --run-id ID (--ruling-file PATH | --timeout | --spawn-fail | --refuse)
                        [--card-workflow W --card-ticket T --card-gate G
                         --card-iteration N --card-run-start-epoch E]
@@ -92,6 +98,29 @@ require_nnint() {
   [ "${#2}" -le 15 ] || die64 "finalize: $1 must be a non-negative integer (at most 15 digits)"
 }
 
+# Whitespace trim helper (used by the model arms below).
+trim() {
+  local s=$1
+  s="${s#"${s%%[![:space:]]*}"}"
+  s="${s%"${s##*[![:space:]]}"}"
+  printf '%s' "$s"
+}
+
+# A model token must survive shell and jq transport unchanged and must not be
+# confusable with an "absent" sentinel (SPEC-039 M37). The allowlist rejects
+# whitespace, control characters and shell metacharacters. It mirrors
+# skills/advisor/parse-flags.sh on purpose: the seam refuses an ambient bad
+# value as an outcome, the parser exits 64 on argv misuse, and these subprocess
+# CLIs are never sourced, so there is no shared file.
+valid_model() {
+  case "$1" in
+    ''|null|--clear) return 1 ;;
+    *..*) return 1 ;;
+    *[!A-Za-z0-9._:+@~/-]*) return 1 ;;
+  esac
+  return 0
+}
+
 CMD="${1:-}"
 [ -n "$CMD" ] || usage
 shift
@@ -108,6 +137,7 @@ _gc=$(git rev-parse --git-common-dir 2>/dev/null) \
 ADVISOR_DIR="${ADVISOR_STATE_ROOT:-$MROOT/.claude/advisor}"
 
 TRIGGER="" QUESTION="" EVIDENCE_DIR="" RUN_ID="" EPIC_ID="" BC=""
+MODEL_OVERRIDE="" MODEL_SEEN=0
 RULING_FILE="" FIN_MODE=""
 CARD_WORKFLOW="" CARD_TICKET="" CARD_GATE="" CARD_ITERATION="" CARD_RUN_START_EPOCH=""
 case "$CMD" in
@@ -126,12 +156,18 @@ case "$CMD" in
         --epic-id=*) EPIC_ID="${1#*=}"; shift ;;
         --bc) [ $# -ge 2 ] || usage; BC="$2"; shift 2 ;;
         --bc=*) BC="${1#*=}"; shift ;;
+        --model) [ $# -ge 2 ] || usage; [ "$MODEL_SEEN" -eq 0 ] || die64 "probe: --model specified more than once"; MODEL_OVERRIDE="$2"; MODEL_SEEN=1; shift 2 ;;
+        --model=*) [ "$MODEL_SEEN" -eq 0 ] || die64 "probe: --model specified more than once"; MODEL_OVERRIDE="${1#*=}"; MODEL_SEEN=1; shift ;;
         *) usage ;;
       esac
     done
     [ -n "$TRIGGER" ] || usage
     case "$TRIGGER" in a|b|c) ;; *) die64 "probe: --trigger must be a|b|c" ;; esac
     [ -n "$QUESTION" ] || usage
+    if [ "$MODEL_SEEN" -eq 1 ]; then
+      MODEL_OVERRIDE=$(trim "$MODEL_OVERRIDE")
+      valid_model "$MODEL_OVERRIDE" || die64 "probe: --model '$MODEL_OVERRIDE' is not a valid model token [A-Za-z0-9._:+@~/-], and null / --clear are reserved"
+    fi
     ;;
   finalize)
     while [ $# -gt 0 ]; do
@@ -251,6 +287,11 @@ if [ "$CMD" = "finalize" ]; then
     # missing/empty array would pass vacuously and cache an evidence-free ruling.
     NEV=$(jq -r '(.evidence // []) | length' "$RULING_FILE" 2>/dev/null)
     case "$NEV" in ''|*[!0-9]*|0) die64 "finalize: evidence[] must be a non-empty array (M18)" ;; esac
+    # Provenance travels from the spawn request: the model that ran this ruling
+    # and where that model came from (flag | env | model-map, SPEC-039 M37).
+    SRP_MODEL=$(json_get "$SRP" ".model"); SRP_MODEL=${SRP_MODEL:-}
+    SRP_TRIGGER=$(json_get "$SRP" ".trigger"); SRP_TRIGGER=${SRP_TRIGGER:-}
+    SRP_SOURCE=$(json_get "$SRP" ".model_source"); SRP_SOURCE=${SRP_SOURCE:-model-map}
     if [ "$CARD_CTX" -eq 5 ]; then
       # M29 decision map: AGREE + confidence >= 80 -> proceed/null; CONTRADICT
       # or INSUFFICIENT, or confidence < 80 regardless of ruling, -> halt/BC7.
@@ -267,8 +308,6 @@ if [ "$CMD" = "finalize" ]; then
           CARD_DECISION="halt"; CARD_BC="7"
           if [ "$CONF" -ge 80 ]; then CARD_CONF=0; else CARD_CONF="$CONF"; fi ;;
       esac
-      SRP_MODEL=$(json_get "$SRP" ".model"); SRP_MODEL=${SRP_MODEL:-}
-      SRP_TRIGGER=$(json_get "$SRP" ".trigger"); SRP_TRIGGER=${SRP_TRIGGER:-}
       # wall_clock_s measured at write time via budget-check.sh argc=2 (the
       # self-answer §3f C5 discipline); a breach (6) is an outcome — only a
       # validation failure (64) aborts the card.
@@ -306,8 +345,10 @@ if [ "$CMD" = "finalize" ]; then
         || die64 "finalize: append-card.sh rejected the decision card — ruling not cached"
     fi
     jq -cn --arg hash "$HASH" --arg run_id "$RUN_ID" --arg ts "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+        --arg model "$SRP_MODEL" --arg msrc "$SRP_SOURCE" \
         --slurpfile ruling "$RULING_FILE" \
-      '{question_hash:$hash, run_id:$run_id, ts:$ts, ruling:$ruling[0]}' \
+      '{question_hash:$hash, run_id:$run_id, ts:$ts, ruling:$ruling[0],
+        model:$model, model_source:$msrc}' \
       > "$ADVISOR_DIR/cache/$HASH.json"
     cp "$RULING_FILE" "$RUN_DIR/ruling.json"
     jq -cn --arg s "ruled" --arg ts "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
@@ -323,13 +364,43 @@ fi
 exec 9>>"$ADVISOR_DIR/lock" || die64 "probe: cannot open advisor lock"
 flock -n 9 || die64 "probe: advisor lock held — probe already in progress"
 
-# Model resolution (M36/T6): mapped probe first; never a tier default.
-RESOLVE=$(bash "$PDH/skills/plugin-dir.sh" file skills/model-map/resolve-model.sh)
-if [ "$(bash "$RESOLVE" --mapped advisor)" != "mapped" ]; then
-  emit refuse "" "" "" "advisor not configured"
-  exit 0
+# Model resolution (M36/T6/M37): explicit override first, then the Model map.
+# --model wins over ADVISOR_MODEL; either override skips the mapped probe and
+# enables the advisor even when no map layer carries `advisor`. An ambient
+# ADVISOR_MODEL is validated even when a flag wins, so a malformed env value is
+# never a silent fallback for the next run.
+ENV_MODEL=""
+if [ -n "${ADVISOR_MODEL:-}" ]; then
+  ENV_MODEL=$(trim "${ADVISOR_MODEL}")
+  if ! valid_model "$ENV_MODEL"; then
+    emit refuse "" "" "" "advisor model invalid"
+    exit 0
+  fi
 fi
-MODEL=$(bash "$RESOLVE" advisor)
+MODEL=""
+MODEL_SOURCE="model-map"
+if [ "$MODEL_SEEN" -eq 1 ]; then
+  MODEL="$MODEL_OVERRIDE"
+  MODEL_SOURCE="flag"
+elif [ -n "$ENV_MODEL" ]; then
+  MODEL="$ENV_MODEL"
+  MODEL_SOURCE="env"
+else
+  RESOLVE=$(bash "$PDH/skills/plugin-dir.sh" file skills/model-map/resolve-model.sh)
+  if [ "$(bash "$RESOLVE" --mapped advisor)" != "mapped" ]; then
+    emit refuse "" "" "" "advisor not configured"
+    exit 0
+  fi
+  MODEL=$(bash "$RESOLVE" advisor)
+fi
+# An override replaces the operator's `/setup models` choice, and the resolver's
+# own adversarial-role warning is unreachable on this leg — say it out loud.
+if [ "$MODEL_SOURCE" != "model-map" ]; then
+  RESOLVE="${RESOLVE:-$(bash "$PDH/skills/plugin-dir.sh" file skills/model-map/resolve-model.sh)}"
+  if [ "$(bash "$RESOLVE" --mapped advisor)" = "mapped" ]; then
+    echo "advisor: model override '$MODEL' (source=$MODEL_SOURCE) replaces the Model map choice" >&2
+  fi
+fi
 
 HASH=$(question_hash "$TRIGGER" "$(norm_question "$QUESTION")" "$EVIDENCE_DIR")
 
@@ -338,7 +409,11 @@ mkdir -p "$ADVISOR_DIR/cache" "$ADVISOR_DIR/runs"
 # Cache: same question hash -> free ruling, no spawn, no cap increment (M26).
 CACHED="$ADVISOR_DIR/cache/$HASH.json"
 if [ -f "$CACHED" ]; then
-  emit cache-hit "$MODEL" "" "$CACHED" ""
+  # The key is model-blind (M26 dedupe), so report the model that actually
+  # ruled rather than the one this run asked for (M37 provenance). A pre-M37
+  # cache entry carries no model and falls back to the requested one.
+  CACHED_MODEL=$(json_get "$CACHED" ".model"); CACHED_MODEL=${CACHED_MODEL:-$MODEL}
+  emit cache-hit "$CACHED_MODEL" "" "$CACHED" ""
   exit 0
 fi
 
@@ -402,10 +477,12 @@ jq --argjson a "$((CNT_A + 1))" --argjson b "$((CNT_B + 1))" \
 # Spawn request for the CALLER to act on — probe itself never spawns.
 SRP="$RUN_DIR/spawn-request.json"
 jq -cn --arg run_id "$RUN_ID" --arg trigger "$TRIGGER" --arg question "$QUESTION" \
-       --arg hash "$HASH" --arg model "$MODEL" --arg evidence "${EVIDENCE_DIR:-}" \
+       --arg hash "$HASH" --arg model "$MODEL" --arg msrc "$MODEL_SOURCE" \
+       --arg evidence "${EVIDENCE_DIR:-}" \
        --arg bc "${BC:-}" --arg ts "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
   '{run_id:$run_id, trigger:$trigger, question:$question, question_hash:$hash,
-    model:$model, evidence_dir:(if $evidence=="" then null else $evidence end),
+    model:$model, model_source:$msrc,
+    evidence_dir:(if $evidence=="" then null else $evidence end),
     bc:(if $bc=="" then null else $bc end), ts:$ts, status:"awaiting-spawn"}' > "$SRP"
 
 emit spawn "$MODEL" "$SRP" "" ""
