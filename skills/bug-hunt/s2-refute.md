@@ -120,6 +120,20 @@ Empty/missing cache is fine — correctness unchanged (council cache contract).
 Spawn each batch's investigators in one parallel Task wave (same message). Never sequential per-flavor for a single candidate when both can run
 together.
 
+**Spawn concurrency cap (CDT-573 / M34):** when `BH_CONCURRENCY` is an integer
+(SKILL.md § Resolve the cap), append the contract line from
+`skills/council/spawn-contract.md` once, after the fleet instruction above and
+before the per-spawn prompt blocks, with `<N>` = `BH_CONCURRENCY`. Each
+`BATCH_CAP` batch above is a fleet wave of 2 × |batch| investigator spawns; run
+it in sub-batches of ≤ `BH_CONCURRENCY` spawns (a wave of ≤ N stays one
+sub-batch): spawn a sub-batch, await all returns, then the next. The two
+flavors of a candidate may split across sub-batches — blindness and the ≥2
+distinct-flavor rule are per-candidate, not per-wave. Every (candidate,
+flavor) pair is spawned — completed spawns = intended spawns, nothing dropped.
+Queueing is not a spawn failure: batching MUST NOT trigger `self-verified —
+refuters unavailable` (§2h stays spawn-failure only). Unbounded: emit no line;
+this fence is one wave per batch as today.
+
 - Prefer `subagent_type: "dev-team:finder"` (CDT-230); fallback `dev-team:ic5` →
   `general-purpose` → `Explore`.
 - **Model map:** resolve the agent actually spawned (`finder`; named fallback

@@ -8,7 +8,7 @@ plus the local Model map share one Surface — do not merge their protocols.
 | `project` | scaffold-project skill | TDD structure: `AGENTS.md`, `specs/TDD.md`, `.claude/plans/`, settings allowlist |
 | `orchestration` | init-orchestration skill | Agent Teams: sandbox, hooks, `auto` posture (Cell D), AGENTS.md team section |
 | `team` | former init-team command | Memory bootstrap: SQLite DB, embedding extensions, project-init scan |
-| `models` | `write-model.sh` | Local Model map list/set/unset/set-effort/unset-effort (not doctor-gated) |
+| `models` | `write-model.sh` | Local Model map list/set/unset/set-effort/unset-effort/set-concurrency/unset-concurrency (not doctor-gated) |
 | `telegram` | `setup-telegram.sh` | Personal Intercom bot: token, pairing, Topics on/off |
 | `slack` | inline stub | Prints `Slack ships in v1.1/v2.` and exits 0 |
 
@@ -38,6 +38,8 @@ Bare or unknown sub prints usage and **stops with zero side effects** — no def
 /setup models unset ic4
 /setup models set-effort ic4 high
 /setup models unset-effort ic4
+/setup models set-concurrency 4
+/setup models unset-concurrency
 /setup telegram
 /setup telegram --start-daemon
 /setup slack
@@ -74,10 +76,23 @@ Full procedure: [Setup → `/setup team`](../setup.md#setup-team--bootstrap-agen
 Local Model map (SPEC-037). Bare `/setup models` lists the 10 mappable agents
 (`pm`, `tech-lead`, `ic5`, `ic4`, `devops`, `qa`, `ds`, `council-judge`,
 `finder`, `debugger`) with the winning model or `Tier default`, the winning
-effort or `inherited`, and the local path. `set` / `unset` / `set-effort` / `unset-effort` write only
+effort or `inherited`, the spawn concurrency cap, and the local path. `set` / `unset` / `set-effort` / `unset-effort` /
+`set-concurrency` / `unset-concurrency` write only
 `$MROOT/.claude/dev-team/models.local.json`. Not doctor-gated. Sugar:
 `/adjust-agent <agent> --model <string>` / `--model-unset` /
 `--effort <token>` / `--effort-unset`.
+
+The list line is `concurrency: <N>` or `concurrency: unbounded` (SPEC-037 M34).
+`set-concurrency <N>` writes the top-level integer `concurrency` key — `N` an
+integer ≥ 1, otherwise exit 64 with no write. `unset-concurrency` deletes the
+key; a missing key exits 0. Neither verb drops `agents` or `effort`, and
+`set` / `set-effort` never drop `concurrency`.
+
+That key is the stored layer of the Spawn concurrency cap
+(SPEC-013 § Spawn concurrency cap, CDT-573): a fleet Surface resolves
+`--concurrency N` > `COUNCIL_CONCURRENCY` > this key. The cap is
+per-run, not machine-wide — `N` concurrent runs at cap `X` can total `N×X`
+spawns in flight.
 
 ## Sub: `telegram`
 

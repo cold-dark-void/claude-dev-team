@@ -6,14 +6,21 @@
 #   bash skills/model-map/resolve-model.sh <agent>
 #   bash skills/model-map/resolve-model.sh --effort <agent>
 #   bash skills/model-map/resolve-model.sh --mapped <agent>
+#   bash skills/model-map/resolve-model.sh --concurrency
 #
 # stdout: trimmed model string, or empty (at most one trailing newline)
 #         --effort: lowercase token, or empty (inherited effort)
 #         --mapped: exactly `mapped` when an explicit Model map layer carries a
 #                   valid string for a mappable agent, else `unmapped` (internals
 #                   and unknown agents are always unmapped; SPEC-039 M36 probe)
+#         --concurrency: the Spawn concurrency cap integer, or empty (unbounded;
+#                   SPEC-037 M30–M33, CDT-573). Flag-first, no agent argument;
+#                   extra argv after the flag is ignored. Isolated from the
+#                   named-roster paths: a `concurrency` key (valid or invalid)
+#                   never changes `resolve-model.sh <agent>` output.
 # stderr: warnings only (SPEC-037 M6/M7/M8/M9 prefixes; effort uses M25 inherited-effort)
-# exit:   0 except 64 when the agent argument is missing or empty
+# exit:   0 except 64 when the agent argument is missing or empty, and 64 in
+#         --concurrency mode on an invalid stored cap (fail-closed, M33)
 # Extra argv after the agent is ignored.
 # Read-only: MUST NOT mkdir or write. MUST NOT read DEVTEAM_MODEL_*.
 
@@ -24,22 +31,30 @@ SCRIPT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 # JSON field in the Model map: agents (host model) or effort (inherited effort).
 FIELD=agents
 MAPPED_MODE=0
-if [ "${1:-}" = "--effort" ]; then
+CONCURRENCY_MODE=0
+if [ "${1:-}" = "--concurrency" ]; then
+  # SPEC-037 M31: flag-first mode. No agent argument; extra argv is ignored.
+  CONCURRENCY_MODE=1
+  shift
+fi
+if [ "$CONCURRENCY_MODE" = "0" ] && [ "${1:-}" = "--effort" ]; then
   FIELD=effort
   shift
 fi
-if [ "${1:-}" = "--mapped" ]; then
+if [ "$CONCURRENCY_MODE" = "0" ] && [ "${1:-}" = "--mapped" ]; then
   MAPPED_MODE=1
   shift
 fi
 
-if [ -z "${1:-}" ]; then
-  extra=""
-  [ "$FIELD" = "effort" ] && extra=" --effort"
-  echo "usage: resolve-model.sh${extra} <agent>" >&2
-  exit 64
+if [ "$CONCURRENCY_MODE" = "0" ]; then
+  if [ -z "${1:-}" ]; then
+    extra=""
+    [ "$FIELD" = "effort" ] && extra=" --effort"
+    echo "usage: resolve-model.sh${extra} <agent>" >&2
+    exit 64
+  fi
+  AGENT=$1
 fi
-AGENT=$1
 
 # Same rule as worktree-lib.sh resolve_mroot (SPEC-037 M1).
 resolve_mroot() {
@@ -131,6 +146,40 @@ take_field_value() {
   WINNER=$trimmed
 }
 
+# CDT-573 (SPEC-037 M30–M33): scan one layer for the top-level concurrency cap.
+# Prints "N" and exits 0 on a valid integer >= 1; exits 64 on an invalid stored
+# value (fail-closed, no fall-through); returns 0 (skip layer) on absent key,
+# null, "", unparseable JSON (M32 whole-layer skip), or absent file.
+concurrency_from_layer() {
+  local map=$1 state
+  [ -f "$map" ] || return 0
+  if ! jq empty "$map" >/dev/null 2>&1; then
+    warn "model-map: unparseable JSON at ${map}; using unbounded"
+    return 0
+  fi
+  state=$(jq -r '
+    if (has("concurrency") | not) then "skip"
+    else .concurrency
+      | if . == null then "skip"
+        elif (type == "string" and . == "") then "skip"
+        elif (type == "number" and . == floor) then
+          (if . >= 1 then "ok:" + (. | tostring) else "bad" end)
+        else "bad"
+        end
+    end' "$map" 2>/dev/null) || state=""
+  case "$state" in
+    ok:*)
+      printf '%s\n' "${state#ok:}"
+      exit 0
+      ;;
+    bad)
+      warn "model-map: concurrency is not an integer >= 1; failing closed"
+      exit 64
+      ;;
+    *) return 0 ;;
+  esac
+}
+
 # Scan one layer: M7 unknown keys for $FIELD; first valid value for AGENT wins.
 pick_from_layer() {
   local map=$1 field=$2 key has typ raw atype
@@ -177,6 +226,16 @@ if ! command -v jq >/dev/null 2>&1; then
   if [ "$MAPPED_MODE" = "1" ]; then
     printf 'unmapped\n'
   fi
+  exit 0
+fi
+
+# M31/M32: --concurrency is its own first-hit scan (local > repo > global).
+# Empty stdout at the end means unbounded. The named-roster paths above are
+# untouched by this mode.
+if [ "$CONCURRENCY_MODE" = "1" ]; then
+  concurrency_from_layer "$MROOT/.claude/dev-team/models.local.json"
+  concurrency_from_layer "$MROOT/.claude/dev-team/models.json"
+  concurrency_from_layer "${HOME:-}/.claude/dev-team/models.json"
   exit 0
 fi
 

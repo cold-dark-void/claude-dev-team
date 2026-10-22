@@ -17,7 +17,7 @@ report, severity floor, materialize path, or phase handoff.
 
 ```
 # Continuous (discover → refute → report → plan → optional materialize → phase handoff):
-/bug-hunt [path] [--severity-floor critical|warning|nitpick] [--proceed] [--start-phase <n>]
+/bug-hunt [path] [--severity-floor critical|warning|nitpick] [--proceed] [--start-phase <n>] [--concurrency N]
 
 # Resume materialize (fresh session or re-run — no re-S1/S2):
 /bug-hunt materialize <report|json|plan-path> [--severity-floor critical|warning|nitpick] [--proceed]
@@ -36,6 +36,7 @@ report, severity floor, materialize path, or phase handoff.
 | `--severity-floor` | continuous: `nitpick` | Keep findings at or above this floor (`critical` > `warning` > `nitpick`). Invalid value → exit 64. Ignored for S4 banding. |
 | `--proceed` | off | Satisfies the M8 materialize lock (no interactive token). Enables backlog create after the findings plan. |
 | `--start-phase <n>` | off | Satisfies M9 for phase `n`. Arms the print-only `invocation_hint` after templates are on disk. |
+| `--concurrency N` | unset | Spawn concurrency cap (SPEC-013 § Spawn concurrency cap, CDT-573). `N` is an integer ≥ 1; a bad value exits 64 with usage before any spawn. Caps the S1 discover wave (3 unconstrained teams + 3 lenses) and the S2 refute wave (≥2 investigators per candidate): at most `N` spawns in flight, then the next batch. Overflow queues — nothing is dropped, and queueing is not the `self-verified — refuters unavailable` path. A batch never sees sibling-batch output, so investigator blindness holds. Unset = unbounded (one wave, as today). Resolution composes the same engine cap: flag > `COUNCIL_CONCURRENCY` > Model map `concurrency`, through `skills/model-map/resolve-concurrency.sh` — `/bug-hunt` never re-implements that order. The report frontmatter carries `concurrency: <N>` or `concurrency: unbounded`. |
 
 ## When to use
 
@@ -63,6 +64,18 @@ report, severity floor, materialize path, or phase handoff.
    (`phase-plan`); print route hints. Never auto-advances between fix phases.
 
 Severity is exactly `critical` | `warning` | `nitpick` — no invented taxonomy.
+
+**Spawn concurrency cap (`--concurrency N`).** S1 and S2 are enumerated fleet
+waves, so both obey SPEC-013 § Spawn concurrency cap. This composes the council
+engine cap — it is not a second protocol. Each wave runs in batches of at most
+`N`: spawn a batch, await all returns, then the next. The completed spawn count
+always equals the intended count. See
+[`/council` → Spawn concurrency cap](council.md#spawn-concurrency-cap)
+for the resolution order (`--concurrency N` > `COUNCIL_CONCURRENCY` > Model map
+`concurrency`) and the fail-closed 64.
+
+> **Non-normative:** the Spawn concurrency cap is per-run, not machine-wide.
+> `N` concurrent hunts at cap `X` can total `N×X` spawns in flight.
 
 ## Outputs
 

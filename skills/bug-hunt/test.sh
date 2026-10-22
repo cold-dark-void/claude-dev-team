@@ -692,6 +692,102 @@ rm -f "$blob" "$f2_tmp" "$HERE/.s0.err"
 cleanup_bh
 trap - EXIT
 
+# ---- CDT-573 T8 — Spawn concurrency cap (SPEC-034 M5/M16/M33/M34/M49) -------
+# Static compose contracts: the flag rides SPEC-013 (one merge helper, one
+# contract-line fence cited by path — never retyped). Grep-only + fence runs.
+CAP_S1="$ROOT/skills/bug-hunt/s1-discover.md"
+CAP_S2="$ROOT/skills/bug-hunt/s2-refute.md"
+AC8_SENTENCE='at most <N> spawns in flight'
+
+has "$CMD" '\-\-concurrency' "T8 command names --concurrency"
+has "$SKILL" '\-\-concurrency' "T8 SKILL names --concurrency"
+has_f "$SKILL" 'skills/model-map/resolve-concurrency.sh' \
+  "T8 SKILL cites the ONE merge helper"
+has_f "$SKILL" 'skills/council/spawn-contract.md' \
+  "T8 SKILL cites the contract fence by path"
+has_f "$CAP_S1" 'skills/council/spawn-contract.md' \
+  "T8 S1 fence cites the contract fence by path"
+has_f "$CAP_S2" 'skills/council/spawn-contract.md' \
+  "T8 S2 fence cites the contract fence by path"
+has_f "$HERE/templates/report.md" 'concurrency: "{{CONCURRENCY}}"' \
+  "T8 report template FM concurrency key (M49)"
+
+# Single-copy rule: bug-hunt surfaces cite the fence; retyping the AC8 sentence
+# breaks grep-identical (SPEC-013 AC8).
+_bh_ac8_hits=$(grep -lF "$AC8_SENTENCE" "$CMD" $SKILL_ALL "$HERE"/templates/*.md 2>/dev/null || true)
+if [ -z "$_bh_ac8_hits" ]; then
+  ok "T8 no re-typed AC8 sentence in bug-hunt surfaces"
+else
+  bad "T8 AC8 sentence retyped in:$_bh_ac8_hits"
+fi
+if grep -qF 'Spawn contract:' "$CMD" $SKILL_ALL; then
+  bad "T8 'Spawn contract:' label outside the fence citation"
+else
+  ok "T8 fences carry the path citation only"
+fi
+
+# Unbounded path unchanged: the compose bullets sit beside the one-wave text.
+has_f "$CAP_S1" 'Spawn all unconstrained + lens reviewers in one parallel Task wave' \
+  "T8 S1 one-wave text intact"
+has_f "$CAP_S2" 'in one parallel Task wave (same message)' \
+  "T8 S2 one-wave text intact"
+has_skill 'Queueing is not a spawn failure' \
+  "T8 queueing-not-degradation language present"
+
+# 0b parse fence: accepts the flag forms; unknown modes reject; missing value 64.
+s0_rc=0
+s0_out=$(run_s0 skills --concurrency 2 2>/dev/null) || s0_rc=$?
+if [ "$s0_rc" -eq 0 ] && printf '%s\n' "$s0_out" | grep -q '^BH_CONCURRENCY_FLAG=2$'; then
+  ok "T8 parse accepts --concurrency 2"
+else
+  bad "T8 parse --concurrency 2 rc=$s0_rc"
+fi
+s0_rc=0
+s0_out=$(run_s0 --concurrency=4 skills 2>/dev/null) || s0_rc=$?
+if [ "$s0_rc" -eq 0 ] && printf '%s\n' "$s0_out" | grep -q '^BH_CONCURRENCY_FLAG=4$'; then
+  ok "T8 parse accepts --concurrency=4"
+else
+  bad "T8 parse --concurrency=4 rc=$s0_rc"
+fi
+s0_rc=0
+run_s0 --concurrency >/dev/null 2>"$HERE/.s0.err" || s0_rc=$?
+if [ "$s0_rc" -eq 64 ]; then ok "T8 bare --concurrency exits 64"; else bad "T8 bare --concurrency rc=$s0_rc"; fi
+s0_rc=0
+run_s0 handoff x-plan.md --concurrency 2 >/dev/null 2>"$HERE/.s0.err" || s0_rc=$?
+if [ "$s0_rc" -eq 64 ]; then ok "T8 handoff --concurrency exits 64"; else bad "T8 handoff --concurrency rc=$s0_rc"; fi
+s0_rc=0
+run_s0 materialize x.json --concurrency 2 >/dev/null 2>"$HERE/.s0.err" || s0_rc=$?
+if [ "$s0_rc" -eq 64 ]; then ok "T8 materialize --concurrency exits 64"; else bad "T8 materialize --concurrency rc=$s0_rc"; fi
+
+# Resolve-the-cap fence (SKILL.md): delegates the merge to the ONE helper.
+# Flag beats env; invalid fails closed 64. The map layer is developer state and
+# is deliberately not probed here (no models.local.json writes).
+cap_body=$(extract_fence '### Resolve the cap')
+cap_tmp=$(mktemp "${TMPDIR:-/tmp}/bh-cap.XXXXXX")
+printf '%s\n' "$cap_body" >"$cap_tmp"
+if [ -n "$cap_body" ]; then ok "T8 SKILL carries a Resolve-the-cap fence"; else bad "T8 Resolve-the-cap fence missing"; fi
+cap_rc=0
+cap_out=$(cd "$ROOT" && PDH="$ROOT" BH_CONCURRENCY_FLAG=2 COUNCIL_CONCURRENCY= bash "$cap_tmp" 2>/dev/null) || cap_rc=$?
+if [ "$cap_rc" -eq 0 ] && printf '%s\n' "$cap_out" | grep -qx 'BH_CONCURRENCY=2'; then
+  ok "T8 cap fence resolves flag 2 over env"
+else
+  bad "T8 cap fence flag 2 rc=$cap_rc out='$cap_out'"
+fi
+cap_rc=0
+cap_out=$(cd "$ROOT" && PDH="$ROOT" BH_CONCURRENCY_FLAG= COUNCIL_CONCURRENCY=3 bash "$cap_tmp" 2>/dev/null) || cap_rc=$?
+if [ "$cap_rc" -eq 0 ] && printf '%s\n' "$cap_out" | grep -qx 'BH_CONCURRENCY=3'; then
+  ok "T8 cap fence resolves env 3 when flag absent"
+else
+  bad "T8 cap fence env 3 rc=$cap_rc out='$cap_out'"
+fi
+cap_rc=0
+cd "$ROOT" && PDH="$ROOT" BH_CONCURRENCY_FLAG=high COUNCIL_CONCURRENCY= bash "$cap_tmp" >/dev/null 2>&1 || cap_rc=$?
+if [ "$cap_rc" -eq 64 ]; then ok "T8 cap fence invalid flag exits 64"; else bad "T8 cap fence invalid flag rc=$cap_rc"; fi
+cap_rc=0
+cd "$ROOT" && PDH="$ROOT" BH_CONCURRENCY_FLAG= COUNCIL_CONCURRENCY=x bash "$cap_tmp" >/dev/null 2>&1 || cap_rc=$?
+if [ "$cap_rc" -eq 64 ]; then ok "T8 cap fence invalid env exits 64"; else bad "T8 cap fence invalid env rc=$cap_rc"; fi
+rm -f "$cap_tmp" "$HERE/.s0.err"
+
 # ---- skill-lint (unwaived findings fail) ------------------------------------
 if [ -f "$LINT" ]; then
   set +e

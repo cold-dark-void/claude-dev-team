@@ -4,6 +4,10 @@ import { fileURLToPath } from 'node:url'
 import { randomBytes } from 'node:crypto'
 import { spawnSync } from 'node:child_process'
 import { refuteEvidence } from './untracked.js'
+// The Spawn concurrency cap partition has ONE home, shared with council
+// (CDT-573 review). Import it; never paste it. The module is self-contained,
+// so this file stays independent of skills/council/.
+import { chunkedParallel } from '../lib/chunked-parallel.js'
 
 const DIR = dirname(fileURLToPath(import.meta.url))
 const PROMPT_DIR = join(DIR, 'prompts')
@@ -25,6 +29,14 @@ function porcelainOf(wt) {
  *
  * Do not dual-drive: if a future Workflow runtime is wired, keep schemas and
  * phase order aligned with SKILL.md.
+ *
+ * Spawn concurrency cap (CDT-573, SPEC-013 § Spawn concurrency cap):
+ * chunkedParallel() runs the refuter wave in batch-synchronous batches of
+ * args.concurrency; unset = one wave as before. The helper is imported from
+ * skills/lib/chunked-parallel.js — the one home it shares with council (the
+ * T5 original). The module is self-contained, so this file couples to no
+ * other skill dir. The cap is resolved upstream (the
+ * ONE merge helper at the Task path); this module never re-resolves a layer.
  */
 
 export const meta = {
@@ -230,6 +242,11 @@ export async function runFixTicket({ args, agent, phase, parallel, promptDir }) 
   const TICKET = t.ticket
   const BUG = t.bug
   const FIX = t.fix || ''
+  // Cap carrier: the ticket JSON carries the resolved integer (mirrors the
+  // engine coercion — a positive integer is the cap; absent, null, string,
+  // float, zero, or negative is unbounded; validation/64 lives upstream).
+  const spawnCap =
+    Number.isInteger(t.concurrency) && t.concurrency >= 1 ? t.concurrency : null
   let lenses
   try {
     lenses = normalizeLenses(t.lenses)
@@ -281,7 +298,7 @@ export async function runFixTicket({ args, agent, phase, parallel, promptDir }) 
   )
 
   phase('Adversarial-verify')
-  const slots = await parallel(
+  const slots = await chunkedParallel(
     lenses.map((lens) => () =>
       agent(
         loadPrompt(
@@ -307,6 +324,8 @@ export async function runFixTicket({ args, agent, phase, parallel, promptDir }) 
         },
       ),
     ),
+    spawnCap,
+    parallel,
   )
   const summary = summarizeVerdicts(slots)
   const degraded = summary.verification_mode === 'self-verified'
@@ -317,6 +336,7 @@ export async function runFixTicket({ args, agent, phase, parallel, promptDir }) 
     verdicts: summary.verdicts,
     all_hold: summary.all_hold,
     verification_mode: summary.verification_mode,
+    concurrency: spawnCap === null ? 'unbounded' : String(spawnCap),
     marker: degraded ? MARKER : '',
   }
 }

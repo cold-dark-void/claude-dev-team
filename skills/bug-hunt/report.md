@@ -83,6 +83,7 @@ BH_TMPL_JSON=$(bash "$PDH/skills/plugin-dir.sh" file skills/bug-hunt/templates/f
 | `{{MANIFEST}}` | `BH_MANIFEST` one-line (teams + lenses + target + floor) |
 | `{{S2_FLAVORS}}` | `BH_S2_FLAVORS` (default `logic+security` if unset and candidates empty) |
 | `{{VERIFICATION_MODE}}` | `BH_VERIFICATION_MODE` (`full` \| `self-verified`) |
+| `{{CONCURRENCY}}` | `BH_CONCURRENCY` integer, or `unbounded` when the cap is unset (CDT-573 / M49) |
 | `{{DEGRADED_BANNER}}` | if `BH_REFUTE_DEGRADED` or mode=`self-verified` or `BH_DISCOVER_DEGRADED`: blockquote `> **self-verified — refuters unavailable**`; else empty |
 | `{{COUNTS}}` | multiline list (see below) |
 | `{{CONFIRMED_ACTIONABLE}}` | AC8 blocks or `(none)` |

@@ -110,7 +110,8 @@ If the download fails or `sqlite3` is unavailable, agents fall back to .md files
 Read and write the local per-agent model layer (SPEC-037). Bare `/setup models`
 lists the 10 mappable agents (`pm`, `tech-lead`, `ic5`, `ic4`, `devops`, `qa`,
 `ds`, `council-judge`, `finder`, `debugger`) with the winning model or
-`Tier default`, plus the winning effort or `inherited`, and the local path.
+`Tier default`, plus the winning effort or `inherited`, the spawn concurrency
+cap (`concurrency: <N>` or `concurrency: unbounded`), and the local path.
 
 ```bash
 /setup models                                   # list
@@ -118,7 +119,17 @@ lists the 10 mappable agents (`pm`, `tech-lead`, `ic5`, `ic4`, `devops`, `qa`,
 /setup models unset ic4
 /setup models set-effort ic4 high
 /setup models unset-effort ic4
+/setup models set-concurrency 4                 # spawn concurrency cap, local layer
+/setup models unset-concurrency
 ```
+
+`set-concurrency <N>` stores the top-level integer `concurrency` key. `N` must
+be an integer ≥ 1; otherwise the command exits 64 and writes nothing.
+`unset-concurrency` removes the key (a missing key exits 0). This key is the
+stored layer of the Spawn concurrency cap (SPEC-013 § Spawn concurrency cap,
+CDT-573): fleet Surfaces resolve `--concurrency N` > `COUNCIL_CONCURRENCY` >
+this key. The cap is per-run, not machine-wide — `N` concurrent runs at cap `X`
+can total `N×X` spawns in flight.
 
 Writes only `$MROOT/.claude/dev-team/models.local.json` (never the repo or
 global layers). Not doctor-gated. Sugar: `/adjust-agent <agent> --model …` /

@@ -21,11 +21,18 @@ Thin host over `skills/debug/SKILL.md` (SPEC-014, including ticket mode).
 **Ticket grammar:**
 
 ```
-/debug ticket <ticket-id> "<bug/premise>" [--fix "…"] [--agent ic4|ic5] [--lenses a,b] [--worktree <path>]
+/debug ticket <ticket-id> "<bug/premise>" [--fix "…"] [--agent ic4|ic5] [--lenses a,b] [--worktree <path>] [--concurrency N]
 ```
 
 Missing ticket-id or premise → usage error, no agent spawn.
 `ticket` mode MUST NOT commit, version-bump, or run `/release` (caller owns ship).
+`--concurrency N` (SPEC-013 § Spawn concurrency cap, CDT-573) caps the qa
+refuter fan-out: pass the raw token through to the skill; the skill resolves
+flag > `COUNCIL_CONCURRENCY` > Model map through
+`skills/model-map/resolve-concurrency.sh` and exits 64 with usage before any
+spawn on a bad value. The wave cites `skills/council/spawn-contract.md`
+(batch-synchronous, nothing dropped); queueing never emits the self-verified
+marker. `full` / `patch` / `arch` do not take the flag.
 
 ## Step 0: Resolve skill (PDH)
 

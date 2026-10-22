@@ -42,6 +42,7 @@ agent output. Do not reintroduce avoided aliases.
 | Escalation | No-answer timer pushing a pending session question to the intercom | nudge, reminder |
 | Away mode | Intercom-primary mode toggled by `/away` or `/afk`; main UI still mirrors | afk mode, do-not-disturb |
 | Advisor | Internal agent on a top-tier model (new `advisor` role in the model map), spawned only by the orchestrator through one seam (`skills/advisor/ask.sh`), resolving critical questions advisory-but-logged; never ships or lands code; orchestrator may disagree but must record why. Opt-in via `--with-advisor[=<model>]` (byte-identical without). Third SPEC-003 roster category (internal + tiered memory, no directives, no cortex) | consultant, expert, second-opinion agent |
+| Spawn concurrency cap | Per-run maximum of concurrent subagent spawns in a fleet fan-out; overflow runs in later batch-synchronous waves; unbounded when unset | rate limit, throttle, backpressure |
 
 ## Decisions
 
@@ -54,3 +55,6 @@ agent output. Do not reintroduce avoided aliases.
 - 2026-08-26: CDT-227 Model map layers: local `$MROOT/.claude/dev-team/models.local.json` then repo `$MROOT/.claude/dev-team/models.json` then global `~/.claude/dev-team/models.json`. First hit wins. `DEVTEAM_MODEL_*` is ignored.
 - 2026-08-26: CDT-228 Model map writers write **only** the local layer (`write-model.sh` / `/setup models` / `/adjust-agent --model`). Repo and global stay hand-edited. `/doctor` `models.map` is WARN-never-FAIL.
 - 2026-08-27: CDT-229 Model map sibling `effort` map. Empty resolve stdout is **inherited effort** (omit param), not Tier default.
+- 2026-10-21: CDT-573 Spawn concurrency cap is per-run concurrency with batch-synchronous queueing (spawn ≤X, await all, next batch); overflow is queued, never dropped; one number covers all waves.
+- 2026-10-21: CDT-573 persisted store is the Model map (top-level `concurrency` key, local > repo > global); precedence flag > env > map; unset = unbounded (opt-in, patch class).
+- 2026-10-21: CDT-573 Task-path enforcement is a prompt contract; Workflow-path enforcement is mechanical chunking; both carry the same resolved value.

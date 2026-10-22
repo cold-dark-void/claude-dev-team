@@ -32,8 +32,66 @@ The originating brainstorm was a local plan. It is not a package file.
 - MUST treat scope flags as mutually exclusive: exactly one of `"<claim text>"`, `--session`, `--diff`, `--plan`, `--from-retro`, or `--blind` MUST be supplied
 - MUST refuse to run with no scope argument and no prior context (must fail loudly, not guess)
 - MUST accept optional `/council --workflow` (or `COUNCIL_WORKFLOW=1`) as an execution-path selector orthogonal to tribunal scope flags (`"<claim>"|--session|--diff|--plan|--from-retro`) — does not replace scope exclusivity rules; default remains engine.sh; MUST NOT apply `--workflow` to the `--blind` path (blind uses its own execution path)
+- MUST accept optional `/council --concurrency N` (or `COUNCIL_CONCURRENCY`) as a per-run Spawn concurrency cap, orthogonal to scope flags and to `--workflow`. `N` is an integer ≥ 1; there is no upper ceiling. Resolution, fail-closed validation, enumerated waves, and the Task/Workflow contract: Spawn concurrency cap below. `/review-and-commit` and `/orchestrate` council gates MUST pass the flag through; `/orchestrate` MUST NOT apply it to the IC DAG
 - MUST accept blind-path parity flags only with `--blind`: `--teams N` (unconstrained reviewer count; default 3), `--lenses L1,L2,...` (lens-differentiated reviewers; default `security,contributor,spec`), `--target <path>` (narrow file scope; default full project)
 - MUST NOT accept, document, or implement a `--no-council` flag — the former blind-review reverse-validation self-call is removed (see Blind-review path)
+
+### Spawn concurrency cap *(CDT-573)*
+
+Opt-in per-run cap X on concurrent fleet subagent spawns. Glossary term:
+**Spawn concurrency cap**. One number covers every enumerated wave of one run.
+Overflow queues in later batches; nothing is dropped.
+
+- MUST resolve X once per run: `--concurrency N` > `COUNCIL_CONCURRENCY` >
+  Model map top-level `concurrency` (local > repo > global; SPEC-037). Absent
+  everywhere → unbounded. Empty map value → unbounded. Empty-string env → unset
+  (not invalid).
+- MUST fail closed at preflight on a flag that is non-integer, < 1, or missing
+  its argument: exit 64 + usage; zero side effects before any spawn. An invalid
+  stored map value: `resolve-model.sh --concurrency` exits 64 + stderr; invokers
+  treat 64 as preflight failure, never silent unbounded. No upper ceiling.
+- Env name `COUNCIL_CONCURRENCY` is accepted debt (the cap also binds
+  `/bug-hunt` and `/debug ticket`). Do not rename in this ticket.
+- Unset (unbounded): one wave as today; spawn-fence prose byte-identical;
+  no contract line. Report frontmatter is the carve-out: it gains
+  `concurrency: unbounded` on both paths (CDV-203: templates own the key; no
+  synthetic prepend).
+- Set to X: every wave of ≥ 2 intended spawns runs `ceil(W/X)` batches of
+  ≤ X; spawn a batch, await all returns, then the next batch; the final batch
+  MAY be partial; a wave of ≤ X stays one batch.
+- Enumerated waves: council Phase 2, Phase 2.5, Phase 3 specialist, Phase 4
+  pair, Phase 5 judge parts; `--blind` path; `/review-and-commit`
+  investigators; `/bug-hunt` S1/S2; `/debug ticket` refuters; `/orchestrate`
+  council gates only (not the IC DAG).
+- `/kickoff` Step 2 finder fan-out is OUT of this ticket (not in the ticket IN
+  list; fast-follow if it bites).
+- `skills/council/external-reviewer.sh` (`--external`) is OUT of the cap: it
+  is a bash CLI subprocess, not a subagent spawn.
+- MUST NOT drop a spawn to fit X. Completed spawn count MUST equal intended
+  count. Queueing is not a spawn failure: batching MUST NOT set
+  `verification_mode: self-verified` or emit
+  `self-verified — refuters unavailable`.
+- Batch-synchronous queueing preserves investigator blindness if and only if
+  a batch never sees sibling-batch output. "Never sequential fan-out" is a
+  blindness rule, not a speed rule.
+- Task path: when X is set, append this contract line exactly once (grep-
+  identical at every site):
+  `Spawn contract: at most <N> spawns in flight — spawn a batch, await all returns, then the next batch. Never exceed.`
+  Unset: no line; canonical spawn-fence unchanged.
+- Workflow path: chunk `parallel()` into batches of ≤ X (same resolved N).
+  Task/Workflow batch partitioning MUST match at unbounded and at cap=2
+  (`skills/council/test-parity-fixtures.sh`; all three `workflow.js`
+  `parallel()` sites).
+- Report frontmatter MUST include `concurrency: <N>` or
+  `concurrency: unbounded` in the canonical templates (council + `--blind` +
+  `/review-and-commit`, all council-engine-backed). `/bug-hunt` stages 1–2
+  report and `/debug ticket` report already carry YAML frontmatter and MUST
+  carry the same key.
+- N concurrent runs of the same Surface MAY total N×X in flight (per-run, not
+  machine-wide). Non-normative docs note only.
+- `--concurrency` mode on `resolve-model.sh` MUST stay isolated from the
+  named-roster model/effort path: a fail-closed 64 MUST NEVER abort
+  `resolve-model.sh <agent>`.
 
 ### Engine Architecture
 - MUST implement core logic as a skill at `skills/council/` (NOT duplicated inline in commands)
@@ -330,7 +388,7 @@ claim scope (see Council tiering consequences above).
   - For a claim that does not meet the trigger, the plan JSON MUST NOT change: no new key, the same `claim_budget` (10), and the same investigator prompt with its 5-call budget. The investigator prompt MUST render byte-identical to its form before WP 1-15: `{{TOOL_BUDGET}}` is `5` and the verify section is removed.
 
 ### Phase 2 — Parallel Investigation
-- MUST spawn investigators in parallel, one task per claim (up to the claim budget)
+- MUST spawn investigators in parallel, one task per claim (up to the claim budget). When a Spawn concurrency cap X is set, this wave uses batch-synchronous batches of ≤ X (Spawn concurrency cap); unset stays one wave
 - MUST pass each investigator the raw artifacts (files, logs, diffs, plan text) required for the claim — MUST NOT pass the model's prior narrative or prior verdicts
 - MUST forbid investigators from any write operation (read-only tool allowlist: Read, Grep, Glob, Bash for read commands, MCP query tools)
 - MUST require each investigator to return an **evidence bundle** containing: tool_use_id, raw tool output blob, file:line citation, reproducible command
@@ -358,6 +416,9 @@ refusal, empty/malformed return — any unusable spawn, not rate-limit-only):
   attempted or still produced zero bundles
 - MUST NOT invent local-agent routing for investigators (deferred; out of
   scope for this degradation path)
+- Queueing under a Spawn concurrency cap is not a spawn failure. Batching
+  MUST NOT set `verification_mode: self-verified` or emit
+  `self-verified — refuters unavailable`
 - Self-verified runs still satisfy `requires_council` when a task-bound
   index row is written — the marker is for audit visibility, not a gate block
 
@@ -378,7 +439,7 @@ investigators already cover specialist axes).
   - Product / requirements / scope claims → `pm` agent
 - MUST NOT pull a specialist when no confident topic match is found
   (confidence threshold ≥ 0.75; weak signal → skip)
-- MUST cap at most one specialist spawn per council run
+- MUST cap at most one specialist spawn per council run. That spawn is one enumerated wave of the Spawn concurrency cap (a wave of 1 is always one batch)
 - MUST treat the specialist as an additional investigator (blind to prior narrative, read-only, returns an evidence bundle)
 - MUST NOT pull a specialist in diff-mode (`finding[]` / `--diff`)
 
@@ -389,7 +450,7 @@ investigators already cover specialist axes).
 - MUST aggregate per-reviewer rankings via Borda count into a consensus quality score per bundle
 - MUST pass evidence bundles to Phase 4 (Prosecution & Defense) and Phase 5 (Judgment) ordered by Borda consensus rank, not submission order
 - MUST flag bundles in the bottom Borda quartile as `WEAK_EVIDENCE` in the report
-- MUST run Phase 2.5 per claim (WP 1-15). Bundles group by the `claim_id` they carry; bundles with no `claim_id` form one group. Each reviewer ranks only the bundles of one group and gets that claim's own text as `{{CLAIM_TEXT}}`. MUST skip Phase 2.5 for a group when fewer than 3 investigator bundles participate in it (minimum for meaningful cross-ranking), and note the bypass reason for that claim in the report. When no group runs Phase 2.5, proceed directly to the next phase that runs — Phase 4 normally, or **Phase 5 when Phase 4 is itself skipped** (`finding[]`-shape presets, or `council_tier: light`)
+- MUST run Phase 2.5 per claim (WP 1-15). Bundles group by the `claim_id` they carry; bundles with no `claim_id` form one group. Each reviewer ranks only the bundles of one group and gets that claim's own text as `{{CLAIM_TEXT}}`. MUST skip Phase 2.5 for a group when fewer than 3 investigator bundles participate in it (minimum for meaningful cross-ranking), and note the bypass reason for that claim in the report. When no group runs Phase 2.5, proceed directly to the next phase that runs — Phase 4 normally, or **Phase 5 when Phase 4 is itself skipped** (`finding[]`-shape presets, or `council_tier: light`). Cross-reviewer spawns are one enumerated wave of the Spawn concurrency cap
 - SHOULD record each reviewer's per-bundle rankings in the report as a visible audit trail
 
 ### Phase 4 — Prosecution & Defense
@@ -400,7 +461,7 @@ this skip was previously implementation-only in `engine.sh` preflight and
 `skills/review-and-commit/SKILL.md`, and is stated at spec level here) and at `council_tier: light`
 (Council tiering). The requirements below govern Phase 4 **whenever it runs**.
 
-- MUST spawn exactly one Prosecutor and one Devil's Advocate per council run in which Phase 4 runs
+- MUST spawn exactly one Prosecutor and one Devil's Advocate per council run in which Phase 4 runs. This pair is one enumerated wave of the Spawn concurrency cap (X=1 → two batches of 1)
 - MUST pass both the evidence bundles from investigators, NOT the original claims — the Prosecutor and Devil's Advocate are BLIND to the original claim list and operate on evidence alone; each role groups bundles by the `claim_id` carried inside the bundles, never by a separately supplied claims list (the Judge in Phase 5 still receives the original claims — that seam is unchanged)
 - MUST require Prosecutor to produce a brief listing each claim (by the `claim_id` in the bundles), the evidence against it, and a requested verdict
 - MUST require Devil's Advocate to produce a brief listing each claim (by the `claim_id` in the bundles), the evidence supporting it, and a requested verdict
@@ -417,7 +478,7 @@ this skip was previously implementation-only in `engine.sh` preflight and
 - MUST preserve the empty tool allowlist for the Judge across both output shapes
 - **Verify evidence (WP 1-15).** For a claim with a `verify` command, the judge prompt MUST: treat a verify bundle with a non-zero exit, a skip or a timeout as evidence against the claim (the verdict MUST NOT be `VERIFIED` or `PARTIALLY_VERIFIED`); keep the confidence below 80 when no bundle holds the verify run; and not accept a passing run alone as enough (the verdict also needs the finder recipe's own evidence — the AC quote, the Verify output and the token greps). These rules change the evidence the judge weighs. They do not change SPEC-033 M14(b).
 - **Finder recipe caps (WP 1-16).** For a claim with a `verify` command, the judge prompt MUST keep the confidence at 79 or lower when no bundle quotes the AC bullet at the claim's source locator, when a token of class backtick span, `path:N`, `Case N` or `AC X` named in that quote has no bundle — other than the Step 1 quote bundle itself — with a line that holds it, or when a bundle holds a `...`, `[...]` or `…` line. A numbered sub-clause named in the quote is advisory evidence only and carries no cap, because no oracle can check a finder-chosen key phrase. That no-cap rule covers the token caps above only; the run-output evidence bar still applies to a sub-clause where a run exists. The WP 1-15 rules above stay unchanged. These caps can only lower a confidence. They do not change SPEC-033 M14(b).
-- **Judge bundle cap (2026-10-12).** One judge invocation carries the whole rendered bundle block. When that block exceeds 64,000 bytes, the engine MUST split it into claim-atomic parts and spawn the judge once per part; each part carries only its own claims, bundles, and brief lines, and the verdict/finding and `struck_lines` arrays are concatenated in part order. A `raw_blob` MUST never be cut mid-bundle; a claim whose own bundles exceed the cap gets its own oversized part; a failed part degrades the whole judge (the spawn-failure path). The cap is a fixed constant — no env var, no flag. The judge keeps the empty tool allowlist on every part (a tool-less judge cannot read bundle files; the file-channel variant is structurally unsupported). This changes only the delivery of large bundle sets, not the strike rule or SPEC-033 M14(b).
+- **Judge bundle cap (2026-10-12).** One judge invocation carries the whole rendered bundle block. When that block exceeds 64,000 bytes, the engine MUST split it into claim-atomic parts and spawn the judge once per part; each part carries only its own claims, bundles, and brief lines, and the verdict/finding and `struck_lines` arrays are concatenated in part order. A `raw_blob` MUST never be cut mid-bundle; a claim whose own bundles exceed the cap gets its own oversized part; a failed part degrades the whole judge (the spawn-failure path). The cap is a fixed constant — no env var, no flag. The judge keeps the empty tool allowlist on every part (a tool-less judge cannot read bundle files; the file-channel variant is structurally unsupported). This changes only the delivery of large bundle sets, not the strike rule or SPEC-033 M14(b). Judge-part spawns are one enumerated wave of the Spawn concurrency cap (CDT-573)
 - **Run-output evidence bar (CDT-537, 2026-10-12).** For a claim with a `verify` command, the investigator bundles MUST quote actual run output — the command, its exit code, and the relevant output lines — for each AC sub-clause of the claim's quote where a run exists. A source assert (a test-file line stating the expected behavior) is a source citation, not run output, and does not satisfy the bar by itself. The judge prompt MUST score confidence on exhibited run output and MUST keep the confidence at 79 or lower when an AC sub-clause is evidenced only by source asserts and no bundle quotes actual run output for it. A strike on an AC sub-clause is a bite-coverage strike: it is recorded in `struck_lines` with the AC id — the existing route to a follow-up ticket. These rules can only lower a confidence. They do not change SPEC-033 M14(b).
 
 ### Phase 6 — Report & Persistence
@@ -445,7 +506,7 @@ this skip was previously implementation-only in `engine.sh` preflight and
   - Finalize MUST NOT match verdicts to ACs. SPEC-033 M14(b) owns that rule, and the verdict mapper (SPEC-033 M14(i)) is its only implementation.
 
 #### Task Binding & Verdict Index
-- Report templates (`skills/council/templates/report-verdict.md`, `report-finding.md`) MUST carry a single YAML frontmatter block that includes `task_id: "{{TASK_ID}}"` (plus `scope`, `preset`, hard-coded `output_shape`, `created_at`, `verification_mode`); finalize substitutes `{{…}}` placeholders and MUST NOT prepend a second synthetic frontmatter block
+- Report templates (`skills/council/templates/report-verdict.md`, `report-finding.md`) MUST carry a single YAML frontmatter block that includes `task_id: "{{TASK_ID}}"` (plus `scope`, `preset`, hard-coded `output_shape`, `created_at`, `verification_mode`, `concurrency`); finalize substitutes `{{…}}` placeholders and MUST NOT prepend a second synthetic frontmatter block. `concurrency` is `<N>` when a Spawn concurrency cap is set, else `unbounded` (CDT-573; CDV-203)
 - When a council run is associated with an orchestrated task (resolved via the fallback chain: `--task-id` flag → `CLAUDE_TASK_ID` env var → none), the report MUST include a `task_id` field in its frontmatter/header section and MUST write the report to `.claude/council/<YYYY-MM-DD>-<slug>--<task_id>.md`, or to `…--<task_id>-<N>.md` on a collision (report no-overwrite, Phase 6)
 - When no task id is resolved, finalize MUST strip the unbound `task_id` key entirely (not null, not empty string) so the field is absent from the report frontmatter, and the filename MUST NOT carry a `--<task_id>` suffix (the no-overwrite suffix `-<N>` can still follow the slug on a collision)
 - The engine MUST maintain a lightweight verdict index at `.claude/council/index.json` — a single JSON document shaped as `{ "<task_id>": [ { "report_path": string, "max_verdict_confidence": int, "max_finding_confidence": int, "created_at": ISO-8601 }, … ], … }`; entries are append-only per task_id (newest first), never mutated in place
@@ -491,6 +552,8 @@ this skip was previously implementation-only in `engine.sh` preflight and
 - MUST NOT persist investigator state between runs (ephemeral only, no cortex)
 - The TaskCompleted council gate is **dual-shape** per SPEC-002 (accepts non-null `max_verdict_confidence` **or** null-verdict + non-null `max_finding_confidence`). Product orchestrated-task gate policy still uses **claim** scope (`verdict[]` / `generic`) by default — not because finding conf is unusable, but because that gate is a claim audit. Blind-path runs remain gate-ignored (prefer unbound / no qualifying index row; both-null conf fails)
 - MUST NOT invoke `/council` (or any second council engine run) from inside a `--blind` run for reverse validation of its own clusters — the reverse-validation seam is removed (CDT-46-C3)
+- MUST NOT apply the Spawn concurrency cap to `/kickoff` Step 2 finder fan-out (out of this ticket)
+- MUST NOT apply the Spawn concurrency cap to `skills/council/external-reviewer.sh` (`--external`): bash CLI subprocess, not a subagent spawn
 
 
 ### Blind-review path (`--blind`) *(CDT-46-C3)*
@@ -499,7 +562,7 @@ Absorbs the former `/blind-review` multi-team peer-review engine into `/council`
 
 - MUST implement the `--blind` execution path inside `skills/council/` (engine skill) — MUST NOT maintain a parallel blind-review pipeline outside the council skill after absorption
 - MUST expose `commands/council.md` as the user entry for `/council --blind` (with parity flags). There is no separate stub file.
-- MUST spawn **N unconstrained** reviewer agents + **M lens-differentiated** reviewer agents in a **single parallel wave** (never sequential fan-out)
+- MUST spawn **N unconstrained** reviewer agents + **M lens-differentiated** reviewer agents as one enumerated wave of the Spawn concurrency cap (unset = one parallel wave; cap X = batch-synchronous batches of ≤ X). A batch MUST NOT observe sibling-batch output. "Never sequential fan-out" is a blindness rule, not a speed rule.
   - N from `--teams` (default 3); team IDs `U1..UN`
   - M from `--lenses` (default `security,contributor,spec`); team IDs `L-<lens>`; available lenses: `security`, `contributor`, `spec`, `architecture`, `logic`
   - Reviewer file list from `--target <path>` when set, else full project tracked files (excluding lockfiles/generated assets)
@@ -534,7 +597,7 @@ degradation marker — never invent a second string. Distinct from CDV-197
 - MUST handle investigator/refuter spawn failures on the Workflow path with the same explicit self-verified-marker degradation as Spawn-failure degradation (CDV-199): pass `engine.sh finalize --verification-mode self-verified` so the report carries the exact marker `self-verified — refuters unavailable` — never silent role omission; never invent a parallel degradation string
 - MUST single-source prompt and flavor bodies: the Workflow path reads the same `skills/council/prompts/*` and `skills/council/flavors/*` assets as the Task path, honoring each prompt's `## Variables` table contract — MUST NOT fork or inline-duplicate prompt content between the two paths
 - MUST share Workflow authoring conventions with CDV-197 / fix-ticket workflow (adjacent, distinct): notably the args-may-arrive-as-JSON-string guard (`typeof args === 'string' ? JSON.parse(args) : args`)
-- MUST implement the Workflow driver at `skills/council/workflow.js` and hand off plan + evidence + judge JSON files to **existing** `engine.sh finalize` (shared finalize — no dual report renderers)
+- MUST implement the Workflow driver at `skills/council/workflow.js` and hand off plan + evidence + judge JSON files to **existing** `engine.sh finalize` (shared finalize — no dual report renderers). The three `parallel()` sites (investigation, cross-review, prosecutor/advocate) MUST honor the same resolved Spawn concurrency cap as the Task path (chunk helper; Spawn concurrency cap)
 - MUST document opt-in + fallback in `commands/council.md` and `skills/council/SKILL.md`; `/review-and-commit` MUST honor the same opt-in (`--workflow` or `COUNCIL_WORKFLOW=1`) and cite the council dual-path protocol (no parallel pipeline)
 
 
@@ -712,6 +775,13 @@ degradation marker — never invent a second string. Distinct from CDV-197
 1. Run preflight for a claim that does not meet the M14 trigger. Assert that the plan JSON, without `run_id` and `cache_dir`, equals the committed golden fixture, that `claim_budget` is 10 and that `plan.claims` is absent.
 2. Assert that `skills/council/prompts/investigator.md` still sets a hard budget of 5 tool calls.
 
+### Test 26 — Spawn concurrency cap (CDT-573)
+1. Unset cap: one wave; no contract line; report frontmatter `concurrency: unbounded`; spawn-fence prose byte-identical. Flag `--concurrency 2`: `ceil(W/2)` batches of ≤ 2; completed count equals intended; CDV-199 marker absent.
+2. Precedence: flag beats env beats Model map (local > repo > global). Empty-string env is unset. Invalid flag (non-integer / < 1 / missing arg) → exit 64, no spawn. Invalid stored map value → `resolve-model.sh --concurrency` exits 64; named-roster `resolve-model.sh <agent>` still exits 0.
+3. Templates carry `concurrency:`; no synthetic prepend. Contract line grep-identical at every Task-path site when set, absent when unset.
+4. `test-parity-fixtures.sh`: identical batch partitioning on Task vs Workflow at unbounded and cap=2; all three `workflow.js` `parallel()` sites.
+5. Kickoff Step 2 finder fan-out and `external-reviewer.sh` are not in the enumerated-wave list.
+
 ---
 
 ## Validation
@@ -750,6 +820,39 @@ degradation marker — never invent a second string. Distinct from CDV-197
 - Test 22 (blind-review scope) pass against the implementation
 - Report no-overwrite (WP 1-14): report + sidecar never overwritten via `cmd_report_path`; `-<N>` only on collision; finalize reserves atomically; `--report-out` exact; Test 23
 - M14 per-AC split (WP 1-14): `m14-ac-split.sh`; `plan.claims[]` consumed verbatim on both paths; exit 8 fail-closed; non-M14 plan unchanged; Tests 24–25
+- Spawn concurrency cap (CDT-573): opt-in `--concurrency N` / `COUNCIL_CONCURRENCY` / Model map `concurrency`; unbounded default; batch-synchronous waves; queueing is not CDV-199; report FM `concurrency:`; Test 26
+
+---
+
+## Acceptance criteria
+
+Format and rules: SPEC-033 M14(g) and M14(h).
+
+### CDT-573
+
+- **AC1.** Default (flag unset, env unset or empty-string, map key absent or empty): one wave as today; no contract line; spawn-fence prose byte-identical. Report frontmatter is the carve-out: it gains `concurrency: unbounded` on both Task and Workflow paths.
+  Verify: bash skills/council/test-concurrency.sh
+- **AC2.** Cap X set: every enumerated wave of ≥ 2 intended spawns runs ceil(W/X) batches of ≤ X; spawn a batch, await all returns, then the next batch; final batch MAY be partial; a wave of ≤ X stays one batch. Enumerated waves: council Phase 2, Phase 2.5, Phase 3 specialist, Phase 4 pair, Phase 5 judge parts; --blind path; /review-and-commit investigators; /bug-hunt S1/S2; /debug ticket refuters; /orchestrate council gates only (not the IC DAG). /kickoff Step 2 finder fan-out is out of this ticket.
+  Verify: bash skills/council/test-concurrency.sh
+- **AC3.** Nothing drops. Completed spawn count equals intended count. Batching MUST NOT emit `self-verified — refuters unavailable` or set `verification_mode: self-verified`.
+  Verify: bash skills/council/test-concurrency.sh
+- **AC4.** Resolution: flag > COUNCIL_CONCURRENCY > Model map local > repo > global. Absent everywhere = unbounded. Empty map value = unbounded. Empty-string env = unset (not invalid).
+  Verify: bash skills/model-map/concurrency-test.sh
+- **AC5.** Flag with non-integer, < 1, or missing arg → exit 64 + usage at preflight, zero side effects before any spawn. Invalid stored map value → `resolve-model.sh --concurrency` exits 64 + stderr; invokers treat 64 as preflight failure, never silent unbounded. No upper ceiling. Named-roster `resolve-model.sh <agent>` MUST still exit 0 when the stored cap is invalid.
+  Verify: bash skills/council/test-concurrency.sh
+- **AC6.** Model map: top-level integer `concurrency`; `write-model.sh set-concurrency` / `unset-concurrency` write the LOCAL layer only; `/setup models` grammar grows both; `list` shows the cap; a layer with the new key still resolves `agents` (forward-compat; extra top-level keys ignored).
+  Verify: bash skills/model-map/write-model-test.sh
+- **AC7.** Report frontmatter carries `concurrency: <N>` or `concurrency: unbounded` in the canonical templates (no synthetic prepend). MUST: council + --blind + /review-and-commit. /bug-hunt stages 1–2 report and /debug ticket report already have YAML frontmatter and MUST carry the same key.
+  Verify: bash skills/council/test-template-vars.sh
+- **AC8.** Prompt contract line, grep-identical at every site, appended once when set: `Spawn contract: at most <N> spawns in flight — spawn a batch, await all returns, then the next batch. Never exceed.` Unset: no line; canonical spawn-fence unchanged.
+  Verify: bash skills/council/test-concurrency.sh
+- **AC9.** Task/Workflow parity: `skills/council/test-parity-fixtures.sh` asserts identical batch partitioning on the Task contract path vs `workflow.js` chunking at unbounded and at cap=2, covering all three `workflow.js` `parallel()` sites (investigation, cross-review, prosecutor/advocate).
+  Verify: bash skills/council/test-parity-fixtures.sh
+- **AC10.** CHANGELOG.md has a `### v1.27.21` section; `.claude-plugin/plugin.json` `"version"` is `1.27.21`; the diff adds no `commands/*.md`; docs note that N concurrent runs can total N×X in flight (per-run, not machine-wide).
+  Verify: bash skills/council/test-concurrency.sh
+- **AC11.** [process] QA MUST NOT hard-FAIL a Task-path run on observed in-flight spawn counts. Task-path evidence is the contract line, static tests, and observed wave notes.
+- **AC12.** `/doctor` check `models.map` validates the `concurrency` key and is WARN-never-FAIL (never FAIL, never silent skip of a present bad value).
+  Verify: bash skills/doctor/test.sh
 
 ---
 
@@ -757,6 +860,7 @@ degradation marker — never invent a second string. Distinct from CDV-197
 
 | Date | Change |
 |------|--------|
+| 2026-10-21 | CDT-573: **Spawn concurrency cap** — opt-in per-run cap X (`--concurrency N` > `COUNCIL_CONCURRENCY` > Model map `concurrency`); unbounded default; batch-synchronous waves; queueing is not CDV-199; Task contract line + Workflow `parallel()` chunk; report FM `concurrency:`; kickoff Step 2 finder fan-out and `external-reviewer.sh` out of cap; Test 26; `### CDT-573` ACs. Status stays ACTIVE. |
 | 2026-10-12 | CDT-537 (cdt-537-m14-evidence-bar): run-output evidence bar. Investigator bundles MUST quote actual run output (command + exit code + relevant output lines) for each AC sub-clause where a run exists; the judge scores confidence on exhibited run output and caps at 79 a sub-clause evidenced only by source asserts; a bite-coverage strike on an AC routes a follow-up ticket through the existing struck-lines audit trail (Phase 5 "Run-output evidence bar"). Prompts: `investigator.md`, `judge.md`. These rules can only lower a confidence; SPEC-033 M14(b) is unchanged. Status stays ACTIVE. |
 | 2026-10-12 | council-judge-file-delivery (CDT-536): supported judge input channel for large bundle sets. A tool-less judge cannot Read bundle part files, so the file-channel variant is structurally unsupported; instead the engine splits a bundle block over 64,000 bytes into claim-atomic parts and spawns the judge once per part (briefs filtered per part, arrays concatenated; a failed part degrades the whole judge). Fixed constant `JUDGE_BUNDLE_CAP_BYTES = 64000` — no env var, no flag. Implemented on the Workflow path (`workflow.js` `partitionJudgeParts`) and documented for the Task path (`commands/council.md` Phase 5). Phase 5 "Judge bundle cap" MUST added. The empty tool allowlist is unchanged. Status stays ACTIVE. |
 | 2026-10-12 | judge-diff-hunk-bullet-stale: the WP 1-15 pass-alone judge rule no longer cites the finder's retired "cited test lines and diff hunk" step; the verdict needs the WP 1-16 finder recipe's own evidence — the AC quote, the Verify output and the token greps (Phase 5 "Verify evidence"). Operational copy: `skills/council/prompts/judge.md`. No cap or taxonomy change. Status stays ACTIVE. |

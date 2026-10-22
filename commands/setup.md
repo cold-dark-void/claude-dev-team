@@ -45,8 +45,10 @@ Subs:
                   --skip-doctor
   models          Local Model map (read/write
                   $MROOT/.claude/dev-team/models.local.json only).
-                  Not doctor-gated. Bare = list (includes effort);
-                  set/unset/set-effort/unset-effort pass through.
+                  Not doctor-gated. Bare = list (includes effort and the
+                  spawn concurrency cap); set/unset/set-effort/
+                  unset-effort/set-concurrency/unset-concurrency pass
+                  through.
   telegram        Configure the Telegram Intercom (SPEC-038): token file,
                   pairing, state dirs. Starts the daemon when Docker is
                   available; C1 watch.sh fallback otherwise. Flag:
@@ -70,6 +72,8 @@ Examples:
   /setup models unset ic4
   /setup models set-effort ic4 high
   /setup models unset-effort ic4
+  /setup models set-concurrency 4
+  /setup models unset-concurrency
   /setup telegram
   /setup telegram --start-daemon
   /setup slack
@@ -105,7 +109,7 @@ orchestration vs team memory bootstrap). Dispatcher only — no semantic merge.
 /setup project
 /setup orchestration
 /setup team [--refresh|--migrate-only|--no-extensions]
-/setup models [set <agent> <string>|unset <agent>|set-effort <agent> <token>|unset-effort <agent>]
+/setup models [set <agent> <string>|unset <agent>|set-effort <agent> <token>|unset-effort <agent>|set-concurrency <N>|unset-concurrency]
 /setup telegram [--start-daemon]
 /setup slack
 ```
@@ -561,11 +565,13 @@ That ignore update is idempotent. It is not a model-map write.
 
 | Invocation | Maps to |
 |------------|---------|
-| `/setup models` | `write-model.sh list` (read-only; model + effort) |
+| `/setup models` | `write-model.sh list` (read-only; model + effort + the spawn concurrency cap) |
 | `/setup models set <agent> <string>` | `write-model.sh set <agent> <string>` |
 | `/setup models unset <agent>` | `write-model.sh unset <agent>` |
 | `/setup models set-effort <agent> <token>` | `write-model.sh set-effort <agent> <token>` |
 | `/setup models unset-effort <agent>` | `write-model.sh unset-effort <agent>` |
+| `/setup models set-concurrency <N>` | `write-model.sh set-concurrency <N>` (`<N>` = integer ≥ 1; else exit 64, no write) |
+| `/setup models unset-concurrency` | `write-model.sh unset-concurrency` (missing key → exit 0) |
 
 Protocol (also in `skills/model-map/SKILL.md`):
 

@@ -56,7 +56,7 @@ check_rc() {
 NOJQ_BIN="$TMP/nojq-bin"
 mkdir -p "$NOJQ_BIN"
 BASH_ABS=$(command -v bash)
-for c in bash git dirname pwd mktemp mv rm mkdir cat chmod; do
+for c in bash git dirname pwd mktemp mv rm mkdir cat chmod env; do
   p=$(command -v "$c" 2>/dev/null) || continue
   ln -sf "$p" "$NOJQ_BIN/$(basename "$p")"
 done
@@ -343,6 +343,171 @@ else
 fi
 
 # =============================================================================
+# set-concurrency / unset-concurrency — SPEC-037 M34 (CDT-573)
+# =============================================================================
+printf '%s\n' '{"version":1,"agents":{"ic4":"keep"},"effort":{"ic4":"high"},"concurrency":9,"extra":true}' >"$MAP"
+
+run set-concurrency 4
+check_rc "set-concurrency" 0
+if [ "$(jq -r '.concurrency' "$MAP")" = "4" ] \
+   && [ "$(jq -r '.agents.ic4' "$MAP")" = "keep" ] \
+   && [ "$(jq -r '.effort.ic4' "$MAP")" = "high" ] \
+   && [ "$(jq -r '.extra' "$MAP")" = "true" ]; then
+  pass "set-concurrency-preserve"
+else
+  fail "set-concurrency-preserve map=$(cat "$MAP")"
+fi
+
+# N must be an integer >= 1: reject, exit 64, usage, zero write.
+i=0
+for bad in 0 -1 abc 1.5 04 '' '   '; do
+  i=$((i + 1))
+  printf '%s\n' '{"version":1,"agents":{"ic4":"keep"},"concurrency":9}' >"$MAP"
+  BEFORE=$(cksum "$MAP")
+  run set-concurrency "$bad"
+  AFTER=$(cksum "$MAP")
+  if [ "$RC" -eq 64 ] && [ "$BEFORE" = "$AFTER" ] && [ ! -s "$OUTF" ] \
+     && grep -qF 'usage: write-model.sh' "$ERRF"; then
+    pass "set-concurrency-bad-$i"
+  else
+    fail "set-concurrency-bad-$i '$bad' rc=$RC out='$(got_out)' err='$(got_err)'"
+  fi
+done
+
+run set-concurrency
+check_rc "set-concurrency-no-arg" 64
+
+# The cap grammar has ONE home: resolve-concurrency.sh (SPEC-037 M30/M34).
+# write-model.sh MUST NOT keep a second copy of the grammar (CDT-573 review).
+if grep -qE '^is_cap\(\)' "$WRITE"; then
+  fail "set-concurrency-no-grammar-copy: write-model.sh re-implements is_cap"
+else
+  pass "set-concurrency-no-grammar-copy"
+fi
+if grep -qF 'resolve-concurrency.sh' "$WRITE" \
+   && grep -qF -- '--flag "$1"' "$WRITE" \
+   && grep -qF 'env -u COUNCIL_CONCURRENCY' "$WRITE"; then
+  pass "set-concurrency-grammar-delegates"
+else
+  fail "set-concurrency-grammar-delegates: set-concurrency must validate through resolve-concurrency.sh --flag in an env-clean subshell"
+fi
+
+# Grammar-only validation: an inherited env cap MUST NOT leak into the check —
+# it validates neither way, and the value written is the argument, not the env.
+printf '%s\n' '{"version":1,"agents":{}}' >"$MAP"
+RC=0
+: >"$OUTF"
+: >"$ERRF"
+COUNCIL_CONCURRENCY=3 run set-concurrency abc
+if [ "$RC" -eq 64 ] && grep -qF 'usage: write-model.sh' "$ERRF" \
+   && [ "$(jq -r 'has("concurrency")' "$MAP")" = "false" ]; then
+  pass "set-concurrency-env-invalid-still-64"
+else
+  fail "set-concurrency-env-invalid-still-64 rc=$RC err='$(got_err)' map=$(cat "$MAP")"
+fi
+run set-concurrency 7
+if [ "$RC" -eq 0 ] && [ "$(jq -r '.concurrency' "$MAP")" = "7" ]; then
+  pass "set-concurrency-env-valid-writes-arg-not-env"
+else
+  fail "set-concurrency-env-valid-writes-arg-not-env rc=$RC map=$(cat "$MAP")"
+fi
+unset COUNCIL_CONCURRENCY
+
+# " 6 " trims to a valid cap; leading/trailing zeros do not.
+printf '%s\n' '{"version":1,"agents":{}}' >"$MAP"
+run set-concurrency " 6 " leftover
+check_rc "set-concurrency-trim" 0
+if [ "$(jq -r '.concurrency' "$MAP")" = "6" ]; then
+  pass "set-concurrency-trim-wrote"
+else
+  fail "set-concurrency-trim-wrote map=$(cat "$MAP")"
+fi
+
+# Other verbs MUST NOT drop the top-level concurrency key (M18 extension).
+printf '%s\n' '{"version":1,"agents":{"ic4":"keep"},"effort":{"ic4":"high"},"concurrency":6}' >"$MAP"
+run set pm newmodel; RC_SET=$RC
+run unset pm; RC_UNSET=$RC
+run set-effort pm low
+run unset-effort pm
+if [ "$RC_SET$RC_UNSET" = "00" ] && [ "$RC" -eq 0 ] \
+   && [ "$(jq -r '.concurrency' "$MAP")" = "6" ] \
+   && [ "$(jq -r '.agents | has("pm")' "$MAP")" = "false" ] \
+   && [ "$(jq -r '.effort | has("pm")' "$MAP")" = "false" ] \
+   && [ "$(jq -r '.agents.ic4' "$MAP")" = "keep" ]; then
+  pass "verbs-preserve-concurrency"
+else
+  fail "verbs-preserve-concurrency map=$(cat "$MAP")"
+fi
+
+run unset-concurrency
+check_rc "unset-concurrency" 0
+if [ "$(jq -r 'has("concurrency")' "$MAP")" = "false" ] \
+   && [ "$(jq -r '.agents.ic4' "$MAP")" = "keep" ] \
+   && [ "$(jq -r '.effort.ic4' "$MAP")" = "high" ]; then
+  pass "unset-concurrency-preserve"
+else
+  fail "unset-concurrency-preserve map=$(cat "$MAP")"
+fi
+
+BEFORE=$(cksum "$MAP")
+run unset-concurrency extra-ignored
+check_rc "unset-concurrency-missing" 0
+if [ "$(cksum "$MAP")" = "$BEFORE" ]; then
+  pass "unset-concurrency-missing-nowrite"
+else
+  fail "unset-concurrency-missing-nowrite file mutated"
+fi
+
+# list prints the cap in both states.
+run set-concurrency 3
+run list
+if grep -qxF 'concurrency: 3' "$OUTF"; then
+  pass "list-concurrency-capped"
+else
+  fail "list-concurrency-capped out='$(got_out)'"
+fi
+run unset-concurrency
+run list
+if grep -qxF 'concurrency: unbounded' "$OUTF"; then
+  pass "list-concurrency-unbounded"
+else
+  fail "list-concurrency-unbounded out='$(got_out)'"
+fi
+
+# unparseable existing → refuse, exit 1, file unchanged
+printf '{\n' >"$MAP"
+BEFORE=$(cksum "$MAP")
+run set-concurrency 4
+check_rc "set-concurrency-unparseable" 1
+AFTER=$(cksum "$MAP")
+if [ "$BEFORE" = "$AFTER" ]; then
+  pass "set-concurrency-unparseable-nowrite"
+else
+  fail "set-concurrency-unparseable-nowrite file mutated"
+fi
+
+run unset-concurrency
+check_rc "unset-concurrency-unparseable" 1
+AFTER=$(cksum "$MAP")
+if [ "$BEFORE" = "$AFTER" ]; then
+  pass "unset-concurrency-unparseable-nowrite"
+else
+  fail "unset-concurrency-unparseable-nowrite file mutated"
+fi
+
+# local layer only: repo and global maps stay untouched
+printf '%s\n' '{"version":1,"agents":{}}' >"$MAP"
+REPO_H=$(cksum "$REPO_MAP")
+GLOB_H=$(cksum "$GLOBAL_MAP")
+run set-concurrency 5
+check_rc "set-concurrency-layers" 0
+if [ "$(cksum "$REPO_MAP")" = "$REPO_H" ] && [ "$(cksum "$GLOBAL_MAP")" = "$GLOB_H" ]; then
+  pass "set-concurrency-never-repo-global"
+else
+  fail "set-concurrency-never-repo-global repo/global mutated"
+fi
+
+# =============================================================================
 # Surface: /setup usage lists models; adjust-agent has --model sugar
 # =============================================================================
 if grep -qE 'project\|orchestration\|team\|models' "$ROOT/commands/setup.md" \
@@ -362,6 +527,14 @@ if grep -qF 'write-model.sh' "$ROOT/commands/setup.md" \
   pass "surface-delegates-writer"
 else
   fail "surface-delegates-writer"
+fi
+
+# /setup models routes both concurrency verbs (SPEC-037 M36).
+if grep -qF '/setup models set-concurrency <N>' "$ROOT/commands/setup.md" \
+   && grep -qF '/setup models unset-concurrency' "$ROOT/commands/setup.md"; then
+  pass "setup-models-concurrency-routing"
+else
+  fail "setup-models-concurrency-routing missing verbs in commands/setup.md"
 fi
 
 # models.local.json.lock is a local runtime file (write-model.sh flock target):

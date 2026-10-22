@@ -132,6 +132,22 @@ cmd_finalize() {
       ;;
   esac
 
+  # CDT-573: the plan is the sole carrier of the Spawn concurrency cap, exactly
+  # as it carries the tier. A positive integer is the cap; absent, null, or
+  # anything else is `unbounded`. Finalize renders the value — it never
+  # re-resolves it (no flag / COUNCIL_CONCURRENCY / Model map read here;
+  # preflight owns resolution). The coercion is done in jq so a plan-written
+  # value can never reach the report frontmatter raw: the plan file is
+  # LLM-writable and the key lands inside the YAML fences.
+  local concurrency
+  concurrency=$(jq -r '
+    def is_cap(t): (t|type) == "number" and (t == (t|floor)) and t >= 1;
+    if is_cap(.concurrency) then (.concurrency|floor|tostring) else "unbounded" end' "$plan_file")
+  if [ "$concurrency" = "unbounded" ] \
+     && jq -e 'has("concurrency") and (.concurrency != null)' "$plan_file" >/dev/null 2>&1; then
+    echo "engine.sh: plan carries an unusable concurrency ($(jq -c '.concurrency' "$plan_file")) — rendering unbounded" >&2
+  fi
+
   # task-id on finalize overrides plan's task-id if given
   if [ -z "$task_id" ]; then
     task_id="$plan_task_id"
@@ -242,7 +258,7 @@ cmd_finalize() {
     "$plan_report_path" "$scope" "$preset" "$output_shape" "$created_at" \
     "$task_id" "$cross_review_status" "$cross_review_rankings" \
     "$cross_review_scores" "$verification_mode" "${tokens_file:-}" \
-    "$council_tier" "$grading_reason" "$degradation_reason" <<'PYEOF'
+    "$council_tier" "$grading_reason" "$degradation_reason" "$concurrency" <<'PYEOF'
 import json, sys, os, re, math
 from collections import Counter
 
@@ -269,6 +285,12 @@ tokens_file           = sys.argv[15] if len(sys.argv) > 15 else ""
 council_tier          = sys.argv[16] if len(sys.argv) > 16 else "full"
 grading_reason        = sys.argv[17] if len(sys.argv) > 17 else ""
 degradation_reason    = sys.argv[18] if len(sys.argv) > 18 else ""
+# CDT-573: preflight resolved the Spawn concurrency cap; bash already coerced
+# it to a positive integer or "unbounded". Re-check the shape here: the value
+# lands in a YAML frontmatter line and the plan file is LLM-writable.
+concurrency           = sys.argv[19] if len(sys.argv) > 19 else "unbounded"
+if not re.fullmatch(r"[1-9][0-9]*", concurrency or ""):
+    concurrency = "unbounded"
 if verification_mode not in ("full", "self-verified"):
     verification_mode = "full"
 
@@ -858,6 +880,7 @@ subs = {
     "{{TASK_ID}}": task_id,
     "{{VERIFICATION_MODE}}": verification_mode,
     "{{COUNCIL_TIER}}": council_tier,
+    "{{CONCURRENCY}}": concurrency,
     "{{GRADING_REASON}}": yaml_dq(grading_reason),
     "{{PHASE3_SPECIALIST_STATUS}}": phase3_status_md,
     "{{CROSS_REVIEW_STATUS}}": cross_review_status,

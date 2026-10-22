@@ -4,10 +4,10 @@ description: >
   Unknown-defect discovery: scoped multi-perspective discover → continuous
   refute/confirm → findings plan + proceed-gated backlog materialize →
   severity-band phase handoff emit-only (stages 1–4). Usage:
-  /bug-hunt [path] [--severity-floor …] [--proceed]
+  /bug-hunt [path] [--severity-floor …] [--proceed] [--concurrency N]
   | /bug-hunt materialize <path> [--severity-floor …] [--proceed]
   | /bug-hunt handoff <plan-path> [--start-phase <n>]
-argument-hint: '[path | materialize <path> | handoff <plan-path>] [--severity-floor critical|warning|nitpick] [--proceed] [--start-phase N]'
+argument-hint: '[path | materialize <path> | handoff <plan-path>] [--severity-floor critical|warning|nitpick] [--proceed] [--start-phase N] [--concurrency N]'
 ---
 
 # /bug-hunt
@@ -18,7 +18,7 @@ args through.
 
 ```
 # Continuous (discover → refute → report → plan → optional materialize → phase handoff):
-/bug-hunt [path] [--severity-floor <critical|warning|nitpick>] [--proceed] [--start-phase <n>]
+/bug-hunt [path] [--severity-floor <critical|warning|nitpick>] [--proceed] [--start-phase <n>] [--concurrency N]
 
 # Resume materialize (fresh session or re-run):
 /bug-hunt materialize <report|json|plan-path> [--severity-floor <critical|warning|nitpick>] [--proceed]
@@ -35,6 +35,7 @@ args through.
 | `--severity-floor` | `nitpick` (continuous); artifact then `nitpick` (resume) | Re-applied at S3 filter; invalid → exit 64; ignored for S4 banding |
 | `--proceed` | off | Satisfies M8 materialize lock (no interactive token). Handoff rejects it (exit 64) |
 | `--start-phase <n>` | off | Continuous or handoff only. Materialize rejects it (exit 64). S4e rejects `n` outside `0..phase_count-1` |
+| `--concurrency N` | unset | Spawn concurrency cap (SPEC-013 § Spawn concurrency cap, CDT-573; SPEC-034 M5). Continuous only; resolved once through `skills/model-map/resolve-concurrency.sh` (flag > `COUNCIL_CONCURRENCY` > Model map). `N` integer ≥ 1; invalid → exit 64 before any spawn. Caps the S1/S2 waves in batches; queueing drops nothing and never triggers the self-verified marker. Unset = unbounded (one wave, as today) |
 
 **Sequence (continuous, skill-owned):**
 

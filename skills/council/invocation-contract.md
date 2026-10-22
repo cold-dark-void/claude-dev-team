@@ -27,10 +27,13 @@ preset selector). The argument surface:
 | `--external[=codex\|gemini]` | Optional external investigator slot (codex → gemini) | Supported (CDV-207) |
 | `--council-tier=<light\|full>` | Command-surface tier override. `commands/council.md` maps it to engine `--tier`. Not an `engine.sh` flag | Supported (CDT-126) |
 | `--tier light\|full` | Engine preflight tier. Absent means `full`. `skip` is refused | Supported (CDT-126) |
+| `--concurrency N` | Spawn concurrency cap: at most `N` fleet subagent spawns in flight for this run, `N` an integer ≥ 1, no upper ceiling. Resolution `--concurrency` > `COUNCIL_CONCURRENCY` > Model map `concurrency`; unset = unbounded. Task path: the contract line in `skills/council/spawn-contract.md`. Workflow path: `chunkedParallel` in `skills/lib/chunked-parallel.js` (shared with fix-ticket) | Supported (CDT-573) |
 | (no scope) | — | **Hard fail, non-zero exit** |
 
 Env: `COUNCIL_WORKFLOW=1` is equivalent to `--workflow`.
 `COUNCIL_WORKFLOW_FORCE_FALLBACK=1` forces probe fail (tests).
+`COUNCIL_CONCURRENCY` is the env layer of the Spawn concurrency cap (CDT-573);
+an empty string is unset, not invalid.
 
 Scope exclusivity: exactly one of `<claim>`, `--session`, `--plan`, `--diff`,
 `--from-retro`, `--blind` MUST be given. `--teams` / `--lenses` / `--target`

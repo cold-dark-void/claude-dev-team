@@ -1,9 +1,34 @@
 # council/engine-preflight.sh — cmd_preflight, sourced by engine.sh (L-10).
 
+# resolve_concurrency <flag-value> <given:true|false> — print the resolved
+# Spawn concurrency cap (integer, or empty = unbounded).
+#
+# The whole merge (flag > env COUNCIL_CONCURRENCY > Model map) lives in
+# skills/model-map/resolve-concurrency.sh (SPEC-013 CDT-573; SPEC-037 M31–M33).
+# The engine passes the raw flag value through and never reads the env or a map
+# layer itself, so no precedence copy exists here. Propagates the helper exit
+# code; 64 means "invalid value" and the caller fails closed. A missing helper
+# is also 64 — a broken install must never fall through to silent unbounded.
+resolve_concurrency() {
+  local value="$1" given="$2"
+  local helper="$SCRIPT_DIR/../model-map/resolve-concurrency.sh"
+  if [ ! -f "$helper" ]; then
+    echo "engine.sh: resolve-concurrency.sh not found at $helper — failing closed" >&2
+    return 64
+  fi
+  if [ "$given" = "true" ]; then
+    bash "$helper" --flag "$value"
+  else
+    bash "$helper"
+  fi
+}
+
 # ---- preflight --------------------------------------------------------------
 # Parse scope flags → validate → resolve preset → emit investigation-plan
 # JSON to stdout. No-scope / missing from-retro anchor / bad plan path → exit 2;
 # bad preset → exit 4. Exit 3 reserved (no deferred scopes remain after CDV-212).
+# Invalid Spawn concurrency cap (flag, env, or stored map value) → exit 64,
+# before any state-dir or cache-dir write (SPEC-013 CDT-573 fail-closed).
 cmd_preflight() {
   require_jq
 
@@ -12,6 +37,7 @@ cmd_preflight() {
   local resolved_claim="" anchor_file=""
   local external="false" external_prefer="auto"
   local council_tier="" grading_reason=""
+  local concurrency="" concurrency_given="false"
 
   while [ $# -gt 0 ]; do
     case "$1" in
@@ -21,6 +47,19 @@ cmd_preflight() {
       --task-id)   need_val "$1" $#; task_id="$2"; shift 2 ;;
       --preset)    need_val "$1" $#; preset="$2"; preset_source="explicit"; shift 2 ;;
       --why)       why="true"; shift ;;
+      # CDT-573: Spawn concurrency cap. Forms: `--concurrency N` and
+      # `--concurrency=N`. A missing value is this flag's own hard fail (64),
+      # so need_val (exit 2) is deliberately not used. An explicit empty value
+      # (`--concurrency ""`) is invalid too, hence concurrency_given.
+      --concurrency)
+        if [ "$#" -lt 2 ]; then
+          echo "engine.sh: --concurrency needs a value (integer >= 1)" >&2
+          usage
+          exit 64
+        fi
+        concurrency="$2"; concurrency_given="true"; shift 2 ;;
+      --concurrency=*)
+        concurrency="${1#--concurrency=}"; concurrency_given="true"; shift ;;
       # CDT-126: tier resolved by the caller (commands/council.md Step 1.5 —
       # grading, or an externally-supplied DRI/ship-gate tier). The engine
       # never grades; it only consumes the resolved value.
@@ -233,6 +272,24 @@ cmd_preflight() {
     fi
   fi
 
+  # ---- Spawn concurrency cap (SPEC-013 CDT-573) -----------------------------
+  # Resolve X once per run through the ONE merge helper (flag > env
+  # COUNCIL_CONCURRENCY > Model map). The engine hands over only the flag value
+  # and never reads the env or a map layer itself — no precedence copy lives
+  # here. Everything above is read-only; this is the last gate before the
+  # cache-dir write below, so a rejected cap leaves no plan, no cache dir, and
+  # no state-dir mutation: zero side effects before any spawn.
+  local concurrency_json="null" cap="" cap_rc=0
+  cap=$(resolve_concurrency "$concurrency" "$concurrency_given") || cap_rc=$?
+  if [ "$cap_rc" -ne 0 ]; then
+    echo "engine.sh: spawn concurrency cap rejected (exit $cap_rc) — no plan written (SPEC-013 CDT-573)" >&2
+    usage
+    exit 64
+  fi
+  if [ -n "$cap" ]; then
+    concurrency_json="$cap"
+  fi
+
   local slug
   case "$scope" in
     claim)   slug="claim" ;;
@@ -383,6 +440,7 @@ cmd_preflight() {
     --arg cache_dir "$cache_dir" \
     --arg run_id "$run_id" \
     --argjson external "$external_json" \
+    --argjson concurrency "$concurrency_json" \
     --arg m14_triggered "$m14_triggered" \
     --argjson m14_claims "$m14_claims_json" \
     --arg m14_ac_source "$m14_ac_source" \
@@ -446,6 +504,11 @@ cmd_preflight() {
         "6_finalize": { invoke: "engine.sh finalize --plan-file <p> --evidence-file <e> --judge-output <j>" }
       }
     }
+    # CDT-573: the plan is the single carrier of the resolved Spawn
+    # concurrency cap (integer), consumed by skills/council/workflow.js (T5)
+    # and the Task-path spawn fences (T6), and rendered into the report
+    # frontmatter by finalize. Unset = the key is ABSENT = unbounded.
+    | (if $concurrency == null then . else .concurrency = $concurrency end)
     | if $m14_triggered == "true" then
         . + { claims: $m14_claims, ac_source: $m14_ac_source, process_acs: $m14_process_acs }
       else .

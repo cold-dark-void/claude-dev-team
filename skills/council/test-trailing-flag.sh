@@ -63,7 +63,22 @@ cat "$ROOT/skills/council/engine-util.sh" \
   "$ROOT/skills/council/engine-preflight.sh" \
   "$ROOT/skills/council/engine-finalize.sh" > "$ENGINE_PROBE"
 sed '/^\. "\$SCRIPT_DIR\/engine-/d' "$ENGINE" >> "$ENGINE_PROBE"
-TF_EXEMPT="--external" probe_case "engine preflight" 7 "$ENGINE_PROBE" 2 cmd_preflight preflight
+# --concurrency is exempt: a missing cap value is THIS flag's fail-closed hard
+# fail (SPEC-013 CDT-573 AC5: exit 64), not the engine's usage exit 2. It gets
+# its own probe below so the no-hang guarantee is still checked.
+TF_EXEMPT="--external --concurrency" probe_case "engine preflight" 7 "$ENGINE_PROBE" 2 cmd_preflight preflight
+_tmo=$(command -v timeout 2>/dev/null || command -v gtimeout 2>/dev/null || true)
+if [ -z "$_tmo" ]; then
+  pass_line "engine preflight --concurrency: skipped, no timeout command"
+else
+  _conc_rc=0
+  "$_tmo" 2 bash "$ENGINE_PROBE" preflight --concurrency </dev/null >/dev/null 2>&1 || _conc_rc=$?
+  if [ "$_conc_rc" = "64" ]; then
+    pass_line "engine preflight --concurrency: missing value exits 64, no hang (CDT-573)"
+  else
+    fail_line "engine preflight --concurrency: want 64, got $_conc_rc"
+  fi
+fi
 probe_case "engine finalize" 11 "$ENGINE_PROBE" 2 cmd_finalize finalize
 probe_case "engine resolve-task-id" 1 "$ENGINE_PROBE" 2 cmd_resolve_task_id resolve-task-id
 probe_case "engine report-path" 1 "$ENGINE_PROBE" 2 cmd_report_path report-path some-slug

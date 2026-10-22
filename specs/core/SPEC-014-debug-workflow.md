@@ -36,12 +36,13 @@ Defines the `/debug` skill — the bug-handling equivalent of `/brainstorm`. Own
 
 ### `ticket` mode (CDT-46-C4; protocol home is this section)
 
-- MUST accept: `/debug ticket <ticket-id> "<bug/premise>" [--fix "…"] [--agent ic4|ic5] [--lenses a,b] [--worktree <path>]`
+- MUST accept: `/debug ticket <ticket-id> "<bug/premise>" [--fix "…"] [--agent ic4|ic5] [--lenses a,b] [--worktree <path>] [--concurrency N]`
+- `--concurrency N` is the SPEC-013 Spawn concurrency cap. Same resolution (flag > `COUNCIL_CONCURRENCY` > Model map), fail-closed 64, and contract line. MUST NOT fork a second cap protocol.
 - Missing ticket-id or premise MUST produce a usage error and MUST NOT spawn agents
 - Premise agent is `debugger` (read-only). Named fallback is `ic5`, never `ic4`. The return MUST include `holds` and `evidence`. The prompt MUST require a sibling-occurrence grep. When `holds` is false, write the report with `premise_holds: false` and MUST NOT implement or refute.
 - Implementer edits only under the worktree. MUST NOT edit `plugin.json`, `marketplace.json`, or `CHANGELOG.md`. MUST NOT run `git commit`, `git checkout`, `git reset`, or `git add`. MUST fix every sibling the premise listed. The return MUST include `files_changed`, `diff_summary`, and `changelog_md` (a draft bullet only; do not apply it).
-- Spawn one `qa` refuter per lens (default `correctness`, `completeness`). A refuter MUST NOT use `git checkout`, `git restore`, or `git reset` to clean a bite-test. Default `holds` to false. On an unusable refuter spawn, the orchestrator (never the implementer) self-verifies and the report MUST contain the exact marker `self-verified — refuters unavailable`. Cite `skills/council/SKILL.md` for that marker. Do not invent a second string.
-- Report path is `$MROOT/.claude/fix-ticket/<YYYY-MM-DD>-<ticket-id>.md`, then `-2` through `-99` when the file exists. Frontmatter keys: `ticket`, `worktree`, `premise_holds`, `all_hold`, `verification_mode` (`full` or `self-verified`), `created_at`. `all_hold` is true only when every lens holds and at least one verdict exists. A self-verified report body MUST include `> **self-verified — refuters unavailable**`.
+- Spawn one `qa` refuter per lens (default `correctness`, `completeness`). The refuter wave is an enumerated wave of the SPEC-013 Spawn concurrency cap (CDT-573): cite SPEC-013; do not fork the cap protocol. A refuter MUST NOT use `git checkout`, `git restore`, or `git reset` to clean a bite-test. Default `holds` to false. On an unusable refuter spawn, the orchestrator (never the implementer) self-verifies and the report MUST contain the exact marker `self-verified — refuters unavailable`. Cite `skills/council/SKILL.md` for that marker. Do not invent a second string. Queueing under the cap is not a spawn failure and MUST NOT emit that marker.
+- Report path is `$MROOT/.claude/fix-ticket/<YYYY-MM-DD>-<ticket-id>.md`, then `-2` through `-99` when the file exists. Frontmatter keys: `ticket`, `worktree`, `premise_holds`, `all_hold`, `verification_mode` (`full` or `self-verified`), `created_at`, `concurrency` (`<N>` or `unbounded`). `all_hold` is true only when every lens holds and at least one verdict exists. A self-verified report body MUST include `> **self-verified — refuters unavailable**`.
 - Worktree path is `$MROOT/.worktrees/<slug>` via `skills/worktree-lib.sh ensure` unless `--worktree` is set. MUST NOT create a sibling-directory worktree.
 - MUST NOT commit, version-bump, open a PR, or run `/release`. Print next-step hints only.
 - Every spawn prompt MUST include `Output mode: terse`.
@@ -236,6 +237,12 @@ Defines the `/debug` skill — the bug-handling equivalent of `/brainstorm`. Own
 5. Verify: `--agent` still accepts exactly `ic4|ic5` and does not accept `debugger`
 6. Verify: `.claude/memory/debugger/` is not created and `agents/debugger.md` has no memory-protocol include region
 
+### T15: Refuter wave honors SPEC-013 Spawn concurrency cap (CDT-573)
+1. Grep `skills/fix-ticket/SKILL.md` and `commands/debug.md` for `--concurrency` and the exact contract line
+2. Verify: the refuter wave cites SPEC-013 (no forked cap protocol)
+3. Verify: `skills/fix-ticket/templates/report.md` frontmatter includes `concurrency:`
+4. Verify: batching does not emit `self-verified — refuters unavailable`
+
 ---
 
 ## Validation
@@ -261,6 +268,20 @@ Defines the `/debug` skill — the bug-handling equivalent of `/brainstorm`. Own
 - The `ticket`-mode premise spawn names `dev-team:debugger`; `full`/`patch`/`arch` root-cause phases assert no named-roster spawn at all (M16 site 3)
 - `debugger` is read-only, memory-less, and falls back to `ic5` on host-reject
 - `--agent ic4|ic5` still selects the implementer only and rejects `debugger`
+- Ticket-mode refuter wave honors SPEC-013 Spawn concurrency cap; report FM `concurrency:`; T15 (CDT-573)
+
+---
+
+## Acceptance criteria
+
+Format and rules: SPEC-033 M14(g) and M14(h).
+
+### CDT-573
+
+- **AC2.** Cap X set: every enumerated wave of ≥ 2 intended spawns runs ceil(W/X) batches of ≤ X. The `/debug ticket` refuter wave is one enumerated wave and MUST cite SPEC-013 (MUST NOT fork a second cap protocol).
+  Verify: bash skills/council/test-concurrency.sh
+- **AC7.** Report frontmatter carries `concurrency: <N>` or `concurrency: unbounded` in `skills/fix-ticket/templates/report.md` (no synthetic prepend).
+  Verify: bash skills/council/test-template-vars.sh
 
 ---
 
@@ -268,6 +289,7 @@ Defines the `/debug` skill — the bug-handling equivalent of `/brainstorm`. Own
 
 | Date | Change |
 |------|--------|
+| 2026-10-21 | CDT-573: ticket-mode `--concurrency N`; refuter wave cites SPEC-013 Spawn concurrency cap; report FM `concurrency:`; T15. Status stays ACTIVE. |
 | 2026-10-02 | CDT-371: spec-gap handoff is `/spec update`, not `/update-spec`. Ticket mode still lives here. There is no `commands/fix-ticket.md`. |
 | 2026-10-01 | WP 5-06 (CDT-301, CDT-304): `ticket` mode protocol lives here. SPEC-028 is not authoritative. Status APPROVED → ACTIVE because Validation is not complete. |
 | 2026-10-01 | WP 4-09: full mode commits the fix on the § 2.4a branch (§ 2.7a) and ends at a bounded exit (§ 2.10a). `/refactor` § 2.4 still leaves that exit to `/debug` for a caller-supplied worktree. |

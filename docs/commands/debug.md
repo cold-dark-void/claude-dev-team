@@ -15,7 +15,7 @@ command (deprecated — removed at v1.1.0).
 /debug <description>
 /debug patch <description>
 /debug arch <description>
-/debug ticket <ticket-id> "<bug/premise>" [--fix "…"] [--agent ic4|ic5] [--lenses a,b] [--worktree <path>]
+/debug ticket <ticket-id> "<bug/premise>" [--fix "…"] [--agent ic4|ic5] [--lenses a,b] [--worktree <path>] [--concurrency N]
 ```
 
 If `<description>` is empty (non-ticket modes), the skill asks `What is the bug or issue to debug?` and waits.
@@ -31,6 +31,24 @@ Missing ticket-id or premise → usage error, no agent spawn.
 | `/debug ticket …` | `ticket` | Premise → implement → N qa refuters → report. Worktree-isolated; no commit/version/release. |
 
 **Parser rule:** if the first token is exactly `patch`, `arch`, or `ticket` (case-sensitive), it selects the mode and the remainder becomes the args/description. Otherwise the mode is `full` and the whole argument is the description. A description that genuinely starts with those words is misread as a mode selector — rephrase to avoid the ambiguity.
+
+**Spawn concurrency cap (`ticket` mode only).** `--concurrency N` caps the
+qa-refuter fan-out at `N` spawns in flight (`N` an integer ≥ 1, no upper
+ceiling). The refuter wave composes the engine cap from SPEC-013 § Spawn
+concurrency cap — it does not fork a second protocol: the wave runs in batches
+of at most `N`, each batch is awaited before the next starts, and no refuter is
+dropped. A batch never sees sibling-batch output, so refuters stay blind.
+Queueing is not a spawn failure: batching never emits
+`self-verified — refuters unavailable`. Resolution is the same order as
+`/council` — flag > `COUNCIL_CONCURRENCY` > Model map `concurrency` — through
+`skills/model-map/resolve-concurrency.sh`; unset everywhere is unbounded (one
+wave, as today). A non-integer, a value below 1, or a missing argument exits 64
+with usage before any spawn. The report frontmatter carries `concurrency: <N>`
+or `concurrency: unbounded`. `full`, `patch`, and `arch` do not take the flag.
+
+> **Non-normative:** the Spawn concurrency cap is per-run, not machine-wide.
+> `N` concurrent `/debug ticket` runs at cap `X` can total `N×X` spawns in
+> flight.
 
 ## Gates
 

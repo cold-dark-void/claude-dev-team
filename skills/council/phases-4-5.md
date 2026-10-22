@@ -26,6 +26,11 @@ a `light` `verdict[]` plan sets `skipped: true` with reason `council_tier: light
 only). Output `{topic, confidence, agent}` with
 `agent ∈ {devops, ds, qa, pm, null}`.
 
+**Spawn concurrency cap (CDT-573):** this wave (the per-claim classifier Tasks
+and the specialist pull) cites `skills/council/spawn-contract.md` — append its
+line once after the fleet instruction when `plan.concurrency` is set. Unset: no
+line.
+
 **Pull rules (orchestrator):**
 - MUST pull when `agent != null` and `confidence >= 0.75` (SPEC-013 topic map:
   deploy→devops, metrics→ds, test→qa, product→pm).
@@ -58,6 +63,9 @@ report sections are Phase-4-conditional (below), and the engine never
 synthesizes, stubs, or empty-strings a brief the run did not produce.
 
 **Spawn contract (verdict[]-shape):**
+- **Spawn concurrency cap (CDT-573):** when `plan.concurrency` is set, append
+  the contract line in `skills/council/spawn-contract.md` once, after the fleet
+  instruction. Unset: emit no line; this fence is unchanged.
 - Spawn exactly **one** Prosecutor (flavor: `jaded-senior`) and exactly
   **one** Devil's Advocate (flavor: `yolo-ic`) per council run, in parallel.
   (SPEC-013 § Council tiering.) Spawn `subagent_type: "dev-team:council-scribe"`
@@ -112,6 +120,11 @@ whose own bundles exceed the cap gets its own oversized part. Any failed
 part degrades the whole judge (the spawn-failure path above) — a partially
 judged set never reaches finalize. The judge stays tool-less: it judges
 prompt content only (SPEC-013 Phase 5).
+
+**Spawn concurrency cap (CDT-573):** the judge-parts wave is an enumerated
+fleet wave. When `plan.concurrency` is set, append the contract line in
+`skills/council/spawn-contract.md` once, after the fleet instruction that
+spawns the parts. Unset: no line; the parts fan out as one wave.
 
 **Engine expects from the Judge:**
 

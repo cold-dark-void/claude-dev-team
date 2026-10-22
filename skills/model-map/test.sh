@@ -439,6 +439,47 @@ run --mapped advisor
 check "M36-mapped-invalid-unmapped" 0 "unmapped" "not a non-empty string"
 
 # =============================================================================
+# CDT-573 M2/M31 — forward-compat: a top-level concurrency key is ignored by
+# the named-roster model path (valid AND invalid stored caps)
+# =============================================================================
+clear_layers
+write_map <<'EOF'
+{"version":1,"agents":{"ic4":"haiku"},"concurrency":4}
+EOF
+run ic4
+check "M2-fc-concurrency-valid" 0 "haiku" ""
+run --effort ic4
+check "M2-fc-concurrency-effort" 0 "" ""
+
+clear_layers
+write_map <<'EOF'
+{"version":1,"agents":{"ic4":"haiku"},"concurrency":"2"}
+EOF
+run ic4
+check "M2-fc-concurrency-badstring" 0 "haiku" ""
+
+write_map <<'EOF'
+{"version":1,"agents":{"ic4":"haiku"},"concurrency":0}
+EOF
+run ic4
+check "M2-fc-concurrency-zero" 0 "haiku" ""
+
+write_map <<'EOF'
+{"version":1,"agents":{"ic4":"haiku"},"effort":{"ic4":"high"},"concurrency":true}
+EOF
+run ic4
+check "M2-fc-concurrency-bool-model" 0 "haiku" ""
+run --effort ic4
+check "M2-fc-concurrency-bool-effort" 0 "high" ""
+
+# trailing --concurrency on the agent path is extra argv (M31): model emit, not cap emit
+write_map <<'EOF'
+{"version":1,"agents":{"ic4":"haiku"},"concurrency":4}
+EOF
+run ic4 --concurrency
+check "M2-fc-agent-then-flag" 0 "haiku" ""
+
+# =============================================================================
 # Summary
 # =============================================================================
 echo ""

@@ -102,8 +102,10 @@ amendment, and the surface retirement land as separate tickets.
   `{ "version": 1, "agents": { "<name>": "<model-string>" } }`. Partial
   `agents` is fine. Missing or unknown `version` MUST be treated as `1`. Extra
   top-level keys MUST be ignored. A sibling top-level `effort` object is
-  M22. `agents` values MUST remain non-empty strings. MUST NOT store effort
-  inside `agents` values. MUST NOT bump `version` for effort.
+  M22. A top-level integer `concurrency` is M30. Pre-CDT-573 readers MUST
+  ignore the unknown `concurrency` key and keep resolving `agents` (forward-
+  compat fixture). `agents` values MUST remain non-empty strings. MUST NOT store effort
+  inside `agents` values. MUST NOT bump `version` for effort or concurrency.
 
 - **M3 — Zero-config (AC3).** If every layer is absent or has an empty
   `agents` object (`{"version":1,"agents":{}}`), the resolver MUST print empty
@@ -122,6 +124,10 @@ amendment, and the surface retirement land as separate tickets.
   name, and ignored internal keys. Exit `64` only when the `<agent>` argument
   is missing or empty. Extra argv after `$1` MUST be ignored. Usage line on
   stderr: `usage: resolve-model.sh <agent>`.
+  `--concurrency` is a separate mode (M31): flag-first, no agent argument.
+  Named-roster `resolve-model.sh <agent>` MUST remain byte-identical (stdout,
+  stderr, exit) when a layer carries `concurrency`, including an invalid
+  stored value — fail-closed 64 MUST NEVER abort a named-roster resolve.
 
 - **M6 — Config-bad (AC10).** These cases MUST warn on stderr and exit `0`
   (never abort spawn): unparseable JSON; `agents` present but not an object;
@@ -322,6 +328,10 @@ amendment, and the surface retirement land as separate tickets.
   AND the winning resolved effort (`inherited` when empty), plus the local
   path. `list` MUST call `resolve-model.sh` and
   `resolve-model.sh --effort` (MUST NOT reimplement merge).
+  `set-concurrency <N>` / `unset-concurrency` MUST write only the local
+  top-level `concurrency` integer (M34). `set` / `unset` of model and
+  `set-effort` / `unset-effort` MUST NOT drop `concurrency`. `list` MUST
+  print the cap (`concurrency: <N>` or `concurrency: unbounded`).
 
 - **M19 — Doctor `models.map` (CDT-228).** `/doctor` MUST register check id
   `models.map`, group `config`. No map files at any of the three M11 paths →
@@ -335,6 +345,7 @@ amendment, and the surface retirement land as separate tickets.
   values MUST be M23 tokens after trim+lowercase. `qa` / `council-judge` in
   either `agents` or `effort` → WARN (M9 text). Unparseable / `effort` not
   an object / bad effort value / unknown effort key → WARN (never FAIL).
+  A present `concurrency` key: M35 (WARN-never-FAIL).
 
 - **M20 — `/setup models` (CDT-228).** `/setup` MUST dispatch sub `models`.
   Bare `/setup models` → `write-model.sh list`. `set` / `unset` pass through.
@@ -344,6 +355,9 @@ amendment, and the surface retirement land as separate tickets.
   file` (MUST NOT inline JSON writes). `set-effort` / `unset-effort` MUST
   pass through unchanged. Bare list MUST include effort. Usage and routing
   table MUST list the effort form.
+  `set-concurrency` / `unset-concurrency` MUST pass through unchanged (M36).
+  Bare list MUST include the cap. Usage and routing table MUST list both
+  forms.
 
 - **M21 — `/adjust-agent` model sugar (CDT-228).**
   `/adjust-agent <agent> --model <string>` → `write-model.sh set`.
@@ -467,6 +481,67 @@ amendment, and the surface retirement land as separate tickets.
   frontmatter the only substrate that reaches a namespaced roster spawn, so
   the old assertion blocked the one mechanism that works.
 
+- **M30 — Concurrency schema (CDT-573).** Each layer MAY include a top-level
+  `"concurrency": <N>` JSON integer, `N` ≥ 1. Partial maps are fine. Absent
+  key, JSON `null`, or empty string MUST print empty `--concurrency` stdout
+  (unbounded) and MUST NOT warn. MUST NOT store the cap inside `agents`
+  values. MUST NOT bump `version` for this key. Pre-CDT-573 readers ignore
+  it (M2).
+
+- **M31 — Concurrency CLI.** Callers MUST invoke
+  `bash skills/model-map/resolve-model.sh --concurrency` as a subprocess via
+  `plugin-dir.sh file` (never `source`). `--concurrency` MUST be argv[1]
+  (flag-first). No agent argument. Stdout: the integer, or empty
+  (unbounded), with at most one trailing newline. Warnings on stderr only.
+  Extra argv after the flag MUST be ignored. Usage when the flag is given
+  as a mode with a missing/malformed invocation:
+  `usage: resolve-model.sh --concurrency`. Default `resolve-model.sh <agent>`
+  (no `--concurrency`) stdout, stderr, and exit MUST remain byte-identical
+  to the pre-CDT-573 model contract, including when a layer carries
+  `concurrency` (valid or invalid). `resolve-model.sh <agent> --concurrency`
+  is extra argv on the model path (M5) and MUST be ignored (model emit, not
+  cap emit).
+
+- **M32 — Concurrency merge.** First-hit: local → repo → global → omit
+  (unbounded). Independent of the model winner and of effort. Unparseable
+  JSON MUST skip the whole layer (existing M6 path prefix) and continue.
+  `concurrency` present but not a JSON integer ≥ 1: M33 fail-closed (this
+  mode does not fall through). Empty / absent / `null` / `""`: skip that
+  layer, continue (unbounded if none remain). `jq` absent: empty stdout plus
+  the existing `model-map: jq not found; using Tier default` warn; MUST NOT
+  read any layer. MUST NOT read `DEVTEAM_MODEL_*`. MUST NOT mkdir or write
+  (M10). Flag and env merge live with the invoker (SPEC-013 Spawn
+  concurrency cap): flag > `COUNCIL_CONCURRENCY` > this map result.
+  Empty-string env is unset.
+
+- **M33 — Concurrency fail-closed.** An invalid stored map value (non-
+  integer, < 1, non-numeric string, boolean, array, object) MUST make
+  `resolve-model.sh --concurrency` exit 64 and print a stderr warning.
+  Invokers MUST treat 64 as preflight failure and MUST NOT silently run
+  unbounded. There is no upper ceiling. Named-roster resolves (M5) MUST
+  still exit 0.
+
+- **M34 — Concurrency writer.** `write-model.sh set-concurrency <N>` /
+  `unset-concurrency` MUST write only
+  `$MROOT/.claude/dev-team/models.local.json`. `N` after trim MUST be an
+  integer ≥ 1; else exit 64 + usage, no write. `unset-concurrency` with no
+  key → exit 0. `set` / `unset` / `set-effort` / `unset-effort` MUST NOT
+  drop `concurrency`. `set-concurrency` MUST NOT drop `agents` or `effort`.
+  Unparseable existing local: refuse, warn, exit 1. `list` MUST print
+  `concurrency: <N>` or `concurrency: unbounded` by calling
+  `resolve-model.sh --concurrency` (MUST NOT reimplement merge).
+
+- **M35 — Doctor `concurrency` (CDT-573).** `/doctor` check `models.map`
+  MUST validate a present `concurrency` key: JSON integer ≥ 1 is fine; any
+  other type or value < 1 → WARN (never FAIL). Absent key → no concurrency
+  finding (MUST NOT SKIP the file solely because `concurrency` is absent).
+  WARN MUST NOT block `/setup team` (doctor exit 1, not 2). `--fix` MUST
+  NOT rewrite the map. No SPEC-022 file churn beyond this check.
+
+- **M36 — `/setup models` concurrency.** `/setup models set-concurrency <N>`
+  / `unset-concurrency` MUST pass through to `write-model.sh`. Bare list
+  MUST include the cap. Usage and routing table MUST list both forms.
+
 ## MUST NOT
 
 - MUST NOT absorb or alter `HANDOFF_MINER_MODEL` / CDT-203 miner aliases.
@@ -560,6 +635,18 @@ amendment, and the surface retirement land as separate tickets.
 - `write-model.sh list` prints 10 mappable names including `finder` and `debugger` (M8 / M18)
 - `/doctor --only models.map` accepts `finder` / `debugger` keys without an unknown-key WARN (M8 / M19)
 - All three M8 enforcement points (`resolve-model.sh`, `write-model.sh`, `doctor.sh`) carry the identical mappable set (M8)
+- Absent `concurrency` / empty / `null` / `""` → empty `--concurrency` stdout, no warn, exit 0 (M30)
+- Valid `concurrency: 4` → stdout `4`, exit 0 (M31)
+- Invalid stored cap (0, -1, `"2"`, `true`, `{}`) → exit 64 + stderr (M33)
+- Named-roster `resolve-model.sh ic4` still exit 0 + model emit when the stored cap is invalid (M5 / M31)
+- Local beats repo beats global for `concurrency` (M32)
+- `write-model.sh set-concurrency 4` writes only local; does not drop `agents` / `effort` (M34)
+- `write-model.sh set` does not drop `concurrency` (M34)
+- Invalid `set-concurrency` argv → 64, no write (M34)
+- `list` prints `concurrency: <N>` or `concurrency: unbounded` via `resolve-model.sh --concurrency` (M34)
+- `/setup models` usage lists `set-concurrency` / `unset-concurrency` (M36)
+- `/doctor --only models.map`: bad `concurrency` WARN, never FAIL; absent key does not SKIP the file (M35)
+- Forward-compat fixture: a layer with `concurrency` still resolves `agents` (M2)
 
 ## Validation
 
@@ -568,11 +655,27 @@ amendment, and the surface retirement land as separate tickets.
 - Bite-tests green without a live LLM
 - `/orchestrate` and remaining named-roster spawn templates call the resolver
 - Status promoted DRAFT → ACTIVE (WP 5-06, CDT-304). The map and the effort writer are shipped.
+- Spec reviewed against CDT-573 ACs (top-level `concurrency`, `--concurrency`,
+  `set-concurrency` / `unset-concurrency`, doctor WARN, named-roster isolation)
+
+## Acceptance criteria
+
+Format and rules: SPEC-033 M14(g) and M14(h).
+
+### CDT-573
+
+- **AC4.** Resolution: flag > COUNCIL_CONCURRENCY > Model map local > repo > global. Absent everywhere = unbounded. Empty map value = unbounded. Empty-string env = unset (not invalid).
+  Verify: bash skills/model-map/concurrency-test.sh
+- **AC6.** Model map: top-level integer `concurrency`; `write-model.sh set-concurrency` / `unset-concurrency` write the LOCAL layer only; `/setup models` grammar grows both; `list` shows the cap; a layer with the new key still resolves `agents` (forward-compat; extra top-level keys ignored).
+  Verify: bash skills/model-map/write-model-test.sh
+- **AC12.** `/doctor` check `models.map` validates the `concurrency` key and is WARN-never-FAIL (never FAIL, never silent skip of a present bad value).
+  Verify: bash skills/doctor/test.sh
 
 ## Version History
 
 | Date | Change |
 |------|--------|
+| 2026-10-21 | CDT-573: top-level integer `concurrency` (M30–M36); `resolve-model.sh --concurrency` isolated from named-roster (fail-closed 64 never aborts `resolve-model.sh <agent>`); `set-concurrency` / `unset-concurrency` local-only; `/setup models` grammar; doctor `models.map` WARN-never-FAIL on the key; forward-compat extra-key ignore (M2). Status stays ACTIVE. |
 | 2026-10-01 | WP 5-06 (CDT-304, CDT-326): Status DRAFT → ACTIVE. M18 says 10 M8 names, matching `write-model.sh list`. The effort CLI stays. It is not a no-op (`resolve-model.sh --effort`, `effort-write-test.sh`). |
 
 | 2026-09-08 | CDT-243 — M16 site 1 adds Step 2 `@finder` (Codebase Explorer); MUST NOT fence applies only to Step 4b verifier. M17 omit list drops explorer. Status stays DRAFT. |
@@ -590,7 +693,7 @@ amendment, and the surface retirement land as separate tickets.
 - SPEC-002 — `plugin-dir.sh` subprocess; PDH stanza; no-build
 - SPEC-018 M3e — host-reject → omit `model` precedent (do not absorb miner aliases)
 - SPEC-019 — opencode model selection; out of scope
-- SPEC-013 — `council-judge` tool-less contract
+- SPEC-013 — `council-judge` tool-less contract; Spawn concurrency cap (CDT-573) uses top-level `concurrency`
 - SPEC-007 — distiller `haiku` / `distill_model`; out of scope
 - SPEC-005 — `/setup models` dispatch
 - SPEC-022 — `/doctor` `models.map` (WARN-never-FAIL)

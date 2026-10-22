@@ -4,7 +4,7 @@
 
 ```
 # Continuous (S1→S3→S4 same session — OQ5/OQ6):
-Usage: /bug-hunt [path] [--severity-floor <critical|warning|nitpick>] [--proceed] [--start-phase <n>]
+Usage: /bug-hunt [path] [--severity-floor <critical|warning|nitpick>] [--proceed] [--start-phase <n>] [--concurrency N]
 
 # Resume materialize (fresh session or re-run — OQ5):
 Usage: /bug-hunt materialize <report|json|plan-path> [--severity-floor <critical|warning|nitpick>] [--proceed]
@@ -23,6 +23,7 @@ Usage: /bug-hunt handoff <plan-path> [--start-phase <n>]
 | Typed proceed | No | off | Exact token `proceed` (case-insensitive) on materialize lock prompt (S3d) |
 | `--start-phase <n>` | No | off | Satisfies M9 for phase `n` (OQ5); continuous or handoff only. Materialize rejects the flag (exit **64**). S0 accepts only a non-negative integer. S4e rejects `n >= BH_PHASE_COUNT` (exit **64**) |
 | Typed `start-phase-<n>` | No | off | Case-insensitive exact token on S4e lock prompt (OQ5) |
+| `--concurrency N` | No | unset | Spawn concurrency cap (SPEC-013 § Spawn concurrency cap, CDT-573; SPEC-034 M5). Continuous only — `materialize` and `handoff` reject it (exit **64**). S0 binds the raw token `BH_CONCURRENCY_FLAG` (no coercion); SKILL.md § Resolve the cap validates through the ONE merge helper and fail-closes 64 before any spawn |
 
 Canonical continuous form: SPEC-034 M5 + optional `--proceed`. Floor order:
 `critical` > `warning` > `nitpick`. S4 continuous after S3g when skill reaches S4a.
@@ -56,6 +57,8 @@ Canonical continuous form: SPEC-034 M5 + optional `--proceed`. Floor order:
 | `BH_HANDOFF_N` | map n → `$BH_REPORT_DIR/<stem>-handoff-phase-<n>.md` | S4d |
 | `BH_ARM_PHASE` | `none` \| integer n armed via M9 (flag or token) | S4e–S4f |
 | `BH_START_PHASE` | CLI `--start-phase` value or unset | S0 / S4e |
+| `BH_CONCURRENCY_FLAG` | Raw `--concurrency` token (unvalidated; empty = unset) | S0 |
+| `BH_CONCURRENCY` | Resolved Spawn concurrency cap integer, or `unbounded` (SPEC-013 CDT-573) | SKILL § Resolve the cap (before S1); read by S1/S2/REPORT |
 
 ---
 
@@ -77,7 +80,7 @@ Canonical continuous form: SPEC-034 M5 + optional `--proceed`. Floor order:
 ### Usage (exact — M5 + C3/C4 surface)
 
 ```
-Usage: /bug-hunt [path] [--severity-floor <critical|warning|nitpick>] [--proceed] [--start-phase <n>]
+Usage: /bug-hunt [path] [--severity-floor <critical|warning|nitpick>] [--proceed] [--start-phase <n>] [--concurrency N]
 Usage: /bug-hunt materialize <report|json|plan-path> [--severity-floor <critical|warning|nitpick>] [--proceed]
 Usage: /bug-hunt handoff <plan-path> [--start-phase <n>]
 ```
@@ -92,6 +95,9 @@ Usage: /bug-hunt handoff <plan-path> [--start-phase <n>]
 
 `--proceed` may appear on continuous/materialize; bind `BH_PROCEED=flag` (S3d).
 `--start-phase <n>` may appear on continuous/handoff; bind `BH_START_PHASE=n` (S4e).
+`--concurrency N` (or `--concurrency=N`) may appear on continuous only; bind the
+raw token to `BH_CONCURRENCY_FLAG` (CDT-573) — validation is the single
+`resolve-concurrency.sh` call in SKILL.md § Resolve the cap, not a second merge.
 
 ### 0a. Resolve roots + PDH (fresh-shell safe)
 
@@ -130,7 +136,7 @@ _gc=$(git rev-parse --git-common-dir 2>/dev/null) \
 WTROOT=$(git rev-parse --show-toplevel 2>/dev/null || pwd)
 BH_REPORT_DIR="${BH_REPORT_DIR:-$MROOT/.claude/bug-hunt}"
 
-BH_USAGE='Usage: /bug-hunt [path] [--severity-floor <critical|warning|nitpick>] [--proceed] [--start-phase <n>]
+BH_USAGE='Usage: /bug-hunt [path] [--severity-floor <critical|warning|nitpick>] [--proceed] [--start-phase <n>] [--concurrency N]
 Usage: /bug-hunt materialize <report|json|plan-path> [--severity-floor <critical|warning|nitpick>] [--proceed]
 Usage: /bug-hunt handoff <plan-path> [--start-phase <n>]'
 
@@ -143,6 +149,8 @@ Usage: /bug-hunt handoff <plan-path> [--start-phase <n>]'
 #   set -- materialize .claude/bug-hunt/x.json --proceed
 #   set -- handoff .claude/bug-hunt/x-plan.md
 #   set -- handoff .claude/bug-hunt/x-plan.md --start-phase 0
+#   set -- skills --concurrency 2
+#   set -- --concurrency high          # token binds; Resolve-the-cap fence → exit 64
 #   set -- /no/such/path            # → exit 64
 #   set -- --severity-floor high     # → exit 64
 
@@ -154,6 +162,7 @@ BH_PROCEED="none"
 BH_MAT_PATH=""
 BH_HANDOFF_PATH=""
 BH_START_PHASE=""
+BH_CONCURRENCY_FLAG=""
 
 # Resume entry: first token materialize | handoff
 if [ "${1:-}" = "materialize" ]; then
@@ -235,6 +244,29 @@ while [ $# -gt 0 ]; do
         exit 64
       fi
       BH_START_PHASE="${1#--start-phase=}"
+      shift
+      ;;
+    --concurrency)
+      if [ "$BH_MODE" != "continuous" ]; then
+        echo "error: --concurrency is not valid in $BH_MODE mode" >&2
+        echo "$BH_USAGE" >&2
+        exit 64
+      fi
+      if [ -z "${2:-}" ] || case "$2" in --*) true;; *) false;; esac; then
+        echo "error: --concurrency requires an integer >= 1" >&2
+        echo "$BH_USAGE" >&2
+        exit 64
+      fi
+      BH_CONCURRENCY_FLAG="$2"
+      shift 2
+      ;;
+    --concurrency=*)
+      if [ "$BH_MODE" != "continuous" ]; then
+        echo "error: --concurrency is not valid in $BH_MODE mode" >&2
+        echo "$BH_USAGE" >&2
+        exit 64
+      fi
+      BH_CONCURRENCY_FLAG="${1#--concurrency=}"
       shift
       ;;
     -h|--help)
@@ -371,10 +403,10 @@ else
     fi
   done
 
-  printf 'BH_MODE=%s\nBH_PATH=%s\nBH_FLOOR=%s\nBH_FLOOR_FROM_CLI=%s\nBH_SLUG=%s\nBH_DATE=%s\nBH_STEM=%s\nBH_REPORT_DIR=%s\nBH_REPORT=%s\nBH_FINDINGS=%s\nBH_PLAN=%s\nBH_PROCEED=%s\nBH_START_PHASE=%s\n' \
+  printf 'BH_MODE=%s\nBH_PATH=%s\nBH_FLOOR=%s\nBH_FLOOR_FROM_CLI=%s\nBH_SLUG=%s\nBH_DATE=%s\nBH_STEM=%s\nBH_REPORT_DIR=%s\nBH_REPORT=%s\nBH_FINDINGS=%s\nBH_PLAN=%s\nBH_PROCEED=%s\nBH_START_PHASE=%s\nBH_CONCURRENCY_FLAG=%s\n' \
     "$BH_MODE" "$BH_PATH" "$BH_FLOOR" "$BH_FLOOR_FROM_CLI" "$BH_SLUG" "$BH_DATE" "$BH_STEM" \
     "$BH_REPORT_DIR" "$BH_REPORT" "$BH_FINDINGS" "$BH_PLAN" "$BH_PROCEED" \
-    "${BH_START_PHASE:-}"
+    "${BH_START_PHASE:-}" "${BH_CONCURRENCY_FLAG:-}"
 fi
 ```
 

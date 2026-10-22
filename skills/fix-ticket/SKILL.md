@@ -35,11 +35,12 @@ Governing spec: `specs/core/SPEC-014-debug-workflow.md` ticket mode. SPEC-028 is
 | `--agent ic4\|ic5` | No | `ic4` | Implementer agent |
 | `--lenses a,b` | No | `correctness,completeness` | Comma-separated refute lenses |
 | `--worktree <path>` | No | `worktree-lib.sh ensure <slug>` (each `.` in the ticket id becomes `-`) | Existing worktree path |
+| `--concurrency N` | No | unset = unbounded | Spawn concurrency cap on the refuter wave (SPEC-013 § Spawn concurrency cap, CDT-573). `N` an integer ≥ 1, no upper ceiling. Forms `--concurrency 2` and `--concurrency=2`. Resolved through `skills/model-map/resolve-concurrency.sh` (flag > `COUNCIL_CONCURRENCY` > Model map); invalid → exit 64 before any spawn |
 
 Missing ticket-id or premise → usage error, no spawn.
 
 ```
-Usage: /debug ticket <ticket-id> "<bug/premise>" [--fix "<instructions>"] [--agent ic4|ic5] [--lenses a,b] [--worktree <path>]
+Usage: /debug ticket <ticket-id> "<bug/premise>" [--fix "<instructions>"] [--agent ic4|ic5] [--lenses a,b] [--worktree <path>] [--concurrency N]
 ```
 
 ---
@@ -50,6 +51,7 @@ Usage: /debug ticket <ticket-id> "<bug/premise>" [--fix "<instructions>"] [--age
 - **No commit** — never `git commit` / `git add` / `git checkout` / `git reset` in the pipeline.
 - **No git checkout in refuters** — bite-test restore only via `cp` backup or sed-reverse.
 - **CDV-199 marker** — on unusable refuter spawn, exact string `self-verified — refuters unavailable`; actor is always orchestrator. Protocol home: `skills/council/SKILL.md` § Spawn-failure degradation.
+- **Queueing is not a spawn failure** (CDT-573) — batching the refuter wave under the cap never emits the marker and never degrades `verification_mode`.
 - **Caller owns release** — draft changelog bullet only; no `/release`.
 - **Output mode: terse** on every Task spawn.
 - **Worktree under `$MROOT/.worktrees/<slug>`** when created by this skill (SPEC-016).
@@ -80,7 +82,7 @@ Parse `$ARGUMENTS` (or equivalent user text):
 
 1. First positional token → `TICKET`
 2. Next quoted string (or remaining non-flag tokens until a `--` flag) → `BUG`
-3. Flags: `--fix`, `--agent`, `--lenses`, `--worktree`
+3. Flags: `--fix`, `--agent`, `--lenses`, `--worktree`, `--concurrency`
 
 Validate:
 
@@ -89,7 +91,7 @@ Validate:
 TICKET="<TICKET>"
 BUG="<BUG>"
 if [ -z "$TICKET" ] || [ "$TICKET" = "<TICKET>" ] || [ -z "$BUG" ] || [ "$BUG" = "<BUG>" ]; then
-  echo "Usage: /debug ticket <ticket-id> \"<bug/premise>\" [--fix \"...\"] [--agent ic4|ic5] [--lenses a,b] [--worktree <path>]" >&2
+  echo "Usage: /debug ticket <ticket-id> \"<bug/premise>\" [--fix \"...\"] [--agent ic4|ic5] [--lenses a,b] [--worktree <path>] [--concurrency N]" >&2
   exit 64
 fi
 PDH="${PDH:-$( { [ -n "${CLAUDE_PLUGIN_ROOT:-}" ] && [ -f "$CLAUDE_PLUGIN_ROOT/skills/plugin-dir.sh" ] && printf '%s\n' "$CLAUDE_PLUGIN_ROOT"; } || { [ -f skills/plugin-dir.sh ] && [ -f agents/pm.md ] && grep -qF '"name": "dev-team"' .claude-plugin/plugin.json 2>/dev/null && pwd; } || { _pr='${CLAUDE_PLUGIN_ROOT}'; [ "${_pr#\$}" = "$_pr" ] && [ -f "$_pr/skills/plugin-dir.sh" ] && printf '%s\n' "$_pr"; } || { for _mp in "$HOME"/.claude/plugins/marketplaces/*/; do [ -f "${_mp}skills/plugin-dir.sh" ] && [ -f "${_mp}agents/pm.md" ] && grep -qF '"name": "dev-team"' "${_mp}.claude-plugin/plugin.json" 2>/dev/null && printf '%s\n' "${_mp%/}" && break; done; } || find ~/.claude/plugins/cache \( -path '*/dev-team/*/skills/plugin-dir.sh' -o -path '*/dev-team-edge/*/skills/plugin-dir.sh' \) 2>/dev/null | awk -F/ '{ver=""; for(i=1;i<=NF;i++) if(($i=="dev-team"||$i=="dev-team-edge")&&i<NF){ver=$(i+1);break}; if(ver=="") next; m=ver; gsub(/-pre\./,"~pre.",m); p=($0 ~ /\/cache\/cold-dark-void\/dev-team\//)?2:(($0 ~ /\/cache\/cold-dark-void\/dev-team-edge\//)?1:0); print m "\t" p "\t" $0}' | sort -t $'\t' -k1,1V -k2,2n -k3,3 | tail -1 | cut -f3 | xargs -r dirname | xargs -r dirname )}"
@@ -99,10 +101,25 @@ AGENT="${AGENT:-ic4}"
 case "$AGENT" in ic4|ic5) ;; *) echo "error: --agent must be ic4 or ic5" >&2; exit 64 ;; esac
 FIX="${FIX:-}"
 LENSES="${LENSES:-correctness,completeness}"
+# Spawn concurrency cap (CDT-573, SPEC-013 § Spawn concurrency cap).
+# Set CONC to the user's --concurrency token value. Leave CONC UNSET only when
+# the token is absent; a present token with no value is CONC="" and fails
+# closed 64. The ONE merge helper owns flag > COUNCIL_CONCURRENCY > Model map;
+# empty stdout = unbounded. Invalid exits 64: stop before any spawn — a silent
+# fallback to unbounded is forbidden. Never re-merge the layers here.
+RESOLVE_CONC=$(bash "$PDH/skills/plugin-dir.sh" file skills/model-map/resolve-concurrency.sh)
+if [ "${CONC+set}" = set ]; then
+  CONCURRENCY=$(bash "$RESOLVE_CONC" --flag "$CONC") || exit 64
+else
+  CONCURRENCY=$(bash "$RESOLVE_CONC") || exit 64
+fi
+printf 'CONCURRENCY=%s\n' "$CONCURRENCY"
 ```
 
 If the orchestrator parses in prose (not bash), apply the same rules and stop
-with the usage line on missing required fields.
+with the usage line on missing required fields. Resolve the cap the same way —
+through `skills/model-map/resolve-concurrency.sh` as a subprocess, never a
+hand-rolled merge.
 
 ---
 
@@ -230,6 +247,20 @@ Do **not** apply `changelog_md` to CHANGELOG.md.
    Same fence for later `qa` spawns of this agent. Unnamed /
    `general-purpose` / Explore: omit the fence.
 
+   **Spawn concurrency cap (CDT-573):** the refuter wave is one enumerated wave
+   of the SPEC-013 § Spawn concurrency cap — cite the cap, do not fork a second
+   protocol. When `CONCURRENCY` is non-empty (resolved in Step 1; the single
+   carrier of the cap — never re-read `--concurrency`, `COUNCIL_CONCURRENCY`,
+   or the Model map mid-run), run the wave batch-synchronously: one message per
+   batch of at most `CONCURRENCY` lenses, await all returns, then the next
+   batch — ceil(W/N) batches, ALL lenses run, nothing dropped, a partial tail
+   allowed. Append the contract line in `skills/council/spawn-contract.md`
+   (with `<N>` substituted) once per fleet spawn fence, after the fan-out
+   instruction and before the per-spawn prompts. A batch MUST NOT observe
+   sibling-batch output. Queueing is not a spawn failure: batching never sets
+   `verification_mode=self-verified` and never emits the marker. Unset (empty):
+   emit no line; the single-message wave is byte-unchanged.
+
 Before spawning @qa:
 ```bash
 PDH="${PDH:-$( { [ -n "${CLAUDE_PLUGIN_ROOT:-}" ] && [ -f "$CLAUDE_PLUGIN_ROOT/skills/plugin-dir.sh" ] && printf '%s\n' "$CLAUDE_PLUGIN_ROOT"; } || { [ -f skills/plugin-dir.sh ] && [ -f agents/pm.md ] && grep -qF '"name": "dev-team"' .claude-plugin/plugin.json 2>/dev/null && pwd; } || { _pr='${CLAUDE_PLUGIN_ROOT}'; [ "${_pr#\$}" = "$_pr" ] && [ -f "$_pr/skills/plugin-dir.sh" ] && printf '%s\n' "$_pr"; } || { for _mp in "$HOME"/.claude/plugins/marketplaces/*/; do [ -f "${_mp}skills/plugin-dir.sh" ] && [ -f "${_mp}agents/pm.md" ] && grep -qF '"name": "dev-team"' "${_mp}.claude-plugin/plugin.json" 2>/dev/null && printf '%s\n' "${_mp%/}" && break; done; } || find ~/.claude/plugins/cache \( -path '*/dev-team/*/skills/plugin-dir.sh' -o -path '*/dev-team-edge/*/skills/plugin-dir.sh' \) 2>/dev/null | awk -F/ '{ver=""; for(i=1;i<=NF;i++) if(($i=="dev-team"||$i=="dev-team-edge")&&i<NF){ver=$(i+1);break}; if(ver=="") next; m=ver; gsub(/-pre\./,"~pre.",m); p=($0 ~ /\/cache\/cold-dark-void\/dev-team\//)?2:(($0 ~ /\/cache\/cold-dark-void\/dev-team-edge\//)?1:0); print m "\t" p "\t" $0}' | sort -t $'\t' -k1,1V -k2,2n -k3,3 | tail -1 | cut -f3 | xargs -r dirname | xargs -r dirname )}"
@@ -263,7 +294,8 @@ refusal):
 4. Protocol home (cite only, do not restate): `skills/council/SKILL.md`
    § Spawn-failure degradation.
 
-Partial fleet still marks degraded.
+Partial fleet still marks degraded. A lens queued into a later batch is not a
+failed spawn — queueing under the cap never triggers this section.
 
 ---
 
@@ -315,6 +347,7 @@ Fill `templates/report.md`. Quote every YAML value. The placeholder table is the
 | `{{ALL_HOLD}}` | true/false |
 | `{{VERIFICATION_MODE}}` | full or self-verified |
 | `{{CREATED_AT}}` | ISO-8601 UTC (`CREATED` from this fence) |
+| `{{CONCURRENCY}}` | resolved cap integer (`CONCURRENCY` from Step 1), or `unbounded` when it is empty |
 | `{{DEGRADED_BANNER}}` | marker line when self-verified; otherwise empty |
 | `{{IMPL_SECTION}}` | impl summary; `n/a (premise failed)` when premise_holds is false |
 | `{{VERDICTS_SECTION}}` | per-lens holds and issues; empty when the premise failed |

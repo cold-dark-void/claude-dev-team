@@ -8,12 +8,16 @@
 #   write-model.sh unset <agent>
 #   write-model.sh set-effort <agent> <token>
 #   write-model.sh unset-effort <agent>
+#   write-model.sh set-concurrency <N>
+#   write-model.sh unset-concurrency
 #
 # Writes $MROOT/.claude/dev-team/models.local.json.
 # A successful set or unset also appends runtime .gitignore entries when absent.
 # list does not write. MUST NOT write repo models.json or ~/.claude/dev-team/models.json.
 # Extra argv after required args is ignored.
 # Exit 64 + usage on bad argv. Unparseable existing local → refuse, exit 1.
+# set-concurrency validates N through the ONE cap grammar —
+# resolve-concurrency.sh --flag in an env-clean subshell (SPEC-037 M30/M34).
 
 set -euo pipefail
 
@@ -23,7 +27,7 @@ RESOLVE="$HERE/resolve-model.sh"
 . "$HERE/../lib/portable.sh"
 
 usage() {
-  echo "usage: write-model.sh {list|set <agent> <string>|unset <agent>|set-effort <agent> <token>|unset-effort <agent>}" >&2
+  echo "usage: write-model.sh {list|set <agent> <string>|unset <agent>|set-effort <agent> <token>|unset-effort <agent>|set-concurrency <N>|unset-concurrency}" >&2
   exit 64
 }
 
@@ -38,6 +42,17 @@ is_effort_token() {
     low|medium|high|xhigh|max) return 0 ;;
     *) return 1 ;;
   esac
+}
+
+# The cap grammar has ONE home: resolve-concurrency.sh (SPEC-037 M30/M34).
+# This script never re-implements it — see cap_is_valid.
+RESOLVE_CONCURRENCY="$HERE/resolve-concurrency.sh"
+
+cap_is_valid() {
+  # Grammar-only validation through the resolver CLI: --flag <N> validates N and
+  # exits before the env and map layers. COUNCIL_CONCURRENCY is cleared so a
+  # caller's env can never make an invalid N look valid (or a valid one invalid).
+  env -u COUNCIL_CONCURRENCY bash "$RESOLVE_CONCURRENCY" --flag "$1" >/dev/null 2>&1
 }
 
 trim() {
@@ -132,8 +147,16 @@ ensure_runtime_gitignore() {
 }
 
 cmd_list() {
-  local agent model effort
+  local agent model effort cap rc
   printf 'local: %s\n' "$MAP"
+  # M34: report the merged cap through the resolver CLI (never re-merge here).
+  rc=0
+  cap=$(bash "$RESOLVE" --concurrency) || rc=$?
+  if [ "$rc" -eq 64 ]; then
+    echo "model-map: concurrency map value is invalid; list cannot report a cap" >&2
+    exit 64
+  fi
+  printf 'concurrency: %s\n' "${cap:-unbounded}"
   # Mappable set comes from mappable-names.sh (SPEC-037 M8 / SPEC-039 M36).
   for agent in $(bash "$HERE/mappable-names.sh" --list); do
     model=$(bash "$RESOLVE" "$agent") || model=""
@@ -220,6 +243,44 @@ cmd_set_effort() {
   )
 }
 
+cmd_set_concurrency() {
+  local raw=$1 val
+  val=$(trim "$raw")
+  cap_is_valid "$val" || usage
+  need_jq
+  # Atomic read-validate-modify-write under the portable lock (CDT-231; CDT-284) — see cmd_set.
+  mkdir -p "$(dirname "$MAP")"
+  (
+    portable_lock_acquire "$LOCK" || exit 1
+    local_ok_to_write "$MAP" || exit 1
+    local json
+    if [ -f "$MAP" ]; then
+      json=$(jq --argjson v "$val" \
+        '.version = (.version // 1) | .concurrency = $v' "$MAP")
+    else
+      json=$(jq -n --argjson v "$val" '{version:1, concurrency:$v}')
+    fi
+    ensure_runtime_gitignore
+    write_json_file "$MAP" "$json"
+  )
+}
+
+cmd_unset_concurrency() {
+  need_jq
+  [ -e "$MAP" ] || exit 0
+  # Atomic read-validate-modify-write under the portable lock (CDT-231; CDT-284) — see cmd_set.
+  (
+    portable_lock_acquire "$LOCK" || exit 1
+    local_ok_to_write "$MAP" || exit 1
+    local has json
+    has=$(jq -r 'has("concurrency")' "$MAP" 2>/dev/null) || has="false"
+    [ "$has" = "true" ] || exit 0
+    json=$(jq 'del(.concurrency)' "$MAP")
+    ensure_runtime_gitignore
+    write_json_file "$MAP" "$json"
+  )
+}
+
 [ -n "${1:-}" ] || usage
 CMD=$1
 shift || true
@@ -247,6 +308,13 @@ case "$CMD" in
   unset-effort)
     [ -n "${1:-}" ] || usage
     unset_field effort "$1"
+    ;;
+  set-concurrency)
+    [ -n "${1:-}" ] || usage
+    cmd_set_concurrency "$1"
+    ;;
+  unset-concurrency)
+    cmd_unset_concurrency
     ;;
   *)
     usage

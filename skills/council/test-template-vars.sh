@@ -100,5 +100,68 @@ else
   echo "FAIL: max status rc=$rc (want 2) out=$out"; fail=1
 fi
 
+# ---- CDT-573 AC7: the canonical report templates own the concurrency key ----
+# The key lives in the template's existing YAML frontmatter block (CDV-203:
+# templates are the single source — finalize adds no synthetic prepend).
+for tmpl in report-verdict.md report-finding.md; do
+  if grep -qF 'concurrency: "{{CONCURRENCY}}"' "$ROOT/skills/council/templates/$tmpl"; then
+    echo "OK: $tmpl frontmatter declares {{CONCURRENCY}}"
+  else
+    echo "FAIL: $tmpl has no concurrency key"; fail=1
+  fi
+done
+
+# The real tree must pass the checker end-to-end: {{CONCURRENCY}} is a key of
+# the engine subs dict, so the REPORT gate accepts the grown var set.
+set +e
+out="$(bash "$CHECK" 2>&1)"
+rc=$?
+set -e
+if [ "$rc" -eq 0 ] \
+   && printf '%s\n' "$out" | grep -q 'report-verdict.md/REPORT].*{{CONCURRENCY}}' \
+   && printf '%s\n' "$out" | grep -q 'report-finding.md/REPORT].*{{CONCURRENCY}}'; then
+  echo "OK: real-tree REPORT gate accepts {{CONCURRENCY}}"
+else
+  echo "FAIL: real-tree check rc=$rc"; printf '%s\n' "$out" | tail -12; fail=1
+fi
+
+# A report-template var with no subs key must still fail the REPORT gate — the
+# gate the new key passed is enforced, not vacuous.
+write_tree yes
+TREE="$TMP/rt"
+mkdir -p "$TREE/commands" "$TREE/skills/council/prompts" "$TREE/skills/council/templates"
+cp "$TMP/tree/commands/council.md" "$TREE/commands/council.md"
+cp "$TMP/tree/skills/council/SKILL.md" "$TREE/skills/council/SKILL.md"
+cp "$TMP/tree/skills/council/prompts/toy.md" "$TREE/skills/council/prompts/toy.md"
+cat > "$TREE/skills/council/engine.sh" <<'EOF'
+subs = {
+    "{{NAME}}": name,
+    "{{CONCURRENCY}}": concurrency,
+}
+EOF
+printf -- '---\nconcurrency: "{{CONCURRENCY}}"\n---\n{{NOPE}}\n' \
+  > "$TREE/skills/council/templates/report-toy.md"
+set +e
+out="$(COUNCIL_TEMPLATE_ROOT="$TREE" COUNCIL_TEMPLATE_COVERED="toy" bash "$CHECK" 2>&1)"
+rc=$?
+set -e
+if [ "$rc" -eq 1 ] && printf '%s\n' "$out" | grep -q 'REPORT-DRIFT\[report-toy.md\]' \
+   && printf '%s\n' "$out" | grep -q '{{NOPE}}'; then
+  echo "OK: an unsubstituted template var fails the REPORT gate"
+else
+  echo "FAIL: unsubstituted template var rc=$rc out=$out"; fail=1
+fi
+printf -- '---\nconcurrency: "{{CONCURRENCY}}"\n---\n{{NAME}}\n' \
+  > "$TREE/skills/council/templates/report-toy.md"
+set +e
+out="$(COUNCIL_TEMPLATE_ROOT="$TREE" COUNCIL_TEMPLATE_COVERED="toy" bash "$CHECK" 2>&1)"
+rc=$?
+set -e
+if [ "$rc" -eq 0 ]; then
+  echo "OK: template {{CONCURRENCY}} passes when the engine declares it"
+else
+  echo "FAIL: declared template var rejected rc=$rc out=$out"; fail=1
+fi
+
 if [ "$fail" -eq 0 ]; then echo "ALL PASS"; else echo "FAILURES PRESENT"; fi
 exit "$fail"

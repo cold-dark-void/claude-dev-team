@@ -7,7 +7,7 @@
 #   Step 1b  the --impact caller grep finds files (the --include brace pattern
 #            matched nothing)
 #   Step 3   the preflight fence prints the plan path so a later fence can be
-#            given it
+#            given it, and passes --concurrency through verbatim (CDT-573 T7)
 #   Step 5   the finalize fence is self-contained: it reads no variable that an
 #            earlier fence set, passes every argument to the engine, and fails
 #            closed when the plan path is not filled in
@@ -102,6 +102,45 @@ check "Step 3: the preflight fence exits 0 (rc=$RUN_RC)" [ "$RUN_RC" -eq 0 ]
 check "Step 3: the fence prints 'PLAN_FILE=<path>' (got: ${plan_line:-none})" [ -n "$plan_line" ]
 check "Step 3: the printed plan file exists and holds the preflight output" \
   bash -c 'p=${1#PLAN_FILE=}; [ -n "$p" ] && [ -f "$p" ] && grep -q "{}" "$p"' _ "${plan_line:-PLAN_FILE=}"
+
+# ---- Step 3: --concurrency passthrough (SPEC-013 CDT-573 T7) ----------------
+# This command is a thin diff-mode wrapper (SPEC-010): it names the flag and
+# forwards the user's own token. The engine owns resolution and fail-closed
+# validation, so no fence here may call a resolver, and an absent flag must add
+# nothing to the engine argv.
+check "Step 3: the fence forwards --concurrency" \
+  bash -c 'printf "%s\n" "$1" | grep -q -- "--concurrency"' _ "$STEP3"
+check "Step 3: the fence calls no concurrency resolver (one merge, in the engine)" \
+  bash -c '! printf "%s\n" "$1" | grep -qE "resolve-concurrency|resolve-model|COUNCIL_CONCURRENCY"' _ "$STEP3"
+check "Step 3: SKILL.md has no resolver --flag form (no re-merge at this call site)" \
+  bash -c '! grep -q -- "--flag" "$1"' _ "$SKILL_MD"
+check "Step 3: SKILL.md does not read the Model map layer itself" \
+  bash -c '! grep -qF "models.local.json" "$1"' _ "$SKILL_MD"
+check "Step 3: the cap adds no Spawn contract line here (T6 owns the fence text)" \
+  bash -c '! grep -qF "Spawn contract:" "$1"' _ "$SKILL_MD"
+check "Step 3: SKILL.md names --concurrency at least 4 times" \
+  bash -c '[ "$(grep -c -- "--concurrency" "$1")" -ge 4 ]' _ "$SKILL_MD"
+check "Step 3: SKILL.md documents the engine-supplied report frontmatter key" \
+  bash -c 'grep -q "concurrency:" "$1" && grep -q "unbounded" "$1"' _ "$SKILL_MD"
+
+run_fence "$STEP3" "$WORK/s3-uncapped"
+check "Step 3: an unset cap exits 0 (rc=$RUN_RC)" [ "$RUN_RC" -eq 0 ]
+check "Step 3: an unset cap passes the baseline argv only ($(tr '\n' ' ' < "$STUB_LOG"))" \
+  bash -c 'grep -qx "argc=7" "$1" && ! grep -qx "arg=--concurrency" "$1"' _ "$STUB_LOG"
+s3_cap="${STEP3/CONC_ARGS=()/CONC_ARGS=(--concurrency 2)}"
+check "control: the fence has a CONC_ARGS fill site" bash -c '[ "$1" != "$2" ]' _ "$s3_cap" "$STEP3"
+run_fence "$s3_cap" "$WORK/s3-capped"
+check "Step 3: a filled cap exits 0 (rc=$RUN_RC; err: $(head -c 200 "$WORK/s3-capped.err"))" [ "$RUN_RC" -eq 0 ]
+check "Step 3: --concurrency reaches preflight as its own argv token" \
+  [ "$(arg_after --concurrency)" = "2" ]
+check "Step 3: the passthrough adds exactly the two cap tokens (argc=9, got $(grep -m1 argc= "$STUB_LOG"))" \
+  grep -qx 'argc=9' "$STUB_LOG"
+check "Step 3: the passthrough keeps --scope diff --preset diff-mode --tier full" \
+  bash -c 'grep -qx "arg=--scope" "$1" && grep -qx "arg=diff" "$1" && grep -qx "arg=--preset" "$1" && grep -qx "arg=diff-mode" "$1" && grep -qx "arg=--tier" "$1" && grep -qx "arg=full" "$1"' _ "$STUB_LOG"
+check "Step 3: the cap rides preflight only — Step 1b and Step 5 fences omit it" \
+  bash -c '! printf "%s\n" "$1" "$2" | grep -q -- "--concurrency"' _ "$STEP1B" "$STEP5"
+check "Step 3: no empty argument reaches the engine" \
+  bash -c '! grep -qx "arg=" "$1"' _ "$STUB_LOG"
 
 # ---- Step 5: self-contained finalize fence (CDT-320) ------------------------
 # Static 1: no variable that only an earlier fence assigns. skill-lint C1 is the

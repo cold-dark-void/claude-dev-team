@@ -6,7 +6,8 @@ description: |
     `diff-mode`: 5 specialist investigators (logic, security, compliance,
     quality, simplification) run in parallel, filtered at confidence 80. Blocks
     commit on critical or compliance findings. Optional path argument saves the
-    review to a file.
+    review to a file. Optional --concurrency N caps the investigator fan-out
+    (passthrough to the engine).
 ---
 
 # Review and Commit
@@ -26,6 +27,15 @@ only from `skills/council/templates/legacy-review.md`.
   investigator slot (CDV-207; passthrough to council preflight). Detection
   order codex → gemini; graceful skip if none installed. Never replaces the
   5 internal specialists.
+- `/review-and-commit --concurrency N`: Spawn concurrency cap (SPEC-013 § Spawn
+  concurrency cap, CDT-573) — at most `N` investigator spawns in flight per wave,
+  `N` an integer ≥ 1, no upper ceiling. Forms `--concurrency 2` and
+  `--concurrency=2`. Passthrough only: Step 3 hands the user's own token to
+  `engine.sh preflight`, which resolves flag > `COUNCIL_CONCURRENCY` > Model map
+  through `skills/model-map/resolve-concurrency.sh`. This command resolves and
+  validates nothing. A bad value fails closed at preflight (exit 64). Omit the
+  flag: pass nothing, so the plan omits `concurrency` and the run is unbounded
+  exactly as today.
 - `/review-and-commit --with-advisor[=<model>]`: opt-in advisor for this run
   (SPEC-039 M10/M37). Parsed by the sibling parser
   `skills/advisor/parse-flags.sh` (not the six-key autopilot parser); env
@@ -161,7 +171,13 @@ mv "$PLAN_FILE" "$PLAN_FILE.json" && PLAN_FILE="$PLAN_FILE.json"
 # Pass --external / --external=codex|gemini through when the user supplied it.
 EXT_ARGS=()
 # set EXT_ARGS=(--external) or (--external=codex) etc. from user CLI
-"$ENGINE_SH" preflight --scope diff --preset diff-mode --tier full "${EXT_ARGS[@]}" > "$PLAN_FILE"
+# Spawn concurrency cap (CDT-573): passthrough only. Set CONC_ARGS to the user's
+# own token; leave it empty when the flag is absent so the plan omits
+# `concurrency` and the fan-out stays unbounded. This fence validates and resolves
+# nothing — the engine's preflight owns the merge and fails closed with exit 64.
+CONC_ARGS=()
+# set CONC_ARGS=(--concurrency 2) or (--concurrency=2) from user CLI
+"$ENGINE_SH" preflight --scope diff --preset diff-mode --tier full "${EXT_ARGS[@]}" ${CONC_ARGS[@]+"${CONC_ARGS[@]}"} > "$PLAN_FILE"
 # Every fence is a separate shell: print the path so the Step 5 fence can be given it.
 printf 'PLAN_FILE=%s\n' "$PLAN_FILE"
 ```
@@ -177,6 +193,13 @@ simplification), `spec_grep: true`, `feedback_memory_enabled: false`,
 `plan.external` carries detection status (available|skipped); missing CLI is
 never a hard fail.
 
+When `--concurrency` was passed, `plan.concurrency` carries the resolved integer;
+when it was not, the key is absent and the fan-out is unbounded. That plan field
+is the single carrier of the cap — read it downstream, never the flag or the env.
+Preflight exit `64` means the cap is invalid: print the engine's stderr verbatim
+and stop. Do not validate the value a second time and do not re-run without the
+cap — a silent fallback to unbounded is forbidden (SPEC-013 CDT-573 AC5).
+
 ## Step 3.5: Workflow opt-in (CDV-196)
 
 Same opt-in as `/council`: `--workflow` **or** `COUNCIL_WORKFLOW=1`. When set,
@@ -187,6 +210,8 @@ dispatch `skills/council/workflow.js` with `scope: diff`, `preset: diff-mode`,
 and `council_tier: full`. Do not omit `council_tier`. The script forwards it
 as `--tier`. Then skip Steps 4–5 Task spawns (script owns preflight→finalize). Full dual-path
 protocol: `skills/council/SKILL.md` § Workflow execution path — do not restate.
+`--concurrency` needs no extra step here: the script runs the same preflight, so
+`plan.concurrency` is the cap it chunks to.
 
 ## Step 4: Drive `/council --diff --tier full`
 
@@ -197,6 +222,10 @@ list here. Call-site deltas:
 - Pass impact context from Step 1b when `--impact` was used. Pass the Step 1c
   SAST summary to the security investigator only.
 - Pass `--external` through. A skipped external CLI does not drop an internal flavor.
+- Pass `--concurrency` through at Step 3 only. This Step 4 investigator wave
+  batches to `plan.concurrency`: spawn a batch, await all returns, then the next
+  batch. Queueing is not a spawn failure — batching never sets `degraded` and
+  never emits the self-verified marker (SPEC-013 CDT-573 AC2/AC3).
 - Phase 4 is skipped in diff-mode. Do not run prosecution or defense from this command.
 - Spawn failure: the orchestrator self-verifies the missing lens and sets
   `degraded=true`. The marker is `self-verified — refuters unavailable`.
@@ -241,6 +270,11 @@ See `skills/council/SKILL.md` § Spawn-failure degradation.
 Engine renders the canonical report via
 `skills/council/templates/report-finding.md` to
 `$MROOT/.claude/council/<YYYY-MM-DD>-diff-staged.md`.
+
+The report is council-engine-backed, so the Spawn concurrency frontmatter arrives
+through the engine: `finalize` fills the `concurrency:` key in that template with
+`"<N>"` when `plan.concurrency` is set, else `"unbounded"`. This command adds no
+key and prepends no frontmatter (SPEC-013 CDT-573 AC7; CDV-203).
 
 ## Step 6: Output the Review
 
@@ -376,6 +410,9 @@ ConcreteQueue directly" is); ordered BLOCKER → COMPLIANCE → DESIGN → NITPI
   write lessons.md. `feedback_memory_enabled: false` is reserved and has no
   effect until Phase 7 is implemented. A code bug is not a claim fabrication.
   See SPEC-013 § Council tiering, SPEC-010 § Code Review (review-and-commit).
+- `--concurrency` is a passthrough to `engine.sh preflight`, nothing more. Under
+  SPEC-010 the command stays a thin diff-mode wrapper: it keeps no second
+  tribunal, no second merge of the cap, and no cap logic of its own.
 - Engine always writes the canonical report to
   `$MROOT/.claude/council/<date>-diff-staged.md`. An optional path argument
   writes an ADDITIONAL copy rendered from `skills/council/templates/legacy-review.md`.

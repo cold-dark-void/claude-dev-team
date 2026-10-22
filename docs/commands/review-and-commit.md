@@ -9,6 +9,7 @@ This command is `/council --diff --tier full` plus optional SAST and impact pre-
 /review-and-commit --impact
 /review-and-commit --impact [output-path]
 /review-and-commit --external[=codex|gemini]
+/review-and-commit --concurrency 2
 ```
 
 ## Flags
@@ -19,6 +20,7 @@ This command is `/council --diff --tier full` plus optional SAST and impact pre-
 | `output-path` | Also write review to this file (e.g. `/tmp/review.md`) |
 | `--impact` | Blast-radius context (callers of changed symbols). If `graphify` is installed and a graph exists, may enrich with path/explain lines |
 | `--external` / `--external=codex\|gemini` | Optional external reviewer slot (graceful skip if CLI missing) |
+| `--concurrency N` | Spawn concurrency cap (SPEC-013 § Spawn concurrency cap, CDT-573): at most `N` investigator spawns in flight, `N` an integer ≥ 1, no upper ceiling. Forms `--concurrency 2` and `--concurrency=2`. **Passthrough only** — the token goes to `/council --diff`, which resolves flag > `COUNCIL_CONCURRENCY` > Model map `concurrency`. This command never re-merges, so an omitted flag stays unbounded. A bad value fails closed with exit 64 before any spawn. The external reviewer slot is a bash subprocess and is out of the cap |
 
 **Host SAST (optional):** if `semgrep` is on PATH (and/or CodeQL with an existing DB),
 a fail-open scan runs before investigators (`skills/security-scan`). Set
@@ -69,7 +71,7 @@ Action Items: 2 BLOCKERs, 0 DESIGN, 1 NITPICK — commit blocked
 
 **Step 2 — Load project rules:** Reads `AGENTS.md`, `CLAUDE.md`, and any per-directory `CLAUDE.md` files in directories containing changed files. These become the compliance checklist for Agent 3.
 
-**Step 3 — Five parallel sub-agents:** All five agents receive the full diff and the full content of every changed file simultaneously. Each has a narrow, non-overlapping focus:
+**Step 3 — Five parallel sub-agents:** All five agents receive the full diff and the full content of every changed file — never a diff hunk in isolation. With a Spawn concurrency cap (`--concurrency N`, `COUNCIL_CONCURRENCY`, or the Model map `concurrency` key) the wave runs in batches of at most `N`: spawn a batch, await all returns, then start the next. Nothing is dropped, and a batch never sees sibling-batch output, so each reviewer stays as blind as it is in one wave. Unset = one wave, as today. Each agent has a narrow, non-overlapping focus:
 
 | Agent | Focus |
 |-------|-------|
@@ -97,6 +99,15 @@ self-verifies missing lenses and the review surfaces the marker
 **`self-verified — refuters unavailable`** (legacy stdout banner before
 Critical Issues; canonical council report frontmatter
 `verification_mode: self-verified`). Full runs omit the marker.
+
+Queueing is not a spawn failure. Under a Spawn concurrency cap, overflow
+investigators wait for a later batch; batching never produces the marker above.
+The report is council-engine-backed, so its frontmatter carries
+`concurrency: <N>` or `concurrency: unbounded`.
+
+> **Non-normative:** the Spawn concurrency cap is per-run, not machine-wide.
+> `N` concurrent runs of this Surface with cap `X` can total `N×X` spawns in
+> flight.
 
 ## See Also
 

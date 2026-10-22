@@ -16,6 +16,8 @@ An on-demand adversarial tribunal that reality-checks Claude's claims with mater
 /council --external[=codex|gemini]
 /council --why
 /council --council-tier=<light|full>
+/council --diff --concurrency 2
+/council --blind --concurrency 3
 ```
 
 ## Arguments
@@ -34,6 +36,7 @@ An on-demand adversarial tribunal that reality-checks Claude's claims with mater
 | `--external[=codex\|gemini]` | Optional external investigator (codex, then gemini). Graceful skip if no CLI is installed. Does not replace an internal flavor. |
 | `--why` | Print flavors, the Phase 3 reason, the claim budget, and the preset source after the summary. |
 | `--council-tier=<light\|full>` | Tier override. Passes through to `engine.sh preflight --tier`. This command does not auto-grade. `skip` is not legal here. |
+| `--concurrency N` | Spawn concurrency cap for this run: at most N fleet spawns in flight, integer N ≥ 1, no upper ceiling. Extra spawns queue into the next batch; none are dropped. Resolution order: flag, then `COUNCIL_CONCURRENCY`, then the Model map `concurrency` key. Unset everywhere = unbounded (one wave, as today). An invalid value prints usage and exits 64 before any spawn. Orthogonal to the scope flags and to `--workflow`. |
 | `--plan <path>` | Audit a plan file for unverified assumptions (CDV-208). Missing path exits 2. |
 | `--from-retro <id>` | Audit a fabrication anchor persisted by `/retro` under `.claude/retro/anchors/<id>.json` (CDV-212). Missing anchor exits 2; Phase 1 skipped. |
 
@@ -41,11 +44,62 @@ Scope flags are mutually exclusive: exactly one of `"<claim>"`, `--session`, `--
 
 **Dual path (CDV-196):** default is `engine.sh` + Task subagents. With `--workflow` / `COUNCIL_WORKFLOW=1`, the tribunal may run via `skills/council/workflow.js` and still finish through shared `engine.sh finalize` (same report and index shape). See `skills/council/SKILL.md` § Workflow execution path.
 
+## Spawn concurrency cap
+
+`--concurrency N` sets the **Spawn concurrency cap** for this run: at most `N`
+fleet subagent spawns in flight in any wave. `N` is an integer ≥ 1. There is no
+upper ceiling. A non-integer, a value below 1, or a missing argument fails
+closed: the command prints usage and exits 64 before it spawns anything. Both
+forms work: `--concurrency 2` and `--concurrency=2`.
+
+Resolution order — first hit wins. `skills/model-map/resolve-concurrency.sh`
+owns the merge; nothing else re-implements it:
+
+| Order | Source | Notes |
+|---|---|---|
+| 1 | `--concurrency N` | Per-run flag. Also validated on the `--blind` path |
+| 2 | `COUNCIL_CONCURRENCY` | Environment variable. An empty string is unset, not invalid |
+| 3 | Model map `concurrency` | Top-level key, local > repo > global ([`/setup models`](./setup.md)) |
+| — | Unset everywhere | **Unbounded** — one wave, exactly as before this flag existed |
+
+**Batch-synchronous semantics.** A wave of `W` intended spawns at cap `X` runs
+`ceil(W / X)` batches of at most `X`. The run spawns a batch, waits for every
+return, then starts the next batch. The final batch may be partial. A wave of
+`X` or fewer stays one batch. Overflow is queued into a later batch of the same
+wave — no spawn is dropped to fit `X`, so the completed spawn count equals the
+intended count.
+
+**Queueing is not a spawn failure.** Batching does not degrade the run. It
+never sets `verification_mode: self-verified` and never prints
+`self-verified — refuters unavailable`. See
+[Error handling / degraded runs](#error-handling--degraded-runs).
+
+**Blindness is preserved.** Under a cap, a batch never sees sibling-batch
+output. Every investigator still receives raw artifacts only, so the
+blindness invariant below holds unchanged. The cap bounds how many spawns are
+in flight at once — it is not a sequential fan-out.
+
+**Report frontmatter.** Every run records `concurrency: <N>`, or
+`concurrency: unbounded` when no layer sets a cap.
+
+**Out of the cap.** These are not fleet waves and batching does not change them:
+
+- The per-run claim budget (how many claims a `--session` run extracts) is
+  unchanged by `--concurrency`.
+- `skills/council/external-reviewer.sh` (the `--external` slot) is a bash
+  subprocess, not a subagent spawn.
+- `/kickoff` Step 2 finder fan-out is out of scope for this cap (SPEC-013
+  § Spawn concurrency cap, CDT-573).
+
+> **Non-normative:** the Spawn concurrency cap is per-run, not machine-wide.
+> `N` concurrent runs of this Surface with cap `X` can total `N×X` spawns in
+> flight.
+
 ## The Tribunal
 
 `/council` is a thin wrapper over the council engine. Each run plays out as a sequence of blind, adversarial roles:
 
-- **Investigators** (read-only) — spawned in parallel, at least 2 per claim with distinct flavor presets (`paranoid-ic` plus another) to defeat monoculture. Their tool allowlist is read-only: `Read`, `Grep`, `Glob`, `Bash` for read commands, MCP query tools — no `Write`, no `Edit`. Each returns an evidence bundle: `tool_use_id`, raw output blob, `file:line` citation, reproducible command. Bundles without a `tool_use_id` count as "no evidence collected".
+- **Investigators** (read-only) — spawned in parallel (in batches of at most `N` under a [Spawn concurrency cap](#spawn-concurrency-cap)), at least 2 per claim with distinct flavor presets (`paranoid-ic` plus another) to defeat monoculture. Their tool allowlist is read-only: `Read`, `Grep`, `Glob`, `Bash` for read commands, MCP query tools — no `Write`, no `Edit`. Each returns an evidence bundle: `tool_use_id`, raw output blob, `file:line` citation, reproducible command. Bundles without a `tool_use_id` count as "no evidence collected".
 - **Prosecutor** (`jaded-senior` flavor) — assumes the claim is false until the evidence overwhelmingly proves otherwise; strikes anything vague or paraphrased.
 - **Devil's Advocate** (`yolo-ic` flavor) — argues *for* the claim to prevent prosecutor monoculture, but concedes when the bundles truly contradict it.
 - **Judge** (`council-judge` agent) — issues the final verdicts. Its tool allowlist is structurally empty (`tools: ""` in `agents/council-judge.md`): it cannot run any tool and decides purely from the evidence bundles and the two briefs.
@@ -116,6 +170,7 @@ Workflow. Clustering + confidence tiering **is** the verdict.
 | `--teams N` | Unconstrained reviewer teams (default `3`) |
 | `--lenses L1,L2,...` | Lens teams (default `security,contributor,spec`). Available: `security`, `contributor`, `spec`, `architecture`, `logic` |
 | `--target <path>` | Narrow to a path/glob; omit for full project (tracked files, minus lockfiles/generated) |
+| `--concurrency N` | Not blind-only. Spawn concurrency cap for the teams + lenses wave — see [Spawn concurrency cap](#spawn-concurrency-cap) |
 
 There is **no** `--no-council` flag. Tier-1 clusters emit as findings
 **directly** — the blind path MUST NOT re-invoke `/council` (or re-enter the
@@ -124,7 +179,13 @@ tribunal) on consensus findings.
 ### How it works
 
 1. **Resolve scope** — full project (`git ls-files`, excluding lockfiles / minified / `node_modules` / `dist` / `vendor`) or `--target` path.
-2. **Single parallel wave** — spawn all unconstrained teams (`U1`…`UN`) and all lens teams (`L-security`, …) at once. Reviewers are read-only and blind to each other and to session narrative.
+2. **Parallel wave** — spawn the unconstrained teams (`U1`…`UN`) and the lens
+   teams (`L-security`, …) as one fleet. Under a Spawn concurrency cap
+   (`--concurrency N`, see [Spawn concurrency cap](#spawn-concurrency-cap))
+   the fleet runs in batches of at most `N`: spawn a batch, await all returns,
+   then start the next. Unset = one wave. Reviewers are read-only and stay
+   blind to each other and to session narrative — a batch never sees
+   sibling-batch output.
 3. **Namespace and validate** — prefix findings with team ID; drop malformed findings (missing Category, Severity, Files, Claim, or Evidence).
 4. **Quorum analysis** — one non-blind analyst clusters findings by semantic similarity and assigns tiers.
 5. **Emit findings** — Tier 1/2/3 written directly; no recursive reverse-validation pass.
@@ -185,9 +246,13 @@ Empty evidence after self-verify still aborts (engine exit 5). On the blind
 path, a failed reviewer slot is noted as 0 findings / self-verified; the
 report is still written.
 
+A Spawn concurrency cap is not a degraded run. Overflow spawns wait for a later
+batch; the marker above never appears because of batching.
+
 Hard fails (print usage, exit non-zero): zero or multiple scopes;
 `--teams` / `--lenses` / `--target` without `--blind`; unknown lens;
-non-positive `--teams`; missing `--target` path.
+non-positive `--teams`; missing `--target` path. Exit 64 (fail closed, before
+any spawn): a `--concurrency` value that is not an integer ≥ 1, or no value.
 
 ## Notes
 

@@ -11,6 +11,7 @@ Subcommands:
                    [--last N] [--task-id ID] [--preset NAME] [--why]
                    [--external[=codex|gemini]]
                    [--tier light|full] [--grading-reason TEXT]
+                   [--concurrency N]
                    Emits investigation-plan JSON on stdout.
 
   finalize         --plan-file P --evidence-file E --judge-output J
@@ -39,6 +40,7 @@ Exit codes: 0 ok | 1 jq required but not found | 2 usage/no-scope | 3 reserved (
             8 M14 per-AC split fails closed (SPEC-033 M14(g)) | m14-ac-split: <cause>
             9 report no-overwrite: every candidate up to -99 is taken
             64 m14-check: argv misuse
+            64 preflight: invalid --concurrency (Spawn concurrency cap, CDT-573)
             127 python3 required but not found (not exit 1 — that code is jq)
 USAGE
 }

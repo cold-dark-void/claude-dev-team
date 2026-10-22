@@ -2242,6 +2242,111 @@ else
   fail "T24n status=$STATUS detail=$DETAIL out=$OUT"
 fi
 
+# T24o (CDT-573 M35) — present valid concurrency integer → PASS, no finding
+T24_CAP="$TMP/t24-cap"
+t24_new "$T24_CAP"
+mkdir -p "$T24_CAP/.claude/dev-team"
+printf '%s\n' '{"version":1,"agents":{"pm":"grok-4"},"concurrency":4}' \
+  >"$T24_CAP/.claude/dev-team/models.local.json"
+cd "$T24_CAP" || exit 1
+RC=0
+OUT=$(t24_doctor --json --only models.map 2>/dev/null) || RC=$?
+STATUS=$(t24_field "$OUT" status)
+DETAIL=$(t24_field "$OUT" detail)
+if [ "$STATUS" = "PASS" ] && [ "$RC" -eq 0 ] \
+   && ! printf '%s' "$DETAIL" | grep -qi 'concurrency'; then
+  pass "T24o valid concurrency cap → PASS silent (CDT-573 M35)"
+else
+  fail "T24o status=$STATUS rc=$RC detail=$DETAIL out=$OUT"
+fi
+
+# T24p (CDT-573 M35) — bad concurrency value → WARN rc=1, never FAIL
+T24_BCAP="$TMP/t24-bcap"
+for t24_bad in '"4"' 'true' 'false' '[]' '{}' '2.5' '0' '-3'; do
+  t24_new "$T24_BCAP"
+  mkdir -p "$T24_BCAP/.claude/dev-team"
+  printf '{"version":1,"agents":{"pm":"grok-4"},"concurrency":%s}\n' "$t24_bad" \
+    >"$T24_BCAP/.claude/dev-team/models.local.json"
+  cd "$T24_BCAP" || exit 1
+  RC=0
+  OUT=$(t24_doctor --json --only models.map 2>/dev/null) || RC=$?
+  STATUS=$(t24_field "$OUT" status)
+  DETAIL=$(t24_field "$OUT" detail)
+  FIX=$(t24_field "$OUT" fixit)
+  if [ "$STATUS" = "WARN" ] && [ "$STATUS" != "FAIL" ] && [ "$RC" -eq 1 ] \
+     && printf '%s' "$DETAIL" | grep -q 'concurrency' \
+     && printf '%s' "$FIX" | grep -qF '/setup models'; then
+    pass "T24p concurrency=$t24_bad → WARN rc=1 never FAIL (CDT-573 M35)"
+  else
+    fail "T24p concurrency=$t24_bad status=$STATUS rc=$RC detail=$DETAIL fix=$FIX out=$OUT"
+  fi
+  cd "$TMP" || exit 1
+  rm -rf "$T24_BCAP"
+done
+
+# T24q (CDT-573 M35) — absent concurrency key → no finding, file not SKIPped
+T24_NOCAP="$TMP/t24-nocap"
+t24_new "$T24_NOCAP"
+mkdir -p "$T24_NOCAP/.claude/dev-team"
+printf '%s\n' '{"version":1,"effort":{"ic4":"high"}}' \
+  >"$T24_NOCAP/.claude/dev-team/models.local.json"
+cd "$T24_NOCAP" || exit 1
+RC=0
+OUT=$(t24_doctor --json --only models.map 2>/dev/null) || RC=$?
+STATUS=$(t24_field "$OUT" status)
+DETAIL=$(t24_field "$OUT" detail)
+if [ "$STATUS" != "SKIP" ] && [ "$STATUS" = "PASS" ] && [ "$RC" -eq 0 ] \
+   && ! printf '%s' "$DETAIL" | grep -qi 'concurrency'; then
+  pass "T24q absent concurrency → PASS not SKIP (CDT-573 M35)"
+else
+  fail "T24q status=$STATUS rc=$RC detail=$DETAIL out=$OUT"
+fi
+
+# T24q2 (CDT-573 M30/M35) — JSON null is the unset form: no finding, not SKIP
+T24_NCAP="$TMP/t24-nullcap"
+t24_new "$T24_NCAP"
+mkdir -p "$T24_NCAP/.claude/dev-team"
+printf '%s\n' '{"version":1,"agents":{"pm":"grok-4"},"concurrency":null}' \
+  >"$T24_NCAP/.claude/dev-team/models.local.json"
+cd "$T24_NCAP" || exit 1
+RC=0
+OUT=$(t24_doctor --json --only models.map 2>/dev/null) || RC=$?
+STATUS=$(t24_field "$OUT" status)
+DETAIL=$(t24_field "$OUT" detail)
+if [ "$STATUS" != "SKIP" ] && [ "$STATUS" = "PASS" ] && [ "$RC" -eq 0 ] \
+   && ! printf '%s' "$DETAIL" | grep -qi 'concurrency'; then
+  pass "T24q2 concurrency null → PASS not SKIP (CDT-573 M30/M35)"
+else
+  fail "T24q2 status=$STATUS rc=$RC detail=$DETAIL out=$OUT"
+fi
+
+# T24r (CDT-573 M35) --fix MUST NOT rewrite a map that carries a bad cap
+T24_FCAP="$TMP/t24-fcap"
+t24_new "$T24_FCAP"
+mkdir -p "$T24_FCAP/.claude/dev-team"
+printf '%s\n' '{"version":1,"agents":{"pm":"keep"},"concurrency":"4"}' \
+  >"$T24_FCAP/.claude/dev-team/models.local.json"
+cd "$T24_FCAP" || exit 1
+BEFORE=$(cksum "$T24_FCAP/.claude/dev-team/models.local.json")
+t24_doctor --fix --only models.map >/dev/null 2>&1 || true
+AFTER=$(cksum "$T24_FCAP/.claude/dev-team/models.local.json")
+if [ "$BEFORE" = "$AFTER" ]; then
+  pass "T24r --fix does not rewrite map with concurrency key (CDT-573 M35)"
+else
+  fail "T24r --fix mutated models.local.json carrying concurrency"
+fi
+
+# T24s (CDT-573 M35) — concurrency WARN does not block --gate=team (exit 1, not 2)
+cd "$T24_FCAP" || exit 1
+RC=0
+OUT=$(t24_doctor --json --only models.map --gate=team 2>/dev/null) || RC=$?
+STATUS=$(t24_field "$OUT" status)
+if [ "$STATUS" = "WARN" ] && [ "$RC" -eq 1 ]; then
+  pass "T24s concurrency WARN --gate=team → exit 1 not 2 (CDT-573 M35)"
+else
+  fail "T24s status=$STATUS rc=$RC out=$OUT"
+fi
+
 # =============================================================================
 # T25. memory.embed_errors (SPEC-022 M2j / CDT-262) — the embed error log is
 #      counted; PASS / WARN / SKIP, never FAIL; read-only

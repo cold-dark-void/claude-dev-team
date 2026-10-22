@@ -33,9 +33,11 @@ design-level issue that warrants a `/kickoff` handoff. Entry host:
 - `/debug arch <description>` — design-first: investigation stops at root cause,
   then mandatory `/kickoff` handoff; never writes a fix or test inline
 - `/debug ticket <ticket-id> "<bug/premise>" [--fix "…"] [--agent ic4|ic5]
-  [--lenses a,b] [--worktree <path>]` — SPEC-014 ticket mode: premise→implement→refuters
-  pipeline (delegates to `skills/fix-ticket/` protocol body). Never
-  commits or version-bumps.
+  [--lenses a,b] [--worktree <path>] [--concurrency N]` — SPEC-014 ticket mode:
+  premise→implement→refuters pipeline (delegates to `skills/fix-ticket/` protocol
+  body). Never commits or version-bumps. `--concurrency N` caps the refuter wave
+  (SPEC-013 § Spawn concurrency cap, CDT-573), resolved through
+  `skills/model-map/resolve-concurrency.sh`.
 
 **Parser rule**: if the first token of the arguments equals `patch`, `arch`, or
 `ticket` (case-sensitive, exact match), that word becomes the mode and the
@@ -908,10 +910,10 @@ Parse `$TICKET_ARGS`:
 
 1. First positional token → `TICKET`
 2. Next quoted string (or remaining non-flag tokens until a `--` flag) → `BUG`
-3. Flags: `--fix`, `--agent`, `--lenses`, `--worktree`
+3. Flags: `--fix`, `--agent`, `--lenses`, `--worktree`, `--concurrency`
 
 ```
-Usage: /debug ticket <ticket-id> "<bug/premise>" [--fix "<instructions>"] [--agent ic4|ic5] [--lenses a,b] [--worktree <path>]
+Usage: /debug ticket <ticket-id> "<bug/premise>" [--fix "<instructions>"] [--agent ic4|ic5] [--lenses a,b] [--worktree <path>] [--concurrency N]
 ```
 
 If `TICKET` or `BUG` is missing/empty:
@@ -925,6 +927,15 @@ Defaults when present: `AGENT=ic4`, `LENSES=correctness,completeness`,
 `$MROOT/.worktrees/<ticket-id>`.
 
 `--agent` must be `ic4` or `ic5` else usage error, no spawn.
+
+`--concurrency N` (SPEC-013 § Spawn concurrency cap, CDT-573): keep the user's
+raw token; the fix-ticket protocol Step 1 resolves it through
+`skills/model-map/resolve-concurrency.sh` (flag > `COUNCIL_CONCURRENCY` > Model
+map — the ONE merge helper; resolve it as a subprocess via `plugin-dir.sh
+file`, never re-merge the layers here). Empty result = unbounded (wave
+unchanged). Exit 64 = invalid cap: stop with usage before any spawn — no
+silent fallback to unbounded. The refuter wave then cites
+`skills/council/spawn-contract.md`; queueing is not a spawn failure.
 
 ### T.2 Resolve fix-ticket protocol + run pipeline
 
@@ -984,8 +995,9 @@ FT_DIR=$(bash "$PDH/skills/plugin-dir.sh" dir skills/fix-ticket/SKILL.md)
 # report:  $FT_DIR/templates/report.md
 ```
 
-Pass `$TICKET`, `$BUG`, `$FIX`, `$AGENT`, `$LENSES`, `$WORKTREE` through unchanged
-to that protocol. Do not restate phase bodies here.
+Pass `$TICKET`, `$BUG`, `$FIX`, `$AGENT`, `$LENSES`, `$WORKTREE`, and the raw
+`--concurrency` token (if given) through unchanged to that protocol. Do not
+restate phase bodies here.
 
 ### T.3 Ticket-mode invariants (non-negotiable)
 
@@ -995,6 +1007,9 @@ to that protocol. Do not restate phase bodies here.
 - **MUST NOT** invent a second degradation marker — on unusable refuter spawn use
   exact string `self-verified — refuters unavailable` (actor = orchestrator;
   home: `skills/council/SKILL.md` § Spawn-failure degradation)
+- **Queueing is not a spawn failure** (CDT-573) — batching the refuter wave
+  under `--concurrency` (cap contract: `skills/council/spawn-contract.md`)
+  never emits that marker and never degrades `verification_mode`
 - **Caller owns ship** — draft changelog bullet only if the fix-ticket skill says so
 - Every Task spawn: `Output mode: terse`
 - Worktrees under `$MROOT/.worktrees/<slug>` when skill-created (SPEC-016)

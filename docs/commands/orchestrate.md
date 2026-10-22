@@ -9,6 +9,7 @@ End-to-end issue orchestrator. Fetches issue context, creates a worktree, spawns
 /orchestrate
 /orchestrate <ISSUE-ID> --autopilot=<patch|minor|major|master> --tier=light
 /orchestrate --resume-ship[=<patch|minor|major|master>]
+/orchestrate <ISSUE-ID> --concurrency 4
 ```
 
 ## Flags
@@ -21,8 +22,19 @@ End-to-end issue orchestrator. Fetches issue context, creates a worktree, spawns
 | `[--council-tier=<skip\|light\|full>]` | DRI council-pipeline override (CDT-126 / SPEC-013). Independent of `--tier`. |
 | `[--max-loc=<n\|unbound>]` | Per-run DRI LOC-cap override (CDT-223 / SPEC-033 AC8). `=` form only. No env. `n` = BC4 per-PR hard cap + M10.1 (raise or tighten). `unbound` = BC4 + M10.1 off. Per-file 1000 unchanged unless `unbound`. Independent of `--tier` / `--council-tier`. |
 | `[--resume-ship[=<patch\|minor\|major\|master>]]` | Resume a halted ship phase with an explicit bump (CDT-135 / CDT-195); see `steps/11-ship.md`. Human y is only for real council disagree (`conf<80 / CONTRADICTED`), not Grok nest spawn-fail (`needs-parent-M14`). |
+| `[--concurrency N]` | Spawn concurrency cap (SPEC-013 § Spawn concurrency cap, CDT-573): `N` an integer ≥ 1, no upper ceiling; a bad value exits 64 with usage. **Council gates only** — the token passes through to `/council` and `/review-and-commit` at the Step 8 `requires_council` task gate and the SPEC-033 M14 autopilot ship gate. The Step 8 IC DAG is **not** capped: IC spawns are one-per-task, not a fleet wave, and stay unbounded. Unset = unbounded, resolved flag > `COUNCIL_CONCURRENCY` > Model map `concurrency` |
 
 `/orchestrate --tier` is the pipeline cost tier. `--council-tier` and `/council --tier` are the council pipeline. They are independent.
+
+`--concurrency` is a passthrough, not an orchestrator setting. The run keeps the
+token and hands it to the council gates it invokes — the `requires_council` task
+gate and the SPEC-033 M14 autopilot ship gate. Those gates batch their fleet
+waves to at most `N` spawns in flight; the IC DAG does not. Step 8 dispatches
+one IC per unblocked task and is never capped, queued, or slowed by this flag.
+
+> **Non-normative:** the Spawn concurrency cap is per-run, not machine-wide.
+> `N` concurrent runs of this Surface with cap `X` can total `N×X` spawns in
+> flight — the cap bounds one run, not the machine.
 
 ## Examples
 

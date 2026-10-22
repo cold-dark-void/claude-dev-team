@@ -21,6 +21,7 @@
 [//]: # "{{COMPLETION_TIME}}       — wall-clock duration of the full council run"
 [//]: # "{{VERIFICATION_MODE}}     — full | self-verified (CDV-199 degradation)"
 [//]: # "{{COUNCIL_TIER}}          — light | full (CDT-126 tiering; orthogonal to verification_mode)"
+[//]: # "{{CONCURRENCY}}           — Spawn concurrency cap: integer N, or 'unbounded' (CDT-573)"
 [//]: # "{{GRADING_REASON}}        — why that tier was selected, incl. 'fail-closed: …' causes"
 
 ---
@@ -30,6 +31,7 @@ output_shape: "verdict[]"
 created_at: "{{TIMESTAMP}}"
 verification_mode: "{{VERIFICATION_MODE}}"
 council_tier: "{{COUNCIL_TIER}}"
+concurrency: "{{CONCURRENCY}}"
 grading_reason: "{{GRADING_REASON}}"
 task_id: "{{TASK_ID}}"
 ---

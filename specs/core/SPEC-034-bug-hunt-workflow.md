@@ -73,7 +73,10 @@ MUST NOT invoke `/orchestrate`, `/epic`, spawn ICs, or edit product code to fix 
   `BH_FLOOR_FROM_CLI=1`. A same-day stem that already exists MUST take a `-2`, `-3`, …
   suffix instead of overwriting.
 - **M5 — Invocation shape.** Canonical continuous form:
-  `/bug-hunt [path] [--severity-floor <critical|warning|nitpick>] [--proceed] [--start-phase <n>]`.
+  `/bug-hunt [path] [--severity-floor <critical|warning|nitpick>] [--proceed] [--start-phase <n>] [--concurrency N]`.
+  `--concurrency N` is the Spawn concurrency cap (SPEC-013). Same resolution
+  (flag > `COUNCIL_CONCURRENCY` > Model map), fail-closed 64, and contract
+  line. MUST NOT fork a second cap protocol.
 
 ### Stages & user locks (AC3)
 
@@ -123,6 +126,8 @@ MUST NOT invoke `/orchestrate`, `/epic`, spawn ICs, or edit product code to fix 
 
 - **M16 — Discover/refute via SPEC-013.** Discover and refute/confirm MUST reuse SPEC-013
   council / blind-finder patterns (compose; do not fork a second blind-hunt protocol).
+  S1 and S2 MUST honor the same Spawn concurrency cap as SPEC-013 (compose-not-fork;
+  same resolved N, same contract line, same batch-synchronous waves).
 - **M17 — Materialize via SPEC-009.** Backlog materialization MUST reuse SPEC-009 `/backlog`
   dual-write. Bug-hunt MUST NOT invent a second backlog SoT or dual-write path.
 - **M18 — Handoff routing (product lock).** Stage 4 handoff MUST select a route of:
@@ -192,10 +197,17 @@ redesign stages 3–4.
   stage 3) but severity-order aligned (`critical` > `warning` > `nitpick`).
 - **M33 — Discover compose (SPEC-013 blind path).** Stage 1 (discover) MUST compose the
   SPEC-013 blind-review path with defaults and `--target` bound to the hunt path scope (M2).
-  Bug-hunt MUST NOT fork a second finder protocol (aligns with M16).
+  Bug-hunt MUST NOT fork a second finder protocol (aligns with M16). The S1 finder
+  fan-out is an enumerated wave of the SPEC-013 Spawn concurrency cap (CDT-573).
 - **M34 — Refute compose (SPEC-013 investigators).** Stage 2 (refute/confirm) MUST disposition
   **every** candidate via **≥2** SPEC-013 investigator-pattern agents with **distinct** council
   flavors. At stage-2 exit, no finding may remain `status=candidate` (aligns with M21).
+  The S2 investigator fan-out is an enumerated wave of the SPEC-013 Spawn concurrency
+  cap (CDT-573). "Never sequential fan-out" is a blindness rule, not a speed rule:
+  batch-synchronous overflow MUST NOT leak sibling-batch output.
+- **M49 — Stages 1–2 report cap field (CDT-573).** The stages 1–2 report template
+  already carries YAML frontmatter and MUST include `concurrency: <N>` or
+  `concurrency: unbounded` (no synthetic prepend).
 
 ### Stage 3 runtime — findings plan + backlog materialize (AC stage 3 / CDT-138)
 
@@ -434,6 +446,10 @@ repo/worktree root:
 26. **T26 — M48 phase-done + zero + emit-only walls.** File requires M23 concrete handoff
     phase-done (including zero path), emit-only, and N12/N13 walls:
     `rg -n 'M48|N12|N13|emit-only|phase-done' specs/core/SPEC-034-bug-hunt-workflow.md` matches.
+27. **T27 — Spawn concurrency cap (CDT-573).** File requires S1/S2 to compose the
+    SPEC-013 cap (M16/M33/M34/M49); `--concurrency` on the invocation shape (M5);
+    report FM `concurrency:`; no forked cap protocol:
+    `rg -n 'M49|Spawn concurrency cap|--concurrency' specs/core/SPEC-034-bug-hunt-workflow.md` matches.
 
 ---
 
@@ -480,6 +496,20 @@ repo/worktree root:
 - **OQ3 lock** — Explicit proceed before materialize (M8)
 - **OQ4 lock** — Handoff `/orchestrate` default; `/epic` multi-wave multi-ticket DAG (M18)
 - **OQ5 lock** — Advanced Live note only; not C1 ship bar (Overview + S4)
+- **CDT-573** — S1/S2 compose SPEC-013 Spawn concurrency cap (M5/M16/M33/M34/M49); Test 27
+
+---
+
+## Acceptance criteria
+
+Format and rules: SPEC-033 M14(g) and M14(h).
+
+### CDT-573
+
+- **AC2.** Cap X set: every enumerated wave of ≥ 2 intended spawns runs ceil(W/X) batches of ≤ X; spawn a batch, await all returns, then the next batch; final batch MAY be partial; a wave of ≤ X stays one batch. Enumerated waves include `/bug-hunt` S1/S2, which MUST compose SPEC-013 (MUST NOT fork a second cap protocol).
+  Verify: bash skills/council/test-concurrency.sh
+- **AC7.** Report frontmatter carries `concurrency: <N>` or `concurrency: unbounded` in the stages 1–2 report template (no synthetic prepend).
+  Verify: bash skills/council/test-template-vars.sh
 
 ---
 
@@ -494,6 +524,7 @@ Status remains DRAFT until a later epic promote (not a C2 ship gate).
 
 | Date | Change |
 |------|--------|
+| 2026-10-21 | CDT-573: S1/S2 compose SPEC-013 Spawn concurrency cap (M5 `--concurrency`, M16/M33/M34 waves, M49 report FM); Test 27. Status stays DRAFT. |
 | 2026-10-02 | CDT-371: `/orchestrate` is owned by SPEC-009. SPEC-017 stays the DAG and CI-watch spec. Status stays DRAFT. |
 | 2026-10-01 | WP 5-06 (CDT-304): Status stays DRAFT. `skills/bug-hunt/test.sh` T1 requires `**Status**: DRAFT`. Promoting it is CDT-292, not this package. |
 | 2026-10-01 | WP 4-08 (CDT-417, CDT-279 E12 E3 F12 F17 F20 F25): stem suffix on collision; phase-plan maps to the sibling findings plan; materialize paths stay under `.claude/bug-hunt/`; handoff rejects `--proceed` and `--severity-floor`; S4e rejects an out-of-range `--start-phase`; S1 lists files with `git -C WTROOT`; report walls match continuous S3/S4; evidence strike re-runs `reproducible_command`. Status stays DRAFT. |

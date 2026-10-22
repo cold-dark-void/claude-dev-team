@@ -829,4 +829,241 @@ else
   echo "OK: diff-mode.md does not claim role: preset"
 fi
 
+# ---- CDT-573 T5: chunkedParallel at the three parallel() sites --------------
+# SPEC-013 § Spawn concurrency cap: AC2 batch-synchronous waves, AC7 queueing is
+# not degradation, AC9 Task/Workflow parity. The partition has ONE home
+# (skills/lib/chunked-parallel.js) that both skills import; its unit tests and
+# one-home guards run here and from skills/fix-ticket/test-workflow.sh. The
+# partition-parity gate lives in test-parity-fixtures.sh.
+if grep -qE "^import \{ chunkedParallel \} from '\.\./lib/chunked-parallel\.js'$" skills/council/workflow.js; then
+  echo "OK: workflow.js imports chunkedParallel from skills/lib/chunked-parallel.js"
+else
+  echo "FAIL: workflow.js does not import the shared chunkedParallel module"; fail=1
+fi
+if bash skills/lib/chunked-parallel-test.sh; then
+  echo "OK: skills/lib/chunked-parallel-test.sh (shared partition)"
+else
+  echo "FAIL: skills/lib/chunked-parallel-test.sh"; fail=1
+fi
+# The host parallel() may be called in exactly one place: inside the shared
+# helper, which no longer lives in this file.
+pa_calls=$(grep -cE 'await parallel\(' skills/council/workflow.js || true)
+if [ "$pa_calls" -eq 0 ]; then
+  echo "OK: the host parallel() is called only from the shared chunkedParallel"
+else
+  echo "FAIL: $pa_calls direct parallel() call sites outside the helper"; fail=1
+fi
+for site in 'chunk(invJobs.map' 'chunk(reviewers.map' ';[pRes, aRes] = await chunk(['; do
+  if grep -qF "$site" skills/council/workflow.js; then
+    echo "OK: chunked fleet site $site"
+  else
+    echo "FAIL: missing chunked fleet site $site"; fail=1
+  fi
+done
+# The cap is read from the plan (the single carrier), forwarded to preflight,
+# and never re-resolved here.
+if grep -qF 'plan.concurrency' skills/council/workflow.js \
+  && grep -qF "preflightArgs.push('--concurrency'" skills/council/workflow.js; then
+  echo "OK: workflow.js reads plan.concurrency and forwards --concurrency to preflight"
+else
+  echo "FAIL: workflow.js cap read/forward"; fail=1
+fi
+if sed -e 's://.*::' -e 's/^[[:space:]]*\*.*//' skills/council/workflow.js \
+  | grep -qE 'COUNCIL_CONCURRENCY|resolve-concurrency'; then
+  echo "FAIL: workflow.js re-resolves the cap (precedence stays in the engine)"; fail=1
+else
+  echo "OK: workflow.js resolves no cap layer of its own"
+fi
+# Judge parts stay sequential: one enumerated wave, one spawn per part, no fan-out.
+judge_block=$(awk "/phase\('Judge'\)/,/^  \/\/ --- Finalize/" skills/council/workflow.js)
+if printf '%s\n' "$judge_block" | grep -qF 'for (const part of judgeParts)' \
+  && ! printf '%s\n' "$judge_block" | grep -qE 'chunk\(|parallel\('; then
+  echo "OK: judge parts stay sequential (no fan-out to chunk)"
+else
+  echo "FAIL: judge parts path changed shape"; fail=1
+fi
+if node --check skills/council/workflow.js; then
+  echo "OK: workflow.js node --check"
+else
+  echo "FAIL: workflow.js node --check"; fail=1
+fi
+
+COUNCIL_TEST_REPO="$TR" node --input-type=module <<'JS'
+import { readFileSync } from 'node:fs'
+import { runCouncil } from './skills/council/workflow.js'
+process.chdir(process.env.COUNCIL_TEST_REPO)
+
+// ---- integration: the three real sites under a cap -----------------------------
+// The partition unit tests and the one-home/coupling guards moved to
+// skills/lib/chunked-parallel-test.sh (run from this suite above).
+const wave = (cap) => {
+  const batches = []
+  const prompts = []
+  const invLabels = []
+  let currentPhase = 'none'
+  let spawned = 0
+  const agent = async (prompt, opts) => {
+    spawned += 1
+    if (opts.phase) prompts.push({ phase: opts.phase, label: opts.label, prompt })
+    if (opts.phase === 'Extract') {
+      return {
+        claims: [
+          { claim: 'CLAIM_A', source_locator: 'f:1', claim_type: 'factual' },
+          { claim: 'CLAIM_B', source_locator: 'f:2', claim_type: 'factual' },
+          { claim: 'CLAIM_C', source_locator: 'f:3', claim_type: 'factual' },
+        ],
+      }
+    }
+    if (opts.phase === 'Investigate') {
+      invLabels.push(opts.label)
+      // c0 gets 3 bundles (cross-review fires), c1/c2 get 2 (bypassed).
+      if (opts.label === 'inv:c0:paranoid-ic') {
+        return {
+          bundles: [
+            { tool_use_id: 'b0', raw_blob: 'B1_SECRET_BLOB', file_line: 'f:1', reproducible_command: 'true' },
+            { tool_use_id: 'b1', raw_blob: 'BLOB_1', file_line: 'f:2', reproducible_command: 'true' },
+          ],
+        }
+      }
+      if (opts.label === 'inv:c0:skeptic-ic') {
+        return { bundles: [{ tool_use_id: 'b2', raw_blob: 'BLOB_2', file_line: 'f:3', reproducible_command: 'true' }] }
+      }
+      const n = opts.label.includes(':paranoid-ic') ? 3 : 4
+      return { bundles: [{ tool_use_id: `b${n}`, raw_blob: `BLOB_${n}`, file_line: 'f:9', reproducible_command: 'true' }] }
+    }
+    if (opts.phase === 'Cross-review') return { ranking: ['A', 'B'] }
+    if (opts.phase === 'Phase4') {
+      if (opts.label === 'Prosecutor') {
+        return {
+          briefs: [{ claim_id: 'c0', evidence_against: 'PROSECUTOR_SECRET_BRIEF', requested_verdict: 'UNVERIFIED', supporting_tool_use_ids: ['b0'] }],
+          struck_lines: [],
+        }
+      }
+      return { briefs: [], struck_lines: [] }
+    }
+    if (opts.label === 'council-judge') {
+      return {
+        verdicts: [
+          { claim: 'CLAIM_A', claim_id: 'c0', verdict: 'VERIFIED', confidence: 90, evidence_blob: 'x' },
+          { claim: 'CLAIM_B', claim_id: 'c1', verdict: 'VERIFIED', confidence: 90, evidence_blob: 'x' },
+          { claim: 'CLAIM_C', claim_id: 'c2', verdict: 'VERIFIED', confidence: 90, evidence_blob: 'x' },
+        ],
+        struck_lines: [],
+      }
+    }
+    return null
+  }
+  const recordingParallel = async (fns) => {
+    batches.push({ phase: currentPhase, n: fns.length })
+    return Promise.all(fns.map((f) => f()))
+  }
+  const runtime = {
+    args: { scope: 'session', claim: 'chunked fleet probe', ...(cap === null ? {} : { concurrency: cap }) },
+    agent,
+    phase: (name) => { currentPhase = name },
+    parallel: recordingParallel,
+  }
+  return { runtime, batches, prompts, invLabels, spawned: () => spawned }
+}
+
+function sizesFor(batches, phase) {
+  return batches.filter((b) => b.phase === phase).map((b) => b.n)
+}
+
+const open = wave(null)
+const rOpen = await runCouncil(open.runtime)
+if (!rOpen.ok) throw new Error('unbounded run failed: ' + JSON.stringify(rOpen))
+const openShape = ['Investigate', 'Cross-review', 'Phase4'].map((p) => sizesFor(open.batches, p).join(','))
+if (openShape.join('|') !== '6|3|2') {
+  throw new Error('unbounded waves are no longer one parallel() per site: ' + openShape.join('|'))
+}
+if (rOpen.degraded !== false || rOpen.verification_mode !== 'full') {
+  throw new Error('unbounded run degraded: ' + rOpen.verification_mode)
+}
+console.log('OK: cap unset keeps the byte-identical single-wave path at all three sites (6|3)')
+
+const capped = wave(2)
+const rCap = await runCouncil(capped.runtime)
+if (!rCap.ok) throw new Error('capped run failed: ' + JSON.stringify(rCap))
+const got = {
+  Investigate: sizesFor(capped.batches, 'Investigate'),
+  'Cross-review': sizesFor(capped.batches, 'Cross-review'),
+  Phase4: sizesFor(capped.batches, 'Phase4'),
+}
+const wantCap = { Investigate: [2, 2, 2], 'Cross-review': [2, 1], Phase4: [2] }
+for (const site of Object.keys(wantCap)) {
+  if (JSON.stringify(got[site]) !== JSON.stringify(wantCap[site])) {
+    throw new Error(`cap=2 site ${site}: batches ${JSON.stringify(got[site])} want ${JSON.stringify(wantCap[site])}`)
+  }
+  if (got[site].some((b) => b > 2)) throw new Error(`cap=2 site ${site}: batch exceeded the cap`)
+}
+if (capped.batches.length !== 3 + 2 + 1) {
+  throw new Error('cap=2 batch count != sum of ceil(W/2): ' + JSON.stringify(capped.batches))
+}
+if (rCap.degraded !== false || rCap.verification_mode !== 'full') {
+  throw new Error('queueing degraded the run: ' + JSON.stringify({ d: rCap.degraded, m: rCap.verification_mode }))
+}
+if (JSON.stringify(rCap).includes('self-verified')) {
+  throw new Error('queueing emitted the self-verified state')
+}
+if (rCap.bundle_count !== rOpen.bundle_count) {
+  throw new Error(`queueing dropped spawns: ${rCap.bundle_count} bundles vs ${rOpen.bundle_count}`)
+}
+if (capped.invLabels.length !== 6) {
+  throw new Error('cap=2 ran ' + capped.invLabels.length + ' investigators, want 6 (nothing dropped)')
+}
+console.log('OK: cap=2 = batch-synchronous waves 2,2,2 / 2,1 / 2 with nothing dropped and no degradation')
+
+const rep = (r) => {
+  const m = String(r.stdout || '').match(/Council report: (\S+)/)
+  if (!m) throw new Error('no report line: ' + r.stdout)
+  return readFileSync(m[1], 'utf8')
+}
+const capReport = rep(rCap)
+if (!capReport.includes('concurrency: "2"')) {
+  throw new Error('capped report frontmatter lost the cap: ' + capReport.split('\n').slice(0, 12).join('\n'))
+}
+if (capReport.includes('self-verified')) throw new Error('capped report is marked self-verified')
+if (!rep(rOpen).includes('concurrency: "unbounded"')) throw new Error('unbounded report frontmatter lost the cap')
+console.log('OK: report frontmatter carries concurrency 2 / unbounded on the Workflow path')
+
+const crossPrompts = capped.prompts.filter((p) => p.phase === 'Cross-review').map((p) => p.prompt)
+if (crossPrompts.length !== 3) throw new Error('want 3 cross-review spawns, got ' + crossPrompts.length)
+for (const p of crossPrompts) {
+  if (p.includes('tool_use_id=b3') || p.includes('tool_use_id=b4')) {
+    throw new Error('a cross-review batch saw a bundle outside its own claim group')
+  }
+  if (p.includes('CLAIM_B') || p.includes('CLAIM_C')) throw new Error('cross-review leaked a foreign claim')
+}
+const invPrompts = capped.prompts.filter((p) => p.phase === 'Investigate').map((p) => p.prompt)
+if (invPrompts.length !== 6) throw new Error('want 6 investigator spawns, got ' + invPrompts.length)
+if (invPrompts.slice(2).some((p) => p.includes('B1_SECRET_BLOB'))) {
+  throw new Error('a later investigator batch observed an earlier batch bundle')
+}
+const one = wave(1)
+const rOne = await runCouncil(one.runtime)
+if (!rOne.ok) throw new Error('cap=1 run failed: ' + JSON.stringify(rOne))
+const p4 = one.prompts.filter((p) => p.phase === 'Phase4')
+if (sizesFor(one.batches, 'Phase4').join(',') !== '1,1') {
+  throw new Error('cap=1 Phase4 is not one brief per batch: ' + sizesFor(one.batches, 'Phase4').join(','))
+}
+if (p4.length !== 2) throw new Error('cap=1 Phase4 spawn count ' + p4.length)
+if (p4[1].prompt.includes('PROSECUTOR_SECRET_BRIEF')) {
+  throw new Error('the advocate batch observed the prosecutor brief (batch blindness broken)')
+}
+if (sizesFor(one.batches, 'Investigate').join(',') !== '1,1,1,1,1,1') {
+  throw new Error('cap=1 investigation is not sequential: ' + sizesFor(one.batches, 'Investigate').join(','))
+}
+if (JSON.stringify(one.invLabels) !== JSON.stringify(open.invLabels)) {
+  throw new Error('cap=1 resequenced the fleet')
+}
+console.log('OK: cap=1 runs every site spawn-per-spawn in fleet order; the advocate never sees the prosecutor brief')
+
+const bad = wave('abc')
+const rBad = await runCouncil(bad.runtime)
+if (rBad.ok || rBad.exit_code !== 64) throw new Error('invalid cap did not fail closed at preflight: ' + JSON.stringify(rBad))
+if (bad.spawned() !== 0) throw new Error('invalid cap spawned ' + bad.spawned() + ' agents before failing')
+console.log('OK: an invalid cap fails closed at preflight with zero spawns (exit 64)')
+JS
+
 exit $fail

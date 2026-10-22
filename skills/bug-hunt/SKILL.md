@@ -102,3 +102,46 @@ current stage**; do not read every stage file up front.
 | S4 | `s4-handoff.md` | Phase handoff emit-only (M42–M48) |
 | Reference | `pipeline.md` | Stage diagram + finding model (schema map) |
 | Reference | `traceability.md` | SPEC-034 MUST map + interaction with other components |
+
+## Spawn concurrency cap (CDT-573)
+
+`--concurrency N` (SPEC-034 M5; SPEC-013 § Spawn concurrency cap — compose, do
+not fork). Continuous mode only. S0 (0b fence) binds the raw token
+`BH_CONCURRENCY_FLAG` (`--concurrency N` or `--concurrency=N`) without coercion;
+modes reject it with exit 64. Resolve once, before S1 spawns:
+
+### Resolve the cap (S0, before any spawn)
+
+```bash
+# lint-ok: C1 — PDH session binding from s0-parse.md § 0a (skills/lib/pdh-later-fence.sh)
+: "${PDH:?PDH session binding required (s0-parse.md 0a)}"
+RESOLVE_C=$(bash "$PDH/skills/plugin-dir.sh" file skills/model-map/resolve-concurrency.sh)
+# ONE merge (flag > COUNCIL_CONCURRENCY > Model map) — the helper owns the
+# order; do not re-implement it here. Invalid → 64, fail closed, pre-spawn.
+bh_rc=0
+if [ -n "${BH_CONCURRENCY_FLAG:-}" ]; then
+  BH_CONCURRENCY=$(bash "$RESOLVE_C" --flag "$BH_CONCURRENCY_FLAG") || bh_rc=$?
+else
+  BH_CONCURRENCY=$(bash "$RESOLVE_C") || bh_rc=$?
+fi
+if [ "$bh_rc" -ne 0 ]; then
+  echo "error: --concurrency wants an integer >= 1 (fail closed; no spawns issued)" >&2
+  exit 64
+fi
+printf 'BH_CONCURRENCY=%s\n' "${BH_CONCURRENCY:-unbounded}"
+```
+
+- `BH_CONCURRENCY` is the run's single cap carrier (mirrors council
+  `plan.concurrency`): S1/S2 read it; they MUST NOT re-read the flag, env, or
+  Model map. Empty = unbounded (printed as `unbounded`).
+- S1 §1c (teams + lenses) and S2 §2e (investigators) are enumerated fleet waves:
+  when the cap is set, each fence appends the contract line from
+  `skills/council/spawn-contract.md` once — `<N>` = `BH_CONCURRENCY` — after the
+  fleet instruction, before the per-spawn prompt blocks. Batch synchronously:
+  spawn a batch, await all returns, then the next; completed spawns = intended
+  spawns, nothing dropped.
+- Queueing is not a spawn failure: batching MUST NOT set
+  `BH_VERIFICATION_MODE=self-verified` — the CDV-199 marker stays spawn-failure
+  only.
+- REPORT frontmatter carries `concurrency: <N>` or `concurrency: unbounded`
+  (SPEC-034 M49).

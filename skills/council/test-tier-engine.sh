@@ -49,6 +49,16 @@ expect_rc() {  # expect_rc <label> <want>
   if [ "$RC" -eq "$2" ]; then echo "OK: $1"; else echo "FAIL: $1 exit $RC (want $2)"; fail=1; fi
 }
 
+# plan_in_repo <out-file> <preflight args...>
+# Preflight resolves the Model map through MROOT, and a developer's local layer
+# can carry a top-level `concurrency` (SPEC-037 / CDT-573). Any plan whose
+# rendered frontmatter this suite asserts is built inside the disposable repo,
+# which carries no map layers, so the cap renders unbounded there.
+plan_in_repo() {
+  local out="$1"; shift
+  ( cd "$REPO" && bash "$ENGINE" preflight "$@" ) > "$out"
+}
+
 ok() {  # ok <label> <condition-cmd...>
   if "${@:2}" >/dev/null 2>&1; then echo "OK: $1"; else echo "FAIL: $1"; fail=1; fi
 }
@@ -105,10 +115,19 @@ expect "light diff-mode phase-3 reason stays the diff-mode one" \
 
 # ---- --tier full is byte-identical to today's plan (modulo the new keys) -----
 bash "$ENGINE" preflight --scope claim --scope-arg "x" \
-  | jq -S 'del(.cache_dir,.run_id,.council_tier,.grading_reason)' > "$TMP/default.json"
+  | jq -S 'del(.cache_dir,.run_id,.council_tier,.grading_reason,.concurrency)' > "$TMP/default.json"
 bash "$ENGINE" preflight --scope claim --scope-arg "x" --tier full --grading-reason "clear-high (loc=900>600)" \
-  | jq -S 'del(.cache_dir,.run_id,.council_tier,.grading_reason)' > "$TMP/full.json"
+  | jq -S 'del(.cache_dir,.run_id,.council_tier,.grading_reason,.concurrency)' > "$TMP/full.json"
 ok "--tier full plan == default plan" diff -q "$TMP/default.json" "$TMP/full.json"
+
+# ---- CDT-573: the Spawn concurrency cap is orthogonal to tiering -------------
+plan_in_repo "$TMP/plan-light-cap.json" --scope claim --scope-arg "x" \
+  --tier light --grading-reason "clear-low" --concurrency 2
+OUT="$(cat "$TMP/plan-light-cap.json")"
+expect "cap + light: concurrency==2 and tier==light" \
+  '.concurrency==2 and .council_tier=="light"'
+expect "cap + light: the light phase skips are unchanged" \
+  '.phases["4_prosecution_defense"].reason=="council_tier: light"'
 
 # ---- Rejected tiers ----------------------------------------------------------
 plan --scope claim --scope-arg "x" --tier skip
@@ -119,13 +138,15 @@ plan --scope claim --scope-arg "x" --tier LIGHT
 expect_rc "--tier is case-sensitive" 2
 
 # ---- finalize: light report ---------------------------------------------------
-bash "$ENGINE" preflight --scope claim --scope-arg "x" --tier light \
-  --grading-reason "triage: docs-only change" > "$TMP/plan-light.json"
+plan_in_repo "$TMP/plan-light.json" --scope claim --scope-arg "x" --tier light \
+  --grading-reason "triage: docs-only change"
 bash "$ENGINE" finalize --plan-file "$TMP/plan-light.json" --evidence-file "$FIX/evidence.json" \
   --judge-output "$FIX/judge.json" --report-out "$TMP/light.md" >/dev/null 2>&1
 grep_file "light report frontmatter carries council_tier" 'council_tier: "light"' "$TMP/light.md"
 grep_file "light report frontmatter carries grading_reason" \
   'grading_reason: "triage: docs-only change"' "$TMP/light.md"
+grep_file "light report frontmatter carries the unbounded cap (CDT-573)" \
+  'concurrency: "unbounded"' "$TMP/light.md"
 grep_file "light report records the Phase-4 skip in the briefs' place" \
   '_Phase 4 skipped, reason: council_tier: light' "$TMP/light.md"
 ngrep_file "light report never emits the not-provided brief stub" \

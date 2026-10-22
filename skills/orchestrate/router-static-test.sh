@@ -844,11 +844,55 @@ fi
 if [ -z "$t31_fail" ]; then ok
 else bad "T31:$t31_fail"; fi
 
-# ---- Harness self-check: the suite defines 32 checks (T0-T31). A total
-# below 32 means a check was skipped silently (stale copy of this file, an
+# ---- T32: CDT-573 T10 — council-gate concurrency passthrough, IC DAG uncapped ----
+# /orchestrate names --concurrency at its Step 0 flag surface and forwards the user's
+# own token to every council gate it invokes (Step 6c, Step 8/9 task gate, M14 ship
+# gate). Resolution and the fail-closed 64 stay in the council engine — no second
+# merge here. The Step 8 IC DAG is not a fleet (SPEC-013 § CDT-573 AC2), so no cap
+# text may reach the IC/kickoff/advisor spawn fences.
+SHIPGATE="$ROOT/skills/autopilot/ship-gate-council.md"
+t32_fail=""
+if ! grep -q -- '--concurrency' "$SKILL"; then
+  t32_fail="$t32_fail SKILL missing --concurrency"
+fi
+if ! grep -q -- '--concurrency=N' "$SKILL"; then
+  t32_fail="$t32_fail SKILL missing --concurrency=N form"
+fi
+if ! grep -qF 'ORCH_CONCURRENCY' "$SKILL"; then
+  t32_fail="$t32_fail SKILL missing ORCH_CONCURRENCY carrier"
+fi
+for site in '/council --plan' '--task-id' '/review-and-commit' 'ship-gate-council.md'; do
+  if ! grep -qF -- "$site" "$SKILL"; then
+    t32_fail="$t32_fail SKILL missing call site:$site"
+  fi
+done
+# Passthrough only: no resolver invocation, no env layer, no Model map layer.
+if grep -qE 'bash .*(resolve-concurrency|resolve-model)|COUNCIL_CONCURRENCY' "$SKILL"; then
+  t32_fail="$t32_fail SKILL re-merges the cap"
+fi
+if ! grep -qF -- '--concurrency <N>' "$SHIPGATE"; then
+  t32_fail="$t32_fail ship-gate missing --concurrency <N> token"
+fi
+if ! grep -qF 'is the **sole** flag M14(a) permits' "$SHIPGATE"; then
+  t32_fail="$t32_fail ship-gate lost the M14(a) sole-flag carve-out"
+fi
+for f in 08-execute.md 04-kickoff.md; do
+  if grep -qE -- '--concurrency|Spawn contract:' "$STEPS/$f"; then
+    t32_fail="$t32_fail $f caps the IC DAG"
+  fi
+done
+if grep -rqE -- '--concurrency|Spawn contract:' "$ROOT/skills/kickoff/SKILL.md" \
+   "$ROOT/skills/advisor/SKILL.md"; then
+  t32_fail="$t32_fail kickoff/advisor carries the cap"
+fi
+if [ -z "$t32_fail" ]; then ok
+else bad "T32:$t32_fail"; fi
+
+# ---- Harness self-check: the suite defines 33 checks (T0-T32). A total
+# below 33 means a check was skipped silently (stale copy of this file, an
 # early return, or an environment-dependent short-circuit) — turn that into
 # an explicit failure instead of a quietly-smaller PASS count.
-EXPECTED_CHECKS=32
+EXPECTED_CHECKS=33
 RUN_TOTAL=$((PASS + FAIL))
 if [ "$RUN_TOTAL" -ne "$EXPECTED_CHECKS" ]; then
   bad "harness ran $RUN_TOTAL checks, expected $EXPECTED_CHECKS (a check did not run)"

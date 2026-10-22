@@ -24,6 +24,7 @@ in agent worktrees. Phase bodies live in `steps/` — this file is the router.
 - `[--tier=<light|standard|full>]` — CDT-206; `steps/00-resolve.md` + `steps/02-scope.md`
 - `[--max-loc=<n|unbound>]` — CDT-223; `steps/00-resolve.md`
 - `[--with-advisor[=<model>]]` — SPEC-039 M9/M10/M37; `steps/00-resolve.md`
+- `[--concurrency N]` — SPEC-013 CDT-573; this file § Council-gate concurrency passthrough
 
 | `--tier` | Steps | pipeline |
 |----------|-------|----------|
@@ -31,6 +32,24 @@ in agent worktrees. Phase bodies live in `steps/` — this file is the router.
 | `light` | 0–12 | scoper-planner; skip DAG; one IC4; single-pass TL; no council default; wrap-lite |
 
 No `--tier`: Step 2 auto-sizes S→light / M→standard / L→full (cheap signals, no extra spawn). Explicit `--tier` wins.
+
+## Council-gate concurrency passthrough (CDT-573)
+
+`/orchestrate <ID> --concurrency N` (also `--concurrency=N`, any position) caps council
+fleet spawns at `N` in flight per wave, `N` an integer ≥ 1, no ceiling. Step 0 stores the
+user's token verbatim in `ORCH_CONCURRENCY` — empty when the flag is absent. This run
+resolves and validates nothing: no resolver call, no env read, no Model map read. The
+engine's preflight owns that one merge and exits 64 on a bad value — print it and stop, never retry unbounded.
+
+Pass `--concurrency "$ORCH_CONCURRENCY"` as the last token of every `/council` and
+`/review-and-commit` invocation the run makes; omit it when empty. Sites: Step 6c
+`/council --plan <approved-plan-path>`, the Step 8 addendum and Step 9 task-gate
+`/council "<CLAIM>" --task-id <task_id>`, and the M14 ship gate
+(`skills/autopilot/ship-gate-council.md` §3b).
+
+The cap is fleet-only: the Step 8 IC DAG spawns, the Step 4 kickoff PM/TL spawns, the
+single council-judge spawn, and advisor spawns MUST NOT carry the flag, a batching
+instruction, or the `Spawn contract:` line (SPEC-013 § CDT-573 AC2 — the IC DAG is not a fleet).
 
 ## Load protocol
 

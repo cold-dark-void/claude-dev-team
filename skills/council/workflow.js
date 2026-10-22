@@ -12,6 +12,10 @@
  * engine finalize — never retyped here).
  *
  * Args-as-JSON-string guard shared with CDV-197 / p0-fix-workflow.js (D7).
+ * Spawn concurrency cap (CDT-573): chunkedParallel() — imported from
+ * skills/lib/chunked-parallel.js, the one home it shares with fix-ticket —
+ * runs each fleet wave in batch-synchronous batches of plan.concurrency;
+ * unset = one wave as before.
  *
  * Host globals (Workflow runtime): args, agent, phase, parallel, budget (opt).
  * Pure helpers exported for node unit checks.
@@ -30,6 +34,9 @@ import {
   VerdictSchema,
   FindingSchema,
 } from './workflow-schemas.js'
+// The Spawn concurrency cap partition has ONE home, shared with fix-ticket
+// (CDT-573 review). Import it; never paste it.
+import { chunkedParallel } from '../lib/chunked-parallel.js'
 
 export const meta = {
   name: 'council',
@@ -456,6 +463,13 @@ export async function runCouncil(runtime) {
   // before dispatch), so this forwards a value — it forks no tiering logic.
   if (t.council_tier) preflightArgs.push('--tier', String(t.council_tier))
   if (t.grading_reason) preflightArgs.push('--grading-reason', String(t.grading_reason))
+  // CDT-573: forward the caller's --concurrency value so preflight resolves the
+  // cap once and writes it into the plan. The precedence merge (flag, then env,
+  // then Model map) and the fail-closed 64 stay in engine-preflight.sh; this
+  // path reads no cap layer of its own. Omitted when the caller passed nothing.
+  if (t.concurrency != null && t.concurrency !== '') {
+    preflightArgs.push('--concurrency', String(t.concurrency))
+  }
 
   const pre = runEngine('preflight', preflightArgs)
   if (pre.status !== 0) {
@@ -478,6 +492,15 @@ export async function runCouncil(runtime) {
     }
   }
   const plan = parsedPlan.plan
+
+  // CDT-573: the plan is the single carrier of the resolved Spawn concurrency
+  // cap — read it here, never from args, so this path chunks to the same
+  // number the Task-path spawn fences quote (SPEC-013 § Task/Workflow parity).
+  // Coercion mirrors engine-finalize: a positive integer is the cap; absent,
+  // null, or anything else is unbounded.
+  const spawnCap =
+    Number.isInteger(plan.concurrency) && plan.concurrency >= 1 ? plan.concurrency : null
+  const chunk = (jobs) => chunkedParallel(jobs, spawnCap, parallel)
 
   if (plan.council_tier === 'light') {
     console.error(LIGHT_NOTICE)
@@ -657,7 +680,7 @@ export async function runCouncil(runtime) {
 
   let bundleLists
   if (typeof parallel === 'function') {
-    bundleLists = await parallel(invJobs.map((job) => () => runOneInv(job)))
+    bundleLists = await chunk(invJobs.map((job) => () => runOneInv(job)))
   } else {
     bundleLists = []
     for (const job of invJobs) bundleLists.push(await runOneInv(job))
@@ -754,7 +777,7 @@ export async function runCouncil(runtime) {
     const reviewers = groupBundles.map((_, ri) => ri)
     let rankings
     if (typeof parallel === 'function') {
-      rankings = await parallel(reviewers.map((ri) => () => runReview(ri)))
+      rankings = await chunk(reviewers.map((ri) => () => runReview(ri)))
     } else {
       rankings = []
       for (const ri of reviewers) rankings.push(await runReview(ri))
@@ -831,7 +854,7 @@ export async function runCouncil(runtime) {
 
     let pRes, aRes
     if (typeof parallel === 'function') {
-      ;[pRes, aRes] = await parallel([
+      ;[pRes, aRes] = await chunk([
         () => runBrief('Prosecutor', 'evidence_against', 'jaded-senior', PROSECUTOR_BIAS),
         () => runBrief("Devil's Advocate", 'evidence_for', 'yolo-ic', ADVOCATE_BIAS),
       ])

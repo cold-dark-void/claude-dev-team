@@ -5,6 +5,7 @@ premise_holds: "{{PREMISE_HOLDS}}"
 all_hold: "{{ALL_HOLD}}"
 verification_mode: "{{VERIFICATION_MODE}}"
 created_at: "{{CREATED_AT}}"
+concurrency: "{{CONCURRENCY}}"
 ---
 
 # Fix-ticket report — {{TICKET}}

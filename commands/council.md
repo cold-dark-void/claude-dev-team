@@ -7,7 +7,7 @@ description: |
   to audit a shaky claim, after a debug session to verify "all green", or
   on a plan file to find unverified assumptions. Shares an engine with
   /review-and-commit (diff-mode preset).
-argument-hint: '"<claim>" | --session [--last N] | --diff | --plan <path> | --from-retro <id> | --blind [--teams N] [--lenses L1,L2] [--target <path>] [--task-id <id>] [--workflow] [--external[=codex|gemini]] [--council-tier=<light|full>] [--why]'
+argument-hint: '"<claim>" | --session [--last N] | --diff | --plan <path> | --from-retro <id> | --blind [--teams N] [--lenses L1,L2] [--target <path>] [--task-id <id>] [--workflow] [--external[=codex|gemini]] [--council-tier=<light|full>] [--concurrency N] [--why]'
 agent: build
 ---
 
@@ -39,15 +39,16 @@ tribunal runs, appends a verdict row to `.claude/council/index.json`.
 - `/council --why` — print short debug section after summary (flavors, Phase 3 specialist reason, claim budget, preset source)
 - `/council --external` — optional external investigator slot (codex → gemini; first available). Graceful skip if none installed. Forms: `--external`, `--external=codex`, `--external=gemini`
 - `/council --council-tier=<light|full>` — externally-supplied tier override (SPEC-013 § Council tiering). Honored at **any** scope; this command never auto-grades on its own (§ 1.5.1) — this flag passes straight through to `engine.sh preflight --tier`. Callers: the autopilot ship gate (`skills/autopilot/ship-gate-council.md`, M14(e)) and the orchestrated task gate (`skills/orchestrate/SKILL.md`, `requires_council: true` tasks). `skip` is **not** a legal value here — a caller wanting `skip` MUST short-circuit before ever invoking `/council` (SPEC-013 § Council tiering; `engine.sh` independently refuses `--tier skip`) — see Hard fails below.
+- `/council --concurrency N` — Spawn concurrency cap (SPEC-013 § Spawn concurrency cap, CDT-573): at most `N` fleet subagent spawns in flight for this run, `N` an integer ≥ 1, no upper ceiling. Orthogonal to every scope flag and to `--workflow` / `--council-tier`. Resolution is `--concurrency N` > `COUNCIL_CONCURRENCY` > Model map `concurrency`, through `skills/model-map/resolve-concurrency.sh` (this command never re-implements that order). Unset at every layer = unbounded: today's single-wave fan-out, unchanged. Overflow queues into later batches; nothing is dropped and queueing is **not** the CDV-199 degradation path. Forms: `--concurrency 2` and `--concurrency=2`. A non-integer, a value < 1, or a missing argument fails closed at Step 0.5 with exit 64 + usage, before any spawn.
 - `/council` — no scope, fails loudly with usage
 
 Scope flags are mutually exclusive. Exactly one of `"<claim>"`, `--session`,
 `--diff`, `--plan`, `--from-retro`, or `--blind` must be supplied.
 `--teams` / `--lenses` / `--target` are **blind-path parity flags only** —
 supplying any without `--blind` is a hard fail. `--workflow`, `--external`,
-and `--why` are orthogonal to tribunal scopes; `--workflow` MUST NOT apply
-to `--blind`. There is **no** `--no-council` flag (Tier-1 reverse-validation
-self-call removed).
+`--concurrency`, and `--why` are orthogonal to tribunal scopes; `--workflow`
+MUST NOT apply to `--blind`. There is **no** `--no-council` flag (Tier-1
+reverse-validation self-call removed).
 
 Available lenses: `security`, `contributor`, `spec`, `architecture`, `logic`.
 
@@ -77,6 +78,7 @@ From the user invocation, detect scope flags and parity flags:
 | `--target <path>` | blind parity only (default full project) |
 | `--council-tier=<light\|full>` | orthogonal flag, not a scope selector — captured here as `$COUNCIL_TIER_FLAG` so a malformed value fails at the earliest point, same as the scope/blind checks below; consumed at § 1.5 |
 | `--workflow` | orthogonal, not a scope. Set `_COUNCIL_WORKFLOW_FLAG=1` here. Step 2.5 reads it. `COUNCIL_WORKFLOW=1` is the env equivalent. Do not invent a second workflow switch |
+| `--concurrency N` | orthogonal, not a scope — the Spawn concurrency cap (CDT-573). Captured and validated in the Step 0.5 fence below (exit 64 + usage on a bad value, before any spawn, on the `--blind` path too). Step 2 re-reads the same words and passes `--concurrency` to preflight, which owns resolution through `resolve-concurrency.sh` |
 
 Hard fails (print usage, exit non-zero) — do **not** continue:
 
@@ -92,15 +94,25 @@ Hard fails (print usage, exit non-zero) — do **not** continue:
    records the audit trail directly; `commands/council.md` never runs). `engine.sh`
    independently refuses `--tier skip` if this were ever bypassed — this hard fail is the
    earlier, loud rejection point.
+7. `--concurrency` present with a value that is not an integer ≥ 1, or with no
+   value at all (including `--concurrency=` with nothing after the `=`): print the
+   usage string below and **exit 64** (SPEC-013 § Spawn concurrency cap, CDT-573).
+   Validation runs through `skills/model-map/resolve-concurrency.sh --flag N` — the
+   one merge helper — so this command never re-implements the cap grammar. This is
+   the only `/council` flag whose invalid value is `64`; the scope, parity, and tier
+   hard fails above keep their exits, and `engine.sh preflight` independently
+   re-validates and also exits `64` with no plan written. Exit `64` means EX_DATAERR:
+   zero side effects — no plan file, no engine state-dir write, no spawn.
 
 Usage string on fail:
 
 ```
 Usage: /council "<claim>" | --session [--last N] | --diff | --plan <path> | --from-retro <id> | --blind [--teams N] [--lenses L1,L2,...] [--target <path>]
-       [--task-id <id>] [--workflow] [--external[=codex|gemini]] [--council-tier=<light|full>] [--why]
+       [--task-id <id>] [--workflow] [--external[=codex|gemini]] [--council-tier=<light|full>] [--concurrency N] [--why]
 
 Scope flags are mutually exclusive. --teams/--lenses/--target require --blind.
 --council-tier accepts only light or full (never skip — short-circuit before invoking /council).
+--concurrency takes an integer >= 1 (no upper ceiling); omit it for an unbounded fan-out.
 Available lenses: security, contributor, spec, architecture, logic
 ```
 
@@ -127,6 +139,54 @@ if [ "${COUNCIL_WORKFLOW:-}" = "1" ]; then
   _COUNCIL_WORKFLOW_FLAG=1
 fi
 ```
+
+### 0.5.1 — Validate `--concurrency` before anything runs (CDT-573)
+
+This fence is its own shell: it re-reads the user's words. It runs on **every**
+scope, including `--blind`, because the `--blind` route jumps to its own path
+before Step 2 — so a malformed cap must die here, not in a phase fence. The
+grammar is NOT re-implemented here: the value is validated by
+`skills/model-map/resolve-concurrency.sh --flag N`, the one merge helper
+(SPEC-037 M31–M33). Exit `64` + usage, zero side effects: no plan file, no
+engine state-dir write, no spawn.
+
+```bash
+ARGS=$(cat <<'__A__'
+$ARGUMENTS
+__A__
+)
+set -f; set -- $ARGS; set +f
+CONCURRENCY=""
+_conc_given=0
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --concurrency)
+      _conc_given=1
+      if [ "$#" -lt 2 ]; then break; fi   # bare flag: empty value fails below
+      CONCURRENCY="$2"; shift 2 ;;
+    --concurrency=*)
+      _conc_given=1; CONCURRENCY="${1#--concurrency=}"; shift ;;
+    *) shift ;;
+  esac
+done
+if [ "$_conc_given" = "1" ]; then
+  PDH="${PDH:-$( { [ -n "${CLAUDE_PLUGIN_ROOT:-}" ] && [ -f "$CLAUDE_PLUGIN_ROOT/skills/plugin-dir.sh" ] && printf '%s\n' "$CLAUDE_PLUGIN_ROOT"; } || { [ -f skills/plugin-dir.sh ] && [ -f agents/pm.md ] && grep -qF '"name": "dev-team"' .claude-plugin/plugin.json 2>/dev/null && pwd; } || { _pr='${CLAUDE_PLUGIN_ROOT}'; [ "${_pr#\$}" = "$_pr" ] && [ -f "$_pr/skills/plugin-dir.sh" ] && printf '%s\n' "$_pr"; } || { for _mp in "$HOME"/.claude/plugins/marketplaces/*/; do [ -f "${_mp}skills/plugin-dir.sh" ] && [ -f "${_mp}agents/pm.md" ] && grep -qF '"name": "dev-team"' "${_mp}.claude-plugin/plugin.json" 2>/dev/null && printf '%s\n' "${_mp%/}" && break; done; } || find ~/.claude/plugins/cache \( -path '*/dev-team/*/skills/plugin-dir.sh' -o -path '*/dev-team-edge/*/skills/plugin-dir.sh' \) 2>/dev/null | awk -F/ '{ver=""; for(i=1;i<=NF;i++) if(($i=="dev-team"||$i=="dev-team-edge")&&i<NF){ver=$(i+1);break}; if(ver=="") next; m=ver; gsub(/-pre\./,"~pre.",m); p=($0 ~ /\/cache\/cold-dark-void\/dev-team\//)?2:(($0 ~ /\/cache\/cold-dark-void\/dev-team-edge\//)?1:0); print m "\t" p "\t" $0}' | sort -t $'\t' -k1,1V -k2,2n -k3,3 | tail -1 | cut -f3 | xargs -r dirname | xargs -r dirname )}"
+  RESOLVE_CONC=$(bash "$PDH/skills/plugin-dir.sh" file skills/model-map/resolve-concurrency.sh)
+  if ! bash "$RESOLVE_CONC" --flag "$CONCURRENCY" >/dev/null 2>&1; then
+    { echo "council error: --concurrency takes an integer >= 1 (got: '${CONCURRENCY:-<missing>}')";
+      echo 'Usage: /council "<claim>" | --session [--last N] | --diff | --plan <path> | --from-retro <id> | --blind [--teams N] [--lenses L1,L2,...] [--target <path>]';
+      echo '       [--task-id <id>] [--workflow] [--external[=codex|gemini]] [--council-tier=<light|full>] [--concurrency N] [--why]';
+      echo 'Scope flags are mutually exclusive. --teams/--lenses/--target require --blind.';
+      echo '--concurrency takes an integer >= 1 (no upper ceiling); omit it for an unbounded fan-out.'; } >&2
+    exit 64
+  fi
+fi
+```
+
+An absent flag leaves `$CONCURRENCY` empty — that is **unbounded**, and this
+command adds no cap text anywhere. Step 2 passes the value on; the engine
+resolves env and Model map, and `plan.concurrency` is the single carrier of the
+resolved number for the spawn fences and the report frontmatter.
 
 ## Step 1: Locate the engine
 
@@ -355,6 +415,7 @@ it. The engine does NOT accept the user-facing scope flags (`--session`,
 | `--why` | `--why` (passthrough) |
 | `--external` / `--external=codex\|gemini` | `--external` / `--external=<tool>` (passthrough; CDV-207) |
 | `$COUNCIL_TIER_FLAG` set (Step 0.5) | `--tier "$COUNCIL_TIER"` |
+| `--concurrency N` / `--concurrency=N` (Step 0.5 § 0.5.1) | `--concurrency N` (passthrough only — this command never resolves env or Model map; the engine's helper owns the merge) |
 
 The engine validates scope, resolves task-id (via `--task-id` flag →
 `CLAUDE_TASK_ID` env → unbound), resolves preset (`--scope diff` → `diff-mode`,
@@ -391,6 +452,27 @@ for _a in "$@"; do
       ;;
   esac
 done
+# Spawn concurrency cap (CDT-573). Re-read the same words; § 0.5.1 already
+# rejected a malformed value, and the engine re-validates through the same
+# merge helper. Empty means no flag — pass NOTHING, so the plan omits
+# `concurrency` and the fan-out stays exactly as today.
+CONCURRENCY=""
+_conc_given=0
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --concurrency)
+      _conc_given=1
+      if [ "$#" -lt 2 ]; then break; fi
+      CONCURRENCY="$2"; shift 2 ;;
+    --concurrency=*)
+      _conc_given=1; CONCURRENCY="${1#--concurrency=}"; shift ;;
+    *) shift ;;
+  esac
+done
+if [ "$_conc_given" = "1" ] && [ -z "$CONCURRENCY" ]; then
+  echo "council error: --concurrency takes an integer >= 1 (got: <missing>)" >&2
+  exit 64
+fi
 ```
 
 The engine rejects `--tier skip` (exit 2): `skip` short-circuits at the call
@@ -413,6 +495,11 @@ printf '%s\n' "$PLAN_FILE" > "$MROOT/.claude/council/plan-path"
 EXIT=$?
 ```
 
+When Step 0.5 § 0.5.1 saw `--concurrency`, `<translated-args>` carries
+`--concurrency "$CONCURRENCY"`. When it did not, carry nothing: do not pass an
+empty value, and do not pass a resolved number this command computed — the
+engine resolves `COUNCIL_CONCURRENCY` and the Model map.
+
 Exit code handling:
 
 - **Exit 2 (no scope / bad plan path / missing retro anchor / mutually exclusive scopes):** print
@@ -423,6 +510,10 @@ Exit code handling:
   (`m14-ac-split: <cause>`) and exit. Do NOT continue, do NOT write a report.
 - **Exit 9 (report path exhausted, SPEC-013 Phase 6):** print engine's stderr
   verbatim and exit. Do NOT continue, do NOT write a report.
+- **Exit 64 (invalid Spawn concurrency cap, SPEC-013 CDT-573):** print the
+  usage string from § 0.5.1 and engine's stderr verbatim, then exit 64. The
+  engine wrote no plan and touched no state dir. This is a preflight failure,
+  never a silent fallback to unbounded — do NOT re-run without the cap.
 - **Exit 0:** `$PLAN_FILE` contains the investigation-plan JSON. Proceed to
   Step 3.
 
@@ -433,6 +524,13 @@ empty otherwise), `preset`, `output_shape`, `task_id` (or null),
 should be skipped, i.e. for single pasted claims and `--from-retro`),
 `flavors` (array), and `external` (`{requested:false}` or
 `{requested:true, status:available|skipped, tool, prefer, helper, flavor}`).
+`concurrency` (integer) is present **only** when a Spawn concurrency cap
+resolved from flag / `COUNCIL_CONCURRENCY` / Model map (CDT-573); an absent key
+means unbounded. Every wave this command drives reads that one field — it is
+the single carrier of the resolved cap (Spawn contract line:
+`skills/council/spawn-contract.md`; Workflow chunking:
+`skills/council/workflow.js`). Do not
+re-resolve the cap from the flag or the env mid-run.
 For an M14 per-AC split run (SPEC-033 M14(g); SPEC-013 Phase 1 "M14 per-AC
 split") the plan additionally carries `claims` (`[{claim_id, ac_id, claim,
 source_locator, claim_type, verify, tool_budget}]`), `ac_source` (path), and `process_acs` (ids).
@@ -505,9 +603,15 @@ i.e. an ungraded `full` run.
 When `USE_WORKFLOW=1`, drive the tribunal via `skills/council/workflow.js`
 (Workflow tool / `agent()` schema steps). Pass the same scope payload as JSON
 args (`scope`, `claim`/`scope_arg`, `task_id`, `input_text`, `raw_artifacts`,
-…). The script runs `engine.sh preflight` + phases + `engine.sh finalize`
+`concurrency` — the Step 0.5 § 0.5.1 value, omitted when the flag was not
+given, …). The script runs `engine.sh preflight` + phases + `engine.sh finalize`
 internally — **skip Steps 3–4 Task spawns**. Protocol:
 `skills/council/SKILL.md` § Workflow execution path.
+
+Both paths read the cap from the plan, never from the args: preflight writes
+`plan.concurrency`, so `workflow.js` chunking and the Task-path spawn fences
+resolve to the same number (SPEC-013 § Spawn concurrency cap, Task/Workflow
+parity).
 
 On Workflow dispatch error after a green probe (tool missing mid-session),
 print the same stderr one-liner and continue with the Task path below.
@@ -683,6 +787,11 @@ prompt: skills/council/prompts/investigator.md
 
 Section blocks: SPEC-013 Engine Architecture; remove `{{#VERIFY_COMMAND}}`…`{{/VERIFY_COMMAND}}` when empty, else remove the marker lines only.
 
+**Spawn concurrency cap (CDT-573):** when `plan.concurrency` is set, append the
+contract line from `skills/council/spawn-contract.md` once after the fleet
+instruction above (the parallel fan-out sentence), before these per-spawn
+blocks. Unset: emit no line; this fence is unchanged.
+
 **Blindness invariant:** do NOT pass prior assistant narrative, prior
 verdicts, or prior advocate/prosecutor output to any investigator. Raw
 artifacts only. Cache is shared across investigators of this run only.
@@ -834,6 +943,11 @@ reports, prior verdicts, or assistant narrative. Do NOT write files.
 Return the same evidence-bundle schema as any investigator.
 ```
 
+**Spawn concurrency cap (CDT-573):** this wave (classifier Tasks + the
+specialist pull) takes the contract line from `skills/council/spawn-contract.md`
+once, after the fleet instruction, when `plan.concurrency` is set. Unset: no
+line.
+
 **Blindness + tools:** same as Phase 2 — read-only tools only; no prior
 council reports; evidence-or-silence. Team-agent tool allowlists may be
 broader than investigator flavors — the prompt still forbids Write/Edit and
@@ -899,6 +1013,10 @@ labeled with their personal shuffled mapping. Cross-review is tool-less
 (`agents/council-scribe.md`). No model-map fence (OQ1). Do not spawn
 `finder`, `ic4`, or `ic5`.
 
+**Spawn concurrency cap (CDT-573):** when `plan.concurrency` is set, append the
+contract line from `skills/council/spawn-contract.md` once after the fleet
+instruction above. Unset: no line.
+
 ```
 description: "Cross-review evidence bundles for claim <claim-id>"
 subagent_type: "dev-team:council-scribe"   # tool-less; MUST NOT run tools
@@ -962,6 +1080,10 @@ substitution is reserved for a *spawn failure* in a run where Phase 4 was
 supposed to run.
 
 Otherwise spawn exactly one Prosecutor and one Devil's Advocate in parallel:
+
+**Spawn concurrency cap (CDT-573):** when `plan.concurrency` is set, append the
+contract line from `skills/council/spawn-contract.md` once after the fleet
+instruction above. Unset: no line.
 
 ```
 Prosecutor:
@@ -1085,6 +1207,11 @@ into claim-atomic parts:
 The Workflow path (`workflow.js`) implements the same rule with
 `partitionJudgeParts` and the same constant. The judge stays tool-less:
 parts are judged from prompt content only (SPEC-013).
+
+**Spawn concurrency cap (CDT-573):** the parts wave is an enumerated fleet
+wave. When `plan.concurrency` is set, append the contract line from
+`skills/council/spawn-contract.md` once after the fleet instruction in step 4.
+Unset: no line; the parts fan out as one wave.
 
 Receive the judge's verdict list or finding list.
 
@@ -1375,6 +1502,11 @@ Total reviewers: $((TEAMS + M))
 
 Spawn all unconstrained and lens reviewers in one message so they run in
 parallel and none sees another's output.
+
+**Spawn concurrency cap (CDT-573):** when `plan.concurrency` is set, append the
+contract line from `skills/council/spawn-contract.md` once after the fleet
+instruction above, before the per-reviewer blocks. Unset: no line. Under a cap
+the wave is batch-synchronous: a batch MUST NOT observe sibling-batch output.
 
 **Unconstrained** — for each index `1..TEAMS`:
 

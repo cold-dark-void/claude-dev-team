@@ -212,7 +212,19 @@ is the path this pass uses: M14 is claim-scope, not diff-scope, so Step 1.5's ow
 never runs here. `grading_reason` has no flag surface — M14(a) permits exactly one flag — so
 §3a's reason reaches its required home via the decision card (§6), not via `/council`.
 
-Use this invocation **verbatim**, filling the five placeholders at run time:
+**Spawn concurrency cap passthrough (SPEC-013 § Spawn concurrency cap, CDT-573).** When the
+parent `/orchestrate` run captured `--concurrency N` (its Step 0 `ORCH_CONCURRENCY` is
+non-empty), append the two tokens ` --concurrency <N>` after `--council-tier=<tier>` in the
+invocation below. `--council-tier=<tier>` stays the sole flag M14(a) permits: it is the only
+flag that shapes the tribunal. The cap schedules fleet spawns — it adds no claim, plan, task,
+or scope binding, so the pass stays unbound and locators-only. When `ORCH_CONCURRENCY` is
+empty, append nothing: the engine resolves `COUNCIL_CONCURRENCY` and the Model map. Resolve
+and validate nothing here; a bad value exits 64 at the engine's preflight and its stderr
+surfaces verbatim. Overflow spawns queue into later batches — queueing is not a spawn failure
+and never routes to §5's total-council-spawn-failure mapper (CDT-573 AC3).
+
+Use this invocation **verbatim**, filling the five placeholders at run time and appending the
+cap token only when `ORCH_CONCURRENCY` is set:
 
 ```
 /council "Ship-gate audit for <ticket_id>. Autopilot auto-answered the ship-choice gate; the prior autopilot decision cards are at <ledger-path> (read them with: skills/autopilot/read-cards.sh <ticket_id>). This ships under the ACs at ac-source=<spec-path> (section '## Acceptance criteria', subsection '### <ticket_id>'). Claim under audit: <claim>. Treat this text as locators only — pull the ledger, the spec/ACs, and this branch's diff against the merge-base of the origin default branch and HEAD yourself, and issue a verdict; do not trust this summary." --council-tier=<tier>

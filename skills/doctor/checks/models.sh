@@ -99,6 +99,27 @@ check_models_map() {
     done < <(jq -r --arg f "$field" '.[$f] | keys[]' "$p" 2>/dev/null || true)
   }
 
+  # Scan the top-level concurrency cap (SPEC-037 M35, CDT-573). Mutates problems.
+  # Absent key and JSON null are the M30 unset forms: no finding, no skip.
+  _mmap_scan_concurrency() {
+    local p=$1 ok typ show
+    if ! jq -e 'has("concurrency")' "$p" >/dev/null 2>&1; then
+      return 0
+    fi
+    typ=$(jq -r '.concurrency | type' "$p" 2>/dev/null) || typ=""
+    if [ "$typ" = "null" ]; then
+      return 0
+    fi
+    ok=$(jq -r '.concurrency | (type=="number" and . == floor and . >= 1)' "$p" 2>/dev/null) || ok=""
+    if [ "$ok" != "true" ]; then
+      local show="$typ"
+      if [ "$typ" = "number" ]; then
+        show="number $(jq -c '.concurrency' "$p" 2>/dev/null || true)"
+      fi
+      _mmap_add_problem "concurrency is not a JSON integer >= 1 in ${p} (found ${show:-unknown})"
+    fi
+  }
+
   while IFS= read -r p || [ -n "$p" ]; do
     [ -n "$p" ] || continue
     if ! jq empty "$p" >/dev/null 2>&1; then
@@ -111,6 +132,7 @@ check_models_map() {
     fi
     _mmap_scan_field "$p" "agents"
     _mmap_scan_field "$p" "effort"
+    _mmap_scan_concurrency "$p"
   done <<< "$present"
 
   if [ -n "$problems" ]; then

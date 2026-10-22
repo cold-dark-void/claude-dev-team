@@ -93,6 +93,10 @@ Steps 1–6 tribunal. Dispatch surface + substitutions live in
 `commands/council.md` § Blind-review path.
 
 **Spawn contract:**
+- **Spawn concurrency cap (CDT-573):** when `plan.concurrency` is set, append
+  the contract line in `skills/council/spawn-contract.md` once, after the fleet
+  instruction, before the per-reviewer prompts. Unset: emit no line; this fence
+  is unchanged.
 - **N unconstrained** reviewers (`--teams`, default 3); team IDs `U1..UN`;
   prompt `prompts/blind-scribe.md` on `dev-team:council-scribe` (tool-less).
   Bug-hunt still uses `prompts/unconstrained-reviewer.md`.
@@ -102,7 +106,9 @@ Steps 1–6 tribunal. Dispatch surface + substitutions live in
   (value is **not** a tribunal flavor file — see Lens delta library below).
   Bug-hunt still uses `prompts/lens-reviewer.md`.
 - Available lenses: `security`, `contributor`, `spec`, `architecture`, `logic`
-- **Single parallel wave** for all N+M reviewers — never sequential fan-out
+- **Single parallel wave** for all N+M reviewers — never sequential fan-out.
+  Under a Spawn concurrency cap the wave is batch-synchronous; a batch MUST NOT
+  observe sibling-batch output (blindness rule, not a speed rule).
 - File list from `--target <path>` when set, else full project tracked files
   under WTROOT (`skills/council/blind-file-list.sh`; not MROOT). Same
   lockfile/vendor excludes on `--target` and on the full tree. Empty list
@@ -210,6 +216,9 @@ bundle. This phase is implemented in the council pipeline (driven by
 not shape-gated; the reviewer prompt is `prompts/cross-reviewer.md`).
 
 **Spawn contract:**
+- **Spawn concurrency cap (CDT-573):** when `plan.concurrency` is set, append
+  the contract line in `skills/council/spawn-contract.md` once, after the fleet
+  instruction. Unset: emit no line; this fence is unchanged.
 - Spawn `subagent_type: "dev-team:council-scribe"` (tool-less; no model-map
   fence). Do not spawn `finder`, `ic4`, or `ic5`.
 - For N investigators, spawn N cross-reviewers in parallel.

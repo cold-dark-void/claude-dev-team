@@ -87,6 +87,10 @@ prior verdicts.
 ### Phase 2 — Parallel Investigation
 
 **Spawn contract:**
+- **Spawn concurrency cap (CDT-573):** when `plan.concurrency` is set, append
+  the contract line in `skills/council/spawn-contract.md` once, after the fleet
+  instruction, before the per-spawn prompts. Unset: emit no line; this fence is
+  unchanged.
 - **Model map:** resolve `finder` first (canonical fence in § Model map). Named
   fallback `finder`→`ic5` resolves `ic5` (same fence for later spawns of that
   agent). Unnamed / `general-purpose` / Explore: omit the fence.

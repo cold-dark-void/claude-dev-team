@@ -71,6 +71,15 @@ is a bug.
   whose YAML frontmatter declares `tools: ""`. The empty allowlist is
   structurally enforced by the agent file — the engine does not attempt a
   per-invocation override. (SPEC-013 § Council tiering)
+- **Queueing is not a spawn failure.** Under a Spawn concurrency cap
+  (`plan.concurrency`), overflow waits in later batches: batching MUST NOT set
+  `verification_mode: self-verified` and MUST NOT emit
+  `self-verified — refuters unavailable` — that marker belongs to an unusable
+  spawn only (CDV-199). Nothing drops: the completed spawn count equals the
+  intended count. Blindness holds under batching because a batch MUST NOT
+  observe sibling-batch output. Unset cap = one wave, unchanged spawn fences;
+  the report frontmatter is the only addition (`concurrency: "unbounded"`).
+  (SPEC-013 § Spawn concurrency cap, CDT-573)
 - **Tool_use_id required on every claim/finding line.** Missing = struck.
   This is how "evidence-or-silence" is mechanized. (SPEC-013 § Engine Architecture)
 - **Atomic index writes.** `.claude/council/index.json` is updated via
@@ -97,6 +106,25 @@ is a bug.
 
 ---
 
+## Spawn concurrency cap — engine contract (CDT-573)
+
+One number, resolved once per run, covers every enumerated wave of that run.
+The engine spine owns resolution and carriage; the fan-out sites own batching.
+
+| Piece | Contract |
+|---|---|
+| Resolution | `engine-preflight.sh` calls `skills/model-map/resolve-concurrency.sh` (`--flag N` when the user passed the flag, bare otherwise): flag > `COUNCIL_CONCURRENCY` > Model map `concurrency`. No component re-implements that order |
+| Fail-closed | Helper exits `64` (non-integer, `< 1`, missing argument, invalid stored map value) → preflight exits `64` with a message, **writes no plan**, creates no cache dir, touches no state dir. Callers print usage and stop — `64` is never a silent fallback to unbounded |
+| Plan field | `plan.concurrency` = integer when capped; the key is **absent** when unbounded. This is the single carrier: `workflow.js` chunking (T5) and the Task-path spawn fences (T6) read the plan, never the flag or the env |
+| Report frontmatter | `engine-finalize.sh` substitutes `{{CONCURRENCY}}` in the canonical templates → `concurrency: "<N>"`, or `concurrency: "unbounded"`. Templates own the key (CDV-203 — no synthetic prepend). A plan value that is not a positive integer renders `unbounded` and warns on stderr |
+| Unbounded default | Spawn-fence prose stays byte-identical and no contract line is emitted anywhere |
+| Contract line | `skills/council/spawn-contract.md` is the single copy of the AC8 sentence. Every Task-path fleet spawn fence (Phases 2, 2.5, 3, 4, 5 parts, `--blind`) cites it **by path** and appends the line once when `plan.concurrency` is set, after the fleet instruction. Sites MUST NOT retype the sentence — one copy, grep-identical |
+
+`/kickoff` Step 2 finder fan-out and `external-reviewer.sh` (a bash subprocess,
+not a subagent spawn) are out of the cap.
+
+---
+
 ## Load protocol
 
 Stage bodies live in this directory — this file is the router. Read **only the
@@ -113,6 +141,7 @@ current stage**; do not read every stage file up front.
 |---------|------|------|
 | Model map (SPEC-037) | `model-map.md` | finder / council-scribe / council-judge spawn fences |
 | Invocation Contract | `invocation-contract.md` | CLI arguments, presets, task-id resolution |
+| Spawn contract line | `spawn-contract.md` | Canonical AC8 sentence + substitution, placement, and unset rules (cited by every fleet fence) |
 | Phases 0–2 | `phases-0-2.md` | Intake, claim extraction, parallel investigation, spawn-failure degradation |
 | Workflow + blind path | `phases-blind.md` | workflow.js execution path, `--blind`, blind cross-review (Phase 2.5), Phase 3 |
 | Phases 4–5 | `phases-4-5.md` | Prosecution & defense, judgment |
@@ -124,6 +153,8 @@ current stage**; do not read every stage file up front.
 | SPEC-013 lines | Requirement | Covered in |
 |---|---|---|
 | 24–36 | Command shape & scope (incl. `--blind` exclusivity + parity) | Invocation Contract → CLI arguments |
+| Spawn concurrency cap (CDT-573) | Flag + fail-closed 64, `plan.concurrency`, batching, report FM | Spawn concurrency cap — engine contract; Invariants; Phases 2/2.5/3/4/5 fences; `workflow.js`; `spawn-contract.md` |
+| AC8 (contract line) | One grep-identical sentence, appended once per fleet fence when the cap is set, absent when it is not | Spawn Contract Line (`spawn-contract.md`); cited by every fleet fence |
 | Blind-review path / Test 22 | `--blind` fan-out, tiers, Tier-1 sever recursion | Blind-review path (`--blind`) |
 | 33–37 | Engine architecture (skill + thin wrapper, no parallel pipeline) | Overview, Interaction table |
 | 40–44 | Output shapes (verdict[]/finding[], tool_use_id, confidence scale) | Invariants, Presets, Phase 5 |

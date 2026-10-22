@@ -5,6 +5,7 @@ slug: "{{SLUG}}"
 date: "{{DATE}}"
 created_at: "{{CREATED_AT}}"
 verification_mode: "{{VERIFICATION_MODE}}"
+concurrency: "{{CONCURRENCY}}"
 stage: "1-2"
 ---
 
@@ -22,6 +23,7 @@ Fill each brace slot in the frontmatter and body once. This section has no brace
 | DATE | BH_DATE |
 | CREATED_AT | ISO-8601 UTC |
 | VERIFICATION_MODE | full, or self-verified |
+| CONCURRENCY | BH_CONCURRENCY integer, or unbounded |
 | DEGRADED_BANNER | empty when full; the CDV-199 marker when degraded |
 | MANIFEST | BH_MANIFEST |
 | S2_FLAVORS | refute flavor pair |

@@ -42,6 +42,8 @@ JSON of the form
 - Extra top-level keys are ignored.
 - `agents` values stay non-empty strings. Do not put effort inside `agents`.
 - `effort` is a sibling object. Do not bump `version` for effort.
+- Optional top-level `concurrency` integer ≥ 1 is the **Spawn concurrency cap**
+  (SPEC-037 M30). Do not bump `version` for it.
 
 ## Example
 
@@ -106,6 +108,42 @@ and warn
 `model-map: host rejected effort '<token>' for <agent>; retrying with inherited effort`.
 Light `@ic4` retry uses `effort: low`. Do not combinatorial-retry with model.
 
+## Spawn concurrency cap
+
+Call `resolve-model.sh --concurrency` as a subprocess via
+`plugin-dir.sh file` (never `source`). Flag-first: `--concurrency` is
+argv[1]. No agent argument. Extra argv after the flag is ignored.
+
+- Non-empty stdout → the cap integer `N`.
+- Empty stdout → **unbounded** (absent / `null` / `""` in every layer).
+- Invalid stored map value (non-integer, < 1, string, bool, array, object) →
+  exit 64 + stderr warning. Invokers treat 64 as preflight failure; never run
+  silently unbounded. There is no upper ceiling.
+
+First-hit per layer: local > repo > global > unbounded. Unparseable JSON
+skips that whole layer. Independent of the model and effort winners.
+
+The named-roster paths stay isolated: `resolve-model.sh <agent>` and
+`resolve-model.sh --effort <agent>` ignore any top-level `concurrency` key,
+valid or invalid (exit 0, model emit). A trailing
+`resolve-model.sh <agent> --concurrency` is extra argv on the model path.
+
+Surfaces merge flag, env, and map through one helper — never paste the
+precedence into a command:
+
+```
+resolve-concurrency.sh [--flag <N>]
+```
+
+Precedence: `--flag N` > `COUNCIL_CONCURRENCY` > `resolve-model.sh
+--concurrency`. An empty-string env counts as unset. Stdout: integer or
+empty (unbounded). Exit 0, or 64 on an invalid flag/env value (usage on
+stderr) or an invalid stored map value (the map's 64 propagates). Subprocess
+CLI via `plugin-dir.sh file`, never `source`. Read-only.
+
+The map layer is written by `write-model.sh set-concurrency <N>` and cleared
+by `unset-concurrency` (local file only). `/setup models` passes both through.
+
 ## Warn, never block (`qa` / `council-judge`)
 
 A valid model string or effort token for `qa` or `council-judge` is
@@ -164,31 +202,50 @@ write-model.sh set <agent> <string>
 write-model.sh unset <agent>
 write-model.sh set-effort <agent> <token>
 write-model.sh unset-effort <agent>
+write-model.sh set-concurrency <N>
+write-model.sh unset-concurrency
 ```
 
 - `list` — print the 11 mappable agents with the winning resolved model
   (calls `resolve-model.sh`; empty → `Tier default`) and the winning
   resolved effort (calls `resolve-model.sh --effort`; empty → `inherited`)
-  plus the local path. Read-only.
+  plus the local path. Prints one `concurrency: <N>` line (or
+  `concurrency: unbounded`) from `resolve-model.sh --concurrency`.
+  Read-only.
 - `set` — merge `{version:1, agents:{...}}`. Create parent dirs. Trim.
   Empty after trim or unknown agent → exit 64. `qa` / `council-judge`
   allowed + M9 warn on stderr. Unparseable existing local → refuse, exit 1.
-  Does not drop `effort` or extra top-level keys.
+  Does not drop `effort`, `concurrency`, or extra top-level keys.
 - `unset` — delete that agents key. Missing key is OK. Unknown agent → 64.
-  Unparseable existing → refuse, exit 1. Does not drop `effort`.
+  Unparseable existing → refuse, exit 1. Does not drop `effort` or
+  `concurrency`.
 - `set-effort` — trim+lowercase, then allowlist `low|medium|high|xhigh|max`.
   Store the lowercase token. Empty / invalid token or unknown agent →
-  exit 64. `qa` / `council-judge` allowed + M9 warn. Does not drop `agents`.
+  exit 64. `qa` / `council-judge` allowed + M9 warn. Does not drop `agents`
+  or `concurrency`.
 - `unset-effort` — delete that effort key. Missing key is OK. Unknown
-  agent → 64. Unparseable existing → refuse, exit 1. Does not drop `agents`.
+  agent → 64. Unparseable existing → refuse, exit 1. Does not drop `agents`
+  or `concurrency`.
+- `set-concurrency <N>` — write the top-level `concurrency` integer (M34).
+  `N` after trim must be an integer ≥ 1. Validation calls
+  `resolve-concurrency.sh --flag <N>` — the one grammar — in a subshell with
+  `COUNCIL_CONCURRENCY` cleared, so the check is grammar-only and no layer
+  leaks in. Invalid → exit 64 + usage and no write. No
+  agent argument. Create parent dirs. Does not drop `agents`, `effort`, or
+  extra top-level keys. Unparseable existing local → refuse, exit 1.
+- `unset-concurrency` — delete the top-level `concurrency` key. Missing key
+  is OK (exit 0). No arguments. Unparseable existing → refuse, exit 1.
+  Does not drop `agents` or `effort`.
 
-Call via `plugin-dir.sh file`. `jq` is required for set/unset/set-effort/
-unset-effort.
+Call via `plugin-dir.sh file`. `jq` is required for every write verb
+(`set`, `unset`, `set-effort`, `unset-effort`, `set-concurrency`,
+`unset-concurrency`).
 
 ## `/setup models`
 
 Not doctor-gated. Bare `/setup models` → `write-model.sh list` (model +
-effort). `set` / `unset` / `set-effort` / `unset-effort` pass through.
+effort + the concurrency cap). `set` / `unset` / `set-effort` /
+`unset-effort` / `set-concurrency` / `unset-concurrency` pass through.
 Unknown `/setup` sub still prints usage and does not mutate; `models` is a
 known sub.
 

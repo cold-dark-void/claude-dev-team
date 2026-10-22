@@ -115,6 +115,18 @@ emit phase-done M20.
 Spawn all unconstrained + lens reviewers in one parallel Task wave (same
 message) — reviewers are independent and blind to each other. `Output mode: terse` on every spawn.
 
+**Spawn concurrency cap (CDT-573 / M33):** when `BH_CONCURRENCY` is an integer
+(SKILL.md § Resolve the cap), append the contract line from
+`skills/council/spawn-contract.md` once, after the fleet instruction above and
+before the per-spawn prompt blocks, with `<N>` = `BH_CONCURRENCY`. Run the wave
+in batches of ≤ `BH_CONCURRENCY` spawns: spawn a batch, await all returns, then
+the next (final batch may be partial). Every reviewer is spawned — completed
+spawns = intended spawns. A batch MUST NOT observe sibling-batch output
+(blindness holds). Queueing is not a spawn failure: batching MUST NOT set
+`BH_VERIFICATION_MODE=self-verified` (the CDV-199 marker below stays
+spawn-failure only). Unbounded: emit no line; this fence is one wave as today.
+The §1e quorum analyst is a single spawn — not a fleet wave; no line.
+
 Prefer `subagent_type: "dev-team:finder"` (CDT-230); fallback `dev-team:ic5` →
 `general-purpose`. Read-only tools only (same as blind path / investigator
 allowlist: Read, Grep, Glob, Bash read-only — no Write/Edit/commit).

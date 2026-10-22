@@ -66,13 +66,14 @@ if ( require_cmd node jq ); then
   # this host blocks outside a repo suite), so the 38bc739 golden below is
   # rendered with the REAL loadPrompt, inside the SAME heredoc that already
   # runs this suite's own render: a scratch copy of workflow.js (it imports
-  # only workflow-schemas.js, which itself has no imports) alongside the
-  # pinned 38bc739 investigator.md. Replaces the earlier bash/awk mirror
+  # workflow-schemas.js and ../lib/chunked-parallel.js, both copied) alongside
+  # the pinned 38bc739 investigator.md. Replaces the earlier bash/awk mirror
   # (TL review M5) — this is the real render, not a second implementation.
   WF_DIR="$TMP/wf"
-  mkdir -p "$WF_DIR/prompts"
+  mkdir -p "$WF_DIR/prompts" "$TMP/lib"
   cp "$ROOT/skills/council/workflow.js" "$WF_DIR/workflow.js"
   cp "$ROOT/skills/council/workflow-schemas.js" "$WF_DIR/workflow-schemas.js"
+  cp "$ROOT/skills/lib/chunked-parallel.js" "$TMP/lib/chunked-parallel.js"
   git show 38bc739:skills/council/prompts/investigator.md > "$WF_DIR/prompts/investigator.md"
   RENDER_GOLDEN_NONM14="$TMP/render-golden-non-m14.txt"
 
