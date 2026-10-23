@@ -42,12 +42,14 @@
 | SPEC-036 | Transcript Mirror (live compressed session record) | ACTIVE | `skills/transcript-mirror/*`, `docs/commands/transcript-mirror.md` (CDT-220); M10 all cwd-bucket sessions + M11 doctor lag WARN (CDT-221); M5a urlencode then `.cwd` locate (CDT-218); M4a SubagentStop agent nest (CDT-217); M12 carve-out CDT-216 — `/handoff` MAY read `main.md` via SPEC-018 M3f; CDT-215 M1 C7 + M14 — `/compact-transcript` writes sibling `<sid>.meaning-tail.md`; CDT-214 M15 — `summarize-transcript` overlay + `<sid>/verbatim/` (skill CLI, no new `commands/*.md`) |
 | SPEC-038 | Intercom Spool Protocol | ACTIVE | `skills/intercom/` (SKILL.md, common.sh, intercom.sh, poller.sh, watch.sh, daemon.sh, start-daemon.sh, docker-compose.yml, Dockerfile, setup-telegram.sh, probe.sh, test.sh, test-poller.sh, test-daemon.sh); `commands/away.md`, `commands/afk.md`; `commands/setup.md` (`/setup telegram\|slack`); `skills/doctor/checks/intercom.sh` (`intercom.daemon`); `docs/runbooks/setup-telegram.md` |
 | SPEC-039 | Advisor Agent | DRAFT | `agents/advisor.md`; `skills/advisor/` (SKILL.md, ask.sh, parse-flags.sh, classify.sh, static-check.sh, test.sh, test-classify.sh); `skills/agent-memory/advisor-protocol.md`; `skills/model-map/mappable-names.sh`; `skills/lib/require-agent.sh`; `.gitignore`; `AGENTS.md`; `README.md`; `docs/README.md`; `docs/runbooks/omp.md`; `commands/setup.md`; `commands/adjust-agent.md` (CDT-556) |
+| SPEC-040 | Backlog Sweep | ACTIVE | `skills/backlog/SKILL.md` (pointer only), sidecar protocol + helpers (CDT-582 Phase 1); `docs/commands/backlog.md`; `.gitignore` `.claude/sweeps/`; Phase 2 MERGE/EPIC/BC5 spec text only |
 | SPEC-037 | Per-agent Model map | ACTIVE | `skills/model-map/` (`resolve-model.sh`, `write-model.sh`, `test.sh`, `write-model-test.sh`, `effort-test.sh`, `spawn-site-test.sh`, `SKILL.md`); `/setup models` + `/adjust-agent --model` / `--effort` (CDT-228 + CDT-229); `/doctor` `models.map`; `/orchestrate` steps 04/06/08/09/10; `skills/post-approve-polish/SKILL.md`; `skills/ci-watch/SKILL.md`; remaining named-roster surfaces kickoff/epic/debug/fix-ticket/council/bug-hunt (CDT-222 + CDT-226); local/repo/global layers (CDT-227); sibling `effort` map (CDT-229); top-level `concurrency` (CDT-573); `.gitignore` `models.local.json` only |
 
 ## Version History
 
 | Date | Change |
 |------|--------|
+| 2026-10-22 | CDT-582: SPEC-040 Backlog Sweep ACTIVE — Phase 1 purge + walk + journal; Phase 2 spec text only. |
 | 2026-10-21 | CDT-573: SPEC-013 Spawn concurrency cap; SPEC-037 top-level `concurrency`; SPEC-034 S1/S2 compose; SPEC-014 ticket refuter wave. |
 | 2026-10-13 | CDT-556: SPEC-039 DRAFT — Advisor agent (third roster category, `--with-advisor`, two-phase ask.sh). |
 | 2026-10-10 | CDT-534: SPEC-030 R36–R38 opt-in `--jobs` pool; Step 4.13 / ubuntu `all-tests` / light-tier QA pass `--jobs 8`. SPEC-010 pointer updated. |

@@ -67,7 +67,7 @@ Program / multi-ticket work, session tuning, and quality gates.
 | Command | Docs | When to use |
 |---------|------|-------------|
 | `/epic` | [epic](commands/epic.md) | Decompose an umbrella into sequenced children for `/kickoff` or `/orchestrate` |
-| `/backlog` | [backlog](commands/backlog.md) | Manage backlog items (Linear-first dual-write when MCP is up) |
+| `/backlog` | [backlog](commands/backlog.md) | Manage backlog items (Linear-first dual-write when MCP is up); `sweep` purges + walks the open set |
 | `/brainstorm` | [brainstorm](commands/brainstorm.md) · [Idea→Plan](runbooks/idea-to-plan.md) | Socratic design refinement (`--grill` one-Q + recommended answers) |
 | `/craft-loop` | [craft-loop](commands/craft-loop.md) | Design reviewed loop programs for the host `/loop`/`/goal` |
 | `/release-train` | [release-train](commands/release-train.md) | Multi-branch release queue — register, freeze, land via `/release` |

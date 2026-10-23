@@ -33,6 +33,8 @@ commands/tdd-gate.md	UNSPECCED
 commands/worktree.md	SPEC-016
 skills/audit	SPEC-035
 skills/autopilot	SPEC-033
+# skills/backlog sweep subcommand contract is SPEC-040; owner stays SPEC-009
+# (one owner per surface).
 skills/backlog	SPEC-009
 skills/blunt	UNSPECCED
 skills/brainstorm	SPEC-009

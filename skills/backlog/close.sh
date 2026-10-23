@@ -44,24 +44,23 @@ is_closed_status() {
 [ -f "$SCRIPT_DIR/lock.sh" ] || die 1 "missing helper: $SCRIPT_DIR/lock.sh"
 # shellcheck source=lock.sh
 . "$SCRIPT_DIR/lock.sh"
+# valid_slug / require_valid_slug — one copy, shared with defer.sh (CDT-175).
+[ -f "$SCRIPT_DIR/slug.sh" ] || die 1 "missing helper: $SCRIPT_DIR/slug.sh"
+# shellcheck source=slug.sh
+. "$SCRIPT_DIR/slug.sh"
+# item_status_value / item_title — one copy, shared with sweep.sh (SPEC-040 M5).
+[ -f "$SCRIPT_DIR/readers.sh" ] || die 1 "missing helper: $SCRIPT_DIR/readers.sh"
+# shellcheck source=readers.sh
+. "$SCRIPT_DIR/readers.sh"
 
 USAGE='Usage: close.sh <slug-or-title> [options]
        close.sh verify <slug-or-title> [--root PATH]
 Options: --ticket ID  --sha SHA  --note TEXT  --root PATH
          --status COMPLETED|FIXED/CLOSED (default COMPLETED)'
 
-# Charset for path-safe slugs — same as worktree-lib validate_slug / reconcile (CDT-175).
-# Guard every path built from a slug; free-text QUERY (title search) is not a slug.
-valid_slug() {
-  [[ "$1" =~ ^[A-Za-z0-9_-]+$ ]]
-}
-
-require_valid_slug() {
-  local slug="$1"
-  if ! valid_slug "$slug"; then
-    die 1 "invalid slug (only [A-Za-z0-9_-] allowed): $slug"
-  fi
-}
+# valid_slug / require_valid_slug come from slug.sh (sourced above): one copy,
+# shared with defer.sh. Guard every path built from a slug; free-text QUERY
+# (title search) is not a slug.
 
 MODE="close"
 if [ "${1:-}" = "verify" ]; then
@@ -196,11 +195,8 @@ find_slugs() {
   printf '%s\n' ${matches[@]+"${matches[@]}"} | awk 'NF && !seen[$0]++'
 }
 
-item_status_value() {
-  local file="$1"
-  grep -m1 -E '^\*\*Status\*\*:' "$file" 2>/dev/null \
-    | sed 's/^\*\*Status\*\*:[[:space:]]*//' || true
-}
+# item_status_value and item_title come from readers.sh (sourced above): one copy,
+# shared with sweep.sh.
 
 # Extract linear_id from YAML frontmatter (session bridge for Linear Done; no MCP here).
 item_linear_id() {
@@ -218,25 +214,10 @@ item_linear_id() {
   ' "$file" 2>/dev/null || true
 }
 
-# item_title <file> (SPEC-009 § Backlog write integrity, C6): prints the first
-# "^# " line after the YAML frontmatter block (if any), with the leading "# "
-# stripped. Prints nothing when no such line exists — callers fall back to the
-# slug. Used at every former `head -n 1` title site.
-item_title() {
-  local file="$1"
-  awk '
-    NR == 1 && /^---[[:space:]]*$/ { in_fm = 1; next }
-    in_fm && /^---[[:space:]]*$/ { in_fm = 0; next }
-    in_fm { next }
-    /^# / { sub(/^# */, ""); print; exit }
-  ' "$file" 2>/dev/null || true
-}
-
-pick_one_slug() {
-  local slugs n slug
-  if ! slugs=$(find_slugs "$QUERY"); then
-    die 1 "no backlog item matching: $QUERY"
-  fi
+# require_one_slug <slugs> — the pick-one gate shared by close and verify: echo
+# the single slug, or report the ambiguity and exit 64. Never a silent pick.
+require_one_slug() {
+  local slugs="$1" n
   n=$(printf '%s\n' "$slugs" | grep -c . || true)
   if [ "${n:-0}" -gt 1 ]; then
     printf 'error: ambiguous match for %s:\n%s\n' "$QUERY" "$slugs" >&2
@@ -244,6 +225,14 @@ pick_one_slug() {
     exit 64
   fi
   printf '%s\n' "$slugs" | head -n1
+}
+
+pick_one_slug() {
+  local slugs
+  if ! slugs=$(find_slugs "$QUERY"); then
+    die 1 "no backlog item matching: $QUERY"
+  fi
+  require_one_slug "$slugs"
 }
 
 cmd_verify() {
@@ -437,8 +426,8 @@ cmd_close() {
   # write decision uses. Released automatically via lock.sh's EXIT/INT/TERM trap.
   backlog_lock_acquire "$ROOT" || exit $?
 
-  local slug file rc
-  if ! slug=$(find_slugs "$QUERY"); then
+  local slugs slug file rc
+  if ! slugs=$(find_slugs "$QUERY"); then
     # No matching local item. Index missing → Linear-only expected (CDT-63).
     # Index present → real miss (item should exist for close).
     if [ ! -f "$index" ]; then
@@ -446,15 +435,8 @@ cmd_close() {
     fi
     die 1 "no backlog item matching: $QUERY"
   fi
-  # Ambiguity / pick-one (same rules as pick_one_slug)
-  local n
-  n=$(printf '%s\n' "$slug" | grep -c . || true)
-  if [ "${n:-0}" -gt 1 ]; then
-    printf 'error: ambiguous match for %s:\n%s\n' "$QUERY" "$slug" >&2
-    printf 'Pick one slug and re-run.\n' >&2
-    exit 64
-  fi
-  slug=$(printf '%s\n' "$slug" | head -n1)
+  # Ambiguity / pick-one: the same gate verify runs (require_one_slug).
+  slug=$(require_one_slug "$slugs")
   require_valid_slug "$slug"
   file="$backlog_dir/${slug}.md"
 

@@ -1456,10 +1456,14 @@ rm -f "$STATIC_TMP/n-bad.sh"
 # --- AC F (static side; orchestrator amendment): scope to title reads only.
 # close.sh keeps 3 legitimate non-title `head -n1` uses (ambiguous-match pick at
 # ~:235/:436, first index row at ~:342) — SPEC-009/AC F cover title reading only.
-# So: item_title is defined; the old head-n1-on-a-quoted-file-arg title form is
-# gone; item_title is called at least 3 times. ---
+# So: item_title comes from readers.sh (one copy, shared with sweep.sh, CDT-582
+# R2); the old head-n1-on-a-quoted-file-arg title form is gone; item_title is
+# called at least 3 times. ---
 
-assert_file_match "F: close.sh defines item_title" "$CLOSE" '^item_title\(\) \{'
+assert_file_match "F: close.sh sources readers.sh" "$CLOSE" 'readers\.sh"$'
+assert_file_match "F: readers.sh defines item_title" "$HERE/readers.sh" '^item_title\(\) \{'
+f_local=$(grep -cE '^(item_title|item_status_value)\(\) \{' "$CLOSE" || true)
+assert_count "F: close.sh carries no local reader definitions" eq 0 "${f_local:-0}"
 
 f_old=$(grep -cE 'head -n *1[[:space:]]*"' "$CLOSE" || true)
 assert_count "F: close.sh has no old head-n1-on-quoted-file title form" eq 0 "${f_old:-0}"

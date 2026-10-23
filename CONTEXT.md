@@ -43,6 +43,10 @@ agent output. Do not reintroduce avoided aliases.
 | Away mode | Intercom-primary mode toggled by `/away` or `/afk`; main UI still mirrors | afk mode, do-not-disturb |
 | Advisor | Internal agent on a top-tier model (new `advisor` role in the model map), spawned only by the orchestrator through one seam (`skills/advisor/ask.sh`), resolving critical questions advisory-but-logged; never ships or lands code; orchestrator may disagree but must record why. Opt-in via `--with-advisor[=<model>]` (byte-identical without). Third SPEC-003 roster category (internal + tiered memory, no directives, no cortex) | consultant, expert, second-opinion agent |
 | Spawn concurrency cap | Per-run maximum of concurrent subagent spawns in a fleet fan-out; overflow runs in later batch-synchronous waves; unbounded when unset | rate limit, throttle, backpressure |
+| Backlog sweep | Active disposition pass over all open backlog items: evidence-based purge, heuristic triage, size-ascending serial walk via /orchestrate | orchestrate-backlog, backlog drain, grooming |
+| Disposition | The per-ticket outcome of sweep triage: CLOSE / ASK / ORCHESTRATE / EPIC / DEFER / MERGE | verdict, action |
+| Triage size | The sweep's cheap S/M/L heuristic that orders the walk and seeds orchestrate args; authoritative sizing stays in orchestrate Step 2 | complexity score, estimate |
+| Purge pre-pass | Phase 0 of a backlog sweep: bulk staleness disposition of every open item before any code-bearing work runs | cleanup, GC |
 
 ## Decisions
 
@@ -58,3 +62,5 @@ agent output. Do not reintroduce avoided aliases.
 - 2026-10-21: CDT-573 Spawn concurrency cap is per-run concurrency with batch-synchronous queueing (spawn ≤X, await all, next batch); overflow is queued, never dropped; one number covers all waves.
 - 2026-10-21: CDT-573 persisted store is the Model map (top-level `concurrency` key, local > repo > global); precedence flag > env > map; unset = unbounded (opt-in, patch class).
 - 2026-10-21: CDT-573 Task-path enforcement is a prompt contract; Workflow-path enforcement is mechanical chunking; both carry the same resolved value.
+- 2026-10-22: CDT-582 Backlog sweep is a /backlog subcommand (active sibling of reconcile), a pure composition layer: never edits code, never runs /release, single executor /orchestrate with `--tier=light` as the nit floor; `/debug` stays defect-only.
+- 2026-10-22: CDT-582 Sweep journal invalidation boundary is the last release tag (not age); epic children are skipped — the epic owns their walk.

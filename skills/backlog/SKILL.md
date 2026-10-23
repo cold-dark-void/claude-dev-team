@@ -1,6 +1,6 @@
 ---
 name: backlog
-description: Use when adding, closing, or listing backlog items or reconciling index drift — Linear-first dual-write when MCP is up; local .claude/backlog/ is a mandatory write-through cache. Supports add, close, list, reconcile, and init.
+description: Use when adding, closing, or listing backlog items, reconciling index drift, or sweeping the open backlog — Linear-first dual-write when MCP is up; local .claude/backlog/ is a mandatory write-through cache. Supports add, close, list, reconcile, sweep, and init.
 ---
 
 # Backlog Manager
@@ -21,6 +21,7 @@ delivery (v1.0 invariant).
 | `/backlog close <slug-or-title>` | Mark Linear terminal (if MCP up) + flip local COMPLETED |
 | `/backlog reconcile` | Repair index ↔ item files (+ Linear via `--linear-verdicts`) |
 | `/backlog list` | Prefer Linear open issues when MCP up; else local index |
+| `/backlog sweep [flags]` | Purge pre-pass + serial walk of the open set; protocol in `sweep.md` |
 | `/backlog init` | Initialize local backlog structure (if not present) |
 | `/backlog` (no args) | Same as `list` |
 
@@ -542,6 +543,20 @@ Pending (2):
 
 Completed: 2 items closed since the last reconcile (see .claude/backlog.md for details)
 ```
+
+---
+
+### Subcommand: `sweep [flags]`
+
+`/backlog sweep` is a composition layer over `/backlog` and `/orchestrate`
+(SPEC-040): it walks the open set once, runs a Purge pre-pass, then a
+size-ascending serial walk. Protocol: Read `skills/backlog/sweep.md` — the one
+operational copy (SPEC-002 D1). Do not inline it here. Helpers:
+`skills/backlog/sweep.sh` (subprocess CLI, never sourced) and
+`skills/backlog/defer.sh`. Flags:
+`--ship=<pr|master|patch|minor|major>`, `--limit N`, `--project X`,
+`--refresh`, `--skip-decided`, `--autopilot`. Journal:
+`$MROOT/.claude/sweeps/<slug>.jsonl` — process state, never staged.
 
 ---
 

@@ -5,6 +5,8 @@
 .claude/backlog/
 .claude/backlog.md
 .claude/backlog.lock/
+# Backlog sweep journal (SPEC-040 M20 — process state, never committed)
+.claude/sweeps/
 .claude/plans/
 .claude/plans.md
 .claude/epics/
