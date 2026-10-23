@@ -220,6 +220,14 @@ Honor `light|full` on the `/council` invoke: when `COUNCIL_TIER_OVERRIDE` is
 `light` or `full`, pass `--council-tier=<that value>`. When it is `skip` or the
 string `"null"`, omit `--council-tier` (commands/council.md omit → full).
 
+Carry the Spawn concurrency cap on the same invoke (SPEC-013 § Spawn concurrency
+cap, CDT-573): when `ORCH_CONCURRENCY` (Step 0) is non-empty, append
+`--concurrency "$ORCH_CONCURRENCY"` as the last token of the
+`/council --plan <approved-plan-path>` invocation. When it is empty, append nothing.
+Resolve and validate nothing here — the engine's preflight owns the merge and its
+exit 64 stderr surfaces verbatim. Step 6c is a fleet council run, so it takes the
+cap; the cap never reaches a Step 8 IC spawn (SPEC-013 § CDT-573 AC2).
+
 After `commands/council.md` Step 2 preflight writes `$PLAN_FILE`, append
 `security` to `plan.flavors` if absent:
 

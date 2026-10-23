@@ -876,11 +876,18 @@ fi
 if ! grep -qF 'is the **sole** flag M14(a) permits' "$SHIPGATE"; then
   t32_fail="$t32_fail ship-gate lost the M14(a) sole-flag carve-out"
 fi
-for f in 08-execute.md 04-kickoff.md; do
-  if grep -qE -- '--concurrency|Spawn contract:' "$STEPS/$f"; then
-    t32_fail="$t32_fail $f caps the IC DAG"
-  fi
-done
+# CDT-574-C4: the passthrough prose now lives in 08-execute.md's council-gate block,
+# so the IC-DAG guard binds the Step 8 IC spawn fence itself, not the whole file.
+# Positive assertion: extract the fence on its own opener and test the fence text.
+ic_fence=$(awk '/^Spawn @<agent> for Task <ID>:$/{print; f=1; next} f{print} f && /^```$/{exit}' "$STEPS/08-execute.md")
+if ! printf '%s\n' "$ic_fence" | grep -qF 'ic-hazards.md'; then
+  t32_fail="$t32_fail cannot extract the Step 8 IC spawn fence"
+elif printf '%s\n' "$ic_fence" | grep -qE -- '--concurrency|Spawn contract:'; then
+  t32_fail="$t32_fail the IC spawn fence caps the IC DAG"
+fi
+if grep -qE -- '--concurrency|Spawn contract:' "$STEPS/04-kickoff.md"; then
+  t32_fail="$t32_fail 04-kickoff.md caps the IC DAG"
+fi
 if grep -rqE -- '--concurrency|Spawn contract:' "$ROOT/skills/kickoff/SKILL.md" \
    "$ROOT/skills/advisor/SKILL.md"; then
   t32_fail="$t32_fail kickoff/advisor carries the cap"
@@ -888,11 +895,62 @@ fi
 if [ -z "$t32_fail" ]; then ok
 else bad "T32:$t32_fail"; fi
 
-# ---- Harness self-check: the suite defines 33 checks (T0-T32). A total
-# below 33 means a check was skipped silently (stale copy of this file, an
+# ---- T33: CDT-574-C4 — the steps carry the cap, not only the router ----
+# Steps load one file at a time (SKILL.md § Load protocol), so SKILL.md prose cannot
+# reach the step that parses flags: 00-resolve.md must name --concurrency, capture the
+# user's token verbatim into ORCH_CONCURRENCY, and carry it forward, and every fleet
+# council site must state its own passthrough.
+t33_fail=""
+RES="$STEPS/00-resolve.md"
+if ! grep -qF -- '[--concurrency N]' "$RES"; then
+  t33_fail="$t33_fail 00-resolve Arguments missing [--concurrency N]"
+fi
+if ! grep -qF -- '--concurrency=N' "$RES"; then
+  t33_fail="$t33_fail 00-resolve missing the --concurrency=N form"
+fi
+if ! grep -qF 'any position' "$RES"; then
+  t33_fail="$t33_fail 00-resolve missing any-position wording"
+fi
+if ! grep -qF 'ORCH_CONCURRENCY=""' "$RES"; then
+  t33_fail="$t33_fail 00-resolve missing the capture fence"
+fi
+if ! grep -qF 'resolves and validates nothing' "$RES"; then
+  t33_fail="$t33_fail 00-resolve capture fence not capture-only"
+fi
+if ! grep -qF 'exit 64' "$RES"; then
+  t33_fail="$t33_fail 00-resolve does not name the engine exit 64"
+fi
+# Capture only: the merge stays in the council engine. The guard binds the capture
+# fence (the shell that would re-merge), not the prose that names the layers.
+cap_fence=$(fence_blocks "$RES" "Spawn concurrency cap capture")
+if printf '%s\n' "$cap_fence" | grep -qE 'bash .*(resolve-concurrency|resolve-model)|COUNCIL_CONCURRENCY'; then
+  t33_fail="$t33_fail 00-resolve capture fence re-merges the cap"
+fi
+if ! printf '%s\n' "$cap_fence" | grep -qE '^[[:space:]]*--concurrency\)'; then
+  t33_fail="$t33_fail capture fence does not read the space form"
+fi
+if ! printf '%s\n' "$cap_fence" | grep -qF -- '--concurrency=*)'; then
+  t33_fail="$t33_fail capture fence does not read the = form"
+fi
+if ! grep -qF '`ADVISOR_MODEL` / `ORCH_CONCURRENCY`' "$RES"; then
+  t33_fail="$t33_fail ORCH_CONCURRENCY not in the carried-forward list"
+fi
+for site in 06-design.md 08-execute.md 09-review.md; do
+  if ! grep -qF -- '--concurrency "$ORCH_CONCURRENCY"' "$STEPS/$site"; then
+    t33_fail="$t33_fail $site missing the cap token"
+  fi
+  if ! grep -qE 'append nothing' "$STEPS/$site"; then
+    t33_fail="$t33_fail $site missing the empty-omit rule"
+  fi
+done
+if [ -z "$t33_fail" ]; then ok
+else bad "T33:$t33_fail"; fi
+
+# ---- Harness self-check: the suite defines 34 checks (T0-T33). A total
+# below 34 means a check was skipped silently (stale copy of this file, an
 # early return, or an environment-dependent short-circuit) — turn that into
 # an explicit failure instead of a quietly-smaller PASS count.
-EXPECTED_CHECKS=33
+EXPECTED_CHECKS=34
 RUN_TOTAL=$((PASS + FAIL))
 if [ "$RUN_TOTAL" -ne "$EXPECTED_CHECKS" ]; then
   bad "harness ran $RUN_TOTAL checks, expected $EXPECTED_CHECKS (a check did not run)"

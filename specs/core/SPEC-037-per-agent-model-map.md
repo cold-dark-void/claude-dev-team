@@ -306,7 +306,7 @@ amendment, and the surface retirement land as separate tickets.
   subprocess CLI (never `source`). Commands: `list`, `set <agent> <string>`,
   `unset <agent>`. MUST write only `$MROOT/.claude/dev-team/models.local.json`
   (same MROOT as M1). MUST NOT write repo `models.json` or
-  `~/.claude/dev-team/models.json`. `list` MUST print the 10 M8 names with the
+  `~/.claude/dev-team/models.json`. `list` MUST print the 11 M8 names with the
   winning resolved string (MUST call `resolve-model.sh`; MUST NOT reimplement
   merge) or `Tier default` when empty, plus the local path. `list` is
   read-only (MUST NOT mkdir or write). `set` MUST merge
@@ -324,7 +324,7 @@ amendment, and the surface retirement land as separate tickets.
   `agents`. Invalid or unknown agent, or empty / invalid effort token →
   exit 64 + usage; no write. Missing effort key on unset → exit 0.
   `qa` / `council-judge` effort set: write + M9 warn. `list` MUST print the
-  10 M8 names with the winning resolved model (`Tier default` when empty)
+  11 M8 names with the winning resolved model (`Tier default` when empty)
   AND the winning resolved effort (`inherited` when empty), plus the local
   path. `list` MUST call `resolve-model.sh` and
   `resolve-model.sh --effort` (MUST NOT reimplement merge).
@@ -519,7 +519,12 @@ amendment, and the surface retirement land as separate tickets.
   `resolve-model.sh --concurrency` exit 64 and print a stderr warning.
   Invokers MUST treat 64 as preflight failure and MUST NOT silently run
   unbounded. There is no upper ceiling. Named-roster resolves (M5) MUST
-  still exit 0.
+  still exit 0. The merge helper (SPEC-013 Spawn concurrency cap) MUST
+  validate `COUNCIL_CONCURRENCY` on every path that reaches it, including
+  when `--flag` wins: a set, non-empty, non-cap env value exits 64 with a
+  stderr warning that names the variable (CDT-574-C3). An empty-string env
+  is unset. This mode stays lazy: the merge helper reads the map only when
+  the flag and the env are both unset, so a flag run never reaches it.
 
 - **M34 — Concurrency writer.** `write-model.sh set-concurrency <N>` /
   `unset-concurrency` MUST write only
@@ -601,7 +606,7 @@ amendment, and the surface retirement land as separate tickets.
 - `finder` / `debugger` resolve a mapped model and never gain `Write` / `Edit` (M12)
 - `bash skills/spec-tooling/check-format.sh specs/core/SPEC-037-per-agent-model-map.md` exits 0
 - `write-model.sh set` writes only local `models.local.json`; repo/global unchanged (M18)
-- `write-model.sh list` prints 10 M8 names + local path; empty resolve → `Tier default` (M18)
+- `write-model.sh list` prints 11 M8 names + local path; empty resolve → `Tier default` (M18)
 - `write-model.sh list` calls `resolve-model.sh` (repo string wins when local omits) (M18)
 - Unknown agent / empty string / bad argv → exit 64 + usage; extra argv ignored (M18)
 - Unparseable existing local → set/unset refuse, exit 1, file unchanged (M18)
@@ -632,7 +637,7 @@ amendment, and the surface retirement land as separate tickets.
 - `spawn-site-test.sh` greps `resolve-model.sh --effort` and `host rejected effort` at every M13 ∪ M16 site (M29)
 - `spawn-site-test.sh` asserts `effort:` frontmatter is PRESENT and Tier-table-matching on all 12 agents, and carries no assertion that it is absent (M12 / M29)
 - `resolve-model.sh finder` / `resolve-model.sh debugger` emit a mapped string and are not unknown-agent (M8)
-- `write-model.sh list` prints 10 mappable names including `finder` and `debugger` (M8 / M18)
+- `write-model.sh list` prints 11 mappable names including `finder`, `debugger`, and `advisor` (M8 / M18)
 - `/doctor --only models.map` accepts `finder` / `debugger` keys without an unknown-key WARN (M8 / M19)
 - All three M8 enforcement points (`resolve-model.sh`, `write-model.sh`, `doctor.sh`) carry the identical mappable set (M8)
 - Absent `concurrency` / empty / `null` / `""` → empty `--concurrency` stdout, no warn, exit 0 (M30)
@@ -675,12 +680,14 @@ Format and rules: SPEC-033 M14(g) and M14(h).
 
 | Date | Change |
 |------|--------|
+| 2026-10-22 | CDT-574-C3 — M33 gains the env-validation clause for `resolve-concurrency.sh`: `COUNCIL_CONCURRENCY` is validated on every path that reaches it, including when `--flag` wins (exit 64 + a stderr warning naming the variable). An empty-string env is unset. The map layer stays lazy: the merge helper reads it only when the flag and env are both unset, so the M30–M32 map contract and the flag > env > map precedence for valid values are unchanged. Status stays ACTIVE. |
+| 2026-10-22 | CDT-574-C5 — M18 and the M8 test lines state 11 names, matching M8 (`advisor` joins under SPEC-039 M36) and `mappable-names.sh --list`. `/setup models` docs list `advisor`. The model-map list bite-tests loop over `mappable-names.sh --list` (count-blind). Historical rows keep their facts; only the stale count literal is dropped from them. Status stays ACTIVE. |
 | 2026-10-21 | CDT-573: top-level integer `concurrency` (M30–M36); `resolve-model.sh --concurrency` isolated from named-roster (fail-closed 64 never aborts `resolve-model.sh <agent>`); `set-concurrency` / `unset-concurrency` local-only; `/setup models` grammar; doctor `models.map` WARN-never-FAIL on the key; forward-compat extra-key ignore (M2). Status stays ACTIVE. |
-| 2026-10-01 | WP 5-06 (CDT-304, CDT-326): Status DRAFT → ACTIVE. M18 says 10 M8 names, matching `write-model.sh list`. The effort CLI stays. It is not a no-op (`resolve-model.sh --effort`, `effort-write-test.sh`). |
+| 2026-10-01 | WP 5-06 (CDT-304, CDT-326): Status DRAFT → ACTIVE. M18 restates the M8 name count to match `write-model.sh list`. The effort CLI stays. It is not a no-op (`resolve-model.sh --effort`, `effort-write-test.sh`). |
 
 | 2026-09-08 | CDT-243 — M16 site 1 adds Step 2 `@finder` (Codebase Explorer); MUST NOT fence applies only to Step 4b verifier. M17 omit list drops explorer. Status stays DRAFT. |
 | 2026-08-30 | F7, F8 (CDT-230 kickoff Step 4b). F7: omitted `effort:` inherits `settings.json` `effortLevel`, the project-wide depth lever left available under F6. F8: `model:` and `effort:` compose in one frontmatter file — the combination every roster agent ships under Option A. Both verified with the same forwarding-listener method as F1–F6. |
-| 2026-08-30 | CDT-230 — M8 widened to 10 mappable names (`finder`, `debugger` added) and now names all three duplicated enforcement points as one contract. M12 **replaced**: `effort:` frontmatter is REQUIRED on all 12 agents and must match the SPEC-003 § Tier table (was: prohibited); SPEC-003 stays SoT for both columns; `finder`/`debugger` tool floor added. M29 **replaced**: the frontmatter-absence assertion is deleted and inverted to a presence + Tier-table assertion; the `--effort` spawn-site assertions are deliberately RETAINED, since retiring the effort surface is a separate ticket. MUST NOT list: the struck effort-frontmatter line replaced with a positive prohibition on asserting its absence. M16 sites 3–5 re-pointed to `debugger` (premise) and `finder` (council Phase 2 / 2.5, bug-hunt S1 / S2), with an `ic5` host-reject fallback. Status stays DRAFT. |
+| 2026-08-30 | CDT-230 — M8 widened the mappable set (`finder`, `debugger` added) and now names all three duplicated enforcement points as one contract. M12 **replaced**: `effort:` frontmatter is REQUIRED on all 12 agents and must match the SPEC-003 § Tier table (was: prohibited); SPEC-003 stays SoT for both columns; `finder`/`debugger` tool floor added. M29 **replaced**: the frontmatter-absence assertion is deleted and inverted to a presence + Tier-table assertion; the `--effort` spawn-site assertions are deliberately RETAINED, since retiring the effort surface is a separate ticket. MUST NOT list: the struck effort-frontmatter line replaced with a positive prohibition on asserting its absence. M16 sites 3–5 re-pointed to `debugger` (premise) and `finder` (council Phase 2 / 2.5, bug-hunt S1 / S2), with an `ic5` host-reject fallback. Status stays DRAFT. |
 | 2026-08-30 | Host capability findings F1–F6 (Claude Code 2.1.236). The Agent tool has no `effort` param, so M22–M29 never took effect. Frontmatter `effort:` works for subagents and is the only substrate that reaches a namespaced roster spawn. Option A recorded. M12 / M29 / MUST NOT effort-frontmatter prohibition marked void. Model half unaffected. Status stays DRAFT. |
 | 2026-08-27 | CDT-229 — sibling `effort` map (M22–M29); `resolve-model.sh --effort`; per-field first-hit; inherited effort omit path; light Step 8 `@ic4` omit-path `low` (SPEC-009). Status stays DRAFT. |
 | 2026-08-26 | CDT-228 — retitle Per-agent Model map; M18 local writer; M19 doctor `models.map` WARN-never-FAIL; M20 `/setup models`; M21 `/adjust-agent --model` sugar. Status stays DRAFT. |

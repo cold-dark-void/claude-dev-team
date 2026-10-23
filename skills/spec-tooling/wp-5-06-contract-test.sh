@@ -62,10 +62,10 @@ else
   fail "SPEC-009 memory write" "old INSERT OR REPLACE sentence still required"
 fi
 
-if grep -q '10 M8 names' "$ROOT/specs/core/SPEC-037-per-agent-model-map.md" \
+if grep -q '11 M8 names' "$ROOT/specs/core/SPEC-037-per-agent-model-map.md" \
    && ! grep -q '8 M8 names' "$ROOT/specs/core/SPEC-037-per-agent-model-map.md" \
    && grep -q 'resolve-model.sh --effort' "$ROOT/skills/model-map/resolve-model.sh"; then
-  pass "effort list is 10 and the resolver still accepts --effort"
+  pass "effort list is 11 and the resolver still accepts --effort"
 else
   fail "effort contract" "count or resolver"
 fi

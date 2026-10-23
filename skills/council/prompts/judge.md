@@ -90,6 +90,9 @@ PROCEDURE
        - evidence_blob: the RAW tool-output bytes from the bundle you
          relied on — NOT a paraphrase, NOT a summary. Quote the minimum
          necessary verbatim substring plus enough context to be useful.
+         It MUST be a verbatim substring of exactly ONE bundle's raw_blob.
+         It MUST NOT be a concatenation, join, or splice of two or more
+         bundles — finalize strikes a verdict that splices them (CDT-574).
      If no bundle supports any verdict line for a claim, DO NOT guess —
      issue UNVERIFIED with confidence <=30 and move the unsupported
      sub-claims into struck_lines.

@@ -73,10 +73,11 @@ Full procedure: [Setup → `/setup team`](../setup.md#setup-team--bootstrap-agen
 
 ## Sub: `models`
 
-Local Model map (SPEC-037). Bare `/setup models` lists the 10 mappable agents
+Local Model map (SPEC-037). Bare `/setup models` lists the 11 mappable agents
 (`pm`, `tech-lead`, `ic5`, `ic4`, `devops`, `qa`, `ds`, `council-judge`,
-`finder`, `debugger`) with the winning model or `Tier default`, the winning
-effort or `inherited`, the spawn concurrency cap, and the local path. `set` / `unset` / `set-effort` / `unset-effort` /
+`finder`, `debugger`, `advisor`) with the winning model or `Tier default`, the
+winning effort or `inherited`, the spawn concurrency cap, and the local path.
+`set` / `unset` / `set-effort` / `unset-effort` /
 `set-concurrency` / `unset-concurrency` write only
 `$MROOT/.claude/dev-team/models.local.json`. Not doctor-gated. Sugar:
 `/adjust-agent <agent> --model <string>` / `--model-unset` /

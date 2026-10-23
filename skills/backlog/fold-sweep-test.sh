@@ -252,6 +252,158 @@ assert_eq "junk-paren detail: task.md stays PENDING" "**Status**: PENDING" \
 assert_contains "flipped=0 already-closed=0 linear=0" "$OUT" \
   "junk-paren detail flips nothing"
 
+# ============ C7: non-top fold section — no SIGPIPE death (exit 141) =========
+
+# /release Step 6.5 runs the sweep for a shipped fold whose `### v<VER>` section
+# sits BELOW a later section (the real CHANGELOG is ~390 KB). Pre-fix,
+# changelog_section's awk `exit`ed at the section end, the printf writer died on
+# SIGPIPE, `set -o pipefail` gave the pipeline status 141, and `set -e` killed the
+# sweep: no summary, no backlog closes, no Linear closes. The death needs a later
+# heading plus >64 KB of text after it (the pipe buffer), so the filler below the
+# fold section is what makes it reproduce in a fixture.
+# The subject names only test-slug-a; test-slug-b/ghost-slug come from the section
+# lead, so the flips prove the section body was extracted and its slug list swept.
+REPO9="$FIX/repo-non-top"
+mkdir -p "$REPO9/.claude/backlog"
+git -C "$REPO9" init -q -b master
+git -C "$REPO9" config user.email "test@example.invalid"
+git -C "$REPO9" config user.name "test"
+cat >"$REPO9/.claude/backlog/test-slug-a.md" <<'EOF'
+---
+linear_id: CDT-900
+---
+
+# A
+
+**Status**: PENDING
+EOF
+cat >"$REPO9/.claude/backlog/test-slug-b.md" <<'EOF'
+---
+linear_id: CDT-901
+---
+
+# B
+
+**Status**: PENDING
+EOF
+cat >"$REPO9/.claude/backlog/newer-slug.md" <<'EOF'
+---
+linear_id: CDT-903
+---
+
+# Newer
+
+**Status**: PENDING
+EOF
+{
+  printf '%s\n' "# Changelog" "" \
+    "### v9.9.10" "- **Newer lead (newer-slug)** — a later release, not the fold under test" "" \
+    "### v9.9.9" "- **Test lead (test-slug-a, test-slug-b, ghost-slug)** — fixture fold entry" "" \
+    "### v9.9.8"
+  for i in $(seq 1 8000); do printf -- '- filler %s\n' "$i"; done
+} >"$REPO9/CHANGELOG.md"
+git -C "$REPO9" add .claude CHANGELOG.md
+git -C "$REPO9" commit -q -m "fix: v9.9.9 — Test lead (test-slug-a)"
+linear_stub "$STUB"
+rm -f "$FIX/linear-calls.log"
+RC=0
+OUT=$(cd "$REPO9" && bash "$SWEEP" --commit HEAD --linear-close-cmd "$STUB" 2>&1) || RC=$?
+assert_eq "non-top fold sweep exits 0 (no SIGPIPE 141)" 0 "$RC"
+assert_contains "flipped=2 already-closed=0 linear=2 skipped=1" "$OUT" \
+  "non-top fold: the sweep prints its summary"
+assert_contains "**Status**: COMPLETED (v9.9.9)" \
+  "$(cat "$REPO9/.claude/backlog/test-slug-a.md")" "non-top fold: subject slug flipped"
+assert_contains "**Status**: COMPLETED (v9.9.9)" \
+  "$(cat "$REPO9/.claude/backlog/test-slug-b.md")" \
+  "non-top fold: changelog-lead slug flipped (section body extracted)"
+assert_eq "non-top fold: newer-section slug stays out of scope" "**Status**: PENDING" \
+  "$(grep -F '**Status**' "$REPO9/.claude/backlog/newer-slug.md")"
+assert_eq "non-top fold: both Linear closes issued" "$(printf 'CDT-900\nCDT-901')" \
+  "$(cat "$FIX/linear-calls.log")"
+
+# Same repo, the fold whose version is the newest section. Pre-fix this died the
+# same way (the section is still followed by a later heading); the extraction
+# bytes and the stdout contract are unchanged.
+git -C "$REPO9" commit -q --allow-empty -m "fix: v9.9.10 — Newer lead (newer-slug)"
+linear_stub "$STUB"
+rm -f "$FIX/linear-calls.log"
+RC=0
+OUT=$(cd "$REPO9" && bash "$SWEEP" --commit HEAD --linear-close-cmd "$STUB" 2>&1) || RC=$?
+assert_eq "newest-section fold sweep exits 0" 0 "$RC"
+assert_contains "flipped=1 already-closed=0 linear=1 skipped=0" "$OUT" \
+  "newest-section fold: summary unchanged"
+assert_contains "**Status**: COMPLETED (v9.9.10)" \
+  "$(cat "$REPO9/.claude/backlog/newer-slug.md")" "newest-section fold: slug flipped"
+
+# Subject with NO slug list, CHANGELOG lead with one: only the section harvest can
+# supply the candidate, so this pins changelog_lead_list's capture group (the
+# lead pattern once used a literal `(...)` with `\1`, GNU sed died on
+# "invalid reference \1", and the entry contributed nothing).
+REPO12="$FIX/repo-lead-only"
+mkdir -p "$REPO12/.claude/backlog"
+git -C "$REPO12" init -q -b master
+git -C "$REPO12" config user.email "test@example.invalid"
+git -C "$REPO12" config user.name "test"
+printf -- '---\nlinear_id: CDT-904\n---\n\n# A\n\n**Status**: PENDING\n' \
+  >"$REPO12/.claude/backlog/test-slug-a.md"
+{
+  printf '%s\n' "# Changelog" "" "### v9.9.9" \
+    "- **Test lead (test-slug-a)** — fixture fold entry" "" "### v9.9.8"
+  for i in $(seq 1 8000); do printf -- '- filler %s\n' "$i"; done
+} >"$REPO12/CHANGELOG.md"
+git -C "$REPO12" add .claude CHANGELOG.md
+git -C "$REPO12" commit -q -m "fix: v9.9.9 — Plain lead with no parens"
+linear_stub "$STUB"
+rm -f "$FIX/linear-calls.log"
+RC=0
+OUT=$(cd "$REPO12" && bash "$SWEEP" --commit HEAD --linear-close-cmd "$STUB" 2>&1) || RC=$?
+assert_eq "lead-only fold sweep exits 0" 0 "$RC"
+assert_contains "flipped=1 already-closed=0 linear=1 skipped=0" "$OUT" \
+  "lead-only fold: the CHANGELOG lead supplies the slug list"
+assert_contains "**Status**: COMPLETED (v9.9.9)" \
+  "$(cat "$REPO12/.claude/backlog/test-slug-a.md")" "lead-only fold: slug flipped"
+assert_eq "lead-only fold: the Linear close is issued" "CDT-904" \
+  "$(cat "$FIX/linear-calls.log")"
+
+# ============ C7: version absent from CHANGELOG / section is empty ==========
+
+# Both keep the calm path: no section body means no lead list, so the subject's
+# own slug list stands, and a subject with no slug list is a calm skip, exit 0.
+REPO10="$FIX/repo-absent-version"
+mkdir -p "$REPO10"
+git -C "$REPO10" init -q -b master
+git -C "$REPO10" config user.email "test@example.invalid"
+git -C "$REPO10" config user.name "test"
+{
+  printf '%s\n' "# Changelog" "" "### v9.9.10" "- **Newer lead (newer-slug)** — fixture" ""
+  for i in $(seq 1 8000); do printf -- '- filler %s\n' "$i"; done
+} >"$REPO10/CHANGELOG.md"
+git -C "$REPO10" add CHANGELOG.md
+git -C "$REPO10" commit -q -m "fix: v9.9.9 — Plain lead"
+RC=0
+OUT=$(cd "$REPO10" && bash "$SWEEP" --commit HEAD 2>&1) || RC=$?
+assert_eq "absent-version slugless fold exits 0" 0 "$RC"
+assert_contains "carries no slug list" "$OUT" "absent-version fold is a calm skip"
+
+REPO11="$FIX/repo-empty-section"
+mkdir -p "$REPO11/.claude/backlog"
+git -C "$REPO11" init -q -b master
+git -C "$REPO11" config user.email "test@example.invalid"
+git -C "$REPO11" config user.name "test"
+printf -- '---\nlinear_id: CDT-900\n---\n\n# A\n\n**Status**: PENDING\n' \
+  >"$REPO11/.claude/backlog/test-slug-a.md"
+{
+  printf '%s\n' "# Changelog" "" "### v9.9.9" "" "### v9.9.8"
+  for i in $(seq 1 8000); do printf -- '- filler %s\n' "$i"; done
+} >"$REPO11/CHANGELOG.md"
+git -C "$REPO11" add .claude CHANGELOG.md
+git -C "$REPO11" commit -q -m "fix: v9.9.9 — Empty lead (test-slug-a)"
+RC=0
+OUT=$(cd "$REPO11" && bash "$SWEEP" --commit HEAD 2>&1) || RC=$?
+assert_eq "empty-section fold exits 0" 0 "$RC"
+assert_contains "flipped=1 already-closed=0 linear=1 skipped=0" "$OUT" \
+  "empty section: the subject slug list still sweeps"
+
 # ============ B2: --find-fold prefix match (CDT-900 → cdt-900-some-title) ====
 
 REPO8="$FIX/repo-findfold-prefix"

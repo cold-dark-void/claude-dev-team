@@ -276,7 +276,10 @@ This procedure cites that recipe by name and does not restate its steps.
 
 Locate this run's `.finalize-meta.json` sidecar (from the invocation's `Council report:`
 line) and run the verdict mapper on it, passing §2's saved card #1 JSON and §3a's resolved
-tier:
+tier. One invocation is the normal case, and that one sidecar is the whole input. When the
+pass was **split** across invocations, build one merged meta first (§4b): the mapper signature
+below takes exactly one `--meta` argument (M14(i)), and a single run's sidecar is not a valid
+input for a split pass:
 
 ```bash template
 skills/autopilot/ship-gate-verdict.sh --meta <report>.finalize-meta.json --card1 <card1.json> --tier <tier>
@@ -369,6 +372,123 @@ the advisor is unavailable for this optional second opinion: the §4 verdict
 stands unchanged (no BC8 card — the appeal is opt-in residue handling, not a
 confirmed-AC dependency). `/review-and-commit` follows the same seam after its
 own council verdict (`skills/advisor/appeal.sh gate --meta <report>.finalize-meta.json`).
+
+### 4b. Split ship-gate pass: the merged-meta recipe (SPEC-033 M14(b), M14(d), M14(i); CDT-574-C6)
+
+A ship-gate pass is **split** when the M14 evidence is too large for one council run
+(observed above roughly 250 KB) and §3b's audit runs as several `/council` invocations, each
+covering part of the ticket's AC list. SPEC-013 Phase 6 report no-overwrite collision-suffixes
+each report inside one day: `.claude/council/2026-10-22-claim.md`, then `-claim-2.md` …
+`-claim-5.md`. Each report writes its own `<report>.finalize-meta.json`. **No single one of
+those sidecars is authoritative for the attempt.**
+
+This section builds the mapper's **input**; it decides nothing. M14(b) owns per-AC
+aggregation, M14(d) owns the degraded run, and M14(i) owns the mapper — this procedure cites
+them and restates none. §4's mapper signature stays `--meta <one json>`: merge first, then
+exactly one call. MUST NOT call the mapper once per run, and MUST NOT merge mapper outputs.
+`skills/autopilot/ship-gate-verdict.sh` is byte-identical (WP 1-15 G), and this recipe adds
+no script.
+
+The firing rule is unchanged. §2's **exactly once** forbids one invocation per AC (M14(a)) and
+one card #2 per invocation, not one invocation of a large audit. A split pass is one
+ship-choice attempt audited in several runs: it still records **exactly two** cards (§6), and
+card #2 comes from the single merged-meta mapper call. MUST NOT write one card #2 per run, and
+MUST NOT grade the tier per run — §3a's one resolved tier covers the attempt.
+
+On a split pass, §4a's `appeal.sh gate --meta` argument takes the same merged file, so the
+residue probe sees every run.
+
+**Step 1 — identify the sidecars of THIS attempt.** Take the report path that each §3b
+`/council` invocation of this attempt printed on its `Council report:` line, and that
+report's `<report>.finalize-meta.json` sidecar. That set of pairs is the input — the
+invocations that ran this ship-gate attempt, and nothing else. Each invocation's plan file
+records its own `run_id` and `cache_dir` (`council-cache-<run_id>`), which ties a report to
+the invocation that printed it. MUST NOT glob `.claude/council/<date>-claim*.md`: a day-level
+glob admits other passes — an earlier attempt, a non-M14 council, a `/review-and-commit` run —
+whose verdicts never audited this ship.
+
+**Step 2 — assert the set is one pass.** Every member MUST report the same `ac_source`. Two
+different values mean two passes in one merge: halt BC7 on the M14(b) step-1 shape and name
+both paths.
+
+**Step 3 — merge the sidecars, key by key.**
+
+| Sidecar key | Merged value |
+|---|---|
+| `struck_count`, `unstruck_verdict_count`, `unstruck_finding_count` | Sum across runs. |
+| `verdict_counts` | Sum each taxonomy key across runs. |
+| `max_verdict_confidence`, `max_verified_confidence` | Maximum across runs. Ignore `null` members; `null` only when every member is `null`. |
+| `min_verdict_confidence` | Minimum across runs, same `null` rule. |
+| `worst_verdict` | The worst value across runs, on the verdict order M14(b) step 2 defines (cited, not restated). |
+| `unstruck_verdicts` | Concatenate every run's array. A re-audited AC keeps one verdict per run — the mapper matches them (M14(b) step 2). |
+| `ac_claims` | One entry per audited AC. Dedupe by `claim_id` **within a run**, then drop a claim whose `ac_id` an earlier run already claimed: an AC audited in two runs MUST NOT be double-counted. Re-key each surviving `claim_id` with a run prefix (`r2-c0`) — every invocation numbers its own claims from `c0`, so a raw `claim_id` collides across runs. |
+| `ac_source` | The common value from Step 2. |
+| `process_acs` | Union of the ids across runs. |
+| `verification_mode` | `self-verified` when **any** member is `self-verified`, else `full` (M14(d)). A healthy run never clears a degraded one. |
+| `max_finding_confidence`, `finding_counts`, `finding_attention`, `unstruck_findings` | `null`. An M14 run is `verdict[]`-shape, so these are `null` in every member. |
+
+**Step 4 — the conflict rule.** When one AC's claim — the same `claim_id`, matched by its
+`[AC-<id>]` tag — carries **two different verdicts** across the merged set, the pass MUST NOT
+merge them and MUST NOT pick the higher confidence. It halts BC7 on the M14(b) step-1 shape
+(`decision = halt`, `blocking_condition = 7`, `confidence = 0`, `bump = null`) and the
+`rationale` names that claim id. Two runs that agree on the verdict merge to one entry.
+
+**Step 5 — the coverage assertion.** The merged `ac_claims[]` MUST name every technical AC of
+the ticket's AC-source subsection (M14(g)), and the merged `process_acs[]` MUST name every
+`[process]` AC. A per-run sidecar that covers only part of the AC list is **not** a valid
+`--meta` input, and neither is a merged set with a gap. Feed §5's no-usable-report path instead
+(`--no-report "split ship-gate: <ids> unaudited"`), which halts BC7. The mapper cannot find
+this gap itself: it reads the AC list from the sidecar's own `ac_claims[]`, so a partial
+sidecar under-reports every AC it omits and reads as a clean run.
+
+**Shape check.** The merged file MUST stay a sidecar the mapper accepts: one JSON object,
+`ac_claims[]` entries that are objects with a non-empty string `ac_id`, `process_acs` as a
+JSON array, and `verification_mode` as `full` or `self-verified`. Anything else the mapper
+reports as a malformed sidecar (M14(i)) — it never guesses.
+
+**Worked example — the observed `dRPDwyJo` shape.** CDT-573 shipped on
+`specs/core/SPEC-013-adversarial-council-tribunal.md` § `### CDT-573`: 12 ACs, `AC11` tagged
+`[process]`, so **11 technical ACs** (`AC1` … `AC10`, `AC12`). The pass split into five
+invocations on 2026-10-22:
+
+| Invocation | Report | `ac_claims` (`claim_id` → `ac_id`) |
+|---|---|---|
+| 1 | `2026-10-22-claim.md` | `c0→AC1` `c1→AC2` `c2→AC3` `c3→AC4` |
+| 2 | `2026-10-22-claim-2.md` | `c0→AC5` `c1→AC6` `c2→AC7` `c3→AC8` |
+| 3 | `2026-10-22-claim-3.md` | `c0→AC9` `c1→AC10` |
+| 4 | `2026-10-22-claim-4.md` | `c0→AC12` |
+| 5 | `2026-10-22-claim-5.md` | `c0→AC12` (re-audit) |
+
+Merge, member by member:
+
+- `ac_claims`: 4 + 4 + 2 + 1 = **11 entries** — `r1-c0` … `r1-c3`, `r2-c0` … `r2-c3`, `r3-c0`,
+  `r3-c1`, `r4-c0`. Run 5's `c0→AC12` is dropped: `AC12` is already claimed by run 4, so the
+  AC counts once and never twice.
+- `process_acs`: `["AC11"]` — the union; every member reported it.
+- Coverage (Step 5): 11 technical ACs in, 11 out, `AC11` present → **pass**.
+- Counts: `struck_count` `0+1+0+0+0 = 1`; `unstruck_verdict_count` `4+4+2+1+1 = 12`;
+  `verdict_counts` sums per key, for example `VERIFIED` `4+3+2+1+1 = 11` and
+  `PARTIALLY_VERIFIED` `0+1+0+0+0 = 1`.
+- Confidences: `min_verdict_confidence` = min(86, 84, 90, 92, 91) = **84**;
+  `max_verdict_confidence` = max(95, 97, 93, 92, 91) = **97**; `max_verified_confidence`
+  follows the same maximum rule.
+- `worst_verdict`: run 2 reports `PARTIALLY_VERIFIED`, so the merged value is
+  `PARTIALLY_VERIFIED`.
+- `verification_mode`: all five report `full` → **`full`**. Had run 3 come back
+  `self-verified`, the merged value is `self-verified` and M14(d) halts on it whatever the
+  other four reported.
+- `unstruck_verdicts`: 12 entries. Two carry the `[AC-AC12]` tag (runs 4 and 5). Equal
+  verdicts merge to one entry; a split verdict is Step 4's BC7 halt.
+
+Then §4 makes its one call on the merged file:
+
+```bash template
+skills/autopilot/ship-gate-verdict.sh --meta "${TMPDIR:-/tmp}/m14-merged-meta.json" --card1 <card1.json> --tier <tier>
+```
+
+The defect this closes: feeding `-claim-5.finalize-meta.json` alone. Its `ac_claims` is
+`[{c0, AC12}]`, so the mapper audits one AC, sees it clear, and card #2 ships with 10 of 11
+technical ACs unaudited and no signal that they were ever in scope.
 
 ## 5. Degraded-run rule
 
@@ -517,6 +637,11 @@ newlines/control chars.
 - **Pass a QA evidence file, runner log, or AC→evidence map to the council.** M14(a) forbids
   any pre-digested evidence payload beyond the locators §3b names. The card #1 stamp clears
   a `[process]` AC (M14(h)); a runner log never clears one.
+- **Feed the mapper one run's sidecar on a split pass, or decide the merge by the day.** A
+  split attempt merges the sidecars of its own invocations into one file first (§4b). MUST
+  NOT glob `.claude/council/<date>-*.md`, MUST NOT name one run's sidecar authoritative, and
+  MUST NOT merge mapper outputs: the mapper takes one `--meta` (M14(i)) and reads its AC
+  universe from that file, so a partial input under-reports the rest in silence.
 - **Use `max_verdict_confidence`, a mean, or a vote.** Card #2's confidence is the verdict
   mapper's per-AC minimum only (M14(b)); this pass MUST NOT compute or accept any other
   aggregate.

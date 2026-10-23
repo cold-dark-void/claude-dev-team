@@ -50,6 +50,13 @@ Overflow queues in later batches; nothing is dropped.
   its argument: exit 64 + usage; zero side effects before any spawn. An invalid
   stored map value: `resolve-model.sh --concurrency` exits 64 + stderr; invokers
   treat 64 as preflight failure, never silent unbounded. No upper ceiling.
+- MUST validate the env layer on every path that reaches it, including when
+  `--concurrency N` wins *(CDT-574-C3, Option B)*. A set, non-empty
+  `COUNCIL_CONCURRENCY` that is not an integer ≥ 1 exits 64 with a stderr
+  warning that names the variable; the run is never silent. An empty-string env
+  is unset. The Model map stays lazy: it is read only when the flag and the env
+  are both unset, so a flag run reads no map layer. Precedence for valid values
+  is unchanged: flag > env > map. Mirrors SPEC-039 M37 for `ADVISOR_MODEL`.
 - Env name `COUNCIL_CONCURRENCY` is accepted debt (the cap also binds
   `/bug-hunt` and `/debug ticket`). Do not rename in this ticket.
 - Unset (unbounded): one wave as today; spawn-fence prose byte-identical;
@@ -833,7 +840,7 @@ Format and rules: SPEC-033 M14(g) and M14(h).
 - **AC1.** Default (flag unset, env unset or empty-string, map key absent or empty): one wave as today; no contract line; spawn-fence prose byte-identical. Report frontmatter is the carve-out: it gains `concurrency: unbounded` on both Task and Workflow paths.
   Verify: bash skills/council/test-concurrency.sh
 - **AC2.** Cap X set: every enumerated wave of ≥ 2 intended spawns runs ceil(W/X) batches of ≤ X; spawn a batch, await all returns, then the next batch; final batch MAY be partial; a wave of ≤ X stays one batch. Enumerated waves: council Phase 2, Phase 2.5, Phase 3 specialist, Phase 4 pair, Phase 5 judge parts; --blind path; /review-and-commit investigators; /bug-hunt S1/S2; /debug ticket refuters; /orchestrate council gates only (not the IC DAG). /kickoff Step 2 finder fan-out is out of this ticket.
-  Verify: bash skills/council/test-concurrency.sh
+  Verify: bash skills/council/test-parity-fixtures.sh
 - **AC3.** Nothing drops. Completed spawn count equals intended count. Batching MUST NOT emit `self-verified — refuters unavailable` or set `verification_mode: self-verified`.
   Verify: bash skills/council/test-concurrency.sh
 - **AC4.** Resolution: flag > COUNCIL_CONCURRENCY > Model map local > repo > global. Absent everywhere = unbounded. Empty map value = unbounded. Empty-string env = unset (not invalid).
@@ -860,6 +867,8 @@ Format and rules: SPEC-033 M14(g) and M14(h).
 
 | Date | Change |
 |------|--------|
+| 2026-10-22 | CDT-574-C3: **Spawn concurrency cap** — new MUST on the env layer. When `--concurrency N` wins, an ambient `COUNCIL_CONCURRENCY` is still validated: a set, non-empty, non-cap value exits 64 with a stderr warning that names the variable (Option B; SPEC-039 M37 precedent for `ADVISOR_MODEL`). An empty-string env stays unset. The Model map stays lazy — read only when the flag and the env are both unset — so AC4/AC5 precedence for valid values is unchanged and the AC5 shield cases (`5` shielding a junk map) stay green. Only a junk env now fails. AC4/AC5 prose is not amended. `resolve-concurrency.sh` keeps the single merge; `engine-preflight.sh` stays a thin `--flag` wrapper. Status stays ACTIVE. |
+| 2026-10-22 | CDT-574-C1: AC2 verify binding. The `### CDT-573` AC2 `Verify:` line names `skills/council/test-parity-fixtures.sh`. That suite proves the ceil(W/X) batch math (waves of ≤ X, partial tail) and Task-contract versus Workflow `parallel()` partition parity at unbounded and cap=2. `skills/council/test-concurrency.sh` tests spawn fences, the contract line, and report frontmatter; it cannot falsify AC2's arithmetic claim, so it stays on AC1, AC3, AC5, AC8 and AC10. AC2 prose is unchanged — only the binding moved. SPEC-033 M14(g) allows one command per `Verify:` line, so the binding names one suite. Status stays ACTIVE. |
 | 2026-10-21 | CDT-573: **Spawn concurrency cap** — opt-in per-run cap X (`--concurrency N` > `COUNCIL_CONCURRENCY` > Model map `concurrency`); unbounded default; batch-synchronous waves; queueing is not CDV-199; Task contract line + Workflow `parallel()` chunk; report FM `concurrency:`; kickoff Step 2 finder fan-out and `external-reviewer.sh` out of cap; Test 26; `### CDT-573` ACs. Status stays ACTIVE. |
 | 2026-10-12 | CDT-537 (cdt-537-m14-evidence-bar): run-output evidence bar. Investigator bundles MUST quote actual run output (command + exit code + relevant output lines) for each AC sub-clause where a run exists; the judge scores confidence on exhibited run output and caps at 79 a sub-clause evidenced only by source asserts; a bite-coverage strike on an AC routes a follow-up ticket through the existing struck-lines audit trail (Phase 5 "Run-output evidence bar"). Prompts: `investigator.md`, `judge.md`. These rules can only lower a confidence; SPEC-033 M14(b) is unchanged. Status stays ACTIVE. |
 | 2026-10-12 | council-judge-file-delivery (CDT-536): supported judge input channel for large bundle sets. A tool-less judge cannot Read bundle part files, so the file-channel variant is structurally unsupported; instead the engine splits a bundle block over 64,000 bytes into claim-atomic parts and spawns the judge once per part (briefs filtered per part, arrays concatenated; a failed part degrades the whole judge). Fixed constant `JUDGE_BUNDLE_CAP_BYTES = 64000` — no env var, no flag. Implemented on the Workflow path (`workflow.js` `partitionJudgeParts`) and documented for the Task path (`commands/council.md` Phase 5). Phase 5 "Judge bundle cap" MUST added. The empty tool allowlist is unchanged. Status stays ACTIVE. |

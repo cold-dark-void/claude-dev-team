@@ -164,6 +164,20 @@ expect_rc "invalid env: exit 64" 64
 want "invalid env: empty stdout" "" "$OUT"
 [ -s "$PLANF" ] && bad "invalid env wrote a plan" || ok "invalid env wrote no plan"
 no_side_effects "invalid env"
+# CDT-574-C3 (Option B): the env layer is validated even when a valid flag
+# wins, so the engine must fail closed with zero side effects here too.
+snap "$TMP/snap-before"
+plan --scope claim --scope-arg "x" --concurrency 2
+expect_rc "invalid env + valid flag: exit 64" 64
+want "invalid env + valid flag: empty stdout" "" "$OUT"
+[ -s "$PLANF" ] && bad "invalid env + valid flag wrote a plan" || ok "invalid env + valid flag wrote no plan"
+grep -q 'COUNCIL_CONCURRENCY' "$ERRF" \
+  || bad "invalid env + valid flag: stderr does not name COUNCIL_CONCURRENCY: $(head -2 "$ERRF")"
+no_side_effects "invalid env + valid flag"
+# A valid env with a valid flag keeps the flag winner and exits 0.
+CAP=5 plan --scope claim --scope-arg "x" --concurrency 2
+expect_rc "valid env + valid flag: exit 0" 0
+expect_plan "valid env + valid flag: flag wins" '.concurrency == 2'
 unset CAP
 
 # ---- 5. Model map layer -----------------------------------------------------

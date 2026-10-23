@@ -111,7 +111,7 @@ else
 fi
 
 # =============================================================================
-# AC14 — list read-only; 10 M8 names; Tier default + inherited (M18)
+# AC14 — list read-only; every mappable agent; Tier default + inherited (M18)
 # =============================================================================
 run list extra-ignored
 check_rc "list-extra-argv" 0
@@ -125,14 +125,14 @@ else
   fail "list-local-path out='$LIST'"
 fi
 missing=""
-for a in pm tech-lead ic5 ic4 devops qa ds council-judge finder debugger; do
+for a in $(bash "$SCRIPT_DIR/mappable-names.sh" --list); do
   echo "$LIST" | grep -Eq "^${a}[[:space:]]+Tier default[[:space:]]+inherited$" \
     || missing="$missing $a"
 done
 if [ -z "$missing" ]; then
-  pass "AC14-list-ten-inherited"
+  pass "AC14-list-mappable-inherited"
 else
-  fail "AC14-list-ten-inherited missing:$missing out='$LIST'"
+  fail "AC14-list-mappable-inherited missing:$missing out='$LIST'"
 fi
 want_pm=$(printf '%-14s %-16s %s\n' pm "Tier default" inherited)
 got_pm=$(echo "$LIST" | grep -E '^pm[[:space:]]')

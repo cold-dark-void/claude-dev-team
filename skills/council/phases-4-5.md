@@ -141,6 +141,9 @@ verdict := {
          | "CONTRADICTED" | "FABRICATED",
   confidence: integer 0..100,
   evidence_blob: string                                      // raw inline blob
+         // MUST be a verbatim substring of exactly ONE bundle's raw_blob;
+         // MUST NOT be a concatenation, join, or splice of two
+         // or more bundles — the engine strikes the verdict (CDT-574)
 }
 ```
 

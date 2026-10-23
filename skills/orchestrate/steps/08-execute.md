@@ -132,6 +132,17 @@ With `<COMMAND>` resolved by the orchestrator at spawn time (not left as a place
   done in this fix; the task-gate site simply has no external-tier supplier of its own beyond
   the DRI's `--council-tier` flag.
 
+Carry the Spawn concurrency cap on `<COMMAND>` (SPEC-013 § Spawn concurrency cap,
+CDT-573): when `ORCH_CONCURRENCY` (Step 0) is non-empty, append
+`--concurrency "$ORCH_CONCURRENCY"` as the last token of `<COMMAND>` in both branches
+above. When it is empty, append nothing. The orchestrator substitutes the captured
+value at spawn time — this is a spawn prompt, not a bash fence, so the agent MUST NOT
+see the variable name (same discipline as Step 9's `<light|full>`). Resolve and
+validate nothing here; the engine's preflight owns the merge and its exit 64 stderr
+surfaces verbatim. The cap binds the council fleet the IC runs, never this step's IC
+DAG: the `Spawn @<agent>` fence above MUST NOT carry the flag, a batching
+instruction, or the `Spawn contract:` line (SPEC-013 § CDT-573 AC2).
+
 ```
 Before reporting done, run:
   <COMMAND>

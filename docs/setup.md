@@ -108,9 +108,9 @@ If the download fails or `sqlite3` is unavailable, agents fall back to .md files
 ## `/setup models` — Local Model Map
 
 Read and write the local per-agent model layer (SPEC-037). Bare `/setup models`
-lists the 10 mappable agents (`pm`, `tech-lead`, `ic5`, `ic4`, `devops`, `qa`,
-`ds`, `council-judge`, `finder`, `debugger`) with the winning model or
-`Tier default`, plus the winning effort or `inherited`, the spawn concurrency
+lists the 11 mappable agents (`pm`, `tech-lead`, `ic5`, `ic4`, `devops`, `qa`,
+`ds`, `council-judge`, `finder`, `debugger`, `advisor`) with the winning model
+or `Tier default`, plus the winning effort or `inherited`, the spawn concurrency
 cap (`concurrency: <N>` or `concurrency: unbounded`), and the local path.
 
 ```bash

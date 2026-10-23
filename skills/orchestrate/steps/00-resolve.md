@@ -54,6 +54,19 @@
   `epic-lib set-with-advisor <EPIC-ID> true` (plus the model as the third
   argument when non-empty) before handing off, and export `ADVISOR=1` plus
   `ADVISOR_MODEL="<model>"` into the `/epic` child environment (M10/M37).
+- `[--concurrency N]` — optional, any position: Spawn concurrency cap for the fleet
+  council runs of this orchestration (CDT-573 / SPEC-013 § Spawn concurrency cap).
+  Both forms: `--concurrency N` and `--concurrency=N`. Capture only — Step 0 stores
+  the user's token verbatim in `ORCH_CONCURRENCY` (empty when the flag is absent;
+  no env, no Model map read, no resume-state seeding; independent of
+  `--council-tier` / `--tier` / `--max-loc`). This run resolves and validates
+  nothing: the council engine's preflight owns that one merge and exits 64 on a bad
+  value — print that stderr and stop, never retry unbounded. Carry the token to the
+  Step 6c, Step 8, and Step 9 council gates and to the M14 ship gate
+  (`skills/autopilot/ship-gate-council.md`). MUST NOT reach the Step 8 IC spawn
+  fence, the Step 4 kickoff spawns, the single council-judge spawn, or any advisor
+  spawn (SPEC-013 § CDT-573 AC2 — the IC DAG is not a fleet). See Step 0 "Spawn
+  concurrency cap capture".
 - `[--resume-ship[=<patch|minor|major|master>]]` — optional (CDT-135 / SPEC-033 /
   CDT-195): after a human overrides a BC7 ship-choice halt, run the **single
   confirmed ship sequence** (end-state land path + wrap) without re-running the
@@ -185,6 +198,40 @@ if [ "$AP_SOURCE" = none ]; then
 fi
 ```
 
+### Spawn concurrency cap capture (CDT-573)
+
+Capture the user's Spawn concurrency cap token once, at run start, verbatim. This
+fence resolves and validates nothing: no `resolve-concurrency.sh` call, no
+`COUNCIL_CONCURRENCY` env read, no Model map read. The council engine's preflight owns
+that one merge (`--concurrency` > env > map, SPEC-013 § Spawn concurrency cap) and
+exits 64 on a bad value; that stderr surfaces verbatim at the gate that runs it —
+print it and stop, never retry unbounded.
+
+```bash
+# CDT-573: verbatim capture only. The token is carried to every fleet council
+# invocation this run makes (Step 6c, Step 8 addendum, Step 9 task gate, M14 ship
+# gate) and nowhere else — never the IC spawn fence (SPEC-013 AC2).
+ORCH_CONCURRENCY=""
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --concurrency)
+      if [ "$#" -ge 2 ]; then ORCH_CONCURRENCY="$2"; shift; fi
+      shift ;;
+    --concurrency=*)
+      ORCH_CONCURRENCY="${1#--concurrency=}"; shift ;;
+    *) shift ;;
+  esac
+done
+printf 'ORCH_CONCURRENCY=%s\n' "$ORCH_CONCURRENCY"
+```
+
+Empty means unbounded: the sites append nothing and the engine resolves env and the
+Model map for itself. A bare `--concurrency` with no following token also captures
+the empty string — the engine's missing-argument exit 64 fires only for a token that
+reaches it. `--concurrency 0` and a non-integer are carried verbatim to the gate and
+fail closed there. No resume-state seeding: a resumed run without the flag is
+unbounded.
+
 ### Run-start epoch and RUN_ID (SPEC-033 M9a)
 
 ```bash template
@@ -262,7 +309,7 @@ echo "RUN_START_EPOCH=$RUN_START_EPOCH"   # RUN_ID unchanged (SPEC-033 M9a)
 
 Every later reference to `AUTOPILOT_ON` / `AUTOPILOT_BUMP` / `RUN_ID` /
 `RUN_START_EPOCH` / `ITER` / `COUNCIL_TIER_OVERRIDE` / `ORCH_TIER` / `MAX_LOC` /
-`ADVISOR_ON` / `ADVISOR_SOURCE` / `ADVISOR_MODEL` below means these values,
-carried forward from this step.
+`ADVISOR_ON` / `ADVISOR_SOURCE` / `ADVISOR_MODEL` / `ORCH_CONCURRENCY` below means
+these values, carried forward from this step.
 
 ---

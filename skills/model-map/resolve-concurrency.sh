@@ -10,6 +10,10 @@
 #
 # Precedence: --flag N > $COUNCIL_CONCURRENCY > resolve-model.sh --concurrency
 # (Model map local > repo > global). An empty-string env counts as unset.
+# The env layer is validated on every path that reaches it, including when a
+# flag wins, so a flag never hides a malformed COUNCIL_CONCURRENCY from the next
+# flagless run (SPEC-013 § Spawn concurrency cap; SPEC-039 M37 precedent). The
+# Model map stays lazy: it is read only when the flag and the env are both unset.
 # stdout: the cap integer, or empty (unbounded). At most one trailing newline.
 # stderr: usage and warnings only.
 # exit:   0, or 64 when the flag/env value is not an integer >= 1 (usage),
@@ -38,22 +42,34 @@ is_cap() {
   esac
 }
 
+# check_env_layer — validate the COUNCIL_CONCURRENCY layer. Set, non-empty, and
+# not a positive integer is a hard fail (exit 64 at the caller): the warning
+# names the variable so the operator can fix the export. Returns 0 when the env
+# is unset, empty, or a valid cap.
+check_env_layer() {
+  local v=${COUNCIL_CONCURRENCY:-}
+  [ -n "$v" ] || return 0
+  is_cap "$v" && return 0
+  echo "resolve-concurrency.sh: COUNCIL_CONCURRENCY '$v' is not a positive integer >= 1; fix or unset it" >&2
+  usage
+  return 1
+}
+
 if [ "${1:-}" = "--flag" ]; then
   shift
   if [ -z "${1:-}" ] || ! is_cap "$1"; then
     usage
     exit 64
   fi
+  # The flag wins, but a junk env still fails closed (SPEC-039 M37 precedent).
+  check_env_layer || exit 64
   printf '%s\n' "$1"
   exit 0
 fi
 
 env_val=${COUNCIL_CONCURRENCY:-}
 if [ -n "$env_val" ]; then
-  if ! is_cap "$env_val"; then
-    usage
-    exit 64
-  fi
+  check_env_layer || exit 64
   printf '%s\n' "$env_val"
   exit 0
 fi

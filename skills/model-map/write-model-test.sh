@@ -102,7 +102,7 @@ else
 fi
 
 # =============================================================================
-# list — read-only, 10 agents, Tier default, local path
+# list — read-only, every mappable agent, Tier default, local path
 # =============================================================================
 run list extra-ignored
 check_rc "list-extra-argv" 0
@@ -116,13 +116,13 @@ else
   fail "list-local-path out='$LIST'"
 fi
 missing=""
-for a in pm tech-lead ic5 ic4 devops qa ds council-judge finder debugger; do
+for a in $(bash "$SCRIPT_DIR/mappable-names.sh" --list); do
   echo "$LIST" | grep -Eq "^${a}[[:space:]]+Tier default([[:space:]]|$)" || missing="$missing $a"
 done
 if [ -z "$missing" ]; then
-  pass "list-ten-tier-default"
+  pass "list-mappable-tier-default"
 else
-  fail "list-ten-tier-default missing:$missing out='$LIST'"
+  fail "list-mappable-tier-default missing:$missing out='$LIST'"
 fi
 if [ ! -e "$TMP/.claude" ] && [ ! -e "$FAKE_HOME/.claude" ]; then
   pass "list-readonly"

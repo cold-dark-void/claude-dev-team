@@ -156,11 +156,15 @@ slug_list_from_text() {
 # `(slug, …)` list: the same string lead-summary.sh puts on the fold subject.
 # Detail bullets are never scanned (advisor B1: role lists like
 # `(reviewer, scout, …)` in a detail must stay inert).
+#
+# The bold span is a BRE capture group: `\([^*]*\)`. Plain `([^*]*)` is a literal
+# paren pair, so `\1` had no group to name, GNU sed died on "invalid reference
+# \1", and the CHANGELOG lead never contributed a slug (CDT-574-C7).
 changelog_lead_list() {
   local bullet lead list
   bullet=$(printf '%s\n' "$1" | grep -m1 -E '^[[:space:]]*-[[:space:]]*\*\*' || true)
   [ -n "$bullet" ] || return 0
-  lead=$(printf '%s' "$bullet" | sed -n 's/^[[:space:]]*-[[:space:]]*\*\*([^*]*)\*\*.*/\1/p')
+  lead=$(printf '%s' "$bullet" | sed -n 's/^[[:space:]]*-[[:space:]]*\*\*\([^*]*\)\*\*.*/\1/p')
   [ -n "$lead" ] || return 0
   list=$(printf '%s' "$lead" | sed -n 's/.*(\([^)]*\))[[:space:]]*$/\1/p')
   [ -n "$list" ] || return 0
@@ -169,10 +173,18 @@ changelog_lead_list() {
 
 # changelog_section CHANGELOG_TEXT VERSION — body of `### v<VERSION>` / `### <VERSION>`
 # up to the next `### ` heading.
+#
+# awk reads the whole input and stops with a flag; it MUST NOT `exit` early. An
+# early exit closes the read end of the pipe, `printf` (the writer) dies on
+# SIGPIPE, and `set -o pipefail` turns the pipeline into status 141, which
+# `set -e` propagates. Any fold section followed by a later `### ` heading with
+# more than the pipe buffer (64 KB) after it is a real CHANGELOG section, so the
+# sweep died before it closed anything (CDT-574-C7).
 changelog_section() {
   printf '%s\n' "$1" | awk -v ver="^### v?${2}[[:space:]]*$" '
+    stop { next }
     $0 ~ ver { grab=1; next }
-    /^### / { if (grab) exit }
+    /^### / { if (grab) { stop=1; grab=0; next } }
     grab { print }
   '
 }

@@ -362,6 +362,8 @@ check "AC5-flag-neg" 64 "" "usage: resolve-concurrency.sh"
 runm --flag 2.5
 check "AC5-flag-float" 64 "" "usage: resolve-concurrency.sh"
 
+# C3 adds a warning naming COUNCIL_CONCURRENCY on this path; the usage line
+# stays, so these expectations are unchanged (grep -F on a substring).
 MCAP=two runm
 check "AC5-env-noninteger" 64 "" "usage: resolve-concurrency.sh"
 MCAP=0 runm
@@ -392,6 +394,46 @@ check "AC5-map-64-propagates" 64 "" "concurrency is not an integer"
 MCAP=3 runm
 check "AC5-env-shields-invalid-map" 0 "3" ""
 clear_layers
+
+# =============================================================================
+# C3 (CDT-574-C3, Option B) — junk is explicit per layer: flag, env-when-the-
+# flag-wins, env-flagless, map. The env layer is validated on every path that
+# reaches it, so a flag cannot hide a broken shell export from the next
+# flagless run (SPEC-013 § Spawn concurrency cap; SPEC-039 M37 precedent). The
+# Model map stays lazy: read only when flag and env are both unset.
+# =============================================================================
+clear_layers
+# layer: flag (flag validation is unchanged — usage, exit 64)
+MCAP=__UNSET__ runm --flag 1x
+check "C3-junk-flag" 64 "" "usage: resolve-concurrency.sh"
+# layer: env, flagless (warning now names the variable, not usage alone)
+MCAP=6x runm
+check "C3-junk-env-flagless" 64 "" "COUNCIL_CONCURRENCY"
+# layer: env when a valid flag wins — the new gate
+MCAP=abc runm --flag 4
+check "C3-junk-env-when-flag-wins" 64 "" "COUNCIL_CONCURRENCY"
+# with an invalid stored map value present, the flag path still reports the env
+# and never reads the map (the map stays lazy)
+write_map <<'EOF'
+{"version":1,"concurrency":0}
+EOF
+MCAP=abc runm --flag 4
+check "C3-junk-env-when-flag-wins-over-invalid-map" 64 "" "COUNCIL_CONCURRENCY"
+if grep -qF 'model-map:' "$ERRF"; then
+  fail "C3-map-stays-lazy: map warning on the flag path: $(cat "$ERRF")"
+else
+  pass "C3-map-stays-lazy"
+fi
+# layer: map, with flag and env unset (M33 fail-closed, unchanged)
+MCAP=__UNSET__ runm
+check "C3-junk-map" 64 "" "concurrency is not an integer"
+clear_layers
+# AC3 dogfood: an empty-string env is unset (AC4), so the valid flag answers
+MCAP="" runm --flag 4
+check "C3-empty-env-when-flag-wins" 0 "4" ""
+# AC5 dogfood: a valid env with a valid flag keeps the flag winner, exit 0
+MCAP=5 runm --flag 4
+check "C3-valid-env-flag-still-wins" 0 "4" ""
 
 # =============================================================================
 # AC14/M10 — merge helper is read-only: no map paths created

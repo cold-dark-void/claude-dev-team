@@ -32,6 +32,13 @@
 #        is byte-equal to a committed golden extracted from `38bc739`.
 #   g10 — `skills/council/engine.sh` holds `M14_VERIFY_TOOL_BUDGET=8` and
 #        `INVESTIGATOR_TOOL_BUDGET=5`.
+#   g11 (CDT-574-C6) — `ship-gate-council.md` §4b, located by its heading, holds
+#        the split-pass merged-meta recipe: the `Council report:` identification,
+#        the no-glob rule, the per-key merge rules, the conflict rule, the
+#        partial-sidecar ban, the any-run `self-verified` rule, the
+#        byte-identical-mapper clause, and the `dRPDwyJo` worked example.
+#        g11b asserts every `ship-gate-verdict.sh --meta` call takes exactly one
+#        `--meta` argument (SPEC-033 M14(i): merge first, then one call).
 #   a6 — SPEC-033 has a dated 2026-09-28 WP 1-16 row naming M14(g), M14(j),
 #        the no-elision rule and the judge caps ("can only lower a
 #        confidence"); SPEC-013 has a dated 2026-09-28 WP 1-16 row.
@@ -705,6 +712,90 @@ if has "$TMP/g10-mut.sh" "$G10_A"; then
   fail "g10-bite mutation did not remove the M14_VERIFY_TOOL_BUDGET constant"
 else
   pass "g10-bite mutated engine.sh loses M14_VERIFY_TOOL_BUDGET=8 -> check would fail"
+fi
+
+# =============================================================================
+# g11 (CDT-574-C6) — ship-gate-council.md carries the split-pass merged-meta
+# recipe. §4b is located by its heading (up to the "## 5." heading), never a
+# fixed line number. Needles cover AC 1-6 and AC 8; the mapper keeps its
+# single-`--meta` signature.
+# =============================================================================
+extract_sgc_4b() {
+  awk '
+    /^### 4b\./ { grab = 1 }
+    grab && /^## 5\./ { exit }
+    grab { print }
+  ' "$1"
+}
+
+G11_HEAD="merged-meta recipe"
+G11_N1="Council report:"
+G11_N2="MUST NOT glob"
+G11_N3="Dedupe by \`claim_id\`"
+G11_N4="MUST NOT be double-counted"
+G11_N5="\`verdict_counts\` | Sum each taxonomy key"
+G11_N6="MUST NOT pick the higher confidence"
+G11_N7="\`--meta\` input"
+G11_N8="\`self-verified\` when **any** member is"
+G11_N9="byte-identical (WP 1-15 G)"
+G11_N10="dRPDwyJo"
+
+extract_sgc_4b "$SG" > "$TMP/g11-live-4b.md"
+if [ ! -s "$TMP/g11-live-4b.md" ]; then
+  fail "g11 could not extract the §4b merged-meta section from ship-gate-council.md"
+elif ! has "$TMP/g11-live-4b.md" "$G11_HEAD"; then
+  fail "g11 §4b section is not the merged-meta recipe"
+else
+  G11_MISSING=""
+  for g11_needle in "$G11_N1" "$G11_N2" "$G11_N3" "$G11_N4" "$G11_N5" "$G11_N6" "$G11_N7" "$G11_N8" "$G11_N9" "$G11_N10"; do
+    has "$TMP/g11-live-4b.md" "$g11_needle" || G11_MISSING="$G11_MISSING $g11_needle"
+  done
+  if [ -z "$G11_MISSING" ]; then
+    pass "g11 ship-gate-council.md §4b: merged-meta recipe names the report lines, the merge rules, the conflict rule, the partial-sidecar ban, any-run self-verified, the byte-identical mapper, and the dRPDwyJo example"
+  else
+    fail "g11 ship-gate-council.md §4b merged-meta recipe missing:$G11_MISSING"
+  fi
+fi
+
+# g11-bite: mutate the extracted section itself. Each needle is removed once from
+# the §4b extract and the same needle test re-runs on the mutated copy, so a
+# check that passes on a phrase the doc does not actually depend on cannot stand.
+g11_i=0
+for g11_needle in "$G11_N1" "$G11_N2" "$G11_N3" "$G11_N4" "$G11_N5" "$G11_N6" "$G11_N7" "$G11_N8" "$G11_N9" "$G11_N10"; do
+  g11_i=$((g11_i + 1))
+  remove_line_substr "$TMP/g11-live-4b.md" "$TMP/g11-bite-$g11_i.md" "$g11_needle"
+  if has "$TMP/g11-bite-$g11_i.md" "$g11_needle"; then
+    fail "g11-bite mutation did not remove the §4b needle $g11_needle"
+  else
+    pass "g11-bite §4b loses '$g11_needle' -> check would fail"
+  fi
+done
+
+# g11b — the mapper signature is unchanged on a split pass: every
+# ship-gate-verdict.sh call in the doc takes exactly one --meta argument
+# (M14(i): merge first, then one call). Calls are located by the mapper name,
+# not a line number.
+N_META_FENCES=0
+G11B_BAD=""
+while IFS= read -r g11b_line; do
+  N_META_FENCES=$((N_META_FENCES + 1))
+  N_META=$(printf '%s' "$g11b_line" | grep -o -- '--meta' | wc -l | tr -d ' ')
+  [ "$N_META" -eq 1 ] || G11B_BAD="$G11B_BAD '$g11b_line'"
+done < <(grep 'ship-gate-verdict\.sh --meta' "$SG")
+if [ "$N_META_FENCES" -eq 0 ]; then
+  fail "g11b could not find a ship-gate-verdict.sh --meta invocation in ship-gate-council.md"
+elif [ -z "$G11B_BAD" ]; then
+  pass "g11b ship-gate-council.md: all $N_META_FENCES mapper calls take exactly one --meta"
+else
+  fail "g11b mapper call takes more than one --meta:$G11B_BAD"
+fi
+# Bite: a second --meta token on the §4b call must fail the count.
+sed -E 's#(--meta "\$\{TMPDIR:-/tmp\}/m14-merged-meta\.json")#\1 --meta <second.json>#' "$SG" > "$TMP/g11b-sg-mut.md"
+G11B_MUT=$(grep -c -- '--meta .*--meta' "$TMP/g11b-sg-mut.md" || true)
+if [ "${G11B_MUT:-0}" -ge 1 ]; then
+  pass "g11b-bite mutated doc holds a mapper call with two --meta arguments -> check would fail"
+else
+  fail "g11b-bite mutation produced no second --meta token"
 fi
 
 # =============================================================================

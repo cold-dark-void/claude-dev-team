@@ -248,6 +248,17 @@ auto-selected):
   trigger was removed entirely, Task 3's F-A fix; see Step 8). Confirm the
   index entry exists before proceeding to `TaskUpdate(completed)`.
 
+Carry the Spawn concurrency cap on the task-gate `<COMMAND>` (SPEC-013 § Spawn
+concurrency cap, CDT-573): when `ORCH_CONCURRENCY` (Step 0) is non-empty, append
+`--concurrency "$ORCH_CONCURRENCY"` as the last token of `<COMMAND>` in the
+`light`/`full` and `"null"` branches (never under `skip`, which invokes no council).
+When it is empty, append nothing. The orchestrator substitutes the captured value at
+spawn time — same discipline as `<light|full>` above, because a spawn prompt is prose,
+not a bash fence. Resolve and validate nothing here; the engine's preflight owns the
+merge and its exit 64 stderr surfaces verbatim. The cap binds the council fleet only:
+the Step 8 IC spawn fence, the Step 4 kickoff spawns, and advisor spawns
+stay cap-free (SPEC-013 § CDT-573 AC2).
+
 In the `light`/`full`/`"null"` branches the orchestrator MUST have exported
 `CLAUDE_TASK_ID=<task_id>` in the IC agent's subprocess environment at spawn
 time (Step 8) so the council run binds to the correct index row (SPEC-013

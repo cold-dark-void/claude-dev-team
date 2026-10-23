@@ -712,6 +712,51 @@ judge_bite "finder-cap-closing-sentence" \
   '       These caps can only lower a confidence; they do not change SPEC-033 M14(b).' \
   'These caps can only lower a confidence'
 
+# ---- CDT-574-C2: the one-bundle evidence_blob rule in both homes -----------
+# engine-finalize.sh strikes a verdict whose evidence_blob is not a substring of
+# a SINGLE bundle raw_blob (skills/council/engine-finalize.sh:537). In council
+# run dRPDwyJo the judge concatenated evidence across bundles and finalize
+# struck the verdict. The rule must be stated where the judge reads it
+# (prompts/judge.md procedure) and where the record is specified
+# (phases-4-5.md verdict schema). The two phrases below are the shared contract;
+# each home wraps them in its own role's wording.
+ONE_BUNDLE_SUBSTR="MUST be a verbatim substring of exactly ONE bundle's raw_blob"
+ONE_BUNDLE_NOSPLICE="MUST NOT be a concatenation, join, or splice"
+PHASES_MD="$ROOT/skills/council/phases-4-5.md"
+
+one_bundle_rule() {
+  grep -qF -- "$ONE_BUNDLE_SUBSTR" "$1" && grep -qF -- "$ONE_BUNDLE_NOSPLICE" "$1"
+}
+
+# Bite: a copy of the home with one rule phrase stripped must fail the check.
+one_bundle_bite() {
+  local label="$1" src="$2" needle="$3" bitten
+  bitten="$(mktemp "$TMP/one-bundle.bite.XXXXXX")"
+  grep -vF -- "$needle" "$src" > "$bitten"
+  if one_bundle_rule "$bitten"; then
+    fail_msg "bite: removing the $label phrase from ${src##*/} left the one-bundle check passing"
+  else
+    ok "bite: removing the $label phrase from ${src##*/} fails the one-bundle check"
+  fi
+}
+
+for home in "$JUDGE_MD" "$PHASES_MD"; do
+  if one_bundle_rule "$home"; then
+    ok "${home##*/}: states the one-bundle evidence_blob rule"
+  else
+    fail_msg "${home##*/}: missing the one-bundle evidence_blob rule"
+  fi
+  one_bundle_bite "substring" "$home" "$ONE_BUNDLE_SUBSTR"
+  one_bundle_bite "no-splice" "$home" "$ONE_BUNDLE_NOSPLICE"
+done
+
+# The engine's own strike text stays in sync with the prompt wording.
+if grep -qF 'evidence_blob is not a substring of a bundle raw_blob' "$ROOT/skills/council/engine-finalize.sh"; then
+  ok "engine-finalize.sh: the one-bundle strike reason is unchanged"
+else
+  fail_msg "engine-finalize.sh: the one-bundle strike reason changed (docs-only ticket)"
+fi
+
 # ---- WP 1-16 AC D: first four WP 1-15 bullets byte-identical to 38bc739 ----
 # 2026-10-12 (judge-diff-hunk-bullet-stale): the fifth bullet's tail was
 # reworded, so the 38bc739 golden now covers the four unchanged bullets and
