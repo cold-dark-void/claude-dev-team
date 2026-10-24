@@ -185,39 +185,64 @@ assert_eq "exit-passthrough: acquire actually succeeded" "ACQUIRED" "$(cat "$mar
 if [ -d "$lockdir" ]; then fail "exit-passthrough: no dir left" "present"; else pass "exit-passthrough: no dir left"; fi
 
 # ============================================================================
-# 7. SIGINT -> 130, SIGTERM -> 143, both release and leave no dir.
+# 7. SIGINT -> 130, SIGTERM -> 143, both release and leave no dir (CDT-584).
+#
+# The parent suite signals a CHILD holder; in-process self-kill by signal
+# is banned here. When this suite runs as a background job without job control
+# (the run-all-tests.sh --jobs pool), POSIX makes the shell start with
+# SIGINT ignored, and a non-interactive bash keeps that ignore disposition
+# even after `trap ... INT` installs — so a self-kill was dropped: the
+# holder exited 0 and fell through to the UNREACHABLE marker. `env
+# --default-signal` (GNU) resets INT/TERM to default in the child before
+# lock.sh installs its traps, so delivery is deterministic in both parents.
+# The child parks in the builtin `wait` (a trapped signal interrupts it
+# immediately; a foreground external sleep would defer the trap), so the
+# child exits within ~0 s of the parent's signal. The marker poll has a
+# 10 s deadline and the child's sleep bounds any hang at ~5 s.
 # ============================================================================
-root=$(new_root sigint)
-lockdir=$(lockdir_of "$root")
-marker="$WORK/sigint_marker.txt"
-rm -f "$marker"
-bash -c '
-  . "$1"
-  backlog_lock_acquire "$2" || { printf "ACQUIRE_FAILED\n" > "$3"; exit 1; }
-  printf "OK\n" > "$3"
-  kill -INT $$
-  printf "UNREACHABLE\n" >> "$3"
-' _ "$LOCK" "$root" "$marker"
-rc=$?
-assert_eq "SIGINT rc" "130" "$rc"
-assert_eq "SIGINT: marker shows trap ran, no unreachable code" "OK" "$(cat "$marker" 2>/dev/null)"
-if [ -d "$lockdir" ]; then fail "SIGINT: no dir left" "present"; else pass "SIGINT: no dir left"; fi
+signal_case() {
+  local sig="$1" want_rc="$2" name="$3"
+  local sname="SIG$sig"
+  local root lockdir marker pid rc i
+  root=$(new_root "$name")
+  lockdir=$(lockdir_of "$root")
+  marker="$WORK/${name}_marker.txt"
+  rm -f "$marker"
 
-root=$(new_root sigterm)
-lockdir=$(lockdir_of "$root")
-marker="$WORK/sigterm_marker.txt"
-rm -f "$marker"
-bash -c '
-  . "$1"
-  backlog_lock_acquire "$2" || { printf "ACQUIRE_FAILED\n" > "$3"; exit 1; }
-  printf "OK\n" > "$3"
-  kill -TERM $$
-  printf "UNREACHABLE\n" >> "$3"
-' _ "$LOCK" "$root" "$marker"
-rc=$?
-assert_eq "SIGTERM rc" "143" "$rc"
-assert_eq "SIGTERM: marker shows trap ran, no unreachable code" "OK" "$(cat "$marker" 2>/dev/null)"
-if [ -d "$lockdir" ]; then fail "SIGTERM: no dir left" "present"; else pass "SIGTERM: no dir left"; fi
+  env --default-signal=INT --default-signal=TERM bash -c '
+    . "$1"
+    backlog_lock_acquire "$2" || { printf "ACQUIRE_FAILED\n" > "$3"; exit 1; }
+    printf "OK\n" > "$3"
+    sleep 5 &
+    wait $!
+  ' _ "$LOCK" "$root" "$marker" &
+  pid=$!
+
+  i=0
+  while [ ! -s "$marker" ] && [ "$i" -lt 100 ]; do
+    sleep 0.1
+    i=$((i + 1))
+  done
+  if [ ! -s "$marker" ]; then
+    kill -TERM "$pid" 2>/dev/null
+    wait "$pid" 2>/dev/null
+    fail "$sname child marker" "child never wrote the marker within 10s"
+    fail "$sname rc" "child did not start"
+    fail "$sname: marker shows trap ran, no unreachable code" "child did not start"
+    fail "$sname: no dir left" "child did not start"
+    return
+  fi
+
+  kill -"$sig" "$pid"
+  rc=0
+  wait "$pid" || rc=$?
+  assert_eq "$sname rc" "$want_rc" "$rc"
+  assert_eq "$sname: marker shows trap ran, no unreachable code" "OK" "$(cat "$marker" 2>/dev/null)"
+  if [ -d "$lockdir" ]; then fail "$sname: no dir left" "present"; else pass "$sname: no dir left"; fi
+}
+
+signal_case INT 130 sigint
+signal_case TERM 143 sigterm
 
 # ============================================================================
 # 8. bad env -> 64, no dir created.

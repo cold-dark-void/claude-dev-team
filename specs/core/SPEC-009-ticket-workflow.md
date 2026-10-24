@@ -578,6 +578,7 @@ only other content is `set -u` and a subprocess entry point that calls
 | 2026-10-30 | CDT-589-C2: Classifier scan scope is ticket text only — title, body, ACs; "plan text" removed from every input list and the plan's own `ticket_class:` section excluded on re-scan. Same scope sentence in plan-contract § Ticket class, kickoff Step 6, `06-design.md` Step 6 + 6c, and the § classifier MUST. Scan-scope fixtures + `AC15` blocks in `ticket-class-test.sh` (behavior) and `router-static-test.sh` (prose, T35; harness count 35→38). Classifier CLI unchanged. `### CDT-589-C2` ACs. |
 | 2026-10-28 | CDT-595: Per-AC run receipts on `ticket-class-test.sh` / `router-static-test.sh`. Colon form `ok AC<n>: <slug>` (investigator alt-2). `--ac AC<n>` exact-id filter. C1 Verify lines repointed to `--ac AC<n>` (AC12: router-static). `### CDT-595` ACs. Classifier CLI unchanged. |
 | 2026-10-26 | CDT-589-C1: Glossary carve-out in `ticket-class.sh` before the PHRASE-then-WORD scan. Hyphenated `## Terms` col-1 compounds (D2) mask equal `[A-Za-z0-9-]` tokens with `x`. Source D1 four-path; `TICKET_CLASS_GLOSSARY` override; sentinel `off`; fail-closed. Dual-home clause (no shared partial) with plan-contract, kickoff Step 6, 06-design Step 6c. D4 anti-gaming floor (one predicate). Cap 256. Scan-input sentence (title\|body\|ACs\|plan) unchanged — C2. `### CDT-589-C1` ACs. |
+| 2026-10-23 | CDT-584: `### CDT-584` ACs for the lock-test SIGINT/SIGTERM load flake. INT/TERM cases must parent-signal a child holder (no in-process `kill -INT $$`). rc 130/143, marker `OK`, no lock dir; must pass when the suite inherited SIGINT ignored. |
 | 2026-10-02 | CDT-371: the TaskCompleted council gate is implemented in SPEC-002. The cross-spec follow-up is closed. |
 | 2026-10-01 | WP 5-06 (CDT-318): memory write-back MUST append (SPEC-004). `INSERT OR REPLACE` is not the write path. |
 
@@ -726,3 +727,13 @@ Format and rules: SPEC-033 M14(g) and M14(h). Each ticket that ships through M14
   Verify: bash skills/orchestrate/ticket-class-receipts-test.sh --ac AC9
 - **AC10.** [process] No new deps. No new Surface. Work stays on `feat/CDT-595` stacked on `feat/CDT-589-C1` and is never FF-merged to master. No edits to `ship-gate-council.md`, `investigator.md`, `judge.md`, or the verdict mapper.
 - **AC11.** [process] Gate re-run is Definition of Done after ship: re-run the C1 ship-gate at tier full; every technical AC of `### CDT-589-C1` scores >= 80; no BC7. This is not a pre-ship mechanical gate.
+
+### CDT-584
+
+- **AC1.** The SIGINT case in `skills/backlog/lock-test.sh` starts a child holder, waits until the marker is `OK`, then sends INT from the parent and `wait`s. `wait` rc is 130 (`lock.sh` INT trap `exit 130`). Marker is exactly `OK` (no `UNREACHABLE`). Lock dir is gone. The child does not run further statements after the parent sends INT. The case passes when this suite inherited SIGINT ignored (background job, no job control — the `--jobs 8` pool wrapper).
+  Verify: bash skills/backlog/lock-test.sh
+- **AC2.** The SIGTERM case uses the same parent-signals-child shape. `wait` rc is 143 (`lock.sh` TERM trap `exit 143`). Marker is exactly `OK`. Lock dir is gone.
+  Verify: bash skills/backlog/lock-test.sh
+- **AC3.** `lock-test.sh` contains no in-process `kill -INT $$` or `kill -TERM $$`. `lock.sh` INT/TERM trap bodies stay `backlog_lock_release; exit 130` and `exit 143`. The no-dir-left asserts stay. Deleting the rc or marker assert is not a fix.
+  Verify: bash skills/backlog/lock-test.sh
+- **AC4.** [process] `bash tools/run-all-tests.sh --jobs 8` exits 0. `skills/backlog/lock-test.sh` is not a FAIL.

@@ -497,11 +497,15 @@ if want_ac; then
   # feature branch retains it) before failing.
   # Newest matching pair: stale pre-rebase lineages may still be reachable
   # via old refs, and only the current lineage's ordering is evidence.
+  # The spec pattern is the full `spec: CDT-595 —` subject prefix. The loose
+  # `per-AC run receipts` phrase also matches a CDT-589-C1 test commit that
+  # the 1.28 fold made reachable on master, and it is newer, so a loose grep
+  # picks the wrong commit and the ancestor check fails on a green lineage.
   SPIKE=$(git -C "$ROOT" log --format='%H %s' 2>/dev/null | grep -E 'CDT-595-T1 ' | head -1)
-  SPECC=$(git -C "$ROOT" log --format='%H %s' 2>/dev/null | grep -F 'per-AC run receipts' | head -1)
+  SPECC=$(git -C "$ROOT" log --format='%H %s' 2>/dev/null | grep -F 'spec: CDT-595 — per-AC run receipts' | head -1)
   if [ -z "$SPIKE" ] || [ -z "$SPECC" ]; then
     SPIKE=$(git -C "$ROOT" log --all --format='%H %s' 2>/dev/null | grep -E 'CDT-595-T1 ' | head -1)
-    SPECC=$(git -C "$ROOT" log --all --format='%H %s' 2>/dev/null | grep -F 'per-AC run receipts' | head -1)
+    SPECC=$(git -C "$ROOT" log --all --format='%H %s' 2>/dev/null | grep -F 'spec: CDT-595 — per-AC run receipts' | head -1)
   fi
   if [ -n "$SPIKE" ] && [ -n "$SPECC" ] \
      && git -C "$ROOT" merge-base --is-ancestor "${SPIKE%% *}" "${SPECC%% *}"; then
