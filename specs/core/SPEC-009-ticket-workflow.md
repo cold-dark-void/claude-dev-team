@@ -558,6 +558,7 @@ only other content is `set -u` and a subprocess entry point that calls
 
 | Date | Change |
 |------|--------|
+| 2026-10-23 | CDT-584: `### CDT-584` ACs for the lock-test SIGINT/SIGTERM load flake. INT/TERM cases must parent-signal a child holder (no in-process `kill -INT $$`). rc 130/143, marker `OK`, no lock dir; must pass when the suite inherited SIGINT ignored. |
 | 2026-10-02 | CDT-371: the TaskCompleted council gate is implemented in SPEC-002. The cross-spec follow-up is closed. |
 | 2026-10-01 | WP 5-06 (CDT-318): memory write-back MUST append (SPEC-004). `INSERT OR REPLACE` is not the write path. |
 
@@ -635,3 +636,13 @@ Format and rules: SPEC-033 M14(g) and M14(h). Each ticket that ships through M14
 - **Q.** [process] The new and changed test suites pass: `bash skills/backlog/test.sh`, `bash skills/backlog/reconcile-test.sh`, `bash skills/release-train/test.sh` and the new `bash skills/backlog/lock-test.sh` and `bash skills/lib/portable-test.sh`.
 - **R.** [process] The test runner `bash tools/run-all-tests.sh` exits 0.
 - **S.** [process] Every `/release` gate passes.
+
+### CDT-584
+
+- **AC1.** The SIGINT case in `skills/backlog/lock-test.sh` starts a child holder, waits until the marker is `OK`, then sends INT from the parent and `wait`s. `wait` rc is 130 (`lock.sh` INT trap `exit 130`). Marker is exactly `OK` (no `UNREACHABLE`). Lock dir is gone. The child does not run further statements after the parent sends INT. The case passes when this suite inherited SIGINT ignored (background job, no job control — the `--jobs 8` pool wrapper).
+  Verify: bash skills/backlog/lock-test.sh
+- **AC2.** The SIGTERM case uses the same parent-signals-child shape. `wait` rc is 143 (`lock.sh` TERM trap `exit 143`). Marker is exactly `OK`. Lock dir is gone.
+  Verify: bash skills/backlog/lock-test.sh
+- **AC3.** `lock-test.sh` contains no in-process `kill -INT $$` or `kill -TERM $$`. `lock.sh` INT/TERM trap bodies stay `backlog_lock_release; exit 130` and `exit 143`. The no-dir-left asserts stay. Deleting the rc or marker assert is not a fix.
+  Verify: bash skills/backlog/lock-test.sh
+- **AC4.** [process] `bash tools/run-all-tests.sh --jobs 8` exits 0. `skills/backlog/lock-test.sh` is not a FAIL.
