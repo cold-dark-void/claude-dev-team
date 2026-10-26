@@ -47,6 +47,9 @@ agent output. Do not reintroduce avoided aliases.
 | Disposition | The per-ticket outcome of sweep triage: CLOSE / ASK / ORCHESTRATE / EPIC / DEFER / MERGE | verdict, action |
 | Triage size | The sweep's cheap S/M/L heuristic that orders the walk and seeds orchestrate args; authoritative sizing stays in orchestrate Step 2 | complexity score, estimate |
 | Purge pre-pass | Phase 0 of a backlog sweep: bulk staleness disposition of every open item before any code-bearing work runs | cleanup, GC |
+| Class verify | Advisor stage-2 ruling on a deterministic auth-secrets classifier hit; demotes false positives so the plan-scope council is not paid | LLM re-check, second scan |
+| Forward claim | Plan-scope claim describing scheduled, not-yet-written code; unfalsifiable against pre-implementation bytes | prospective claim, future claim |
+| Glossary carve-out | Lexical exemption: a keyword inside a hyphenated compound listed in CONTEXT.md Terms does not count as a classifier hit | keyword allowlist, exemption list |
 
 ## Decisions
 
@@ -64,3 +67,4 @@ agent output. Do not reintroduce avoided aliases.
 - 2026-10-21: CDT-573 Task-path enforcement is a prompt contract; Workflow-path enforcement is mechanical chunking; both carry the same resolved value.
 - 2026-10-22: CDT-582 Backlog sweep is a /backlog subcommand (active sibling of reconcile), a pure composition layer: never edits code, never runs /release, single executor /orchestrate with `--tier=light` as the nit floor; `/debug` stays defect-only.
 - 2026-10-22: CDT-582 Sweep journal invalidation boundary is the last release tag (not age); epic children are skipped — the epic owns their walk.
+- 2026-10-26: CDT-589 Step 6c gate demotion rides the Advisor seam (Class verify, trigger d) — no new agent role, no new Surface; every new layer fails closed; ship as one minor, default-on.
