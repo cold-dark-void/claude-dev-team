@@ -42,6 +42,8 @@ Not a Tracking key. Run `skills/orchestrate/ticket-class.sh` on title, body, ACs
 
 Match → `ticket_class: auth-secrets`. No match → `ticket_class: none`. If the script cannot run, emit `ticket_class: auth-secrets` (unsure fails closed).
 
+Glossary carve-out: before the PHRASE-then-WORD scan, mask every maximal [A-Za-z0-9-] token that lowercases to a hyphenated ## Terms column-1 compound. Mask char is x (length-preserving). Glossary path: first hit $WTROOT/CONTEXT.md → $WTROOT/docs/domain/CONTEXT.md → $MROOT/CONTEXT.md → $MROOT/docs/domain/CONTEXT.md (never the plugin install dir). TICKET_CLASS_GLOSSARY overrides that path; sentinel off disables. A missing or unreadable path is fail-closed (no carve-out).
+
 ```
 ticket_class: auth-secrets|none
 ```
