@@ -4,7 +4,7 @@
 **Category**: core
 **Created**: 2026-03-22
 
-**Covers**: `skills/kickoff/SKILL.md`, `skills/orchestrate/SKILL.md`, `skills/orchestrate/steps/00-resolve.md`, `skills/orchestrate/steps/02-scope.md` (auto-size, CDT-210), `skills/orchestrate/steps/{04-kickoff,05-questions,06-design,07-tasks,08-execute,09-review,10-qa,12-wrap}.md` (light path, CDT-207–209), `skills/orchestrate/steps/cross-cutting.md` (LOC change-discipline, CDT-223), `skills/autopilot/parse-flags.sh` (`/orchestrate --tier`, CDT-206; `--max-loc`, CDT-223), `skills/autopilot/loc-exclude.sh` (CDT-223), `skills/scaffold-project/SKILL.md` (`.gitattributes` seed, CDT-223), `skills/brainstorm/SKILL.md`, `commands/status.md` (`/status` + `/status standup`, CDT-46-C4), `skills/standup/SKILL.md` (internal skill-delegate backend for `/status standup`), `skills/wrap-ticket/SKILL.md`, `skills/backlog/SKILL.md`, `skills/backlog/{close,reconcile,lock}.sh` and `skills/lib/portable.sh` (§ Backlog write integrity, WP 1-04)
+**Covers**: `skills/kickoff/SKILL.md`, `skills/orchestrate/SKILL.md`, `skills/orchestrate/steps/00-resolve.md`, `skills/orchestrate/steps/02-scope.md` (auto-size, CDT-210), `skills/orchestrate/steps/{04-kickoff,05-questions,06-design,07-tasks,08-execute,09-review,10-qa,12-wrap}.md` (light path, CDT-207–209), `skills/orchestrate/steps/cross-cutting.md` (LOC change-discipline, CDT-223), `skills/orchestrate/ticket-class.sh` (classifier + Glossary carve-out, CDT-589-C1), `skills/orchestrate/steps/plan-contract.md` (CDT-589-C1 dual-home), `skills/autopilot/parse-flags.sh` (`/orchestrate --tier`, CDT-206; `--max-loc`, CDT-223), `skills/autopilot/loc-exclude.sh` (CDT-223), `skills/scaffold-project/SKILL.md` (`.gitattributes` seed, CDT-223), `skills/brainstorm/SKILL.md`, `commands/status.md` (`/status` + `/status standup`, CDT-46-C4), `skills/standup/SKILL.md` (internal skill-delegate backend for `/status standup`), `skills/wrap-ticket/SKILL.md`, `skills/backlog/SKILL.md`, `skills/backlog/{close,reconcile,lock}.sh` and `skills/lib/portable.sh` (§ Backlog write integrity, WP 1-04)
 
 ## Overview
 
@@ -41,6 +41,14 @@ The main delivery pipeline from idea to shipped code. Covers Socratic design ref
 - MUST write or update spec BEFORE creating task graph (spec-first principle)
 - MUST tag each task with recommended agent (ic4 for extending patterns, ic5 for novel work)
 - MUST emit plan line `ticket_class: auth-secrets|none` (dual-home classifier with `06-design.md`; not a Tracking key). Match title|body|ACs|plan case-insensitive against: auth, authentication, authorization, oauth, oidc, jwt, session, credential, secret, token, password, api key/api-key/apikey, private key/private-key, pii, ssn, csrf → `auth-secrets`; else `none`; unsure → `auth-secrets`. MUST NOT extract a shared partial
+- MUST apply the Glossary carve-out (CDT-589-C1) in `skills/orchestrate/ticket-class.sh` before the PHRASE-then-WORD scan. Dual-home the clause below (same words, no shared partial) with `skills/orchestrate/steps/plan-contract.md` § Ticket class, `skills/kickoff/SKILL.md` Step 6, and `skills/orchestrate/steps/06-design.md` Step 6c. Canonical clause: Glossary carve-out: before the PHRASE-then-WORD scan, mask every maximal [A-Za-z0-9-] token that lowercases to a hyphenated ## Terms column-1 compound. Mask char is x (length-preserving). Glossary path: first hit $WTROOT/CONTEXT.md → $WTROOT/docs/domain/CONTEXT.md → $MROOT/CONTEXT.md → $MROOT/docs/domain/CONTEXT.md (never the plugin install dir). TICKET_CLASS_GLOSSARY overrides that path; sentinel off disables. A missing or unreadable path is fail-closed (no carve-out).
+- MUST parse carve vocabulary (D2) from the `## Terms` table only, column 1 only: split the cell on whitespace; keep tokens that contain `-`; strip markdown wrappers (backticks, `*`, `_`); lowercase with `tr` (not `${v,,}` / `${v^^}`). A hyphenated compound MUST NOT carve the space-separated variant (`Private-key-material` carves `private-key-material`, never `private key`). Non-hyphenated col-1 terms, col 2 (Definition), col 3 (Avoid), `## Decisions` bullets, and prose outside `## Terms` MUST NOT enter the vocabulary.
+- MUST exclude from the vocabulary (D4, one predicate) a compound whose every hyphen segment is a classifier keyword. Classifier keywords are the WORD list plus the PHRASE segments `api`, `key`, `private`. The predicate lives in one function; disabling D4 is that one function returning false. Examples excluded: `api-key`, `session-token`, `auth-secret`. `Same-session` stays (the `Same` segment is not a keyword).
+- MUST cap the vocabulary at 256 compounds in Terms-table order. Over-cap MUST print one stderr warning `ticket-class: glossary cap 256; using first 256` and use the first 256.
+- MUST fail-closed (no carve-out; classifier stdout and exit byte-identical to the no-glossary path; exit 0; no stderr crash) when: no glossary file; empty file; no `## Terms` heading; header+separator only; empty col-1 cell; row not starting with `|`; `TICKET_CLASS_GLOSSARY` names a missing path or a directory; file mode 000; a non-ASCII term (skip that term, keep others). A glossary scan-tool failure (`grep` rc >= 2) MUST skip the carve-out; the unmasked hit stands. When the PHRASE/WORD `grep` itself exits >= 2, MUST emit `auth-secrets` (fail-closed toward a hit).
+- MUST emit on stderr, when at least one occurrence was carved, exactly one line `ticket-class: carved <compound>=<n>[ <compound>=<n>…]` (Terms order; only compounds with n>0). Zero carves: no carve line. The cap warning is a separate line. stdout stays `auth-secrets` or `none`; exit stays 0 classified / 64 usage.
+- MUST keep the CLI: bash + POSIX only; stdin and `--text TEXT`; exit 0 classified / 64 usage; argv unchanged. MUST stay in the `--portable` subset (no `declare -A`, `local -n`, `mapfile`, `readarray`, `flock`, `timeout`, `gtimeout`, `sha256sum`, `grep -P`, `touch -d`, `-printf`, `${v,,}`, `${v^^}`). Masking MUST use awk. Deterministic. 256 KB input plus a 100-row glossary MUST finish in under 2 s. One parser in `ticket-class.sh`; tests MUST call the CLI.
+- MUST NOT read a glossary from the plugin install dir (`$CLAUDE_PLUGIN_ROOT`, PDH, marketplace clone, or plugin cache). MUST NOT commit verbatim XYZ-434 / describer ticket text (AC1 fixture is synthetic). MUST NOT change the scan-input sentence (title|body|ACs|plan) — that rewrite is CDT-589-C2.
 - MUST NOT invoke `/council` (classifier + `ticket_class:` line only)
 - MUST increment SPEC numbers within the relevant category after highest existing number
 
@@ -516,6 +524,8 @@ only other content is `set -u` and a subprocess entry point that calls
 - Verify light path: 04 scoper-planner; 07 skip DAG; 08 one `@ic4`; 09 single-pass; 10 no `@qa` spawn; 12 skip 12b (`router-static-test.sh` T12)
 - Verify Step 2 auto-size when `[ "$ORCH_TIER" = "null" ]`: S → light, M → standard, L → full; classify-fail → standard; explicit `--tier` skips classify
 - Verify Step 6c (CDT-244): `06-design.md` has `Step 6c`, `/council --plan`, `flavors/security.md`; kickoff SKILL has the token list and MUST NOT invoke `/council --plan`; orchestrate SKILL / `00-resolve.md` / `parse-flags.sh` have no `--security` (`router-static-test.sh` T14)
+- Verify Glossary carve-out (CDT-589-C1): `bash skills/orchestrate/ticket-class-test.sh` (existing 8 cases plus carve-out cases; hermetic via `TICKET_CLASS_GLOSSARY`; no Linear fetch)
+- Verify `bash skills/orchestrate/router-static-test.sh` T25 stays green and the four-home carve-out clause is present (T14 token list unchanged)
 - Verify `commands/council.md` Phase 2: caller MAY append flavor names to `plan.flavors` after preflight; investigator.md output schema always wins over a flavor’s `output_shape_constraint` (`router-static-test.sh` T15)
 - Verify `close.sh` and `reconcile.sh` default to the `$MROOT` store when run from a linked worktree (real `git worktree add` fixture): close and verify exit 0, act on the MROOT store and create no `.claude/backlog*` in the worktree (CDT-351)
 - Verify the backlog lock: a held fresh lock makes close/reconcile wait, then exit 1 naming the lock path with no file changes; a stale stamp is reclaimed; every exit path (success, error, INT, TERM) removes the lock; verify and `--dry-run` take no lock
@@ -545,6 +555,7 @@ only other content is `set -u` and a subprocess entry point that calls
 - `--tier` identity: `standard`/`full` run today's Step 0–12; omit auto-sizes at Step 2; `light` runs the light path; SPEC-033 gates unchanged
 - Orchestrate router lists `--tier` + per-tier table (light = scoper-planner / skip DAG / one IC4 / single-pass TL / no council default / wrap-lite); SKILL.md ≤80 lines; no `commands/orchestrate.md` (`bash skills/orchestrate/router-static-test.sh`)
 - `docs/commands/orchestrate.md` Flags table documents `--tier` (pipeline cost tier; auto-size; independent of `--council-tier`)
+- Glossary carve-out (CDT-589-C1): `bash skills/orchestrate/ticket-class-test.sh` and `bash skills/orchestrate/router-static-test.sh` exit 0; four-home clause present; no plugin-dir glossary source
 
 ## Open Questions
 
@@ -558,6 +569,7 @@ only other content is `set -u` and a subprocess entry point that calls
 
 | Date | Change |
 |------|--------|
+| 2026-10-26 | CDT-589-C1: Glossary carve-out in `ticket-class.sh` before the PHRASE-then-WORD scan. Hyphenated `## Terms` col-1 compounds (D2) mask equal `[A-Za-z0-9-]` tokens with `x`. Source D1 four-path; `TICKET_CLASS_GLOSSARY` override; sentinel `off`; fail-closed. Dual-home clause (no shared partial) with plan-contract, kickoff Step 6, 06-design Step 6c. D4 anti-gaming floor (one predicate). Cap 256. Scan-input sentence (title\|body\|ACs\|plan) unchanged — C2. `### CDT-589-C1` ACs. |
 | 2026-10-02 | CDT-371: the TaskCompleted council gate is implemented in SPEC-002. The cross-spec follow-up is closed. |
 | 2026-10-01 | WP 5-06 (CDT-318): memory write-back MUST append (SPEC-004). `INSERT OR REPLACE` is not the write path. |
 
@@ -635,3 +647,35 @@ Format and rules: SPEC-033 M14(g) and M14(h). Each ticket that ships through M14
 - **Q.** [process] The new and changed test suites pass: `bash skills/backlog/test.sh`, `bash skills/backlog/reconcile-test.sh`, `bash skills/release-train/test.sh` and the new `bash skills/backlog/lock-test.sh` and `bash skills/lib/portable-test.sh`.
 - **R.** [process] The test runner `bash tools/run-all-tests.sh` exits 0.
 - **S.** [process] Every `/release` gate passes.
+
+### CDT-589-C1
+
+- **AC1.** Fixture glossary (one `Same-session` row in col 1) plus synthetic fixture ticket text `pin stays shared Same-session via preferences` piped to `bash skills/orchestrate/ticket-class.sh` prints `none` and exits 0. The same text with `TICKET_CLASS_GLOSSARY=off` prints `auth-secrets`. Fixture text is committed under `skills/orchestrate/fixtures/`; no Linear fetch. Verbatim XYZ-434/describer text is not in the repo.
+  Verify: bash skills/orchestrate/ticket-class-test.sh
+- **AC2.** Carve is per-occurrence, not per-document. With the fixture glossary: `Same-session token theft` → `auth-secrets`; `the session in Same-session` → `auth-secrets`; `Same-session` → `none`.
+  Verify: bash skills/orchestrate/ticket-class-test.sh
+- **AC3.** Token equality, not substring. `Same-session.` / `Same-session,` / line-bounded `Same-session` are carved. `same-sessions` is unchanged (`none`). `auth-same-session` → `auth-secrets`. `Same-SESSION` is carved (case-insensitive).
+  Verify: bash skills/orchestrate/ticket-class-test.sh
+- **AC4.** Masking creates no new hit. `authSame-session` classifies `auth-secrets` before and after (hyphen-bounded `session`; empirical 2026-10-26 — PM "none" was false). `authSame-sessionx` classifies `none` before and after. Existing negative controls (`author`, `tokenizer`, `rename the public helper`) stay `none`. Length-preserving alnum fill (mask char `x`) is normative — a non-alnum filler would turn `authSame-sessionx` into an `auth` hit.
+  Verify: bash skills/orchestrate/ticket-class-test.sh
+- **AC5.** Carve applies to the phrase regex and the word regex. Fixture row `Private-key-material`: `private-key-material rotation` → `none`; `rotate the private key` (space form) → `auth-secrets`. A hyphenated compound never carves the space variant.
+  Verify: bash skills/orchestrate/ticket-class-test.sh
+- **AC6.** Carves nothing from non-hyphenated col-1 terms, col 2 (Definition), col 3 (Avoid), `## Decisions` bullets, or prose outside `## Terms`. `Same-session` only in Avoid or a Decisions bullet → `auth-secrets`.
+  Verify: bash skills/orchestrate/ticket-class-test.sh
+- **AC7.** Fail-closed, output byte-identical to today (no carve-out, exit 0, no stderr crash) on: no glossary file; empty file; no `## Terms` heading; header+separator only; empty col 1 row; row not starting with `|`; `TICKET_CLASS_GLOSSARY` missing path or directory; file mode 000 (skip under uid 0, SPEC-030 R18); non-ASCII terms (skip that term). Scan-tool failure (`grep` rc>=2) → no carve-out, hit stands. Fail-closed always points toward `auth-secrets` when the PHRASE/WORD scan itself errors.
+  Verify: bash skills/orchestrate/ticket-class-test.sh
+- **AC8.** True positives preserved with the fixture glossary: `session cookie theft`, `rotate the API key`, `private-key rotation`, `auth`, bare `token`, `Add authentication to the session`, plugin-repo compounds (`non-auth`, `re-session`) → `auth-secrets`.
+  Verify: bash skills/orchestrate/ticket-class-test.sh
+- **AC9.** First-hit only: `$WTROOT/CONTEXT.md` → `$WTROOT/docs/domain/CONTEXT.md` → `$MROOT/CONTEXT.md` → `$MROOT/docs/domain/CONTEXT.md`. Plugin install dir is never a source. WTROOT beats MROOT; `docs/domain` only when the root file is absent.
+  Verify: bash skills/orchestrate/ticket-class-test.sh
+- **AC10.** Env var `TICKET_CLASS_GLOSSARY` overrides the glossary path; sentinel `off` forces no-glossary; a nonexistent path is AC7 fail-closed. Documented in `plan-contract.md` § Ticket class.
+  Verify: bash skills/orchestrate/ticket-class-test.sh
+- **AC11.** At least one carved occurrence → exactly one stderr line `ticket-class: carved <compound>=<n>[ <compound>=<n>…]`. Zero carves → no carve line. stdout and exit codes unchanged.
+  Verify: bash skills/orchestrate/ticket-class-test.sh
+- **AC12.** SPEC-009 § classifier MUST, `plan-contract.md` § Ticket class, `steps/06-design.md` Step 6c, and kickoff Step 6 carry the Glossary carve-out clause in the same words (dual-home, no shared partial). Kickoff T14 token list is unchanged.
+  Verify: bash skills/orchestrate/router-static-test.sh
+- **AC13.** bash + POSIX only; no LLM, network, or new dep; stdin/`--text` forms; exit 0/64; argv unchanged. Stays in the `--portable` subset: no `declare -A`, `local -n`, `mapfile`, `readarray`, `flock`, `timeout`, `gtimeout`, `sha256sum`, `grep -P`, `touch -d`, `-printf`, `${v,,}`, `${v^^}`. Deterministic. 256 KB input + 100-row glossary finishes in under 2 s.
+  Verify: bash skills/orchestrate/ticket-class-test.sh
+- **AC14.** All carve-out cases live in `ticket-class-test.sh` (fixtures under `skills/orchestrate/fixtures/`, hermetic, no live repo glossary). Existing 8 cases stay green. `router-static-test.sh` T25 stays green.
+  Verify: bash skills/orchestrate/ticket-class-test.sh
+- **AC15.** [process] No tag and no `/release` on this child — the epic fold carries the minor. No new `commands/*.md`, no new agent, no shared-partial extraction. Work stays on `feat/CDT-589-C1` and is never FF-merged to master. `bash tools/spec-lint.sh` and `bash tools/run-all-tests.sh` exit 0.
