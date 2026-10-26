@@ -306,6 +306,18 @@ done
 if [ -z "$t14_fail" ]; then ok
 else bad "T14 AC8:$t14_fail"; fi
 
+# ---- T34: CDT-589-C1 glossary carve-out clause in all four homes (AC12) ----
+# Dual-home contract: the clause is pasted in the same words, not extracted.
+# Match the substring only — the kickoff copy carries a 3-space indent.
+t34_fail=""
+for f in "$STEPS/plan-contract.md" "$KICKOFF" "$STEPS/06-design.md" "$ROOT/specs/core/SPEC-009-ticket-workflow.md"; do
+  if ! grep -qF -- 'Glossary carve-out: before the PHRASE-then-WORD scan' "$f"; then
+    t34_fail="$t34_fail $(basename "$f")"
+  fi
+done
+if [ -z "$t34_fail" ]; then ok
+else bad "T34 carve-out clause missing:$t34_fail"; fi
+
 # ---- T15: CDT-244 council Phase 2 flavor-append (AC9) ----
 COUNCIL="$ROOT/commands/council.md"
 t15_fail=""
@@ -946,11 +958,12 @@ done
 if [ -z "$t33_fail" ]; then ok
 else bad "T33:$t33_fail"; fi
 
-# ---- Harness self-check: the suite defines 34 checks (T0-T33). A total
-# below 34 means a check was skipped silently (stale copy of this file, an
+# ---- Harness self-check: the suite defines 35 checks (T0-T34). Check numbers
+# follow the block label, not the run order (T34 sits next to T14). A total
+# below 35 means a check was skipped silently (stale copy of this file, an
 # early return, or an environment-dependent short-circuit) — turn that into
 # an explicit failure instead of a quietly-smaller PASS count.
-EXPECTED_CHECKS=34
+EXPECTED_CHECKS=35
 RUN_TOTAL=$((PASS + FAIL))
 if [ "$RUN_TOTAL" -ne "$EXPECTED_CHECKS" ]; then
   bad "harness ran $RUN_TOTAL checks, expected $EXPECTED_CHECKS (a check did not run)"
