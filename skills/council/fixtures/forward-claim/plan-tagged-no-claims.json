@@ -1,0 +1,13 @@
+{
+  "output_shape": "verdict[]",
+  "scope": "plan",
+  "preset": "security",
+  "slug": "fwd-tagged-no-claims",
+  "task_id": "",
+  "flavors": ["paranoid-ic", "security"],
+  "claim_budget": 10,
+  "completion_time": "0s",
+  "council_tier": "full",
+  "grading_reason": "fixture: CDT-589-C4 AC7(a) in the live Step 6c shape - Phase 1 claims ride in the evidence file, plan.claims is absent",
+  "report_path": "unused-override-with-report-out"
+}

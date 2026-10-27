@@ -1,0 +1,15 @@
+{
+  "findings": [
+    {
+      "file": "skills/council/engine.sh",
+      "line": "40",
+      "severity": "warning",
+      "category": "design",
+      "description": "No --fwd-demo flag exists in engine.sh",
+      "suggestion": "add the flag in Step 3",
+      "confidence": 90,
+      "tool_use_id": "t1"
+    }
+  ],
+  "struck_lines": []
+}

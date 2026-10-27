@@ -144,6 +144,29 @@ grep_file "5 '?' id falls through to exact text match (c0)" \
 grep_file "5 '?' id with no text match falls to unmatched" \
   '### Claim unmatched: a degraded-brief verdict with no matching claim text' "$REPORT5"
 
+# ---- Case 6: the CDT-589-C4 Forward claim matrix shares this finalize path ---
+# SPEC-013 § CDT-589-C4 binds AC5/AC7/AC8 to `Verify: bash
+# skills/council/test-finalize-claim-ids.sh`. The Forward claim fixture matrix
+# (fixtures/forward-claim/) lives in test-forward-claim.sh; invoke it here so
+# that binding stays true. It is hermetic, engine-side, deterministic, and
+# never LLM-live (same contract as this suite).
+FWD_SH="$ROOT/skills/council/test-forward-claim.sh"
+if [ ! -f "$FWD_SH" ]; then
+  fail_msg "6 test-forward-claim.sh is missing"
+else
+  fwd_out="$(bash "$FWD_SH" 2>&1)"
+  fwd_rc=$?
+  if [ "$fwd_rc" -eq 0 ]; then ok "6 test-forward-claim.sh exits 0"; else
+    fail_msg "6 test-forward-claim.sh exited $fwd_rc"
+  fi
+  printf '%s\n' "$fwd_out" | grep -q '^FAIL:' \
+    && fail_msg "6 test-forward-claim.sh printed a FAIL line"
+  printf '%s\n' "$fwd_out" | grep -q '^PASS=[0-9]* FAIL=0$' \
+    && ok "6 test-forward-claim.sh reports FAIL=0 ($(printf '%s\n' "$fwd_out" | grep '^PASS=' | tail -1))" \
+    || fail_msg "6 test-forward-claim.sh summary is not FAIL=0: $(printf '%s\n' "$fwd_out" | grep '^PASS=' | tail -1)"
+  printf '%s\n' "$fwd_out" | grep -E '^(FAIL:|PASS=)' | sed 's/^/    /'
+fi
+
 # Guard: never wrote into the real worktree .claude/council
 if [ -f "$ROOT/.claude/council/index.json" ] && grep -q 'wp115-m14-single\|wp115-single-claim-scope\|wp115-m14-multi' "$ROOT/.claude/council/index.json" 2>/dev/null; then
   fail_msg "guard: polluted $ROOT/.claude/council/index.json"

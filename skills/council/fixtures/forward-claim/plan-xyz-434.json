@@ -1,0 +1,38 @@
+{
+  "output_shape": "verdict[]",
+  "scope": "plan",
+  "preset": "security",
+  "slug": "fwd-xyz-434",
+  "task_id": "",
+  "flavors": ["paranoid-ic", "security"],
+  "claim_budget": 10,
+  "completion_time": "0s",
+  "council_tier": "full",
+  "grading_reason": "fixture: CDT-589-C4 AC7(e) XYZ-434-shaped Step 6c replay",
+  "claims": [
+    {
+      "claim_id": "c0",
+      "claim": "[forward] Task T3 adds the --fwd-demo flag to skills/council/engine.sh",
+      "source_locator": "plans/xyz-434.md:Task Map:44",
+      "claim_type": "recommendation",
+      "verify": null,
+      "tool_budget": 5
+    },
+    {
+      "claim_id": "c1",
+      "claim": "[forward] Task T4 lands skills/council/test-forward-claim.sh",
+      "source_locator": "plans/xyz-434.md:Task Map:45",
+      "claim_type": "recommendation",
+      "verify": null,
+      "tool_budget": 5
+    },
+    {
+      "claim_id": "c2",
+      "claim": "tools/deploy.sh rsyncs the site to web:/srv/site/",
+      "source_locator": "tools/deploy.sh:3",
+      "claim_type": "factual",
+      "verify": null,
+      "tool_budget": 5
+    }
+  ]
+}

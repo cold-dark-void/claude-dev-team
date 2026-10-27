@@ -1,0 +1,26 @@
+{
+  "output_shape": "verdict[]",
+  "scope": "claim",
+  "scope_arg": "Ship-gate audit for CDT-FWD. Claim under audit: the flag ships.",
+  "preset": "generic",
+  "slug": "fwd-m14-control",
+  "task_id": "",
+  "flavors": ["paranoid-ic"],
+  "claim_budget": 16,
+  "completion_time": "0s",
+  "council_tier": "full",
+  "grading_reason": "fixture: CDT-589-C4 AC7(c) M14 ship-gate control (scope=claim, ac_source, no [forward] tag)",
+  "ac_source": "specs/core/SPEC-FIX.md",
+  "process_acs": [],
+  "claims": [
+    {
+      "claim_id": "c0",
+      "ac_id": "A",
+      "claim": "[AC-A] Step 3 adds flag --fwd-demo to skills/council/engine.sh",
+      "source_locator": "specs/core/SPEC-FIX.md:12",
+      "claim_type": "factual",
+      "verify": null,
+      "tool_budget": 5
+    }
+  ]
+}

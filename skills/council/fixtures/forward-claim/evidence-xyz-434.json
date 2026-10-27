@@ -1,0 +1,14 @@
+[
+  {
+    "tool_use_id": "t1",
+    "raw_blob": "$ grep -rn -- '--fwd-demo' skills/council/ | head\n(no output; exit 1)\n$ ls skills/council/test-forward-claim.sh\nls: cannot access 'skills/council/test-forward-claim.sh': No such file or directory\n",
+    "file_line": "skills/council/:0",
+    "reproducible_command": "grep -rn -- '--fwd-demo' skills/council/"
+  },
+  {
+    "tool_use_id": "t2",
+    "raw_blob": "$ sed -n '1,3p' tools/deploy.sh\n#!/usr/bin/env bash\n# deploy.sh - rsync the site\nrsync -a site/ web:/srv/site/\n",
+    "file_line": "tools/deploy.sh:3",
+    "reproducible_command": "sed -n '1,3p' tools/deploy.sh"
+  }
+]

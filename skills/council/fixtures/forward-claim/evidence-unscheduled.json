@@ -1,0 +1,8 @@
+[
+  {
+    "tool_use_id": "t9",
+    "raw_blob": "$ cat tools/deploy.sh\n#!/usr/bin/env bash\n# deploy.sh - rsync the site\nrsync -a site/ web:/srv/site/\n",
+    "file_line": "tools/deploy.sh:1",
+    "reproducible_command": "cat tools/deploy.sh"
+  }
+]

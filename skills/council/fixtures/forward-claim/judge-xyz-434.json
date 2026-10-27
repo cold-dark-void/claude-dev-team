@@ -1,0 +1,29 @@
+{
+  "verdicts": [
+    {
+      "claim_id": "c0",
+      "claim": "[forward] Task T3 adds the --fwd-demo flag to skills/council/engine.sh",
+      "verdict": "CONTRADICTED",
+      "confidence": 88,
+      "evidence_blob": "(no output; exit 1)",
+      "tool_use_id": "t1"
+    },
+    {
+      "claim_id": "c1",
+      "claim": "[forward] Task T4 lands skills/council/test-forward-claim.sh",
+      "verdict": "CONTRADICTED",
+      "confidence": 92,
+      "evidence_blob": "ls: cannot access 'skills/council/test-forward-claim.sh': No such file or directory",
+      "tool_use_id": "t1"
+    },
+    {
+      "claim_id": "c2",
+      "claim": "tools/deploy.sh rsyncs the site to web:/srv/site/",
+      "verdict": "CONTRADICTED",
+      "confidence": 91,
+      "evidence_blob": "rsync -a site/ web:/srv/site/",
+      "tool_use_id": "t2"
+    }
+  ],
+  "struck_lines": []
+}
