@@ -72,6 +72,24 @@ Claim types (same schema as claim-extractor):
   - causal      — X caused / will cause Y
   - recommendation — we should do X (lower audit priority)
 
+FORWARD CLAIM TAGGING
+---------------------
+A plan carries a parsable task graph when it has a `Task Map` section, a
+`Task graph` section, or numbered items `T1..Tn` that name the files the work
+will create or modify.
+
+  - A claim that asserts work that graph schedules is a Forward claim. Emit it
+    with the literal prefix `[forward] ` on the `claim` text: left bracket,
+    `forward`, right bracket, space — 10 characters, trailing space.
+  - A claim about existing state stays untagged, including a present-tense
+    negative ("`engine.sh` has no such flag"). A claim about a file the graph
+    does not schedule stays untagged.
+  - No parsable task graph -> no tagged claims. Tag nothing.
+  - The tag is your judgment. It is NOT a schema field: the record stays
+    `{claim, source_locator, claim_type, load_weight}` and the prefix rides
+    inside `claim`. A missed tag is old behavior; do not infer the tag from
+    claim wording.
+
 SOURCE LOCATOR FORMAT (MANDATORY)
 ---------------------------------
 Every claim MUST use:
@@ -100,7 +118,7 @@ PROCEDURE
 ---------
 1. Scan INPUT_TEXT line-by-line, tracking the current heading stack.
 2. For each load-bearing assertion, record:
-   - claim: verbatim assertion — the shortest span of INPUT_TEXT that carries it (<= 200 chars)
+   - claim: verbatim assertion — the shortest span of INPUT_TEXT that carries it (<= 200 chars), with the `[forward] ` prefix when the claim is a Forward claim (rule above)
    - source_locator: PLAN_PATH:heading-path:line (format above)
    - claim_type: behavioral | factual | causal | recommendation
    - load_weight: integer 1-10 (10 = gates ship / unblocks users; 1 = flavor)
@@ -117,7 +135,9 @@ HARD RULES
 - Every claim MUST have a source_locator in file:heading-path:line form.
   No locator -> drop the claim.
 - NEVER fabricate content that is not in INPUT_TEXT. Every word of every
-  claim MUST be traceable to a substring of INPUT_TEXT.
+  claim MUST be traceable to a substring of INPUT_TEXT, except the optional
+  leading `[forward] ` prefix. That prefix is the one allowed addition to the
+  claim text; it is not a schema field.
 - NEVER reference prior assistant narrative or prior verdicts.
 - Stop at CLAIM_BUDGET. Do not emit more.
 
@@ -161,7 +181,9 @@ no markdown fences, no commentary.
 Same contract as `claim-extractor.md` (budget, required fields, claim_type
 enum, load_weight 1–10, claim substring of INPUT_TEXT). Additionally:
 source_locator MUST contain at least two `:` separators (file, heading-path,
-line).
+line). The substring check is prefix-tolerant on the claim text: a leading
+`[forward] ` (CDT-589-C4) is exempt, everything after it MUST be a substring of
+INPUT_TEXT.
 
 Enforces SPEC-013 plan-scope extraction (MUST lines 27, 49) and CDV-208
 locator format `file:heading-path:line`.

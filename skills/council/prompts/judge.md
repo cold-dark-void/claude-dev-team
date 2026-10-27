@@ -146,6 +146,17 @@ PROCEDURE
        sub-clause where a run exists.
        These caps can only lower a confidence; they do not change SPEC-033 M14(b).
 
+       FORWARD CLAIM (CDT-589-C4, plan scope). A claim whose text starts with
+       the literal prefix `[forward] ` is a Forward claim: it asserts work the
+       plan's own task graph schedules, so the code it names is absent from
+       current bytes by design. A refutation of a `[forward]` claim whose sole
+       basis is pre-implementation bytes is inadmissible — discard it, record
+       it in struck_lines with the reason, and issue the verdict for that claim
+       from plan-internal evidence present in the bundles: the spec, the task
+       graph, and AC coverage. A refutation grounded in the existing state of a
+       file the plan's task graph does not schedule stays admissible. The tag
+       changes what evidence counts; it never changes the verdict taxonomy.
+
    If OUTPUT_SHAPE == "finding[]":
      For each candidate finding surfaced by the investigators or briefs,
      issue ONE finding record:
