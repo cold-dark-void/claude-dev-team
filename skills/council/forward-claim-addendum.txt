@@ -1,0 +1,1 @@
+FORWARD CLAIM RULE: this claim is tagged [forward]. Absence of the described code in current bytes is not evidence. Do not treat that absence as contradiction. Ground bundles in plan, spec, task-graph, and AC-coverage citations.

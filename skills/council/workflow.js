@@ -58,6 +58,10 @@ const COUNCIL_DIR = __dirname
 const PROMPTS_DIR = join(COUNCIL_DIR, 'prompts')
 const FLAVORS_DIR = join(COUNCIL_DIR, 'flavors')
 const ENGINE_SH = join(COUNCIL_DIR, 'engine.sh')
+// CDT-589-C4: the one home of the Forward claim prohibition text. It is
+// composed into {{RAW_ARTIFACTS}}, never into investigator.md (AC3).
+const FORWARD_CLAIM_ADDENDUM = join(COUNCIL_DIR, 'forward-claim-addendum.txt')
+const FORWARD_CLAIM_PREFIX = '[forward] '
 
 const PROSECUTOR_BIAS =
   "You prosecute. Your default prior is the claim is FALSE until the bundles " +
@@ -119,9 +123,49 @@ export function buildPlanExtractorInput(planText) {
   return String(planText ?? '')
 }
 
+/** True when `text` starts with the exact 10-char `[forward] ` prefix (CDT-589-C4). */
+export function isForwardClaim(text) {
+  return typeof text === 'string' && text.startsWith(FORWARD_CLAIM_PREFIX)
+}
+
+/** Remove a leading `[forward] ` prefix; every other string is returned verbatim. */
+export function stripForwardPrefix(text) {
+  const s = typeof text === 'string' ? text : String(text ?? '')
+  return isForwardClaim(s) ? s.slice(FORWARD_CLAIM_PREFIX.length) : s
+}
+
+/** Body of forward-claim-addendum.txt (trimEnd). Missing/unreadable → ''. */
+let forwardClaimAddendumCache = null
+function loadForwardClaimAddendum() {
+  if (forwardClaimAddendumCache === null) {
+    try {
+      forwardClaimAddendumCache = readFileSync(FORWARD_CLAIM_ADDENDUM, 'utf8').trimEnd()
+    } catch {
+      forwardClaimAddendumCache = ''
+    }
+  }
+  return forwardClaimAddendumCache
+}
+
+/**
+ * Per-claim {{RAW_ARTIFACTS}} value (CDT-589-C4 AC3).
+ * Plan scope + `[forward] ` claim: artifacts, a newline, then the addendum
+ * body (addendum alone when there are no artifacts). Every other case is the
+ * identity, so untagged and non-plan runs render byte-identical to today.
+ */
+export function composeRawArtifacts(raw, claimText, scope) {
+  const base = raw || ''
+  if (scope !== 'plan' || !isForwardClaim(claimText)) return base
+  const addendum = loadForwardClaimAddendum()
+  if (!addendum) return base
+  return base ? `${base}\n${addendum}` : addendum
+}
+
 /** 1-based line of the first line that contains `claim`, else 0. */
 export function planClaimLine(inputText, claim) {
-  const needle = String(claim ?? '')
+  // A plan-extractor claim may carry the `[forward] ` prefix; the plan file
+  // never does, so strip it before the line search (CDT-589-C4 AC4).
+  const needle = stripForwardPrefix(claim)
   if (!needle) return 0
   const lines = String(inputText ?? '').split('\n')
   for (let i = 0; i < lines.length; i++) {
@@ -654,7 +698,11 @@ export async function runCouncil(runtime) {
     const prompt = loadPrompt('investigator', {
       CLAIM_TEXT: claim.claim || claim.description || '',
       SOURCE_LOCATOR: claim.source_locator || claim.file || 'unknown',
-      RAW_ARTIFACTS: t.raw_artifacts || plan.scope_arg || t.input_text || '',
+      RAW_ARTIFACTS: composeRawArtifacts(
+        t.raw_artifacts || plan.scope_arg || t.input_text || '',
+        claim.claim || claim.description || '',
+        plan.scope,
+      ),
       FLAVOR_DELTA: flavorDelta,
       CACHE_DIR: plan.cache_dir || '',
       TOOL_BUDGET: String(claim.tool_budget ?? 5),

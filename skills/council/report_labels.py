@@ -93,12 +93,24 @@ def resolve_claims(plan, evidence_raw, judge_items):
     return []
 
 
+FORWARD_CLAIM_PREFIX = "[forward] "
+
+
+def strip_forward_prefix(text):
+    """Drop a leading `[forward] ` prefix (CDT-589-C4 AC4). Non-strings → ""."""
+    if not isinstance(text, str):
+        return ""
+    return text[len(FORWARD_CLAIM_PREFIX):] if text.startswith(FORWARD_CLAIM_PREFIX) else text
+
+
 def label_verdict(v, claims):
     """Return (claim_id, claim_text) for one judge verdict. Never "?".
 
     Order:
       1. v.claim_id (text from the matching claim, else v.claim).
-      2. an exact v.claim text match.
+      2. a v.claim text match — exact, then `[forward] ` optional on either
+         side (CDT-589-C4 AC4). The claim record's own text wins, so a
+         tagged heading keeps the prefix.
       3. the only claim when len(claims) == 1.
       4. ("unmatched", v.claim).
     """
@@ -122,9 +134,21 @@ def label_verdict(v, claims):
         return vcid, vclaim
 
     if vclaim:
+        vplain = strip_forward_prefix(vclaim)
+        # Pass 1: exact text equality. Pass 2: `[forward] ` optional on either
+        # side. Exact-first keeps a claim list that holds both "X" and
+        # "[forward] X" unambiguous. Both passes return the claim record's
+        # text, so a tagged heading keeps the prefix (CDT-589-C4 AC4).
         for c in claims:
-            if c.get("claim") == vclaim:
-                return (c.get("claim_id") or "unmatched"), vclaim
+            ctext = c.get("claim")
+            if isinstance(ctext, str) and ctext == vclaim:
+                return (c.get("claim_id") or "unmatched"), ctext
+        for c in claims:
+            ctext = c.get("claim")
+            if not isinstance(ctext, str):
+                continue
+            if vplain and strip_forward_prefix(ctext) == vplain:
+                return (c.get("claim_id") or "unmatched"), ctext
 
     if len(claims) == 1:
         c = claims[0]
