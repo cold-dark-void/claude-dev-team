@@ -598,6 +598,37 @@ unstruck_items, judge_strikes = validate_judge(
 )
 engine_strikes.extend(judge_strikes)
 
+# --- Forward claim guard (CDT-589-C4, SPEC-013 Phase 5 backstop) ---
+# In plan scope a `[forward] ` claim asserts work the plan's own task graph
+# schedules, so pre-implementation bytes are inadmissible evidence against it.
+# The judge rule is the primary layer; this is the deterministic backstop so a
+# tagged claim cannot leave finalize on the Step 6c halt list. Key is the
+# exact 10-char prefix only — never re-derive task-graph membership here (AC10).
+# Task and Workflow paths share this finalize, so both get the guard.
+FORWARD_CLAIM_PREFIX = "[forward] "
+FORWARD_CLAIM_CAP = 79
+if output_shape == "verdict[]" and plan.get("scope") == "plan":
+    for fc_item in unstruck_items:
+        fc_verd = fc_item.get("verdict")
+        if fc_verd not in ("CONTRADICTED", "FABRICATED"):
+            continue
+        fc_cid, fc_text = label_verdict(fc_item, claims_resolved)
+        fc_is_forward = (
+            (isinstance(fc_text, str) and fc_text.startswith(FORWARD_CLAIM_PREFIX))
+            or (isinstance(fc_item.get("claim"), str)
+                and fc_item["claim"].startswith(FORWARD_CLAIM_PREFIX))
+        )
+        if not fc_is_forward:
+            continue
+        engine_strikes.append(
+            "forward-claim-guard: struck %s on [forward] claim %s "
+            "(pre-implementation bytes inadmissible in plan scope)"
+            % (fc_verd, fc_cid)
+        )
+        fc_item["verdict"] = "UNVERIFIED"
+        fc_item["confidence"] = min(_as_int_conf(fc_item.get("confidence")),
+                                    FORWARD_CLAIM_CAP)
+
 # --- Format verdicts / findings (unstruck only) ---
 max_verified_confidence = None
 worst_verdict_value = None
