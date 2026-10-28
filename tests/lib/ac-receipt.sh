@@ -70,10 +70,7 @@ set_ac() {
 }
 
 want_ac() {
-  if [ -z "${AC_FILTER:-}" ]; then
-    return 0
-  fi
-  [ "$AC_FILTER" = "${CUR_AC:-}" ]
+  [ -z "${AC_FILTER:-}" ] || [ "$AC_FILTER" = "${CUR_AC:-}" ]
 }
 
 ok() {

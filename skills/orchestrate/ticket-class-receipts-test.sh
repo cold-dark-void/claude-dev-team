@@ -375,8 +375,9 @@ EOF
   done
   # The AC8 clause also binds the slug charset: nothing on a receipt line may
   # break the filter's boundary class [^A-Za-z0-9_].
-  if printf '%s\n' "$NOUT" | grep '^ok ' | grep -vqE '^ok AC[0-9]+: [A-Za-z0-9][A-Za-z0-9 ._-]*$'; then
-    bad ok-slug-charset "a receipt line holds a char outside [A-Za-z0-9 ._-]: [$(printf '%s\n' "$NOUT" | grep '^ok ' | grep -vE '^ok AC[0-9]+: [A-Za-z0-9][A-Za-z0-9 ._-]*$' | head -1)]"
+  OFFENDERS=$(printf '%s\n' "$NOUT" | grep '^ok ' | grep -vE '^ok AC[0-9]+: [A-Za-z0-9][A-Za-z0-9 ._-]*$')
+  if [ -n "$OFFENDERS" ]; then
+    bad ok-slug-charset "a receipt line holds a char outside [A-Za-z0-9 ._-]: [$(printf '%s\n' "$OFFENDERS" | head -1)]"
   else
     ok ok-slug-charset
   fi

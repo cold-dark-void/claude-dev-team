@@ -292,15 +292,17 @@ done
 if [ -z "$t13_fail" ]; then t_ok
 else t_bad "T13 Recommended-agent devops|ds missing:$t13_fail"; fi
 
-# ---- T14: CDT-244 Step 6c + classifier (AC8) ----
-# 06-design.md: Step 6c, /council --plan, flavors/security.md
-# kickoff SKILL: token list + ticket_class emit; MUST NOT invoke /council
-# orchestrate SKILL / 00-resolve / parse-flags: no --security flag
-# Labeled receipt (CDT-595): C1 AC12 evidence — the T14 token list stays intact.
+# ---- T14 + T34: the two AC12-labeled receipts (SPEC-009 C1 AC12) ----
+# One `--ac AC12` guard covers both checks: T14 is the C1 AC8 classifier-needle
+# evidence and T34 is the C1 AC12 carve-out clause.
 KICKOFF="$ROOT/skills/kickoff/SKILL.md"
 PARSE="$ROOT/skills/autopilot/parse-flags.sh"
 set_ac AC12
 if want_ac; then
+  # T14: CDT-244 Step 6c + classifier (AC8).
+  # 06-design.md: Step 6c, /council --plan, flavors/security.md
+  # kickoff SKILL: token list + ticket_class emit; MUST NOT invoke /council
+  # orchestrate SKILL / 00-resolve / parse-flags: no --security flag
   t14_fail=""
   if ! grep -q 'Step 6c' "$STEPS/06-design.md"; then
     t14_fail="$t14_fail 06 missing Step 6c"
@@ -329,13 +331,10 @@ if want_ac; then
   done
   if [ -z "$t14_fail" ]; then ok "T14 classifier-needles"
   else bad "T14 classifier-needles" "$t14_fail"; fi
-fi
 
-# ---- T34: CDT-589-C1 glossary carve-out clause in all four homes (AC12) ----
-# Dual-home contract: the clause is pasted in the same words, not extracted.
-# Match the substring only — the kickoff copy carries a 3-space indent.
-set_ac AC12
-if want_ac; then
+  # T34: CDT-589-C1 glossary carve-out clause in all four homes.
+  # Dual-home contract: the clause is pasted in the same words, not extracted.
+  # Match the substring only — the kickoff copy carries a 3-space indent.
   t34_fail=""
   for f in "$STEPS/plan-contract.md" "$KICKOFF" "$STEPS/06-design.md" "$ROOT/specs/core/SPEC-009-ticket-workflow.md"; do
     if ! grep -qF -- 'Glossary carve-out: before the PHRASE-then-WORD scan' "$f"; then

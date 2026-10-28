@@ -68,6 +68,16 @@ fail_closed() {
   else bad "$slug" "fail-closed [$g]: rc=$RC out=[$OUT] err=[$ERR]"; fi
 }
 
+# dircheck <want> <text> <slug> <dir> <label> — AC9 discovery-path form: the
+# CLI runs from <dir> with the glossary override cleared. <label> names that
+# path in the failure detail.
+dircheck() {
+  local want=$1 text=$2 slug=$3 dir=$4 label=$5
+  OUT=$(cd "$dir" && env -u TICKET_CLASS_GLOSSARY bash "$CLASS" --text "$text" 2>/dev/null)
+  if [ "$OUT" = "$want" ]; then ok "$slug"
+  else bad "$slug" "AC9 $label [$text] got [$OUT] want [$want]"; fi
+}
+
 # mk_gloss <file> <term> — one-row Terms table.
 mk_gloss() {
   printf '# Fixture glossary\n\n## Terms\n\n| Term | Definition | Avoid (aliases) |\n|---|---|---|\n| %s | d | a |\n' "$2" > "$1" || return 1
@@ -220,23 +230,11 @@ if want_ac; then
     ( cd "$REPO" && git add -A && git commit -qm fixture )
     git -C "$REPO" worktree add -q "$REPO/.wt" HEAD
     mk_gloss "$REPO/.wt/CONTEXT.md" "Wtroot-probe-session"
-    gwt() {
-      local want=$1 text=$2 slug=$3
-      OUT=$(cd "$REPO/.wt" && env -u TICKET_CLASS_GLOSSARY bash "$CLASS" --text "$text" 2>/dev/null)
-      if [ "$OUT" = "$want" ]; then ok "$slug"
-      else bad "$slug" "AC9 worktree [$text] got [$OUT] want [$want]"; fi
-    }
-    groot() {
-      local want=$1 text=$2 slug=$3
-      OUT=$(cd "$REPO" && env -u TICKET_CLASS_GLOSSARY bash "$CLASS" --text "$text" 2>/dev/null)
-      if [ "$OUT" = "$want" ]; then ok "$slug"
-      else bad "$slug" "AC9 main [$text] got [$OUT] want [$want]"; fi
-    }
-    gwt none "wtroot-probe-session" wtroot-beats-mroot
-    gwt auth-secrets "mroot-probe-session" gwt-ignores-mroot
-    gwt auth-secrets "mdoc-probe-session" gwt-ignores-mdoc
-    groot none "mroot-probe-session" mroot-beats-mdoc
-    groot auth-secrets "mdoc-probe-session" mdoc-shadowed-at-root
+    dircheck none "wtroot-probe-session" wtroot-beats-mroot "$REPO/.wt" worktree
+    dircheck auth-secrets "mroot-probe-session" gwt-ignores-mroot "$REPO/.wt" worktree
+    dircheck auth-secrets "mdoc-probe-session" gwt-ignores-mdoc "$REPO/.wt" worktree
+    dircheck none "mroot-probe-session" mroot-beats-mdoc "$REPO" main
+    dircheck auth-secrets "mdoc-probe-session" mdoc-shadowed-at-root "$REPO" main
     DOC="$TMP/docsonly"
     mkdir -p "$DOC/docs/domain"
     mk_gloss "$DOC/docs/domain/CONTEXT.md" "Droot-probe-session"
