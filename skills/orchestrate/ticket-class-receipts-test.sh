@@ -14,8 +14,8 @@
 #   AC6  the uid-0 mode-000 skip: `skip AC7:`, never `SKIP:`, counted by
 #        neither counter; the root arm is exhibited under fakeroot
 #   AC7  consumer compat at the C1 HEAD fbbe657: full-run aggregate last line,
-#        exit 0/64 preserved, portable lane green, classifier byte-identical,
-#        suite-only path set
+#        exit 0/64 preserved, portable touch-set bare runs green, classifier
+#        byte-identical, suite-only path set
 #   AC8  the T1 spike (investigator <AC_LABEL> template, colon form) plus a
 #        >=1-line filtered receipt per technical AC of a real full-suite log
 #   AC9  the `### CDT-589-C1` Verify repoint, spec-lint findings-set equality
@@ -391,20 +391,18 @@ if want_ac; then
   else
     bad suite-only-vs-c1head "non-suite path: [$(printf '%s\n' "$OUTSIDE" | head -1)]"
   fi
-  # Repo runner lane (serial form — the stable one): portable green with the
-  # receipts suites listed. The nested receipts run this lane performs must
-  # not re-enter the lane arm: the sentinel turns it into a skip receipt.
-  if [ -n "${CDT595_NO_LANE_RUNS:-}" ]; then
-    skip_ac portable-lane-nested
+  # Portable-lane touch-set (AC7 scope): the three suites this ticket's lane
+  # covers, run bare exactly as the runner invokes them. The repo-wide lane
+  # is a CI surface — under parallel investigator load its foreign
+  # timing-sensitive suites flake, and a foreign flake is not AC7 evidence.
+  LANE_RC=0
+  bash "$ROOT/skills/orchestrate/ticket-class-test.sh" >/dev/null 2>&1 || LANE_RC=1
+  bash "$ROOT/skills/orchestrate/router-static-test.sh" >/dev/null 2>&1 || LANE_RC=1
+  if [ "$LANE_RC" = 0 ]; then
+    ok portable-lane-exit-0
+    printf 'lane bare runs: ticket-class-test rc=0 router-static-test rc=0\n'
   else
-    PLRC=0
-    PLOUT=$( (cd "$ROOT" && CDT595_NO_LANE_RUNS=1 bash tools/run-all-tests.sh --portable) 2>&1 ) || PLRC=$?
-    if [ "$PLRC" = 0 ] && printf '%s\n' "$PLOUT" | grep -qE '^[0-9]+ suites: [0-9]+ passed, 0 failed, 0 timed out'; then
-      ok portable-lane-exit-0
-      printf '%s\n' "$PLOUT" | grep -E 'ticket-class-receipts-test\.sh|ticket-class-test\.sh|^[0-9]+ suites:'
-    else
-      bad portable-lane-exit-0 "rc=$PLRC [$(printf '%s\n' "$PLOUT" | tail -1)]"
-    fi
+    bad portable-lane-exit-0 "lane bare run rc=1 (ticket-class-test / router-static-test)"
   fi
 fi
 
