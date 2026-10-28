@@ -7,14 +7,19 @@
 #   AC2  force-fail hook: a planted failure gives a non-zero nested exit and
 #        the `FAIL: AC<n>: <slug>: planted` shape on stderr
 #   AC3  the `--ac` grammar on both suites: a subset run exits 0 with its
-#        receipts, every malformed form exits 64 with one usage line
+#        receipts, the planted-fail subset run exits non-zero (the m>0 arm of
+#        "exits 0 iff m=0"), every malformed form exits 64 with one usage line
 #   AC4  every technical C1 AC filter runs green on the suite that owns it,
 #        and each C1 strike-list slug shows its own receipt
 #   AC6  the uid-0 mode-000 skip: `skip AC7:`, never `SKIP:`, counted by
-#        neither counter
+#        neither counter; the root arm is exhibited under fakeroot
+#   AC7  consumer compat at the C1 HEAD fbbe657: full-run aggregate last line,
+#        exit 0/64 preserved, portable lane green, classifier byte-identical,
+#        suite-only path set
 #   AC8  the T1 spike (investigator <AC_LABEL> template, colon form) plus a
 #        >=1-line filtered receipt per technical AC of a real full-suite log
-#   AC9  the `### CDT-589-C1` Verify repoint, and spec-lint baseline equality
+#   AC9  the `### CDT-589-C1` Verify repoint, spec-lint findings-set equality
+#        vs an fbbe657 archive, and C1 criterion-text (sans Verify) equality
 #
 # Nested targets are ticket-class-test.sh, router-static-test.sh and
 # tools/spec-lint.sh only. This suite never invokes itself, so a nested
@@ -238,6 +243,23 @@ if want_ac; then
     bad subset-ac7-aggregate "last line [$(printf '%s\n' "$NOUT" | tail -1)]"
   fi
   aggregate_is_ok_count subset-ac7-count-equals-pass "$NOUT"
+  # The iff has two arms: exhibit the red direction. Plant one failure in a
+  # nested --ac AC7 run; the subset must then exit non-zero with a FAIL=1
+  # aggregate and an attributable FAIL: line (the AC2 hook supplies the seed).
+  run_nested_env AC_RECEIPT_FORCE_FAIL=empty-file "$TC" --ac AC7
+  if [ "$NRC" -ne 0 ]; then ok subset-fail-exit-nonzero
+  else bad subset-fail-exit-nonzero "planted FAIL=1 subset exited 0"; fi
+  if printf '%s\n' "$NOUT" | tail -1 | grep -qE '^PASS=[0-9][0-9]* FAIL=1$'; then
+    ok subset-fail-aggregate
+  else
+    bad subset-fail-aggregate "last line [$(printf '%s\n' "$NOUT" | tail -1)] want FAIL=1"
+  fi
+  if printf '%s\n' "$NERR" | grep -qF -- 'FAIL: AC7: empty-file: planted'; then
+    ok subset-fail-attributed
+    printf '%s\n' "$NERR"
+  else
+    bad subset-fail-attributed "nested stderr [$(printf '%s\n' "$NERR" | head -1)]"
+  fi
   expect_usage usage-bare-ac      "$TC" --ac
   expect_usage usage-ac-letters   "$TC" --ac AC
   expect_usage usage-ac-foo       "$TC" --ac foo
@@ -318,6 +340,72 @@ $NERR"
   hasnt_line no-skip-cap "$BOTH" 'SKIP:'
   hasnt_line no-fail-line "$BOTH" 'FAIL: AC7:'
   aggregate_is_ok_count skip-not-counted "$NOUT"
+  # The root arm needs uid 0. fakeroot simulates it for the suite's own
+  # `id -u` guard: the nested AC7 run takes the skip branch, and that skip
+  # line is the receipt AC6 names. No bwrap reliance: setuid bwrap on this
+  # box keeps the caller uid.
+  if command -v fakeroot >/dev/null 2>&1; then
+    FRC=0
+    FRLOG=$(fakeroot bash "$TC" --ac AC7 2>/dev/null) || FRC=$?
+    if printf '%s\n' "$FRLOG" | grep -qF -- 'skip AC7: mode-000 uid0'; then
+      ok uid0-skip-arm-exhibited
+      printf '%s\n' "$FRLOG" | grep -F -- 'skip AC7: mode-000'
+      aggregate_is_ok_count uid0-skip-not-counted "$FRLOG"
+    else
+      bad uid0-skip-arm-exhibited "fakeroot AC7 run rc=$FRC [$(printf '%s\n' "$FRLOG" | grep -E 'mode-000|PASS=' | tr '\n' '|')]"
+    fi
+  else
+    skip_ac uid0-skip-arm-no-fakeroot
+  fi
+fi
+
+# ---- AC7: consumer compat, labeled against the C1 HEAD --------------------
+set_ac AC7
+if want_ac; then
+  run_nested "$TC"
+  expect_rc consumer-full-run-green 0
+  if printf '%s\n' "$NOUT" | tail -1 | grep -qE '^PASS=[0-9][0-9]* FAIL=0$'; then
+    ok consumer-aggregate-last-line
+  else
+    bad consumer-aggregate-last-line "last line [$(printf '%s\n' "$NOUT" | tail -1)]"
+  fi
+  expect_usage usage-ac99-preserved "$TC" --ac AC99
+  SUBJ=$(git -C "$ROOT" log -1 --format=%s fbbe657 2>/dev/null)
+  if printf '%s' "$SUBJ" | grep -qF -- 'CDT-589-C1'; then
+    ok c1head-label-exhibit
+    printf 'fbbe657 = C1 HEAD: %s\n' "$SUBJ"
+  else
+    bad c1head-label-exhibit "fbbe657 subject [$SUBJ] does not name CDT-589-C1"
+  fi
+  if [ -z "$(git -C "$ROOT" diff --name-only fbbe657..HEAD -- skills/orchestrate/ticket-class.sh 2>/dev/null)" ]; then
+    ok classifier-untouched-c1head
+  else
+    bad classifier-untouched-c1head "ticket-class.sh changed vs fbbe657"
+  fi
+  CHANGED=$(git -C "$ROOT" diff --name-only fbbe657..HEAD 2>/dev/null)
+  OUTSIDE=$(printf '%s\n' "$CHANGED" | grep -vE '^skills/orchestrate/[a-z0-9-]*-test\.sh$|^specs/|^tests/lib/')
+  if [ -z "$OUTSIDE" ] && [ -n "$CHANGED" ]; then
+    ok suite-only-vs-c1head
+    printf 'fbbe657..HEAD paths:\n'
+    printf '%s\n' "$CHANGED" | sed 's/^/  /'
+  else
+    bad suite-only-vs-c1head "non-suite path: [$(printf '%s\n' "$OUTSIDE" | head -1)]"
+  fi
+  # Repo runner lane (serial form — the stable one): portable green with the
+  # receipts suites listed. The nested receipts run this lane performs must
+  # not re-enter the lane arm: the sentinel turns it into a skip receipt.
+  if [ -n "${CDT595_NO_LANE_RUNS:-}" ]; then
+    skip_ac portable-lane-nested
+  else
+    PLRC=0
+    PLOUT=$( (cd "$ROOT" && CDT595_NO_LANE_RUNS=1 bash tools/run-all-tests.sh --portable) 2>&1 ) || PLRC=$?
+    if [ "$PLRC" = 0 ] && printf '%s\n' "$PLOUT" | grep -qE '^[0-9]+ suites: [0-9]+ passed, 0 failed, 0 timed out'; then
+      ok portable-lane-exit-0
+      printf '%s\n' "$PLOUT" | grep -E 'ticket-class-receipts-test\.sh|ticket-class-test\.sh|^[0-9]+ suites:'
+    else
+      bad portable-lane-exit-0 "rc=$PLRC [$(printf '%s\n' "$PLOUT" | tail -1)]"
+    fi
+  fi
 fi
 
 # ---- AC8: the T1 spike, and the investigator filter on a real log ---------
@@ -433,6 +521,42 @@ if want_ac; then
     bad speclint-no-spec009 "new finding touches the spec: [$(printf '%s\n' "$LINT_OUT" | grep -F -- 'SPEC-009' | head -1)]"
   else
     ok speclint-no-spec009
+  fi
+  # Findings-SET equality, not rc equality: run the linter on a pinned
+  # archive of the stack base and diff the sorted finding lines byte-for-byte.
+  mkdir -p "$WORK/base"
+  if git -C "$ROOT" archive fbbe657 2>/dev/null | tar -x -C "$WORK/base" 2>/dev/null \
+     && [ -f "$WORK/base/tools/spec-lint.sh" ]; then
+    # The linter's file discovery is git-backed; give the archive the same
+    # tracked context, or the scan sets differ for a non-semantic reason.
+    git -C "$WORK/base" init -q . >/dev/null 2>&1
+    git -C "$WORK/base" add -A >/dev/null 2>&1
+    BR=0
+    BASE_OUT=$( (cd "$WORK/base" && bash tools/spec-lint.sh) 2>&1 ) || BR=$?
+    HSET=$(printf '%s\n' "$LINT_OUT" | LC_ALL=C sort)
+    BSET=$(printf '%s\n' "$BASE_OUT" | LC_ALL=C sort)
+    if [ -n "$BASE_OUT" ] && [ "$HSET" = "$BSET" ]; then
+      ok speclint-findings-set-equal
+      printf 'HEAD vs fbbe657 spec-lint: identical finding lines (%s)\n' "$(printf '%s\n' "$LINT_OUT" | tail -1)"
+    else
+      bad speclint-findings-set-equal "rc head=$LRC base=$BR; head lines=$(_lines "$LINT_OUT") base lines=$(_lines "$BASE_OUT")"
+    fi
+    # Criterion-text equality: the C1 section with its `  Verify:`
+    # continuations removed is byte-equal to the base — the repoint is the
+    # only edit inside `### CDT-589-C1`.
+    c1_body() {
+      awk '/^### CDT-589-C1$/{i=1;next} i&&/^### /{i=0} i && substr($0,1,9)!="  Verify:"' "$1"
+    }
+    HEADC1=$(c1_body "$SPEC")
+    BASEC1=$(c1_body "$WORK/base/specs/core/SPEC-009-ticket-workflow.md")
+    if [ -n "$BASEC1" ] && [ "$HEADC1" = "$BASEC1" ]; then
+      ok c1-criterion-text-untouched
+    else
+      bad c1-criterion-text-untouched "C1 section body differs vs fbbe657 (head $(_lines "$HEADC1"), base $(_lines "$BASEC1"))"
+    fi
+  else
+    bad speclint-findings-set-equal "no fbbe657 archive tree"
+    skip_ac c1-criterion-text-untouched
   fi
 fi
 
