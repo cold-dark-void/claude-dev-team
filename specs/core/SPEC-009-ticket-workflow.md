@@ -682,7 +682,6 @@ Format and rules: SPEC-033 M14(g) and M14(h). Each ticket that ships through M14
 - **AC14.** All carve-out cases live in `ticket-class-test.sh` (fixtures under `skills/orchestrate/fixtures/`, hermetic, no live repo glossary). Existing 8 cases stay green. `router-static-test.sh` T25 stays green.
   Verify: bash skills/orchestrate/ticket-class-test.sh --ac AC14
 - **AC15.** [process] No tag and no `/release` on this child — the epic fold carries the minor. No new `commands/*.md`, no new agent, no shared-partial extraction. Work stays on `feat/CDT-589-C1` and is never FF-merged to master. `bash tools/spec-lint.sh` and `bash tools/run-all-tests.sh` exit 0.
-
 ### CDT-595
 
 - **AC1.** `ticket-class-test.sh` prints one stdout line `ok AC<n>: <slug>` per passing named check. The colon after the AC id is required. The investigator AC-label filter (skills/council/prompts/investigator.md, default `<AC_LABEL>` for AC id X, X substituted as `AC<n>`) alt-2 `(^|[^A-Za-z0-9_])AC<n>[0-9]*[:(]` matches the colon form and misses the bare-space form `ok AC<n> <slug>`. Every check carries the AC id it evidences. The pre-existing 8 base cases carry AC14. Count of `^ok ` lines equals the final-line `PASS=<n>`.

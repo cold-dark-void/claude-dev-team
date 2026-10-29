@@ -311,6 +311,12 @@ if want_ac; then
   # skip-arm, echoed raw (pass-4: these arms were asserted, not exhibited).
   run_nested "$RS" --ac AC14
   printf 'router T25: %s\n' "$(printf '%s\n' "$NOUT" | grep -F 'T25' | head -1)"
+  # Pass-7: the cross-ref rides a named receipt, not only the echo line.
+  if printf '%s\n' "$NOUT" | grep -qF -- 'ok AC14: T25 word-boundary'; then
+    ok ac14-router-crossref
+  else
+    bad ac14-router-crossref "router --ac AC14 log lacks T25: [$(printf '%s\n' "$NOUT" | tail -1)]"
+  fi
   printf 'uid exhibit: host id -u=%s fakeroot id -u=%s\n' "$(id -u)" \
     "$(fakeroot id -u 2>/dev/null || echo unavailable)"
   printf 'fakeroot AC7 skip-arm: %s\n' \
@@ -597,6 +603,24 @@ if want_ac; then
       ok c1-criterion-text-untouched
     else
       bad c1-criterion-text-untouched "C1 section body differs vs faa0249 (head $(_lines "$HEADC1"), base $(_lines "$BASEC1"))"
+    fi
+    # Pass-7 AC9 raw exhibit: the investigator's own slice — the section
+    # including its heading, `  Verify:` lines dropped — must diff clean
+    # against faa0249 with NO command-substitution trimming. rc=0 is the
+    # receipt; the numerals echo so the equality is witnessed, not asserted.
+    sec_c1() { awk 'f&&/^### /{exit} /^### CDT-589-C1$/{f=1} f' "$1"; }
+    RAWRC=0
+    diff <(sec_c1 "$SPEC" | grep -v '^  Verify:') \
+      <(git -C "$ROOT" show faa0249:specs/core/SPEC-009-ticket-workflow.md \
+          | sec_c1 /dev/stdin | grep -v '^  Verify:') >/dev/null 2>&1 || RAWRC=$?
+    if [ "$RAWRC" -eq 0 ]; then
+      ok c1-raw-section-diff-clean
+      printf 'raw-diff exhibit: rc=0, head_lines=%s base_lines=%s\n' \
+        "$(sec_c1 "$SPEC" | grep -v '^  Verify:' | wc -l | tr -d ' ')" \
+        "$(git -C "$ROOT" show faa0249:specs/core/SPEC-009-ticket-workflow.md \
+            | sec_c1 /dev/stdin | grep -v '^  Verify:' | wc -l | tr -d ' ')"
+    else
+      bad c1-raw-section-diff-clean "stripped-section raw diff rc=$RAWRC"
     fi
   else
     bad speclint-findings-set-equal "no faa0249 archive tree"

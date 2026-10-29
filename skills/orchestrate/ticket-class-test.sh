@@ -107,6 +107,25 @@ if want_ac; then
   RC=$?
   if [ "$RC" -eq 0 ] && [ "$OUT" = "none" ]; then ok stdin-form-none
   else bad "stdin-form-none" "AC1 stdin form: rc=$RC out=[$OUT]"; fi
+  # CDT-595 AC1 exhibit (pass-7): probe colon/space forms with the FULL
+  # three-alternative <AC_LABEL> template extracted from investigator.md
+  # (X := AC1), not a hand-narrowed alt-2 fragment.
+  INV="$HERE/../council/prompts/investigator.md"
+  TPL=$(awk '/for AC id X is/{getline; print; exit}' "$INV")
+  if [ -z "$TPL" ]; then
+    bad full-template-colon "template not extracted from $INV"
+    bad full-template-spacemiss "template not extracted from $INV"
+  else
+    RE=$(printf '%s\n' "$TPL" | sed 's/X/AC1/g')
+    N1=$(printf 'ok AC1: full-template-colon\n' | grep -cE -- "$RE")
+    N2=$(printf 'ok AC1 full-template-space\n' | grep -cE -- "$RE")
+    printf 'full-template: %s\n' "$RE"
+    printf 'full-template hits: colon=%s space=%s\n' "$N1" "$N2"
+    if [ "$N1" -eq 1 ]; then ok full-template-colon
+    else bad full-template-colon "full template missed the colon form"; fi
+    if [ "$N2" -eq 0 ]; then ok full-template-spacemiss
+    else bad full-template-spacemiss "full template matched the space form"; fi
+  fi
 fi
 
 # --- AC2: carve is per occurrence, not per document -----------------------
@@ -359,6 +378,17 @@ if want_ac; then
       printf 'red-arm replay rc=%s: %s\n' "$RRC" \
         "$(printf '%s\n' "$RLOG" | grep '^FAIL: AC13: perf-2s' | head -1)"
       printf 'red-arm aggregate: %s\n' "$(printf '%s\n' "$RLOG" | tail -1)"
+      # Pass-7: a REAL >= 2 s trigger. A copy gets a sleep injected inside
+      # the timed window; the unmodified `-lt 2` budget then fires `bad`
+      # on a genuine elapsed >= 2 value.
+      sed -e "s|^HERE=.*|HERE='$HERE'|" \
+        -e 's|OUT=$(TICKET_CLASS_GLOSSARY|sleep 2; OUT=$(TICKET_CLASS_GLOSSARY|' \
+        "$0" > "$TMP/perf-slow.sh"
+      SRC=0
+      SLOG=$(CDT595_RED_EXHIBIT=2 bash "$TMP/perf-slow.sh" --ac AC13 2>&1) || SRC=$?
+      printf 'slow-red replay rc=%s: %s\n' "$SRC" \
+        "$(printf '%s\n' "$SLOG" | grep '^FAIL: AC13: perf-2s' | head -1)"
+      printf 'slow-red aggregate: %s\n' "$(printf '%s\n' "$SLOG" | tail -1)"
     fi
   fi
 fi
