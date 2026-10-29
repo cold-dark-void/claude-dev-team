@@ -203,6 +203,10 @@ if want_ac; then
   run_nested_env AC_RECEIPT_FORCE_FAIL=base-auth "$TC" --ac AC14
   if [ "$NRC" -ne 0 ]; then ok fail-hook-exit-nonzero
   else bad fail-hook-exit-nonzero "nested rc=0 with a planted failure"; fi
+  # Echo the raw numerals (exit code + nested aggregate): a receipt that the
+  # suite "exits non-zero" must exhibit the numeral, not just assert it.
+  printf 'nested rc=%s\n' "$NRC"
+  printf 'nested aggregate: %s\n' "$(printf '%s\n' "$NOUT" | tail -1)"
   if printf '%s\n' "$NERR" | grep -qF -- 'FAIL: AC14: base-auth: planted'; then
     ok fail-hook-stderr-shape
     # Replay the nested stderr onto this suite's stdout, so the AC2 Verify log
@@ -281,6 +285,9 @@ fi
 # ---- AC4: the C1 strike list is covered, filter >=1 per id ----------------
 set_ac AC4
 if want_ac; then
+  # Section-token exhibit: the `### CDT-589-C1` heading, located raw.
+  grep -n '^### CDT-589-C1$' "$ROOT/specs/core/SPEC-009-ticket-workflow.md" \
+    | sed 's/^/section-heading: /'
   for n in 1 2 3 4 5 6 7 8 9 10 11 13 14; do
     run_nested "$TC" --ac "AC$n"
     if [ "$NRC" = 0 ] && printf '%s\n' "$NOUT" | grep -q "^ok AC$n: "; then
@@ -296,6 +303,14 @@ if want_ac; then
   run_nested "$RS" --ac AC12
   expect_rc ac12-router-exit-0 0
   aggregate_is_ok_count ac12-router-count-equals-pass "$NOUT"
+  # C1 AC14 cross-reference exhibits: the router's T25 receipt and the uid-0
+  # skip-arm, echoed raw (pass-4: these arms were asserted, not exhibited).
+  run_nested "$RS" --ac AC14
+  printf 'router T25: %s\n' "$(printf '%s\n' "$NOUT" | grep -F 'T25' | head -1)"
+  printf 'uid exhibit: host id -u=%s fakeroot id -u=%s\n' "$(id -u)" \
+    "$(fakeroot id -u 2>/dev/null || echo unavailable)"
+  printf 'fakeroot AC7 skip-arm: %s\n' \
+    "$(fakeroot bash "$TC" --ac AC7 2>&1 | grep -F 'skip AC7: mode-000 uid0' | head -1)"
 
   run_nested "$TC" --ac AC7
   for s in scan-tool-failure mode-000 no-file empty-file no-terms header-only \
@@ -401,6 +416,12 @@ if want_ac; then
   if [ "$LANE_RC" = 0 ]; then
     ok portable-lane-exit-0
     printf 'lane bare runs: ticket-class-test rc=0 router-static-test rc=0\n'
+    # Token exhibit: tools/run-all-tests.sh discovers the lane suites; its
+    # --list output names the repo-relative paths the runner bare-runs.
+    printf 'runner form: bash tools/run-all-tests.sh --list (cwd repo root)\n'
+    (cd "$ROOT" && bash tools/run-all-tests.sh --list 2>/dev/null) \
+      | grep -E '^skills/orchestrate/(ticket-class|router-static)-test\.sh$' \
+      | sed 's/^/  discovered: /'
   else
     bad portable-lane-exit-0 "lane bare run rc=1 (ticket-class-test / router-static-test)"
   fi
