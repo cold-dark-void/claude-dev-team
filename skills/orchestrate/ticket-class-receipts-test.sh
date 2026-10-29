@@ -13,20 +13,20 @@
 #        and each C1 strike-list slug shows its own receipt
 #   AC6  the uid-0 mode-000 skip: `skip AC7:`, never `SKIP:`, counted by
 #        neither counter; the root arm is exhibited under fakeroot
-#   AC7  consumer compat at the C1 HEAD fbbe657: full-run aggregate last line,
+#   AC7  consumer compat at the C1 HEAD faa0249: full-run aggregate last line,
 #        exit 0/64 preserved, portable touch-set bare runs green, classifier
 #        byte-identical, suite-only path set
 #   AC8  the T1 spike (investigator <AC_LABEL> template, colon form) plus a
 #        >=1-line filtered receipt per technical AC of a real full-suite log
 #   AC9  the `### CDT-589-C1` Verify repoint, spec-lint findings-set equality
-#        vs an fbbe657 archive, and C1 criterion-text (sans Verify) equality
+#        vs an faa0249 archive, and C1 criterion-text (sans Verify) equality
 #
 # Nested targets are ticket-class-test.sh, router-static-test.sh and
 # tools/spec-lint.sh only. This suite never invokes itself, so a nested
 # `--ac AC2` cannot recurse into its own case.
 #
 # AC9 is findings-set baseline equality, not rc 0: tools/spec-lint.sh exits 1
-# on master, on the stack base fbbe657, and here, from two pre-existing
+# on master, on the stack base faa0249, and here, from two pre-existing
 # findings (specs/OWNERS missing skills/advisor; SPEC-038 [history] order).
 # The gate is that no finding names SPEC-009. That debt is a follow-up ticket.
 #
@@ -389,23 +389,23 @@ if want_ac; then
     bad consumer-aggregate-last-line "last line [$(printf '%s\n' "$NOUT" | tail -1)]"
   fi
   expect_usage usage-ac99-preserved "$TC" --ac AC99
-  SUBJ=$(git -C "$ROOT" log -1 --format=%s fbbe657 2>/dev/null)
+  SUBJ=$(git -C "$ROOT" log -1 --format=%s faa0249 2>/dev/null)
   if printf '%s' "$SUBJ" | grep -qF -- 'CDT-589-C1'; then
     ok c1head-label-exhibit
-    printf 'fbbe657 = C1 HEAD: %s\n' "$SUBJ"
+    printf 'faa0249 = C1 HEAD: %s\n' "$SUBJ"
   else
-    bad c1head-label-exhibit "fbbe657 subject [$SUBJ] does not name CDT-589-C1"
+    bad c1head-label-exhibit "faa0249 subject [$SUBJ] does not name CDT-589-C1"
   fi
-  if [ -z "$(git -C "$ROOT" diff --name-only fbbe657..HEAD -- skills/orchestrate/ticket-class.sh 2>/dev/null)" ]; then
+  if [ -z "$(git -C "$ROOT" diff --name-only faa0249..HEAD -- skills/orchestrate/ticket-class.sh 2>/dev/null)" ]; then
     ok classifier-untouched-c1head
   else
-    bad classifier-untouched-c1head "ticket-class.sh changed vs fbbe657"
+    bad classifier-untouched-c1head "ticket-class.sh changed vs faa0249"
   fi
-  CHANGED=$(git -C "$ROOT" diff --name-only fbbe657..HEAD 2>/dev/null)
+  CHANGED=$(git -C "$ROOT" diff --name-only faa0249..HEAD 2>/dev/null)
   OUTSIDE=$(printf '%s\n' "$CHANGED" | grep -vE '^skills/orchestrate/[a-z0-9-]*-test\.sh$|^specs/|^tests/lib/')
   if [ -z "$OUTSIDE" ] && [ -n "$CHANGED" ]; then
     ok suite-only-vs-c1head
-    printf 'fbbe657..HEAD paths:\n'
+    printf 'faa0249..HEAD paths:\n'
     printf '%s\n' "$CHANGED" | sed 's/^/  /'
   else
     bad suite-only-vs-c1head "non-suite path: [$(printf '%s\n' "$OUTSIDE" | head -1)]"
@@ -551,7 +551,7 @@ if want_ac; then
   if [ "$LRC" -eq 1 ]; then
     ok speclint-rc-baseline
   else
-    bad speclint-rc-baseline "spec-lint rc=$LRC — the findings set moved off the fbbe657 baseline (expect 1: specs/OWNERS plus SPEC-038 [history])"
+    bad speclint-rc-baseline "spec-lint rc=$LRC — the findings set moved off the faa0249 baseline (expect 1: specs/OWNERS plus SPEC-038 [history])"
   fi
   if printf '%s\n' "$LINT_OUT" | grep -qF -- 'SPEC-009'; then
     bad speclint-no-spec009 "new finding touches the spec: [$(printf '%s\n' "$LINT_OUT" | grep -F -- 'SPEC-009' | head -1)]"
@@ -561,7 +561,7 @@ if want_ac; then
   # Findings-SET equality, not rc equality: run the linter on a pinned
   # archive of the stack base and diff the sorted finding lines byte-for-byte.
   mkdir -p "$WORK/base"
-  if git -C "$ROOT" archive fbbe657 2>/dev/null | tar -x -C "$WORK/base" 2>/dev/null \
+  if git -C "$ROOT" archive faa0249 2>/dev/null | tar -x -C "$WORK/base" 2>/dev/null \
      && [ -f "$WORK/base/tools/spec-lint.sh" ]; then
     # The linter's file discovery is git-backed; give the archive the same
     # tracked context, or the scan sets differ for a non-semantic reason.
@@ -573,7 +573,7 @@ if want_ac; then
     BSET=$(printf '%s\n' "$BASE_OUT" | LC_ALL=C sort)
     if [ -n "$BASE_OUT" ] && [ "$HSET" = "$BSET" ]; then
       ok speclint-findings-set-equal
-      printf 'HEAD vs fbbe657 spec-lint: identical finding lines (%s)\n' "$(printf '%s\n' "$LINT_OUT" | tail -1)"
+      printf 'HEAD vs faa0249 spec-lint: identical finding lines (%s)\n' "$(printf '%s\n' "$LINT_OUT" | tail -1)"
       # Findings-set exhibit (pass-6 AC9 strike): the compare predicate,
       # made observable. Show each side's sorted finding lines plus a
       # checksum, so equality is witnessed, not asserted.
@@ -596,10 +596,10 @@ if want_ac; then
     if [ -n "$BASEC1" ] && [ "$HEADC1" = "$BASEC1" ]; then
       ok c1-criterion-text-untouched
     else
-      bad c1-criterion-text-untouched "C1 section body differs vs fbbe657 (head $(_lines "$HEADC1"), base $(_lines "$BASEC1"))"
+      bad c1-criterion-text-untouched "C1 section body differs vs faa0249 (head $(_lines "$HEADC1"), base $(_lines "$BASEC1"))"
     fi
   else
-    bad speclint-findings-set-equal "no fbbe657 archive tree"
+    bad speclint-findings-set-equal "no faa0249 archive tree"
     skip_ac c1-criterion-text-untouched
   fi
 fi
