@@ -354,6 +354,12 @@ if want_ac; then
   awk 'BEGIN { for (i = 0; i < 2900; i++) print "the pin stays shared Same-session via preferences and aa7-session plus aa99-session line " i }' > "$BIG"
   SIZE=$(wc -c < "$BIG" | tr -d ' ')
   if [ "$SIZE" -ge 262144 ]; then ok input-size-256k; else bad "input-size-256k" "perf input is only $SIZE bytes"; fi
+  # AC5 fixture facts (pass-8 strike: the 100-row loop was source-only):
+  # count the generated glossary term rows and echo both sizes into the run
+  # log. The row filter names the data rows only, not the 6 table/header
+  # lines the fixture also carries.
+  GROWS=$(grep -c -- '-session | d | a |' "$G100")
+  printf 'perf-fixture: glossary term rows=%s ticket bytes=%s (AC5 clause: 256 KB / 100 rows)\n' "$GROWS" "$SIZE"
   START=$SECONDS
   OUT=$(TICKET_CLASS_GLOSSARY="$G100" bash "$CLASS" < "$BIG" 2>/dev/null)
   ELAPSED=$((SECONDS - START))

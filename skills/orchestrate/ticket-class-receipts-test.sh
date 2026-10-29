@@ -11,6 +11,9 @@
 #        "exits 0 iff m=0"), every malformed form exits 64 with one usage line
 #   AC4  every technical C1 AC filter runs green on the suite that owns it,
 #        and each C1 strike-list slug shows its own receipt
+#   AC5  the AC13 perf case is scoped to --ac AC13 (absent from a bare full
+#        run, present under the filter) and echoes its 100-row/256 KB fixture
+#        counts into the run log
 #   AC6  the uid-0 mode-000 skip: `skip AC7:`, never `SKIP:`, counted by
 #        neither counter; the root arm is exhibited under fakeroot
 #   AC7  consumer compat at the C1 HEAD faa0249: full-run aggregate last line,
@@ -349,6 +352,31 @@ if want_ac; then
   done
 fi
 
+# ---- AC5: perf-case scope and fixture-size exhibits -----------------------
+# Pass-8 strikes: the 100-row glossary loop was source-only, and "runs only
+# under --ac AC13" had no non-AC13 run exhibit. Both become run receipts.
+set_ac AC5
+if want_ac; then
+  run_nested "$TC"
+  expect_rc ac5-full-run-green 0
+  PC=$(printf '%s\n' "$NOUT" | grep -c 'AC13: perf-2s' || true)
+  printf 'full-run perf-2s line count=%s (clause: perf case runs only under --ac AC13)\n' "$PC"
+  if [ "$PC" = "0" ]; then ok perf-absent-in-full-run
+  else bad perf-absent-in-full-run "bare full run printed $PC perf-2s lines"; fi
+  run_nested "$TC" --ac AC13
+  expect_rc ac5-ac13-run-green 0
+  PL=$(printf '%s\n' "$NOUT" | grep -E '^ok AC13: perf-2s' | head -1)
+  if [ -n "$PL" ]; then ok perf-present-under-ac13
+  else bad perf-present-under-ac13 "no perf-2s receipt under --ac AC13"; fi
+  [ -n "$PL" ] && printf 'AC13 run: %s\n' "$PL"
+  RL=$(printf '%s\n' "$NOUT" | grep -E '^perf-fixture:' | head -1)
+  case "$RL" in
+    'perf-fixture: glossary term rows=100 ticket bytes='*) ok perf-fixture-counts-echoed ;;
+    *) bad perf-fixture-counts-echoed "fixture echo missing or term rows!=100 [$RL]" ;;
+  esac
+  [ -n "$RL" ] && printf '%s\n' "$RL"
+fi
+
 # ---- AC6: the uid-0 skip is a receipt, a pass, and a SKIP: ban ------------
 set_ac AC6
 if want_ac; then
@@ -448,6 +476,19 @@ if want_ac; then
   NX=$(printf '%s' "$PIN" | tr -cd 'X' | wc -c | tr -d ' ')
   if [ "$NX" = "3" ]; then ok spike-regex-arity
   else bad spike-regex-arity "template holds $NX X tokens, expected 3"; fi
+
+  # AC8 temporal clause (pass-7 strike: no git-run exhibit): the T1 spike
+  # commit is an ancestor of the spec commit that locks the label format.
+  SPIKE=$(git -C "$ROOT" log --reverse --format='%H %s' 2>/dev/null | grep -F 'CDT-595-T1' | head -1)
+  SPECC=$(git -C "$ROOT" log --reverse --format='%H %s' 2>/dev/null | grep -F 'per-AC run receipts' | head -1)
+  if [ -n "$SPIKE" ] && [ -n "$SPECC" ] \
+     && git -C "$ROOT" merge-base --is-ancestor "${SPIKE%% *}" "${SPECC%% *}"; then
+    ok spike-precedes-spec
+    printf 'spike commit: %s\nspec commit:  %s\n' "$SPIKE" "$SPECC"
+    printf 'spike parent: %s\n' "$(git -C "$ROOT" log -1 --format='%h %s' "${SPIKE%% *}^" 2>/dev/null)"
+  else
+    bad spike-precedes-spec "spike/spec commits not found in order (spike=[$SPIKE] spec=[$SPECC])"
+  fi
 
   SAMP="$WORK/spike-sample.log"
   cat > "$SAMP" <<'EOF'
@@ -588,6 +629,11 @@ if want_ac; then
         "$(printf '%s\n' "$BSET" | cksum | tr ' ' ':')" \
         "$([ "$HSET" = "$BSET" ] && echo yes || echo no)"
       printf 'findings-set head:\n%s\nfindings-set base:\n%s\n' "$HSET" "$BSET"
+      # Pass-8 strike: the compare predicate itself was never printed, so the
+      # judge inferred the rule. Echo it verbatim from this suite's source.
+      printf 'findings-set compare rule (this suite, verbatim):\n'
+      sed -n '/HSET=\$(printf/,/BSET=\$(printf/p' "$HERE/ticket-class-receipts-test.sh"
+      grep -nF -- '[ "$HSET" = "$BSET" ]' "$HERE/ticket-class-receipts-test.sh"
     else
       bad speclint-findings-set-equal "rc head=$LRC base=$BR; head lines=$(_lines "$LINT_OUT") base lines=$(_lines "$BASE_OUT")"
     fi
