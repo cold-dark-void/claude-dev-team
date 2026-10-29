@@ -345,6 +345,21 @@ if want_ac; then
   if [ "$AC_FILTER" = "AC13" ]; then
     if [ "$ELAPSED" -lt 2 ]; then ok "perf-2s ${ELAPSED}s"
     else bad "perf-2s" "AC13 perf: elapsed=${ELAPSED}s"; fi
+    # CDT-595 AC5 exhibits (pass-6): the SECONDS builtin, and a real red
+    # run of the >= 2 arm. The replay is this file with the budget bound
+    # forced unsatisfiable; CDT595_RED_EXHIBIT stops the copy re-exhibiting.
+    sleep 1
+    printf 'seconds builtin: SECONDS=%s\n' "$SECONDS"
+    if [ -z "${CDT595_RED_EXHIBIT:-}" ] && [ -f "$0" ]; then
+      # The copy lives in $TMP: pin HERE to the real suite directory so its
+      # library sources and fixture paths resolve.
+      sed -e "s|^HERE=.*|HERE='$HERE'|" -e 's/-lt 2 \]/-lt -1 ]/' "$0" > "$TMP/perf-red.sh"
+      RRC=0
+      RLOG=$(CDT595_RED_EXHIBIT=1 bash "$TMP/perf-red.sh" --ac AC13 2>&1) || RRC=$?
+      printf 'red-arm replay rc=%s: %s\n' "$RRC" \
+        "$(printf '%s\n' "$RLOG" | grep '^FAIL: AC13: perf-2s' | head -1)"
+      printf 'red-arm aggregate: %s\n' "$(printf '%s\n' "$RLOG" | tail -1)"
+    fi
   fi
 fi
 

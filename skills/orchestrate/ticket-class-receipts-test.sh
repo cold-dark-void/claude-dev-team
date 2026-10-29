@@ -280,6 +280,10 @@ if want_ac; then
   else
     bad router-subset-ac12-receipts "no AC12 receipt: [$(_flat "$NOUT")]"
   fi
+  # Template exhibit (pass-5 AC3 strike): the AC names the aggregate form
+  # `PASS=<n> FAIL=<m>`; echo it literal beside the observed instance.
+  printf 'aggregate template: %s\n' 'PASS=<n> FAIL=<m>'
+  printf 'aggregate instance: %s\n' "$(printf '%s\n' "$NOUT" | tail -1)"
 fi
 
 # ---- AC4: the C1 strike list is covered, filter >=1 per id ----------------
@@ -529,6 +533,19 @@ if want_ac; then
       ok "$slug"
     fi
   done
+  # M14(g) legality receipt (pass-6 AC9 strike): every C1 Verify line's
+  # command and args hold only the SPEC-033 M14(g) charset. Check + echo.
+  M14G_BADLINES=$(for n in 1 2 3 4 5 6 7 8 9 10 11 12 13 14; do
+    c1_verify_lines "AC$n"
+  done | sed 's/^  Verify: //' | grep -vE '^bash [A-Za-z0-9._/=@%+,-]+( [A-Za-z0-9._/=@%+,-]+)*$' || true)
+  if [ -z "$M14G_BADLINES" ]; then
+    ok m14g-verify-charset
+  else
+    bad m14g-verify-charset "Verify line outside the M14(g) charset: [$(printf '%s\n' "$M14G_BADLINES" | head -1)]"
+  fi
+  printf 'm14g exhibit: 14 Verify lines checked, illegal=%s, sample=[%s]\n' \
+    "$(_lines "$M14G_BADLINES")" \
+    "$(c1_verify_lines AC13 | sed 's/^  Verify: //')"
   LRC=0
   LINT_OUT=$( (cd "$ROOT" && bash "$LINT") 2>&1 ) || LRC=$?
   if [ "$LRC" -eq 1 ]; then
@@ -557,6 +574,14 @@ if want_ac; then
     if [ -n "$BASE_OUT" ] && [ "$HSET" = "$BSET" ]; then
       ok speclint-findings-set-equal
       printf 'HEAD vs fbbe657 spec-lint: identical finding lines (%s)\n' "$(printf '%s\n' "$LINT_OUT" | tail -1)"
+      # Findings-set exhibit (pass-6 AC9 strike): the compare predicate,
+      # made observable. Show each side's sorted finding lines plus a
+      # checksum, so equality is witnessed, not asserted.
+      printf 'findings-set head_cksum=%s base_cksum=%s equal=%s\n' \
+        "$(printf '%s\n' "$HSET" | cksum | tr ' ' ':')" \
+        "$(printf '%s\n' "$BSET" | cksum | tr ' ' ':')" \
+        "$([ "$HSET" = "$BSET" ] && echo yes || echo no)"
+      printf 'findings-set head:\n%s\nfindings-set base:\n%s\n' "$HSET" "$BSET"
     else
       bad speclint-findings-set-equal "rc head=$LRC base=$BR; head lines=$(_lines "$LINT_OUT") base lines=$(_lines "$BASE_OUT")"
     fi
