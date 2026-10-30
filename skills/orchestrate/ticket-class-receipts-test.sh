@@ -82,7 +82,9 @@ _flat() { printf '%s' "$1" | tr '\n' '|'; }
 run_nested() {
   local target=$1; shift
   NRC=0
+  printf 'CMD: bash %s %s\n' "$target" "$*"
   NOUT=$(bash "$target" "$@" 2>"$WORK/err") || NRC=$?
+  printf 'CMD exit=%s\n' "$NRC"
   NERR=$(cat "$WORK/err" 2>/dev/null)
 }
 
@@ -90,7 +92,9 @@ run_nested() {
 run_nested_env() {
   local kv=$1 target=$2; shift 2
   NRC=0
+  printf 'CMD: env %s bash %s %s\n' "$kv" "$target" "$*"
   NOUT=$(env "$kv" bash "$target" "$@" 2>"$WORK/err") || NRC=$?
+  printf 'CMD exit=%s\n' "$NRC"
   NERR=$(cat "$WORK/err" 2>/dev/null)
 }
 
@@ -595,6 +599,8 @@ if want_ac; then
     "$(c1_verify_lines AC13 | sed 's/^  Verify: //')"
   LRC=0
   LINT_OUT=$( (cd "$ROOT" && bash "$LINT") 2>&1 ) || LRC=$?
+  printf 'lint head CMD: (cd %s && bash %s)\n' "$ROOT" "$LINT"
+  printf 'lint head CMD exit=%s\n' "$LRC"
   if [ "$LRC" -eq 1 ]; then
     ok speclint-rc-baseline
   else
@@ -616,6 +622,8 @@ if want_ac; then
     git -C "$WORK/base" add -A >/dev/null 2>&1
     BR=0
     BASE_OUT=$( (cd "$WORK/base" && bash tools/spec-lint.sh) 2>&1 ) || BR=$?
+    printf 'lint base CMD: (cd %s && bash tools/spec-lint.sh)\n' "$WORK/base"
+    printf 'lint base CMD exit=%s\n' "$BR"
     HSET=$(printf '%s\n' "$LINT_OUT" | LC_ALL=C sort)
     BSET=$(printf '%s\n' "$BASE_OUT" | LC_ALL=C sort)
     if [ -n "$BASE_OUT" ] && [ "$HSET" = "$BSET" ]; then
@@ -632,7 +640,7 @@ if want_ac; then
       # Pass-8 strike: the compare predicate itself was never printed, so the
       # judge inferred the rule. Echo it verbatim from this suite's source.
       printf 'findings-set compare rule (this suite, verbatim):\n'
-      sed -n '/HSET=\$(printf/,/BSET=\$(printf/p' "$HERE/ticket-class-receipts-test.sh"
+      sed -n '/^ *HSET=\$(printf/,/^ *BSET=\$(printf/p' "$HERE/ticket-class-receipts-test.sh"
       grep -nF -- '[ "$HSET" = "$BSET" ]' "$HERE/ticket-class-receipts-test.sh"
     else
       bad speclint-findings-set-equal "rc head=$LRC base=$BR; head lines=$(_lines "$LINT_OUT") base lines=$(_lines "$BASE_OUT")"
@@ -667,6 +675,43 @@ if want_ac; then
             | sec_c1 /dev/stdin | grep -v '^  Verify:' | wc -l | tr -d ' ')"
     else
       bad c1-raw-section-diff-clean "stripped-section raw diff rc=$RAWRC"
+    fi
+    # Pass-9 AC9 strike: a council mirror (git-initialized faa0249 archive)
+    # linted a smaller set than the block above — spec-lint's M14 gate keys
+    # on git metadata at the lint root, so an ungitted extraction drops the
+    # [m14-ac] WARN lines. Make the pair condition-identical: mirror HEAD
+    # and faa0249 each as a fresh git-initialized archive tree, lint both
+    # with the same command, and echo each CMD, exit, and sorted set.
+    mkdir -p "$WORK/mirror/head" "$WORK/mirror/base"
+    PRC=0
+    git -C "$ROOT" archive HEAD    | tar -x -C "$WORK/mirror/head" || PRC=$?
+    git -C "$ROOT" archive faa0249 | tar -x -C "$WORK/mirror/base" || PRC=$?
+    for side in head base; do
+      git -C "$WORK/mirror/$side" init -q . >/dev/null 2>&1 || PRC=$?
+      git -C "$WORK/mirror/$side" add -A    >/dev/null 2>&1 || PRC=$?
+    done
+    if [ "$PRC" = 0 ] && [ -f "$WORK/mirror/head/tools/spec-lint.sh" ]; then
+      MHR=0
+      MHC=$( (cd "$WORK/mirror/head" && bash tools/spec-lint.sh) 2>&1 ) || MHR=$?
+      printf 'mirror head CMD: (cd %s && bash tools/spec-lint.sh)\n' "$WORK/mirror/head"
+      printf 'mirror head CMD exit=%s\n' "$MHR"
+      MBR=0
+      MBC=$( (cd "$WORK/mirror/base" && bash tools/spec-lint.sh) 2>&1 ) || MBR=$?
+      printf 'mirror base CMD: (cd %s && bash tools/spec-lint.sh)\n' "$WORK/mirror/base"
+      printf 'mirror base CMD exit=%s\n' "$MBR"
+      MHSET=$(printf '%s\n' "$MHC" | LC_ALL=C sort)
+      MBSET=$(printf '%s\n' "$MBC" | LC_ALL=C sort)
+      printf 'mirror head_cksum=%s base_cksum=%s equal=%s\n' \
+        "$(printf '%s\n' "$MHSET" | cksum | tr ' ' ':')" \
+        "$(printf '%s\n' "$MBSET" | cksum | tr ' ' ':')" \
+        "$([ "$MHSET" = "$MBSET" ] && echo yes || echo no)"
+      if [ -n "$MHC" ] && [ "$MHSET" = "$MBSET" ]; then
+        ok speclint-archive-pair-equal
+      else
+        bad speclint-archive-pair-equal "mirror lint sets differ (rc head=$MHR base=$MBR)"
+      fi
+    else
+      skip_ac speclint-archive-pair-equal
     fi
   else
     bad speclint-findings-set-equal "no faa0249 archive tree"
