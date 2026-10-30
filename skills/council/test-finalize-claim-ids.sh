@@ -3,6 +3,14 @@
 # Fixtures: skills/council/fixtures/finalize-claim-ids/
 # Hermetic: hermetic_init (private TMPDIR/HOME) + isolated temp git repo;
 # no live .claude/ writes.
+#
+# CDT-589-C4 per-AC run receipts (SPEC-013 § CDT-589-C4, CDT-595 pattern):
+# the WP 1-15 base cases keep their `OK:`/`FAIL:` prose and stay outside the
+# receipt economy; AC5/AC7/AC8 run the Forward claim fixture matrix
+# (test-forward-claim.sh) filtered to each AC and re-exhibit its non-ok lines
+# verbatim. `--ac AC<n>` prints that AC's subset aggregate as the last stdout
+# line (`PASS=<n> FAIL=<m>`, exit 0 iff m=0); the count of `^ok ` lines
+# equals n.
 set -uo pipefail
 
 ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
@@ -10,7 +18,12 @@ cd "$ROOT"
 
 # shellcheck source=../../tests/lib/hermetic.sh
 . "$ROOT/tests/lib/hermetic.sh"
+# shellcheck source=../../tests/lib/ac-receipt.sh
+. "$ROOT/tests/lib/ac-receipt.sh"
 hermetic_init
+parse_ac_args "$@"
+PASS=0
+FAIL=0
 
 ENGINE="$ROOT/skills/council/engine.sh"
 FIX="$ROOT/skills/council/fixtures/finalize-claim-ids"
@@ -24,13 +37,27 @@ REPO="$TMP/repo"
 mkdir -p "$REPO"
 git init -q "$REPO"
 
+# slugify <label> — receipt slug from a prose label ([a-z0-9-] only).
+slugify() {
+  printf '%s' "$1" | tr '[:upper:]' '[:lower:]' \
+    | sed -e 's/[^a-z0-9-]\{1,\}/-/g' -e 's/^-\{1,\}//' -e 's/-\{1,\}$//'
+}
 ok() {
   echo "OK: $1"
-  pass=$((pass + 1))
+  # Receipt only for checks inside a set_ac block (the AC5/AC7/AC8 nested
+  # exhibits); the WP 1-15 base cases stay prose-only.
+  if [ -n "${CUR_AC:-}" ] && want_ac; then
+    PASS=$(( PASS + 1 ))
+    printf 'ok %s: %s\n' "$CUR_AC" "$(slugify "$1")"
+  fi
 }
 fail_msg() {
   echo "FAIL: $1"
-  fail=$((fail + 1))
+  fail=$(( fail + 1 ))
+  if [ -n "${CUR_AC:-}" ] && want_ac; then
+    FAIL=$(( FAIL + 1 ))
+    printf 'FAIL: %s: %s: %s\n' "$CUR_AC" "$(slugify "$1")" failed >&2
+  fi
 }
 grep_file() {  # grep_file <label> <pattern> <file>
   if grep -qF -- "$2" "$3"; then ok "$1"; else fail_msg "$1 (missing: $2)"; fi
@@ -150,6 +177,13 @@ grep_file "5 '?' id with no text match falls to unmatched" \
 # (fixtures/forward-claim/) lives in test-forward-claim.sh; invoke it here so
 # that binding stays true. It is hermetic, engine-side, deterministic, and
 # never LLM-live (same contract as this suite).
+#
+# Receipt half: each bound AC runs the matrix filtered to itself. The nested
+# suite's receipts are its own; this suite counts them and re-exhibits the
+# nested run's non-ok lines verbatim (aggregate + exhibit:/CMD lines), so the
+# `^ok ` count here stays this suite's own while the raw guard tokens
+# (forward-claim-guard:, UNVERIFIED, scope==plan, ...) land in this run's
+# output from real nested data.
 FWD_SH="$ROOT/skills/council/test-forward-claim.sh"
 if [ ! -f "$FWD_SH" ]; then
   fail_msg "6 test-forward-claim.sh is missing"
@@ -165,6 +199,22 @@ else
     && ok "6 test-forward-claim.sh reports FAIL=0 ($(printf '%s\n' "$fwd_out" | grep '^PASS=' | tail -1))" \
     || fail_msg "6 test-forward-claim.sh summary is not FAIL=0: $(printf '%s\n' "$fwd_out" | grep '^PASS=' | tail -1)"
   printf '%s\n' "$fwd_out" | grep -E '^(FAIL:|PASS=)' | sed 's/^/    /'
+  for ac in AC5 AC7 AC8; do
+    set_ac "$ac"
+    fwd_rc=0
+    printf 'CMD: bash skills/council/test-forward-claim.sh --ac %s\n' "$ac"
+    fwd_ac_out="$(bash "$FWD_SH" --ac "$ac" 2>&1)" || fwd_rc=$?
+    printf 'CMD exit=%s\n' "$fwd_rc"
+    fwd_n="$(printf '%s\n' "$fwd_ac_out" | grep -c "^ok $ac: ")"
+    printf 'nested ok %s receipts: %s\n' "$ac" "$fwd_n"
+    if [ "$fwd_rc" -eq 0 ] && [ "$fwd_n" -ge 1 ]; then
+      ok "nested forward-claim --ac $ac exits 0 with $fwd_n receipts"
+    else
+      fail_msg "nested forward-claim --ac $ac failed: rc=$fwd_rc receipts=$fwd_n"
+    fi
+    printf '%s\n' "$fwd_ac_out" | grep -E '^(PASS=|exhibit:|CMD exit=)' | sed 's/^/nested: /'
+  done
+  CUR_AC=""
 fi
 
 # Guard: never wrote into the real worktree .claude/council
@@ -176,8 +226,9 @@ fi
 
 # ---- Summary -----------------------------------------------------------------
 echo
-echo "PASS=$pass FAIL=$fail"
-if [ "$fail" -ne 0 ]; then
-  exit 1
+# A legacy base-case failure gates the exit even though it carries no receipt;
+# ac_finish still owns the last stdout line and the 64-on-zero-match rule.
+if [ "${fail:-0}" -ne 0 ]; then
+  FAIL=$(( FAIL + 1 ))
 fi
-exit 0
+ac_finish

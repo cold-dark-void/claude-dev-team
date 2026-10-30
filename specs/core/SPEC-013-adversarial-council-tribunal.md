@@ -797,7 +797,7 @@ degradation marker — never invent a second string. Distinct from CDV-197
 
 ### Test 27 — Forward claim (CDT-589-C4)
 
-Deterministic, engine-side, never LLM-live. Extend `skills/council/test-finalize-claim-ids.sh` (cases 1–5) and `skills/council/test-plan-locator.sh` (prefix-tolerant locator + addendum byte-identity). A dedicated suite MAY land later; rebind Verify then (CDT-574-C1).
+Deterministic, engine-side, never LLM-live. The fixture matrix is `skills/council/test-forward-claim.sh` (AC7 Verify). `skills/council/test-finalize-claim-ids.sh` (cases 1–5) shares the finalize path and re-exhibits the matrix per AC, and `skills/council/test-plan-locator.sh` holds the prefix-tolerant locator and the addendum byte-identity.
 
 1. Tagged claim, judge `CONTRADICTED` on absence in a scheduled file, `scope=plan` → unstruck verdict is not `CONTRADICTED`/`FABRICATED`; guard line `forward-claim-guard:` in the Audit Trail; rewritten `UNVERIFIED` confidence ≤ 79.
 2. Same claim text untagged → old `CONTRADICTED` path fires (no guard line).
@@ -895,10 +895,10 @@ Format and rules: SPEC-033 M14(g) and M14(h).
 - **AC6.** The rule is plan-scope only. Diff-mode, the orchestrate Step 8/9 per-task council (task gate), M14 ship-gate, transcript-slice scope, `--from-retro`, and `--blind` do not gain the tag, the addendum, or the guard. `m14-ac-split.sh` claims never carry `[forward] `; the per-AC split path fails closed as today. Task path and `--workflow` path share the same semantics.
   Verify: bash skills/council/test-non-m14-plan.sh
 - **AC7.** Fixture matrix (engine-side, never LLM-live): (a) tagged claim refuted on absence in a scheduled file → not `CONTRADICTED`, guard fires, named in Audit Trail; (b) same claim untagged → old `CONTRADICTED` path fires; (c) same text as an M14 ship-gate claim → unchanged; (d) tagged claim + `CONTRADICTED` still hits the prefix-only guard (backstop over-inclusive; judge is the admissible-refutation layer); (e) XYZ-434-shaped replay → no blocking verdict (`CONTRADICTED`/`FABRICATED` or `UNVERIFIED` ≥ 80) on tagged claims.
-  Verify: bash skills/council/test-finalize-claim-ids.sh
+  Verify: bash skills/council/test-forward-claim.sh
 - **AC8.** The council report shows the tag on claim headings. Every discarded refutation is named in the Audit Trail. `finalize-meta.json` `struck_count` and struck lines reflect the guard.
   Verify: bash skills/council/test-finalize-claim-ids.sh
-- **AC9.** No new council phase, spawn, or claim-budget consumption. `check-template-vars.sh`, `test-verify-prompts.sh`, and `test-prompt-checkbox-rule.sh` pass. `investigator.md` is not edited.
+- **AC9.** No new council phase, spawn, or claim-budget consumption. `check-template-vars.sh`, `test-verify-prompts.sh`, and `test-prompt-checkbox-rule.sh` pass. `investigator.md` is not edited (it carries neither the `[forward] ` tag nor the addendum body).
   Verify: bash skills/council/test-verify-prompts.sh
 - **AC10.** This spec states the Forward claim rule under Phase 1, Phase 2, Phase 2.5, Phase 5, Phase 6, and Scope Exclusions. Mechanical prefix keying is intentional: a missed tag is old behavior (fail-closed); no one builds a bash classifier. SPEC-033 points at the Step 6c halt list's post-finalize timing. CONTEXT.md write-back of the term is an epic-level obligation, not this ticket's diff.
   Verify: bash skills/council/test-plan-locator.sh

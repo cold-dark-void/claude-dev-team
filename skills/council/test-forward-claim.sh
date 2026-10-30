@@ -35,6 +35,15 @@
 # Hermetic: private TMPDIR/HOME (tests/lib/hermetic.sh); every engine.sh call
 # runs with cwd inside its own temp git repo, so .claude/council/ writes land
 # there, never under the real MROOT.
+#
+# CDT-589-C4 per-AC run receipts (CDT-595 pattern, tests/lib/ac-receipt.sh):
+# every check prints its `OK:` prose line AND a `ok AC<n>: <slug>` receipt
+# (failures add `FAIL: AC<n>: <slug>: <detail>` on stderr) once a `set_ac`
+# block is active. `--ac AC<n>` runs the whole fixture matrix (the engine
+# runs are the setup) and prints only that AC's receipts plus the subset
+# aggregate; the last stdout line of any run is `PASS=<n> FAIL=<m>` and the
+# count of `^ok ` lines equals n. Each engine finalize is a direct run
+# exhibit: a `CMD:` line with the fixture paths and a `CMD exit=` code.
 set -uo pipefail
 
 ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
@@ -44,7 +53,12 @@ cd "$ROOT"
 . "$ROOT/tests/lib/skip.sh"
 # shellcheck source=../../tests/lib/hermetic.sh
 . "$ROOT/tests/lib/hermetic.sh"
+# shellcheck source=../../tests/lib/ac-receipt.sh
+. "$ROOT/tests/lib/ac-receipt.sh"
 hermetic_init
+parse_ac_args "$@"
+PASS=0
+FAIL=0
 
 ENGINE="$ROOT/skills/council/engine.sh"
 FIX="$ROOT/skills/council/fixtures/forward-claim"
@@ -62,10 +76,27 @@ REPO="$TMP/repo"
 mkdir -p "$REPO"
 git init -q "$REPO"
 
-fail=0
-pass=0
-ok() { echo "OK: $1"; pass=$((pass + 1)); }
-bad() { echo "FAIL: $1"; fail=$((fail + 1)); }
+# slugify <label> — receipt slug from a prose label ([a-z0-9-] only).
+slugify() {
+  printf '%s' "$1" | tr '[:upper:]' '[:lower:]' \
+    | sed -e 's/[^a-z0-9-]\{1,\}/-/g' -e 's/^-\{1,\}//' -e 's/-\{1,\}$//'
+}
+# The prose line keeps the pre-receipt output contract; the receipt is the
+# CDT-589-C4 addition (tests/lib/ac-receipt.sh grammar).
+ok() {
+  echo "OK: $1"
+  if [ -n "${CUR_AC:-}" ] && want_ac; then
+    PASS=$(( PASS + 1 ))
+    printf 'ok %s: %s\n' "$CUR_AC" "$(slugify "$1")"
+  fi
+}
+bad() {
+  echo "FAIL: $1"
+  if [ -n "${CUR_AC:-}" ] && want_ac; then
+    FAIL=$(( FAIL + 1 ))
+    printf 'FAIL: %s: %s: %s\n' "$CUR_AC" "$(slugify "$1")" failed >&2
+  fi
+}
 ok_eq() {  # ok_eq <label> <got> <want>
   if [ "$2" = "$3" ]; then ok "$1"; else bad "$1 (got: $2 | want: $3)"; fi
 }
@@ -82,19 +113,24 @@ BARE_CLAIM='Step 3 adds flag --fwd-demo to skills/council/engine.sh'
 GUARD_PREFIX='forward-claim-guard:'
 
 # run_finalize <name> <plan-path> <evidence-path> <judge-path>
-# Sets REPORT / META / OUT / RC for the assertion block that follows.
+# Sets REPORT / META / OUT / RC for the assertion block that follows. The
+# engine run is echoed as a CMD: / CMD exit= pair — a direct run exhibit of
+# the engine-side fixture (never LLM-live).
 run_finalize() {
   local name="$1" plan="$2" evidence="$3" judge="$4"
   REPORT="$TMP/$name.md"
   META="$REPORT.finalize-meta.json"
   OUT="$TMP/$name.stdout"
   rm -f "$REPORT" "$META"
+  printf 'CMD: bash skills/council/engine.sh finalize --plan-file %s --evidence-file %s --judge-output %s\n' \
+    "${plan#"$ROOT"/}" "${evidence#"$ROOT"/}" "${judge#"$ROOT"/}"
   ( cd "$REPO" && bash "$ENGINE" finalize \
       --plan-file "$plan" \
       --evidence-file "$evidence" \
       --judge-output "$judge" \
       --report-out "$REPORT" ) >"$OUT" 2>&1
   RC=$?
+  printf 'CMD exit=%s\n' "$RC"
   if [ "$RC" -eq 0 ]; then ok "$name: finalize exit 0"; else
     bad "$name: finalize exit $RC"
     sed 's/^/    /' "$OUT"
@@ -104,6 +140,15 @@ run_finalize() {
 # audit_section <report> — the rendered "## Audit Trail — Struck Lines" body.
 audit_section() {
   sed -n '/^## Audit Trail — Struck Lines/,/^## /p' "$1"
+}
+
+# exhibit_audit <report> — echo the guard line verbatim from the Audit Trail:
+# a direct run exhibit holding the forward-claim-guard: token and the struck
+# verdict/confidence facts (never starts with "ok ", so it cannot shift the
+# `^ok ` count).
+exhibit_audit() {
+  printf 'exhibit: audit trail: %s\n' \
+    "$(audit_section "$1" | grep -F -- "$GUARD_PREFIX" | head -1 | sed 's/^[[:space:]]*//')"
 }
 
 # halt_count <meta> [claim-prefix] — the Step 6c halt predicate over the
@@ -124,8 +169,11 @@ halt_count() {
 # =============================================================================
 # 1. AC7(a) tagged plan claim refuted on absence -> guard fires, caps at 79
 # =============================================================================
+set_ac AC7
 run_finalize a-tagged "$FIX/plan-tagged.json" "$FIX/evidence-absence.json" "$FIX/judge-contradicted.json"
+set_ac AC8
 has "1 heading shows the [forward] prefix" "### Claim c0: $FWD_CLAIM" "$REPORT"
+set_ac AC7
 has "1 verdict is UNVERIFIED at 79/100" "**UNVERIFIED** — confidence: 79/100" "$REPORT"
 hasnt "1 no CONTRADICTED badge survives" "**CONTRADICTED**" "$REPORT"
 if audit_section "$REPORT" | grep -qF -- \
@@ -134,9 +182,14 @@ if audit_section "$REPORT" | grep -qF -- \
 else
   bad "1 the guard line is named in the Audit Trail (AC8)"
 fi
+exhibit_audit "$REPORT"
 ok_eq "1 summary table counts no CONTRADICTED" \
   "$(grep -F '| CONTRADICTED |' "$REPORT")" "| CONTRADICTED | 0 |"
+set_ac AC8
 ok_eq "1 sidecar struck_count == 1 (guard line counted, AC8)" "$(jq -r .struck_count "$META")" "1"
+printf 'exhibit: finalize-meta.json struck_count and the struck lines reflect the guard\n'
+printf 'exhibit: %s\n' "$(grep -m1 '^## Audit Trail' "$REPORT")"
+set_ac AC7
 ok_eq "1 sidecar verdict is UNVERIFIED" \
   "$(jq -r '.unstruck_verdicts[0].verdict' "$META")" "UNVERIFIED"
 ok_eq "1 sidecar confidence capped at 79" \
@@ -145,19 +198,25 @@ ok_eq "1 sidecar keeps the tagged claim text" \
   "$(jq -r '.unstruck_verdicts[0].claim' "$META")" "$FWD_CLAIM"
 ok_eq "1 sidecar verdict_counts.CONTRADICTED == 0" \
   "$(jq -r '.verdict_counts.CONTRADICTED' "$META")" "0"
+set_ac AC9
 ok_eq "1 the row is rewritten, not dropped (AC9: no claim-budget loss)" \
   "$(jq -r .unstruck_verdict_count "$META")" "1"
+set_ac AC7
 ok_eq "1 sidecar max_verdict_confidence == 79" \
   "$(jq -r .max_verdict_confidence "$META")" "79"
 ok_eq "1 stdout counts UNVERIFIED 1 / CONTRADICTED 0" \
   "$(grep -F 'PARTIALLY_VERIFIED:' "$OUT" | sed 's/.*UNVERIFIED/UNVERIFIED/')" \
   "UNVERIFIED: 1  CONTRADICTED: 0  FABRICATED: 0"
+set_ac AC8
 ok_eq "1 stdout Struck lines == 1" "$(grep -F 'Struck lines:' "$OUT" | tr -dc '0-9')" "1"
+set_ac AC5
 ok_eq "1 Step 6c halt list is empty for the tagged claim" "$(halt_count "$META")" "0"
+printf 'exhibit: the rewritten verdict is UNVERIFIED at confidence <= 79 — it cannot trip the Step 6c halt list\n'
 
 # =============================================================================
 # 2. AC7(b) identical claim text WITHOUT the prefix -> CONTRADICTED survives
 # =============================================================================
+set_ac AC7
 run_finalize b-untagged "$FIX/plan-untagged.json" "$FIX/evidence-absence.json" \
   "$FIX/judge-contradicted-untagged.json"
 has "2 heading is untagged" "### Claim c0: $BARE_CLAIM" "$REPORT"
@@ -176,10 +235,12 @@ ok_eq "2 stdout counts CONTRADICTED 1" \
 ok_eq "2 stdout Struck lines == 0" "$(grep -F 'Struck lines:' "$OUT" | tr -dc '0-9')" "0"
 ok_eq "2 the untagged claim is fully refutable (halt list == 1, AC2)" \
   "$(halt_count "$META")" "1"
+printf 'exhibit: the untagged claim stays fully refutable: CONTRADICTED at 92 survives and the Step 6c halt list holds it\n'
 
 # =============================================================================
 # 3. AC7(c) same text as an M14 ship-gate claim -> unchanged vs the BASE engine
 # =============================================================================
+set_ac AC7
 run_finalize c-m14-control "$FIX/plan-m14-control.json" "$FIX/evidence-m14-control.json" \
   "$FIX/judge-m14-control.json"
 hasnt "3 no guard line in the M14 control report" "$GUARD_PREFIX" "$REPORT"
@@ -208,22 +269,27 @@ else
   diff "$FIX/goldens/m14-control.finalize-meta.golden.json" "$META" | head -20
 fi
 ok_eq "3 stdout Struck lines == 0" "$(grep -F 'Struck lines:' "$OUT" | tr -dc '0-9')" "0"
+printf 'exhibit: the M14 ship-gate control is unchanged: struck_count=0, no forward-claim-guard: line, CONTRADICTED 92 stands\n'
 
 # =============================================================================
 # 4. AC7(d) tagged claim refuted on an UNSCHEDULED file -> guard still fires.
 #    Documented over-inclusive backstop: the guard keys on prefix + scope +
 #    taxonomy only. The judge rule is the admissible-refutation layer.
 # =============================================================================
+set_ac AC7
 run_finalize d-unscheduled "$FIX/plan-tagged-unscheduled.json" "$FIX/evidence-unscheduled.json" \
   "$FIX/judge-contradicted-unscheduled.json"
 has "4 guard fires on an unscheduled-file refutation" "$GUARD_PREFIX" "$REPORT"
+set_ac AC8
 if audit_section "$REPORT" | grep -qF -- "$GUARD_PREFIX struck CONTRADICTED on [forward] claim c0"; then
   ok "4 the Audit Trail names the discarded refutation (c0)"
 else
   bad "4 the Audit Trail names the discarded refutation (c0)"
 fi
-has "4 verdict rewritten to UNVERIFIED at 79/100" "**UNVERIFIED** — confidence: 79/100" "$REPORT"
+exhibit_audit "$REPORT"
 ok_eq "4 sidecar struck_count == 1" "$(jq -r .struck_count "$META")" "1"
+set_ac AC7
+has "4 verdict rewritten to UNVERIFIED at 79/100" "**UNVERIFIED** — confidence: 79/100" "$REPORT"
 ok_eq "4 sidecar verdict is UNVERIFIED" \
   "$(jq -r '.unstruck_verdicts[0].verdict' "$META")" "UNVERIFIED"
 ok_eq "4 sidecar confidence capped from 91 to 79" \
@@ -235,6 +301,7 @@ ok_eq "4 Step 6c halt list is empty" "$(halt_count "$META")" "0"
 # 5. AC7(e) XYZ-434-shaped replay: two tagged claims at 88 / 92, plus one
 #    untagged factual claim that MUST stay refutable
 # =============================================================================
+set_ac AC7
 run_finalize e-xyz-434 "$FIX/plan-xyz-434.json" "$FIX/evidence-xyz-434.json" "$FIX/judge-xyz-434.json"
 ok_eq "5 two guard lines (one per tagged claim)" \
   "$(grep -cF -- "$GUARD_PREFIX" "$REPORT")" "2"
@@ -244,7 +311,9 @@ has "5 c0 heading shows the tag" \
   '### Claim c0: [forward] Task T3 adds the --fwd-demo flag to skills/council/engine.sh' "$REPORT"
 has "5 c1 heading shows the tag" \
   '### Claim c1: [forward] Task T4 lands skills/council/test-forward-claim.sh' "$REPORT"
+set_ac AC8
 ok_eq "5 sidecar struck_count == 2 (AC8)" "$(jq -r .struck_count "$META")" "2"
+set_ac AC7
 ok_eq "5 no tagged claim leaves as CONTRADICTED/FABRICATED" \
   "$(jq -r '[.unstruck_verdicts[] | select(.claim | startswith("[forward] "))
              | select(.verdict=="CONTRADICTED" or .verdict=="FABRICATED")] | length' "$META")" "0"
@@ -260,10 +329,13 @@ ok_eq "5 stdout counts UNVERIFIED 2 / CONTRADICTED 1" \
   "$(grep -F 'PARTIALLY_VERIFIED:' "$OUT" | sed 's/.*UNVERIFIED/UNVERIFIED/')" \
   "UNVERIFIED: 2  CONTRADICTED: 1  FABRICATED: 0"
 ok_eq "5 stdout Struck lines == 2" "$(grep -F 'Struck lines:' "$OUT" | tr -dc '0-9')" "2"
+exhibit_audit "$REPORT"
+printf 'exhibit: the XYZ-434 replay leaves no blocking verdict on tagged claims: no CONTRADICTED/FABRICATED, no UNVERIFIED >= 80\n'
 
 # =============================================================================
 # 6. AC5 FABRICATED is rewritten too
 # =============================================================================
+set_ac AC5
 run_finalize f-fabricated "$FIX/plan-tagged.json" "$FIX/evidence-absence.json" "$FIX/judge-fabricated.json"
 has "6 the guard names the FABRICATED verdict" \
   "$GUARD_PREFIX struck FABRICATED on [forward] claim c0" "$REPORT"
@@ -278,11 +350,14 @@ ok_eq "6 stdout counts FABRICATED 0" \
   "$(grep -F 'PARTIALLY_VERIFIED:' "$OUT" | sed 's/.*UNVERIFIED/UNVERIFIED/')" \
   "UNVERIFIED: 1  CONTRADICTED: 0  FABRICATED: 0"
 ok_eq "6 stdout Struck lines == 1" "$(grep -F 'Struck lines:' "$OUT" | tr -dc '0-9')" "1"
+exhibit_audit "$REPORT"
+printf 'exhibit: scope==plan + [forward] prefix + the CONTRADICTED/FABRICATED taxonomy is the whole key: FABRICATED is rewritten to UNVERIFIED at 79\n'
 
 # =============================================================================
 # 7. AC5 the predicate stays narrow: a NATIVE UNVERIFIED at 95 on a tagged
 #    claim is not a CONTRADICTED/FABRICATED, so the guard does not touch it
 # =============================================================================
+set_ac AC5
 run_finalize g-unverified-high "$FIX/plan-tagged.json" "$FIX/evidence-absence.json" \
   "$FIX/judge-unverified-high.json"
 hasnt "7 a native UNVERIFIED gains no guard line" "$GUARD_PREFIX" "$REPORT"
@@ -292,6 +367,7 @@ ok_eq "7 sidecar confidence not capped" \
   "$(jq -r '.unstruck_verdicts[0].confidence' "$META")" "95"
 ok_eq "7 a native UNVERIFIED >= 80 still blocks Step 6c" "$(halt_count "$META")" "1"
 ok_eq "7 stdout Struck lines == 0" "$(grep -F 'Struck lines:' "$OUT" | tr -dc '0-9')" "0"
+printf 'exhibit: a native UNVERIFIED 95 on a tagged claim is untouched — the guard covers only CONTRADICTED/FABRICATED, min(conf, 79) is not a clamp-to-79\n'
 
 # =============================================================================
 # 8. AC4/AC8 prefix-tolerant text-equality: the verdict carries the UNTAGGED
@@ -299,12 +375,17 @@ ok_eq "7 stdout Struck lines == 0" "$(grep -F 'Struck lines:' "$OUT" | tr -dc '0
 #    cannot rescue it). The claim record wins: the heading shows the tag, and
 #    the guard fires through that match.
 # =============================================================================
+set_ac AC4
 run_finalize h-text-match "$FIX/plan-tagged-two-claims.json" "$FIX/evidence-absence.json" \
   "$FIX/judge-contradicted-bare-text.json"
 has "8 an untagged verdict text matches the tagged claim record" \
   "### Claim c0: $FWD_CLAIM" "$REPORT"
 hasnt "8 the sibling claim is not relabeled" "### Claim unmatched:" "$REPORT"
+printf 'exhibit: matching order: claim_id first, then text-equality with [forward] optional on either side — heading resolved from the tagged record:\n'
+printf 'exhibit: heading: %s\n' "$(grep -m1 '^### Claim c0:' "$REPORT")"
+set_ac AC5
 has "8 the guard fires through the text match" "$GUARD_PREFIX" "$REPORT"
+set_ac AC4
 ok_eq "8 sidecar struck_count == 1" "$(jq -r .struck_count "$META")" "1"
 ok_eq "8 sidecar verdict capped to UNVERIFIED 79" \
   "$(jq -r '.unstruck_verdicts[0] | "\(.verdict):\(.confidence)"' "$META")" "UNVERIFIED:79"
@@ -322,6 +403,7 @@ ok_eq "8 Step 6c halt list is empty" "$(halt_count "$META")" "0"
 # 8b. The mirror case: the verdict carries the tag, the plan record does not.
 #     Matching is prefix-optional on EITHER side, the record's text wins for
 #     the heading, and the guard fires on the verdict's own tag.
+set_ac AC4
 run_finalize h2-tagged-verdict-text "$FIX/plan-untagged.json" "$FIX/evidence-absence.json" \
   "$FIX/judge-tagged-text.json"
 has "8b heading shows the untagged claim record" "### Claim c0: $BARE_CLAIM" "$REPORT"
@@ -334,6 +416,7 @@ ok_eq "8b stdout Struck lines == 1" "$(grep -F 'Struck lines:' "$OUT" | tr -dc '
 # 9. AC4 claim_id-first matching is unchanged: an empty verdict claim still
 #    routes through the tagged claim record
 # =============================================================================
+set_ac AC4
 run_finalize i-claim-id "$FIX/plan-tagged.json" "$FIX/evidence-absence.json" \
   "$FIX/judge-contradicted-bare-id.json"
 has "9 the claim_id match resolves the tagged text" "### Claim c0: $FWD_CLAIM" "$REPORT"
@@ -347,6 +430,7 @@ ok_eq "9 stdout Struck lines == 1" "$(grep -F 'Struck lines:' "$OUT" | tr -dc '0
 # 10. AC6 scope exclusion: the same tagged text at scope=claim gets no guard
 #     (the single-claim ship-gate / task-gate shape)
 # =============================================================================
+set_ac AC6
 run_finalize j-scope-claim "$FIX/plan-claim-scope-tagged.json" "$FIX/evidence-absence.json" \
   "$FIX/judge-contradicted.json"
 hasnt "10 no guard line at scope=claim" "$GUARD_PREFIX" "$REPORT"
@@ -355,8 +439,10 @@ ok_eq "10 sidecar struck_count == 0" "$(jq -r .struck_count "$META")" "0"
 ok_eq "10 sidecar confidence not capped" \
   "$(jq -r '.unstruck_verdicts[0].confidence' "$META")" "92"
 ok_eq "10 stdout Struck lines == 0" "$(grep -F 'Struck lines:' "$OUT" | tr -dc '0-9')" "0"
+printf 'exhibit: scope=claim (the M14 ship-gate / Step 8-9 task-gate shape): no guard, CONTRADICTED 92 survives\n'
 
 # 11. AC6 scope exclusion at scope=diff (the same tagged claim record).
+set_ac AC6
 sed 's/"scope": "claim"/"scope": "diff"/' "$FIX/plan-claim-scope-tagged.json" \
   > "$TMP/plan-scope-diff.json"
 run_finalize k-scope-diff "$TMP/plan-scope-diff.json" "$FIX/evidence-absence.json" \
@@ -369,6 +455,7 @@ ok_eq "11 stdout Struck lines == 0" "$(grep -F 'Struck lines:' "$OUT" | tr -dc '
 # =============================================================================
 # 12. AC6 finding[] shape at scope=plan: the guard no-ops, no crash
 # =============================================================================
+set_ac AC6
 run_finalize l-findings "$FIX/plan-tagged-findings.json" "$FIX/evidence-absence.json" \
   "$FIX/judge-findings.json"
 hasnt "12 a finding[] run gains no guard line" "$GUARD_PREFIX" "$REPORT"
@@ -381,10 +468,12 @@ ok_eq "12 finding[] sidecar warning count" "$(jq -r '.finding_counts.warning' "$
 ok_eq "12 stdout severity counts" "$(grep -F 'critical: ' "$OUT")" \
   "critical: 0  warning: 1  nitpick: 0"
 ok_eq "12 stdout Struck lines == 0" "$(grep -F 'Struck lines:' "$OUT" | tr -dc '0-9')" "0"
+printf 'exhibit: finding[] shape at scope=plan: the guard no-ops (struck_count=0), no crash\n'
 
 # =============================================================================
 # 13. AC3 seam: the addendum file is the one home; investigator.md stays clean
 # =============================================================================
+set_ac AC3
 ADD_BODY="$(cat "$ADDENDUM")"
 ok_eq "13 the addendum body is the canonical sentence" "$ADD_BODY" \
   "FORWARD CLAIM RULE: this claim is tagged [forward]. Absence of the described code in current bytes is not evidence. Do not treat that absence as contradiction. Ground bundles in plan, spec, task-graph, and AC-coverage citations."
@@ -394,10 +483,23 @@ FLAV_HITS="$(grep -rlF 'FORWARD CLAIM RULE' "$ROOT/skills/council/flavors/" 2>/d
 ok_eq "13 no flavor file carries the addendum" "$FLAV_HITS" "0"
 ok_eq "13 no new flavor file for the tag" \
   "$(ls "$ROOT/skills/council/flavors/" | grep -c 'forward' | tr -d ' ')" "0"
+printf 'exhibit: the addendum home is skills/council/forward-claim-addendum.txt; investigator.md and every flavor stay clean (no new preset)\n'
 
 # =============================================================================
 # 14. AC3 composeRawArtifacts + AC4 planClaimLine (workflow.js)
 # =============================================================================
+# set_ac_for_14 <js-label> — route each numbered sub-check to the AC it
+# evidences: 14.1-14.6 prefix keying helpers (AC1), 14.7-14.11 the compose
+# seam (AC3), 14.12 non-plan scopes (AC6), 14.13-14.16 the locator and the
+# verbatim fixture record (AC4).
+set_ac_for_14() {
+  case "$1" in
+    '14.1 '*|'14.2 '*|'14.3 '*|'14.4 '*|'14.5 '*|'14.6 '*) set_ac AC1 ;;
+    '14.7 '*|'14.8 '*|'14.9 '*|'14.10 '*|'14.11 '*) set_ac AC3 ;;
+    '14.12 '*) set_ac AC6 ;;
+    '14.13 '*|'14.14 '*|'14.15 '*|'14.16 '*) set_ac AC4 ;;
+  esac
+}
 if ( require_cmd node ); then
   JS_OUT="$TMP/workflow-js.txt"
   if COUNCIL_WF="$WORKFLOW_JS" COUNCIL_ADD="$ADDENDUM" COUNCIL_PLAN="$FIX/plan-tagged.json" \
@@ -463,10 +565,11 @@ JS
   then
     while IFS= read -r line; do
       case "$line" in
-        OK:*)   ok "${line#OK: }" ;;
-        FAIL:*) bad "${line#FAIL: }" ;;
+        OK:*)   set_ac_for_14 "${line#OK: }"; ok "${line#OK: }" ;;
+        FAIL:*) set_ac_for_14 "${line#FAIL: }"; bad "${line#FAIL: }" ;;
       esac
     done < "$JS_OUT"
+    printf 'exhibit: the workflow.js seam functions are isForwardClaim / stripForwardPrefix / composeRawArtifacts / planClaimLine\n'
   else
     bad "14 the workflow.js compose / locator checks failed"
     sed 's/^/    /' "$JS_OUT"
@@ -479,6 +582,7 @@ fi
 # 15. AC4 report_labels.label_verdict: `[forward] ` optional on either side,
 #     claim_id-first matching unchanged
 # =============================================================================
+set_ac AC4
 if ( require_cmd python3 ); then
   PY_OUT="$TMP/report-labels.txt"
   if COUNCIL_REPORT_LABELS="$REPORT_LABELS" python3 - >"$PY_OUT" 2>&1 <<'PY'
@@ -547,6 +651,7 @@ fi
 #     Phase 1 puts the tagged claim in the evidence file's extracted_claims, so
 #     the claim list, the heading, and the guard all resolve through that path.
 # =============================================================================
+set_ac AC7
 run_finalize p-extracted "$FIX/plan-tagged-no-claims.json" "$FIX/evidence-tagged-extracted.json" \
   "$FIX/judge-contradicted.json"
 has "16 Extracted Claims lists the tagged claim id + text" \
@@ -555,7 +660,9 @@ has "16 the heading shows the tag through the evidence claim list" \
   "### Claim c0: $FWD_CLAIM" "$REPORT"
 has "16 the guard fires on the evidence-file claim list" "$GUARD_PREFIX" "$REPORT"
 has "16 the verdict is capped to UNVERIFIED at 79/100" "**UNVERIFIED** — confidence: 79/100" "$REPORT"
+set_ac AC8
 ok_eq "16 sidecar struck_count == 1" "$(jq -r .struck_count "$META")" "1"
+set_ac AC7
 ok_eq "16 sidecar verdict is UNVERIFIED" \
   "$(jq -r '.unstruck_verdicts[0].verdict' "$META")" "UNVERIFIED"
 ok_eq "16 stdout counts no CONTRADICTED" \
@@ -563,10 +670,13 @@ ok_eq "16 stdout counts no CONTRADICTED" \
   "UNVERIFIED: 1  CONTRADICTED: 0  FABRICATED: 0"
 ok_eq "16 stdout Struck lines == 1" "$(grep -F 'Struck lines:' "$OUT" | tr -dc '0-9')" "1"
 ok_eq "16 Step 6c halt list is empty" "$(halt_count "$META")" "0"
+exhibit_audit "$REPORT"
+printf 'exhibit: the guard fires through the evidence-file claim list too; the rewritten row stays in the verdict counts (no claim-budget loss)\n'
 
 # =============================================================================
 # 17. AC5/AC9/AC10 static shape of the guard and the claim-blind prompts
 # =============================================================================
+set_ac AC5
 GUARD_BLOCK="$(awk '/# --- Forward claim guard/,/^# --- Format verdicts/' "$FINALIZE")"
 ok_eq "17 the guard has exactly one prefix constant" \
   "$(printf '%s\n' "$GUARD_BLOCK" | grep -cF 'FORWARD_CLAIM_PREFIX = ')" "1"
@@ -584,6 +694,9 @@ case "$GUARD_BLOCK" in
   *'"CONTRADICTED", "FABRICATED"'*) ok "17 the guard covers exactly the two blocking terms" ;;
   *) bad "17 the guard covers exactly the two blocking terms" ;;
 esac
+printf 'exhibit: %s\n' "$(printf '%s\n' "$GUARD_BLOCK" | grep -F 'FORWARD_CLAIM_CAP' | head -1 | sed 's/^[[:space:]]*//')"
+printf 'exhibit: the guard keys on scope==plan + the [forward] prefix + the CONTRADICTED/FABRICATED taxonomy only:\n'
+printf 'exhibit: %s\n' "$(printf '%s\n' "$GUARD_BLOCK" | grep -F 'output_shape == "verdict[]"' | head -1 | sed 's/^[[:space:]]*//')"
 if printf '%s\n' "$GUARD_BLOCK" | grep -qiE 'task_graph|task-map|taskgraph'; then
   bad "17 the guard does not re-derive task-graph membership (AC10)"
 else
@@ -594,13 +707,22 @@ if printf '%s\n' "$GUARD_BLOCK" | grep -qE 'for [a-z_]+ in .*claims'; then
 else
   ok "17 no classifier infers the tag from claim wording (AC1)"
 fi
+if grep -qF 'basis is pre-implementation bytes is inadmissible' \
+  "$ROOT/skills/council/prompts/judge.md"; then
+  ok "17 the judge rule names pre-implementation bytes inadmissible (AC5)"
+else
+  bad "17 the judge rule names pre-implementation bytes inadmissible (AC5)"
+fi
+printf 'exhibit: judge.md: a refutation of a [forward] claim whose sole basis is pre-implementation bytes is inadmissible — the verdict comes from plan-internal evidence\n'
+set_ac AC9
 hasnt "17 investigator.md stays Forward-claim-blind (AC9)" "forward" "$INVESTIGATOR"
 hasnt "17 phase4-brief.md stays Forward-claim-blind (AC9)" "forward" "$PHASE4BRIEF"
 # No classifier script for the tag anywhere in the engine.
+set_ac AC10
 CLS="$(grep -rlE '\[\[ .*forward.* ==|forward-classifier' "$ROOT/skills/council/" \
   --include='*.sh' 2>/dev/null | grep -v test- | wc -l | tr -d ' ')"
 ok_eq "17 no bash classifier script keys the tag" "$CLS" "0"
-# AC9: the tag adds no phase to the protocol.
+set_ac AC9
 ok_eq "17 no Phase 8 exists in the council protocol (AC9)" \
   "$(grep -c 'Phase 8' "$ROOT/skills/council/SKILL.md")" "0"
 
@@ -609,6 +731,7 @@ ok_eq "17 no Phase 8 exists in the council protocol (AC9)" \
 #     (prefix, scope, verdict, confidence): same inputs, same bytes, twice.
 #     A float confidence floors before it caps.
 # =============================================================================
+set_ac AC7
 run_finalize r-determinism-a "$FIX/plan-xyz-434.json" "$FIX/evidence-xyz-434.json" "$FIX/judge-xyz-434.json"
 cp "$REPORT" "$TMP/det-a.md"; cp "$META" "$TMP/det-a.json"; cp "$OUT" "$TMP/det-a.out"
 run_finalize r-determinism-b "$FIX/plan-xyz-434.json" "$FIX/evidence-xyz-434.json" "$FIX/judge-xyz-434.json"
@@ -628,7 +751,9 @@ fi
 norm_stdout() { sed -E "s#$TMP/r-determinism-[ab]\.md#<REPORT>#g" "$1"; }
 ok_eq "18 stdout is byte-identical across two runs (deterministic)" \
   "$(cmp -s <(norm_stdout "$TMP/det-a.out") <(norm_stdout "$OUT") && echo same)" "same"
+printf 'exhibit: the guard is deterministic: same fixture triple, byte-identical sidecar and report twice\n'
 
+set_ac AC5
 sed 's/"confidence": 92,/"confidence": 92.7,/' "$FIX/judge-contradicted.json" > "$TMP/judge-float.json"
 run_finalize s-float-conf "$FIX/plan-tagged.json" "$FIX/evidence-absence.json" "$TMP/judge-float.json"
 ok_eq "18 a float confidence caps to 79, not 92" \
@@ -653,6 +778,4 @@ else
 fi
 
 echo
-echo "PASS=$pass FAIL=$fail"
-[ "$fail" -eq 0 ] || exit 1
-exit 0
+ac_finish
