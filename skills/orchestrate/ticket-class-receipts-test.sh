@@ -220,6 +220,9 @@ if want_ac; then
     # carries the FAIL: shape the investigator reads. A dead stdout is a dead
     # suite: nothing downstream can report.
     printf '%s\n' "$NERR" || exit 1
+    # Attribution is proven by the planted line landing in the nested stderr
+    # under the forced slug: the receipt is conditional on that evidence.
+    ok labeled-failure
   else
     bad fail-hook-stderr-shape "nested stderr [$(_flat "$NERR")]"
   fi
@@ -229,7 +232,6 @@ if want_ac; then
   else
     bad fail-hook-aggregate "nested aggregate [$(printf '%s\n' "$NOUT" | tail -1)] want FAIL=1"
   fi
-  ok labeled-failure
 fi
 
 # ---- AC3: the --ac grammar on both suites ---------------------------------
