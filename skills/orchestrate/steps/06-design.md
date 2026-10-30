@@ -59,7 +59,9 @@ Produce:
    (write-through). Tracking, Copy-extract, ticket_class, and process_acs come from
    `skills/orchestrate/steps/plan-contract.md`. Classify ticket_class with
    `skills/orchestrate/ticket-class.sh` (word boundary). Do not substring-match
-   (`author` is not `auth`).
+   (`author` is not `auth`). Scan input is the ticket title, body, and ACs;
+   the plan's own `ticket_class:` section is excluded when a plan file is
+   re-scanned.
 ```
 
 Present the plan summary to user:
@@ -204,7 +206,9 @@ Runs on light and on omit/`standard`/`full`. Independent of `--council-tier=skip
 
 Read `ticket_class:` from the approved plan. If missing, classify now with
 `skills/orchestrate/ticket-class.sh` (word boundary; `author` is not auth-secrets).
-If the script cannot run, use `auth-secrets`.
+Scan input is the ticket title, body, and ACs; the plan's own `ticket_class:`
+section is excluded when a plan file is re-scanned. If the script cannot run,
+use `auth-secrets`.
 
 Glossary carve-out: before the PHRASE-then-WORD scan, mask every maximal [A-Za-z0-9-] token that lowercases to a hyphenated ## Terms column-1 compound. Mask char is x (length-preserving). Glossary path: first hit $WTROOT/CONTEXT.md → $WTROOT/docs/domain/CONTEXT.md → $MROOT/CONTEXT.md → $MROOT/docs/domain/CONTEXT.md (never the plugin install dir). TICKET_CLASS_GLOSSARY overrides that path; sentinel off disables. A missing or unreadable path is fail-closed (no carve-out).
 

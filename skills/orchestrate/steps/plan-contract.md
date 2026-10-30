@@ -38,7 +38,7 @@ Omit the heading for the default extract. Both lines, an extra suffix, a synonym
 
 ## Ticket class
 
-Not a Tracking key. Run `skills/orchestrate/ticket-class.sh` on title, body, ACs, and plan text (word boundary, not a substring). `auth` must not match `author`.
+Not a Tracking key. Run `skills/orchestrate/ticket-class.sh` (word boundary, not a substring). `auth` must not match `author`. Scan input is the ticket title, body, and ACs; the plan's own `ticket_class:` section is excluded when a plan file is re-scanned.
 
 Match → `ticket_class: auth-secrets`. No match → `ticket_class: none`. If the script cannot run, emit `ticket_class: auth-secrets` (unsure fails closed).
 

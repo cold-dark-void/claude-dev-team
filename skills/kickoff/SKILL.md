@@ -682,6 +682,7 @@ Output:
    (write-through; not the worktree `.claude/plans`). Follow `skills/orchestrate/steps/plan-contract.md`
    for Tracking, Copy-extract, ticket_class, and process_acs. Do not copy that contract here.
    ticket_class tokens (word boundary): auth-secrets, oauth, oidc, jwt, csrf, pii, ssn, apikey, private key, api key.
+   Scan input is the ticket title, body, and ACs; the plan's own `ticket_class:` section is excluded when a plan file is re-scanned.
    Glossary carve-out: before the PHRASE-then-WORD scan, mask every maximal [A-Za-z0-9-] token that lowercases to a hyphenated ## Terms column-1 compound. Mask char is x (length-preserving). Glossary path: first hit $WTROOT/CONTEXT.md → $WTROOT/docs/domain/CONTEXT.md → $MROOT/CONTEXT.md → $MROOT/docs/domain/CONTEXT.md (never the plugin install dir). TICKET_CLASS_GLOSSARY overrides that path; sentinel off disables. A missing or unreadable path is fail-closed (no carve-out).
    Emit `ticket_class:`. MUST NOT invoke `/council`.
 2. Task graph — which steps are independent (can run in parallel) and which have dependencies
