@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # router-static-test.sh — CDT-199 PR1: /orchestrate SKILL.md is a ≤80-line router.
 # Greps committed protocol only (no network, no LLM).
-# Run: bash skills/orchestrate/router-static-test.sh
+# Run: bash skills/orchestrate/router-static-test.sh [--ac AC<n>]
 set -u
 
 HERE=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
@@ -14,29 +14,50 @@ STEPS="$HERE/steps"
 # git state.
 . "$ROOT/tests/lib/hermetic.sh"
 . "$ROOT/tests/lib/fence.sh"
+. "$ROOT/tests/lib/ac-receipt.sh"
 hermetic_init
 export GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1
 unset GIT_DIR GIT_INDEX_FILE GIT_WORK_TREE
 
-PASS=0; FAIL=0
-ok()  { PASS=$((PASS+1)); }
-bad() { FAIL=$((FAIL+1)); echo "FAIL: $*"; }
+parse_ac_args "$@"
+
+PASS=0; FAIL=0; CUR_AC=""
+
+# Most checks here are the internal T0–T34 taxonomy and evidence no classifier
+# AC, so CUR_AC is cleared and the helper's ok is a silent PASS++. Under
+# `--ac` such a check contributes nothing: the run reports the labeled subset
+# only (SPEC-009 § CDT-595 AC3). t_bad keeps the legacy one-argument message
+# and splits it into the helper's slug/detail pair.
+t_ok() {
+  [ -n "${AC_FILTER:-}" ] && return 0
+  CUR_AC=""
+  ok
+}
+t_bad() {
+  local msg="${1:-}" slug detail
+  [ -n "${AC_FILTER:-}" ] && return 0
+  CUR_AC=""
+  slug="${msg%% *}"
+  detail="${msg#* }"
+  [ "$detail" = "$msg" ] && detail=""
+  bad "${slug%:}" "$detail"
+}
 
 # ---- T0: SKILL.md exists + YAML name ----
-if [ -f "$SKILL" ] && grep -q '^name: orchestrate$' "$SKILL"; then ok
-else bad "T0 SKILL.md missing or name: orchestrate absent"; fi
+if [ -f "$SKILL" ] && grep -q '^name: orchestrate$' "$SKILL"; then t_ok
+else t_bad "T0 SKILL.md missing or name: orchestrate absent"; fi
 
 # ---- T1: router ≤80 lines (always-on inject cap) ----
 N=$(wc -l < "$SKILL" | tr -d ' ')
-if [ "$N" -le 80 ]; then ok
-else bad "T1 SKILL.md is $N lines (must be ≤80 router)"; fi
+if [ "$N" -le 80 ]; then t_ok
+else t_bad "T1 SKILL.md is $N lines (must be ≤80 router)"; fi
 
 # ---- T2: load-only-current-phase contract ----
 if grep -qiE 'read steps/|current (step|phase)' "$SKILL" \
   && grep -qiE 'do not Read every|only the current|not.*every steps' "$SKILL"; then
-  ok
+  t_ok
 else
-  bad "T2 SKILL.md missing load-only-current-phase protocol"
+  t_bad "T2 SKILL.md missing load-only-current-phase protocol"
 fi
 
 # ---- T3: step index files exist ----
@@ -60,8 +81,8 @@ missing=""
 for f in $EXPECTED; do
   [ -f "$STEPS/$f" ] || missing="$missing $f"
 done
-if [ -z "$missing" ]; then ok
-else bad "T3 missing step files:$missing"; fi
+if [ -z "$missing" ]; then t_ok
+else t_bad "T3 missing step files:$missing"; fi
 
 # ---- T4: no new file >1000 lines ----
 over=""
@@ -73,16 +94,16 @@ while IFS= read -r path; do
 done <<EOF
 $(find "$HERE" -type f -name '*.md' ! -path '*/fixtures/*')
 EOF
-if [ -z "$over" ]; then ok
-else bad "T4 files over 1000 lines:$over"; fi
+if [ -z "$over" ]; then t_ok
+else t_bad "T4 files over 1000 lines:$over"; fi
 
 # ---- T5: monolith gone from always-on path ----
 # Router must not embed the Step 8 spawn body or Step 11 ship template.
 if ! grep -q 'Spawn @<agent> for Task' "$SKILL" \
   && ! grep -q 'gh pr create --title' "$SKILL"; then
-  ok
+  t_ok
 else
-  bad "T5 SKILL.md still embeds spawn/ship monolith bodies"
+  t_bad "T5 SKILL.md still embeds spawn/ship monolith bodies"
 fi
 
 # ---- T6: user-visible MUST protocol still in steps/ ----
@@ -111,20 +132,20 @@ while IFS= read -r needle; do
 done <<EOF
 $NEEDLES
 EOF
-if [ -z "$miss" ]; then ok
-else bad "T6 protocol needles missing from steps/:$miss"; fi
+if [ -z "$miss" ]; then t_ok
+else t_bad "T6 protocol needles missing from steps/:$miss"; fi
 
 # ---- T7: no commands/orchestrate.md embed of the skill ----
 if [ -f "$ROOT/commands/orchestrate.md" ]; then
-  bad "T7 commands/orchestrate.md exists — must not embed the skill monolith"
+  t_bad "T7 commands/orchestrate.md exists — must not embed the skill monolith"
 else
-  ok
+  t_ok
 fi
 
 # ---- T8: SKILL.md lists --tier=light|standard|full (SPEC-009 CDT-206) ----
 # Accept --tier=light|standard|full or --tier=<light|standard|full> on the Arguments line.
-if grep -qE -- '--tier=<?light\|standard\|full>?' "$SKILL"; then ok
-else bad "T8 SKILL.md missing --tier=light|standard|full (or equivalent Arguments line)"; fi
+if grep -qE -- '--tier=<?light\|standard\|full>?' "$SKILL"; then t_ok
+else t_bad "T8 SKILL.md missing --tier=light|standard|full (or equivalent Arguments line)"; fi
 
 # ---- T9: per-tier table + light step map (SPEC-009 CDT-210) ----
 # standard and full near a markdown table; light row names the real light path.
@@ -133,9 +154,9 @@ if grep -E '^\|' "$SKILL" | grep -q 'standard' \
   && grep -E '^\|' "$SKILL" | grep -qiE 'light' \
   && grep -E '^\|' "$SKILL" | grep -iE 'light' | grep -qiE 'scoper-planner' \
   && grep -E '^\|' "$SKILL" | grep -iE 'light' | grep -qiE 'skip DAG|one IC4|single-pass'; then
-  ok
+  t_ok
 else
-  bad "T9 SKILL.md missing per-tier table (standard/full/light + light step map)"
+  t_bad "T9 SKILL.md missing per-tier table (standard/full/light + light step map)"
 fi
 
 # ---- T10: ORCH_TIER binding + light-branch form (SPEC-009 CDT-207+) ----
@@ -185,8 +206,8 @@ for f in $t10_allow; do
     t10_fail="$t10_fail $f bad-form"
   done < "$path"
 done
-if [ -z "$t10_fail" ]; then ok
-else bad "T10$t10_fail"; fi
+if [ -z "$t10_fail" ]; then t_ok
+else t_bad "T10$t10_fail"; fi
 
 # ---- T11: spawn-site identity (omit/standard/full else-branch) ----
 # Else/default sections MUST still contain today's spawn sites.
@@ -224,8 +245,8 @@ fi
 if ! grep -q 'reviewed 3+ times' "$STEPS/09-review.md"; then
   t11_fail="$t11_fail | 09-review.md missing 3-round deadloop"
 fi
-if [ -z "$t11_fail" ]; then ok
-else bad "T11 spawn-site identity:$t11_fail"; fi
+if [ -z "$t11_fail" ]; then t_ok
+else t_bad "T11 spawn-site identity:$t11_fail"; fi
 
 # ---- T12: light-branch exact test (C2–C4 = steps 4–10 + 12) ----
 t12_fail=""
@@ -258,8 +279,8 @@ fi
 if ! grep -q 'S → light' "$STEPS/02-scope.md"; then
   t12_fail="$t12_fail 02 missing S→light"
 fi
-if [ -z "$t12_fail" ]; then ok
-else bad "T12 light-branch:$t12_fail"; fi
+if [ -z "$t12_fail" ]; then t_ok
+else t_bad "T12 light-branch:$t12_fail"; fi
 
 # ---- T13: CDT-242 Recommended-agent legal set includes devops and ds (06 + 07) ----
 t13_fail=""
@@ -268,43 +289,61 @@ for f in 06-design.md 07-tasks.md; do
     t13_fail="$t13_fail $f"
   fi
 done
-if [ -z "$t13_fail" ]; then ok
-else bad "T13 Recommended-agent devops|ds missing:$t13_fail"; fi
+if [ -z "$t13_fail" ]; then t_ok
+else t_bad "T13 Recommended-agent devops|ds missing:$t13_fail"; fi
 
-# ---- T14: CDT-244 Step 6c + classifier (AC8) ----
-# 06-design.md: Step 6c, /council --plan, flavors/security.md
-# kickoff SKILL: token list + ticket_class emit; MUST NOT invoke /council
-# orchestrate SKILL / 00-resolve / parse-flags: no --security flag
+# ---- T14 + T34: the two AC12-labeled receipts (SPEC-009 C1 AC12) ----
+# One `--ac AC12` guard covers both checks: T14 is the C1 AC8 classifier-needle
+# evidence and T34 is the C1 AC12 carve-out clause.
 KICKOFF="$ROOT/skills/kickoff/SKILL.md"
 PARSE="$ROOT/skills/autopilot/parse-flags.sh"
-t14_fail=""
-if ! grep -q 'Step 6c' "$STEPS/06-design.md"; then
-  t14_fail="$t14_fail 06 missing Step 6c"
-fi
-if ! grep -q '/council --plan' "$STEPS/06-design.md"; then
-  t14_fail="$t14_fail 06 missing /council --plan"
-fi
-if ! grep -q 'flavors/security.md' "$STEPS/06-design.md"; then
-  t14_fail="$t14_fail 06 missing flavors/security.md"
-fi
-for tok in auth-secrets oauth oidc jwt csrf pii ssn apikey 'private key' 'api key' ticket_class; do
-  if ! grep -qF -- "$tok" "$KICKOFF"; then
-    t14_fail="$t14_fail kickoff missing token:$tok"
+set_ac AC12
+if want_ac; then
+  # T14: CDT-244 Step 6c + classifier (AC8).
+  # 06-design.md: Step 6c, /council --plan, flavors/security.md
+  # kickoff SKILL: token list + ticket_class emit; MUST NOT invoke /council
+  # orchestrate SKILL / 00-resolve / parse-flags: no --security flag
+  t14_fail=""
+  if ! grep -q 'Step 6c' "$STEPS/06-design.md"; then
+    t14_fail="$t14_fail 06 missing Step 6c"
   fi
-done
-if ! grep -q 'MUST NOT invoke' "$KICKOFF"; then
-  t14_fail="$t14_fail kickoff missing MUST NOT invoke"
-fi
-if grep -qE '/council --plan|/council "' "$KICKOFF"; then
-  t14_fail="$t14_fail kickoff invokes /council"
-fi
-for f in "$SKILL" "$STEPS/00-resolve.md" "$PARSE"; do
-  if grep -q -- '--security' "$f"; then
-    t14_fail="$t14_fail --security in $(basename "$f")"
+  if ! grep -q '/council --plan' "$STEPS/06-design.md"; then
+    t14_fail="$t14_fail 06 missing /council --plan"
   fi
-done
-if [ -z "$t14_fail" ]; then ok
-else bad "T14 AC8:$t14_fail"; fi
+  if ! grep -q 'flavors/security.md' "$STEPS/06-design.md"; then
+    t14_fail="$t14_fail 06 missing flavors/security.md"
+  fi
+  for tok in auth-secrets oauth oidc jwt csrf pii ssn apikey 'private key' 'api key' ticket_class; do
+    if ! grep -qF -- "$tok" "$KICKOFF"; then
+      t14_fail="$t14_fail kickoff missing token:$tok"
+    fi
+  done
+  if ! grep -q 'MUST NOT invoke' "$KICKOFF"; then
+    t14_fail="$t14_fail kickoff missing MUST NOT invoke"
+  fi
+  if grep -qE '/council --plan|/council "' "$KICKOFF"; then
+    t14_fail="$t14_fail kickoff invokes /council"
+  fi
+  for f in "$SKILL" "$STEPS/00-resolve.md" "$PARSE"; do
+    if grep -q -- '--security' "$f"; then
+      t14_fail="$t14_fail --security in $(basename "$f")"
+    fi
+  done
+  if [ -z "$t14_fail" ]; then ok "T14 classifier-needles"
+  else bad "T14 classifier-needles" "$t14_fail"; fi
+
+  # T34: CDT-589-C1 glossary carve-out clause in all four homes.
+  # Dual-home contract: the clause is pasted in the same words, not extracted.
+  # Match the substring only — the kickoff copy carries a 3-space indent.
+  t34_fail=""
+  for f in "$STEPS/plan-contract.md" "$KICKOFF" "$STEPS/06-design.md" "$ROOT/specs/core/SPEC-009-ticket-workflow.md"; do
+    if ! grep -qF -- 'Glossary carve-out: before the PHRASE-then-WORD scan' "$f"; then
+      t34_fail="$t34_fail $(basename "$f")"
+    fi
+  done
+  if [ -z "$t34_fail" ]; then ok "T34 carve-clause"
+  else bad "T34 carve-clause" "$t34_fail"; fi
+fi
 
 # ---- T15: CDT-244 council Phase 2 flavor-append (AC9) ----
 COUNCIL="$ROOT/commands/council.md"
@@ -321,8 +360,8 @@ fi
 if ! grep -qiE 'investigator\.md output schema always wins' "$COUNCIL"; then
   t15_fail="$t15_fail missing investigator schema wins"
 fi
-if [ -z "$t15_fail" ]; then ok
-else bad "T15 AC9:$t15_fail"; fi
+if [ -z "$t15_fail" ]; then t_ok
+else t_bad "T15 AC9:$t15_fail"; fi
 
 
 
@@ -372,8 +411,8 @@ else
     fi
   done
 fi
-if [ -z "$t16_fail" ]; then ok
-else bad "T16 AC D:$t16_fail"; fi
+if [ -z "$t16_fail" ]; then t_ok
+else t_bad "T16 AC D:$t16_fail"; fi
 
 # ---- T17: WP 1-07 AC E — task-graph.md cycle pre-gate fences actually run ----
 t17_fail=""
@@ -436,8 +475,8 @@ else
     rm -rf "$T17_TMP"
   fi
 fi
-if [ -z "$t17_fail" ]; then ok
-else bad "T17 AC E:$t17_fail"; fi
+if [ -z "$t17_fail" ]; then t_ok
+else t_bad "T17 AC E:$t17_fail"; fi
 
 # ---- T18: WP 1-07 AC F — check-fence branches print + exit; no "# halt" stand-in ----
 t18_fail=""
@@ -460,8 +499,8 @@ else
     t18_fail="$t18_fail prose does not forbid TaskCreate after a halt"
   fi
 fi
-if [ -z "$t18_fail" ]; then ok
-else bad "T18 AC F:$t18_fail"; fi
+if [ -z "$t18_fail" ]; then t_ok
+else t_bad "T18 AC F:$t18_fail"; fi
 
 # ---- T19: WP 1-07 AC M — 08-execute ready-set --issue; mirror lives in cross-cutting.md ----
 t19_fail=""
@@ -486,8 +525,8 @@ if [ -f "$STANDUP_SKILL" ]; then
     t19_fail="$t19_fail standup/SKILL.md ready-set call passes --issue (must stay cross-issue)"
   fi
 fi
-if [ -z "$t19_fail" ]; then ok
-else bad "T19 AC M:$t19_fail"; fi
+if [ -z "$t19_fail" ]; then t_ok
+else t_bad "T19 AC M:$t19_fail"; fi
 
 # ---- T20: WP 1-07 AC N — ship window record ----
 t20_fail=""
@@ -521,8 +560,8 @@ fi
 if grep -n 'assert-release-allowed' "$SHIP" | grep -qiE 'on exit 64|exits 64'; then
   t20_fail="$t20_fail an assert-release-allowed line still says exit(s) 64"
 fi
-if [ -z "$t20_fail" ]; then ok
-else bad "T20 AC N:$t20_fail"; fi
+if [ -z "$t20_fail" ]; then t_ok
+else t_bad "T20 AC N:$t20_fail"; fi
 
 # ---- T21: WP 1-07 AC O — no "§ below/above"; Stint-end in cross-cutting.md; pointer paragraphs name their home file ----
 t21_fail=""
@@ -561,8 +600,8 @@ for f in "$STEPS"/*.md; do
     t21_fail="$t21_fail $base:$(printf '%s' "$bad_paras" | tr '\n' '+')"
   fi
 done
-if [ -z "$t21_fail" ]; then ok
-else bad "T21 AC O:$t21_fail"; fi
+if [ -z "$t21_fail" ]; then t_ok
+else t_bad "T21 AC O:$t21_fail"; fi
 
 # ---- T22: WP 1-08 AC I — ITER spawn-site literal + resume restore + run-start fence ----
 t22_fail=""
@@ -656,14 +695,14 @@ NEG_EOF
     rm -rf "$T22_TMP"
   fi
 fi
-if [ -z "$t22_fail" ]; then ok
-else bad "T22 AC I:$t22_fail"; fi
+if [ -z "$t22_fail" ]; then t_ok
+else t_bad "T22 AC I:$t22_fail"; fi
 
 
 # ---- T23: CDT-416 no-git fallback phrase is gone ----
 if grep -qF 'work in current directory' "$STEPS/cross-cutting.md"; then
-  bad "T23 cross-cutting.md still has the no-git fallback phrase"
-else ok; fi
+  t_bad "T23 cross-cutting.md still has the no-git fallback phrase"
+else t_ok; fi
 
 # ---- T24: one absolute plan home ----
 t24_fail=""
@@ -672,23 +711,27 @@ for f in "$ROOT/skills/kickoff/SKILL.md" "$STEPS/04-kickoff.md" "$STEPS/06-desig
     t24_fail="$t24_fail $(basename "$f")"
   fi
 done
-if [ -z "$t24_fail" ]; then ok
-else bad "T24 plan home missing \$MROOT/.claude/plans:$t24_fail"; fi
+if [ -z "$t24_fail" ]; then t_ok
+else t_bad "T24 plan home missing \$MROOT/.claude/plans:$t24_fail"; fi
 
 # ---- T25: ticket-class word boundary (author is not auth-secrets) ----
+# Labeled receipt (CDT-595): C1 AC14 names this suite's T25 as evidence.
 CLASS="$HERE/ticket-class.sh"
-t25_fail=""
-if [ "$(bash "$CLASS" --text author)" != none ]; then
-  t25_fail="$t25_fail author"
+set_ac AC14
+if want_ac; then
+  t25_fail=""
+  if [ "$(bash "$CLASS" --text author)" != none ]; then
+    t25_fail="$t25_fail author"
+  fi
+  if [ "$(bash "$CLASS" --text 'The author wrote it')" != none ]; then
+    t25_fail="$t25_fail author-sentence"
+  fi
+  if [ "$(bash "$CLASS" --text auth)" != auth-secrets ]; then
+    t25_fail="$t25_fail auth-control"
+  fi
+  if [ -z "$t25_fail" ]; then ok "T25 word-boundary"
+  else bad "T25 word-boundary" "$t25_fail"; fi
 fi
-if [ "$(bash "$CLASS" --text 'The author wrote it')" != none ]; then
-  t25_fail="$t25_fail author-sentence"
-fi
-if [ "$(bash "$CLASS" --text auth)" != auth-secrets ]; then
-  t25_fail="$t25_fail auth-control"
-fi
-if [ -z "$t25_fail" ]; then ok
-else bad "T25 ticket-class:$t25_fail"; fi
 
 # ---- T26: light tier, CI TASK_ID, hazard injection ----
 t26_fail=""
@@ -704,8 +747,8 @@ fi
 if ! grep -qF 'skills/orchestrate/steps/ic-hazards.md' "$STEPS/09-review.md"; then
   t26_fail="$t26_fail rework spawn missing hazard checklist"
 fi
-if [ -z "$t26_fail" ]; then ok
-else bad "T26:$t26_fail"; fi
+if [ -z "$t26_fail" ]; then t_ok
+else t_bad "T26:$t26_fail"; fi
 
 # ---- T27: QA round cap, release state, m14 always ----
 t27_fail=""
@@ -738,8 +781,8 @@ if ! grep -qF 'm14-check` always runs' "$STEPS/10-qa.md" \
   && ! grep -qF 'm14-check always runs' "$STEPS/10-qa.md"; then
   t27_fail="$t27_fail m14-check not always"
 fi
-if [ -z "$t27_fail" ]; then ok
-else bad "T27:$t27_fail"; fi
+if [ -z "$t27_fail" ]; then t_ok
+else t_bad "T27:$t27_fail"; fi
 
 # ---- T28: questions autopilot, get_issue, glossary add, step 7 halt prose ----
 t28_fail=""
@@ -761,8 +804,8 @@ fi
 if grep -qF 'override is Step 9' "$STEPS/07-tasks.md"; then
   t28_fail="$t28_fail 07 still defers the conflict to Step 9"
 fi
-if [ -z "$t28_fail" ]; then ok
-else bad "T28:$t28_fail"; fi
+if [ -z "$t28_fail" ]; then t_ok
+else t_bad "T28:$t28_fail"; fi
 
 # ---- T29: squash exit code, baseline clean, hint.sh via plugin-dir ----
 t29_fail=""
@@ -784,8 +827,8 @@ fi
 if ! grep -qF 'min_confidence' "$STEPS/cross-cutting.md"; then
   t29_fail="$t29_fail MIN_CONF jq path missing"
 fi
-if [ -z "$t29_fail" ]; then ok
-else bad "T29:$t29_fail"; fi
+if [ -z "$t29_fail" ]; then t_ok
+else t_bad "T29:$t29_fail"; fi
 
 # ---- T30: skip + requires_council halts before spawn ----
 HALT=$(fence_nth "$STEPS/07-tasks.md" "Step 7 halt before spawn" 1) || HALT=""
@@ -821,8 +864,8 @@ else
     t30_fail="$t30_fail full+true rc=$rc"
   fi
 fi
-if [ -z "$t30_fail" ]; then ok
-else bad "T30:$t30_fail"; fi
+if [ -z "$t30_fail" ]; then t_ok
+else t_bad "T30:$t30_fail"; fi
 
 # ---- T31: Step 6 spec commit fence and shared contract pointers ----
 t31_fail=""
@@ -841,8 +884,8 @@ fi
 if ! grep -qF 'spawn-pm-tl-finder.md' "$STEPS/04-kickoff.md"; then
   t31_fail="$t31_fail 04 missing shared spawn block"
 fi
-if [ -z "$t31_fail" ]; then ok
-else bad "T31:$t31_fail"; fi
+if [ -z "$t31_fail" ]; then t_ok
+else t_bad "T31:$t31_fail"; fi
 
 # ---- T32: CDT-573 T10 — council-gate concurrency passthrough, IC DAG uncapped ----
 # /orchestrate names --concurrency at its Step 0 flag surface and forwards the user's
@@ -892,8 +935,8 @@ if grep -rqE -- '--concurrency|Spawn contract:' "$ROOT/skills/kickoff/SKILL.md" 
    "$ROOT/skills/advisor/SKILL.md"; then
   t32_fail="$t32_fail kickoff/advisor carries the cap"
 fi
-if [ -z "$t32_fail" ]; then ok
-else bad "T32:$t32_fail"; fi
+if [ -z "$t32_fail" ]; then t_ok
+else t_bad "T32:$t32_fail"; fi
 
 # ---- T33: CDT-574-C4 — the steps carry the cap, not only the router ----
 # Steps load one file at a time (SKILL.md § Load protocol), so SKILL.md prose cannot
@@ -943,20 +986,20 @@ for site in 06-design.md 08-execute.md 09-review.md; do
     t33_fail="$t33_fail $site missing the empty-omit rule"
   fi
 done
-if [ -z "$t33_fail" ]; then ok
-else bad "T33:$t33_fail"; fi
+if [ -z "$t33_fail" ]; then t_ok
+else t_bad "T33:$t33_fail"; fi
 
-# ---- Harness self-check: the suite defines 34 checks (T0-T33). A total
-# below 34 means a check was skipped silently (stale copy of this file, an
+# ---- Harness self-check: the suite defines 35 checks (T0-T34). Check numbers
+# follow the block label, not the run order (T34 sits next to T14). A total
+# below 35 means a check was skipped silently (stale copy of this file, an
 # early return, or an environment-dependent short-circuit) — turn that into
-# an explicit failure instead of a quietly-smaller PASS count.
-EXPECTED_CHECKS=34
-RUN_TOTAL=$((PASS + FAIL))
-if [ "$RUN_TOTAL" -ne "$EXPECTED_CHECKS" ]; then
-  bad "harness ran $RUN_TOTAL checks, expected $EXPECTED_CHECKS (a check did not run)"
+# an explicit failure instead of a quietly-smaller PASS count. Under --ac the
+# run is a labeled subset, so 35 does not apply.
+if [ -z "${AC_FILTER:-}" ]; then
+  EXPECTED_CHECKS=35
+  RUN_TOTAL=$((PASS + FAIL))
+  if [ "$RUN_TOTAL" -ne "$EXPECTED_CHECKS" ]; then
+    t_bad "harness ran $RUN_TOTAL checks, expected $EXPECTED_CHECKS (a check did not run)"
+  fi
 fi
-echo "PASS=$PASS FAIL=$FAIL"
-if [ "$FAIL" -eq 0 ]; then
-  exit 0
-fi
-exit 1
+ac_finish
