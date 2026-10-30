@@ -1,0 +1,13 @@
+{
+  "verdicts": [
+    {
+      "claim_id": "c0",
+      "claim": "",
+      "verdict": "CONTRADICTED",
+      "confidence": 90,
+      "evidence_blob": "(no output; exit 1)",
+      "tool_use_id": "t1"
+    }
+  ],
+  "struck_lines": []
+}

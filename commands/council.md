@@ -777,13 +777,27 @@ prompt: skills/council/prompts/investigator.md
   with substitutions:
     {{CLAIM_TEXT}}     ← claim.claim (verbatim)
     {{SOURCE_LOCATOR}} ← claim.source_locator
-    {{RAW_ARTIFACTS}}  ← raw files / logs / diff / anchor evidence (artifacts only)
+    {{RAW_ARTIFACTS}}  ← raw files / logs / diff / anchor evidence (artifacts only),
+                         plus the forward-claim addendum when the claim is tagged (below)
     {{FLAVOR_DELTA}}   ← contents of skills/council/flavors/<flavor>.md body
     {{CACHE_DIR}}      ← plan.cache_dir (per-run council-cache under TMPDIR)
     {{TOOL_BUDGET}}    ← claim.tool_budget, else 5
     {{VERIFY_COMMAND}} ← claim.verify, else empty
     # tool allowlist is fixed in the investigator prompt body (not substituted)
 ```
+
+**Forward claim addendum (CDT-589-C4; SPEC-013 Phase 2).** This is the Task-path
+contract for the seam the Workflow path implements in `composeRawArtifacts()`
+(`skills/council/workflow.js`). Same predicate, one addendum body. Before the
+spawn, when `plan.scope` is `plan` **and** `claim.claim` starts with the literal
+10-character prefix `[forward] ` (left bracket, `forward`, right bracket, space):
+append the body of `skills/council/forward-claim-addendum.txt` to that claim's
+`RAW_ARTIFACTS` value, on its own line after the artifacts (addendum only when
+there are no artifacts). Read the file; do not retype it. For an untagged claim,
+or any other scope (`claim`, `session`, `diff`, `from-retro`, `blind`, M14
+ship-gate), render `RAW_ARTIFACTS` unchanged — byte-identical to today. Never
+put the addendum in `investigator.md`, in a flavor file, or in a new preset.
+`CLAIM_TEXT` keeps the prefix verbatim.
 
 Section blocks: SPEC-013 Engine Architecture; remove `{{#VERIFY_COMMAND}}`…`{{/VERIFY_COMMAND}}` when empty, else remove the marker lines only.
 

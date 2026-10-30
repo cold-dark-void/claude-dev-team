@@ -109,6 +109,12 @@ prior verdicts.
 - Investigators MUST NOT receive prior assistant narrative, prior verdicts,
   or prior advocate/prosecutor output. They see raw artifacts only.
   (SPEC-013 § Output Shapes.)
+- **Forward claim addendum (CDT-589-C4):** in plan scope, a claim whose text
+  starts with `[forward] ` gets the body of
+  `skills/council/forward-claim-addendum.txt` appended to its artifacts value.
+  The predicate and the byte-identity rule live in `commands/council.md`
+  § Phase 2 (Task path) and `composeRawArtifacts()` in `workflow.js`
+  (Workflow path). This stage does not restate them.
 - Completion discipline (all council Task spawns): prompt MUST end with an
   explicit instruction to return the required JSON as the **final message**
   (not only via SendMessage/mailbox). Re-request at most twice on empty output

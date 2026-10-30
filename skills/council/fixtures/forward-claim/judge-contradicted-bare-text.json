@@ -1,0 +1,12 @@
+{
+  "verdicts": [
+    {
+      "claim": "Step 3 adds flag --fwd-demo to skills/council/engine.sh",
+      "verdict": "CONTRADICTED",
+      "confidence": 88,
+      "evidence_blob": "(no output; exit 1)",
+      "tool_use_id": "t1"
+    }
+  ],
+  "struck_lines": []
+}

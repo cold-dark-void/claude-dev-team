@@ -46,13 +46,38 @@ cd "$ROOT"
 . "$ROOT/tests/lib/skip.sh"
 # shellcheck source=../../tests/lib/hermetic.sh
 . "$ROOT/tests/lib/hermetic.sh"
+# shellcheck source=../../tests/lib/ac-receipt.sh
+. "$ROOT/tests/lib/ac-receipt.sh"
 hermetic_init
+parse_ac_args "$@"
+PASS=0
+FAIL=0
 
 COUNCIL_MD="$ROOT/commands/council.md"
 fail=0
 
-ok() { echo "OK: $1"; }
-fail_msg() { echo "FAIL: $1"; fail=1; }
+# slugify <label> — receipt slug from a prose label ([a-z0-9-] only).
+slugify() {
+  printf '%s' "$1" | tr '[:upper:]' '[:lower:]' \
+    | sed -e 's/[^a-z0-9-]\{1,\}/-/g' -e 's/^-\{1,\}//' -e 's/-\{1,\}$//'
+}
+ok() {
+  echo "OK: $1"
+  # Receipt only for checks inside a set_ac block (the CDT-589-C4 AC9 block);
+  # the pre-existing WP 1-15/1-16 checks stay prose-only.
+  if [ -n "${CUR_AC:-}" ] && want_ac; then
+    PASS=$(( PASS + 1 ))
+    printf 'ok %s: %s\n' "$CUR_AC" "$(slugify "$1")"
+  fi
+}
+fail_msg() {
+  echo "FAIL: $1"
+  fail=1
+  if [ -n "${CUR_AC:-}" ] && want_ac; then
+    FAIL=$(( FAIL + 1 ))
+    printf 'FAIL: %s: %s: %s\n' "$CUR_AC" "$(slugify "$1")" failed >&2
+  fi
+}
 
 TMP="$(mktemp -d "${TMPDIR:-/tmp}/verify-prompts-test.XXXXXX")"
 trap 'rm -rf "$TMP"; hermetic_cleanup' EXIT
@@ -778,10 +803,65 @@ else
   fail_msg "could not git show 38bc739:skills/council/prompts/judge.md: $(cat "$TMP/git-show.err")"
 fi
 
-if [ "$fail" -eq 0 ]; then
+# ---- CDT-589-C4 AC9: the named gate suites pass -----------------------------
+# No new council phase, spawn, or claim-budget consumption; check-template-vars.sh,
+# test-verify-prompts.sh (this suite), and test-prompt-checkbox-rule.sh pass;
+# investigator.md is not edited. The three gate runs are direct run exhibits
+# (CMD: / CMD exit= lines); the negative-space claims are grepped, not assumed.
+set_ac AC9
+
+printf 'CMD: bash skills/council/check-template-vars.sh\n'
+if bash "$ROOT/skills/council/check-template-vars.sh" >"$TMP/ctv.out" 2>&1; then
+  printf 'CMD exit=0\n'
+  ok "check-template-vars.sh exits 0 (AC9)"
+else
+  printf 'CMD exit=%s\n' "$?"
+  fail_msg "check-template-vars.sh failed (AC9): $(cat "$TMP/ctv.out")"
+fi
+
+printf 'CMD: bash skills/council/test-prompt-checkbox-rule.sh\n'
+tpc_rc=0
+tpc_out="$(bash "$ROOT/skills/council/test-prompt-checkbox-rule.sh" 2>&1)" || tpc_rc=$?
+printf 'CMD exit=%s\n' "$tpc_rc"
+if [ "$tpc_rc" -eq 0 ]; then
+  ok "test-prompt-checkbox-rule.sh exits 0 (AC9)"
+else
+  fail_msg "test-prompt-checkbox-rule.sh exited $tpc_rc (AC9)"
+  printf '%s\n' "$tpc_out" | tail -5
+fi
+printf 'exhibit: this suite is the third named gate (test-verify-prompts.sh) and is passing right now\n'
+
+INVESTIGATOR_MD="$ROOT/skills/council/prompts/investigator.md"
+if grep -qF 'forward' "$INVESTIGATOR_MD"; then
+  fail_msg "investigator.md carries Forward claim content (must stay unedited, AC9)"
+else
+  ok "investigator.md is not edited: no [forward] tag, no addendum (AC9)"
+fi
+printf 'exhibit: investigator.md is byte-pinned elsewhere; here it holds neither [forward]  nor the forward-claim-addendum.txt body\n'
+
+if [ "$(grep -c 'Phase 8' "$ROOT/skills/council/SKILL.md")" = "0" ]; then
+  ok "no new council phase: no Phase 8 in SKILL.md (AC9)"
+else
+  fail_msg "SKILL.md gained a Phase 8 (AC9)"
+fi
+FC_SEAM="$(awk '/^export function isForwardClaim/,/^export function flavorDelta/' "$ROOT/skills/council/workflow.js")"
+if printf '%s\n' "$FC_SEAM" | grep -qE 'safeAgent|spawnContract|agent\('; then
+  fail_msg "the Forward claim seam adds a spawn (AC9)"
+else
+  ok "no new spawn: the Forward claim seam is compose-only (AC9)"
+fi
+FC_GUARD="$(awk '/# --- Forward claim guard/,/^# --- Format verdicts/' "$ROOT/skills/council/engine-finalize.sh")"
+if printf '%s\n' "$FC_GUARD" | grep -q 'claim_budget'; then
+  fail_msg "the Forward claim guard consumes claim budget (AC9)"
+else
+  ok "no claim-budget consumer: the guard block never touches claim_budget (AC9)"
+fi
+printf 'exhibit: no new council phase, spawn, or claim-budget consumption — the tag rides the existing per-claim investigator spawn and the existing finalize\n'
+
+if [ "$fail" -eq 0 ] && [ "${FAIL:-0}" -eq 0 ]; then
   echo "PASS: test-verify-prompts.sh"
-  exit 0
 else
   echo "FAIL: test-verify-prompts.sh"
-  exit 1
+  FAIL=$(( FAIL + 1 ))
 fi
+ac_finish

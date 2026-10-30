@@ -1,0 +1,22 @@
+{
+  "output_shape": "verdict[]",
+  "scope": "plan",
+  "preset": "generic",
+  "slug": "fwd-tagged-unscheduled",
+  "task_id": "",
+  "flavors": ["paranoid-ic"],
+  "claim_budget": 10,
+  "completion_time": "0s",
+  "council_tier": "full",
+  "grading_reason": "fixture: CDT-589-C4 AC7(d) tagged claim refuted on an unscheduled file",
+  "claims": [
+    {
+      "claim_id": "c0",
+      "claim": "[forward] Step 3 adds flag --fwd-demo to skills/council/engine.sh",
+      "source_locator": "plans/sample.md:Task Map:12",
+      "claim_type": "recommendation",
+      "verify": null,
+      "tool_budget": 5
+    }
+  ]
+}

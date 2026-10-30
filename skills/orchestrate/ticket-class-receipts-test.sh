@@ -441,7 +441,12 @@ if want_ac; then
   else
     bad classifier-untouched-c1head "ticket-class.sh changed vs faa0249"
   fi
-  CHANGED=$(git -C "$ROOT" diff --name-only faa0249..HEAD 2>/dev/null)
+  # The span ends at the CDT-595 fold (v1.27.24, eafe265), not HEAD: the
+  # suite-only claim is about this ticket's own diff. Later epic children
+  # stack legitimate product paths onto this lineage and own their scopes
+  # (CDT-589-C4 retrofit).
+  C595_FOLD=eafe2651bd1f76bfc08326551deb42d7d63c901d
+  CHANGED=$(git -C "$ROOT" diff --name-only faa0249.."$C595_FOLD" 2>/dev/null)
   # Fold-aware allowlist: a /release fold rides the version pair in the same
   # single commit — bookkeeping paths, not product code.
   OUTSIDE=$(printf '%s\n' "$CHANGED" | grep -vE '^skills/orchestrate/[a-z0-9-]*-test\.sh$|^specs/|^tests/lib/|^CHANGELOG\.md$|^\.claude-plugin/plugin\.json$')

@@ -1,0 +1,22 @@
+{
+  "bundles": [
+    {
+      "tool_use_id": "t1",
+      "raw_blob": "$ grep -n -- '--fwd-demo' skills/council/engine.sh\n(no output; exit 1)\n$ sed -n '12p' plans/sample.md\n- Step 3 adds flag --fwd-demo to skills/council/engine.sh\n",
+      "file_line": "skills/council/engine.sh:0",
+      "reproducible_command": "grep -n -- '--fwd-demo' skills/council/engine.sh"
+    }
+  ],
+  "extracted_claims": [
+    {
+      "claim_id": "c0",
+      "claim_text": "[forward] Step 3 adds flag --fwd-demo to skills/council/engine.sh",
+      "source_locator": "plans/sample.md:Task Map:12",
+      "claim_type": "recommendation",
+      "load_weight": 9
+    }
+  ],
+  "prosecutor_brief": "The flag is absent from engine.sh bytes; request CONTRADICTED.",
+  "advocate_brief": "The plan's Task Map schedules the flag in Step 3; request UNVERIFIED.",
+  "struck_lines": []
+}
