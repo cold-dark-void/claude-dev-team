@@ -345,6 +345,54 @@ if want_ac; then
   else bad "T34 carve-clause" "$t34_fail"; fi
 fi
 
+# ---- T35: CDT-589-C2 scan-scope clause in all four prose homes (AC15) ----
+# One canonical sentence, pasted in the same words (dual-home, no shared
+# partial). Wrapped copies are compared flattened (newlines and indent runs
+# collapse to one space), matching how the clause is laid out in 06-design.
+set_ac AC15
+if want_ac; then
+  SCOPE='Scan input is the ticket title, body, and ACs; the plan'"'"'s own `ticket_class:` section is excluded when a plan file is re-scanned.'
+  scope_count() {
+    tr '\n' ' ' < "$1" | tr -s ' ' | grep -oF -- "$SCOPE" | wc -l | tr -d ' '
+  }
+  t35_fail=""
+  for f in "$STEPS/plan-contract.md" "$KICKOFF" "$STEPS/06-design.md" "$ROOT/specs/core/SPEC-009-ticket-workflow.md"; do
+    n=$(scope_count "$f")
+    # 06-design carries the sentence twice (Step 6 and Step 6c); the other
+    # homes carry it once.
+    case "$(basename "$f")" in
+      06-design.md) want=2 ;;
+      *) want=1 ;;
+    esac
+    if [ "$n" -lt "$want" ]; then
+      t35_fail="$t35_fail $(basename "$f"):$n/$want"
+    fi
+  done
+  if [ -z "$t35_fail" ]; then ok "T35 scan-scope-clause"
+  else bad "T35 scan-scope-clause" "scope sentence missing: $t35_fail"; fi
+  # The old input list is gone: "title, body, ACs, and plan text" (plan
+  # contract) and "title|body|ACs|plan" (SPEC-009 MUST) would feed the
+  # plan's own ticket_class section back into the scan.
+  if grep -qF -- 'ACs, and plan text' "$STEPS/plan-contract.md" \
+     || grep -qF -- 'Match title|body|ACs|plan' "$ROOT/specs/core/SPEC-009-ticket-workflow.md"; then
+    bad "T35 old-input-list-gone" "a home still lists plan text as classifier scan input"
+  else
+    ok "T35 old-input-list-gone"
+  fi
+  # Fail-closed emission stands: the emission contract line is the run
+  # exhibit for the `ticket_class: auth-secrets` unsure outcome.
+  EMIT=$(grep -F -- 'If the script cannot run, emit `ticket_class: auth-secrets`' "$STEPS/plan-contract.md" | head -1)
+  if [ -n "$EMIT" ]; then
+    ok "T35 fail-closed-emission"
+    printf 'fail-closed emission: %s\n' "$(printf '%s' "$EMIT" | tr -s ' ')"
+  else
+    bad "T35 fail-closed-emission" "plan-contract.md lost the unsure-fails-closed emission line"
+  fi
+  printf 'scan-scope prose: 4 homes hold the sentence; occurrences plan-contract.md=%s SKILL.md=%s 06-design.md=%s SPEC-009-ticket-workflow.md=%s\n' \
+    "$(scope_count "$STEPS/plan-contract.md")" "$(scope_count "$KICKOFF")" \
+    "$(scope_count "$STEPS/06-design.md")" "$(scope_count "$ROOT/specs/core/SPEC-009-ticket-workflow.md")"
+fi
+
 # ---- T15: CDT-244 council Phase 2 flavor-append (AC9) ----
 COUNCIL="$ROOT/commands/council.md"
 t15_fail=""
@@ -989,14 +1037,14 @@ done
 if [ -z "$t33_fail" ]; then t_ok
 else t_bad "T33:$t33_fail"; fi
 
-# ---- Harness self-check: the suite defines 35 checks (T0-T34). Check numbers
+# ---- Harness self-check: the suite defines 38 checks (T0-T35). Check numbers
 # follow the block label, not the run order (T34 sits next to T14). A total
-# below 35 means a check was skipped silently (stale copy of this file, an
+# below 38 means a check was skipped silently (stale copy of this file, an
 # early return, or an environment-dependent short-circuit) — turn that into
 # an explicit failure instead of a quietly-smaller PASS count. Under --ac the
-# run is a labeled subset, so 35 does not apply.
+# run is a labeled subset, so 38 does not apply.
 if [ -z "${AC_FILTER:-}" ]; then
-  EXPECTED_CHECKS=35
+  EXPECTED_CHECKS=38
   RUN_TOTAL=$((PASS + FAIL))
   if [ "$RUN_TOTAL" -ne "$EXPECTED_CHECKS" ]; then
     t_bad "harness ran $RUN_TOTAL checks, expected $EXPECTED_CHECKS (a check did not run)"

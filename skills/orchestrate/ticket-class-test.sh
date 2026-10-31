@@ -399,4 +399,57 @@ if want_ac; then
   fi
 fi
 
+# --- AC15: CDT-589-C2 scan scope — ticket text only, self-match removed ----
+# The contracted re-scan input is the plan with its own `ticket_class:`
+# section dropped (## Ticket class up to the next ## heading). Fixtures are
+# hermetic under fixtures/scan-scope/ and mirror the 2026-10-26 regression
+# set (XYZ-56, CDT-566/567/568, XYZ-434; evidence on CDT-590).
+set_ac AC15
+if want_ac; then
+  FIX2="$HERE/fixtures/scan-scope"
+  rescan_input() {
+    awk '/^## Ticket class[[:space:]]*$/{skip=1; next} skip && /^## /{skip=0} !skip' "$1"
+  }
+  # rescan3 <glossary> <plan> — three passes over the re-scan input; sets OUT
+  # to the common class, or pipe-joins the three when they disagree.
+  rescan3() {
+    local g=$1 plan=$2 p1 p2 p3
+    rescan_input "$plan" > "$TMP/scan-in"
+    p1=$(TICKET_CLASS_GLOSSARY="$g" bash "$CLASS" < "$TMP/scan-in" 2>/dev/null)
+    p2=$(TICKET_CLASS_GLOSSARY="$g" bash "$CLASS" < "$TMP/scan-in" 2>/dev/null)
+    p3=$(TICKET_CLASS_GLOSSARY="$g" bash "$CLASS" < "$TMP/scan-in" 2>/dev/null)
+    if [ "$p1" = "$p2" ] && [ "$p2" = "$p3" ]; then OUT=$p1; return 0; fi
+    OUT="$p1|$p2|$p3"; return 1
+  }
+  # Self-match gone: the fixture plan's ticket_class line and note carry
+  # auth/session, but the scan input carries neither -> none, idempotent.
+  rescan3 off "$FIX2/plan-selfmatch.md"
+  if [ "$?" -eq 0 ] && [ "$OUT" = "none" ]; then ok selfmatch-scan-input-none
+  else bad "selfmatch-scan-input-none" "3-pass re-scan got [$OUT] want none"; fi
+  # The old input ("and plan text") self-matched on the same fixture: the
+  # hazard the scope rule removes, kept as a red-canary exhibit.
+  OUT=$(TICKET_CLASS_GLOSSARY=off bash "$CLASS" < "$FIX2/plan-selfmatch.md" 2>/dev/null)
+  if [ "$OUT" = "auth-secrets" ]; then ok selfmatch-full-text-hazard
+  else bad "selfmatch-full-text-hazard" "full plan text got [$OUT] want auth-secrets (self-match exhibit)"; fi
+  printf 'scan-scope: plan-selfmatch re-scan input drops its ticket_class: section -> none\n'
+  # Narrowing loses no true positive: the genuine hits classify from ticket
+  # text (the section holding the ticket_class line is not in the input).
+  rescan3 off "$FIX2/plan-ws-token.md"
+  if [ "$?" -eq 0 ] && [ "$OUT" = "auth-secrets" ]; then ok ws-token-scan-input-hit
+  else bad "ws-token-scan-input-hit" "3-pass re-scan got [$OUT] want auth-secrets"; fi
+  rescan3 off "$FIX2/plan-bot-token-mounts.md"
+  if [ "$?" -eq 0 ] && [ "$OUT" = "auth-secrets" ]; then ok bot-token-mounts-scan-input-hit
+  else bad "bot-token-mounts-scan-input-hit" "3-pass re-scan got [$OUT] want auth-secrets"; fi
+  printf 'scan-scope: ticket-text-only hits: plan-ws-token.md -> auth-secrets, plan-bot-token-mounts.md -> auth-secrets\n'
+  # No-glossary behavior unchanged (C2 independent of C1): the fixture
+  # glossary carves nothing here, so glossary and sentinel-off agree.
+  rescan3 "$FIX/CONTEXT.md" "$FIX2/plan-bot-token-mounts.md"
+  if [ "$?" -eq 0 ] && [ "$OUT" = "auth-secrets" ]; then ok scan-scope-glossary-parity
+  else bad "scan-scope-glossary-parity" "glossary-vs-off re-scan got [$OUT] want auth-secrets"; fi
+  rescan3 off "$FIX2/plan-bot-token-mounts.md"
+  if [ "$?" -eq 0 ] && [ "$OUT" = "auth-secrets" ]; then ok scan-scope-off-parity
+  else bad "scan-scope-off-parity" "sentinel-off re-scan got [$OUT] want auth-secrets"; fi
+  printf 'scan-scope: no-glossary parity — glossary and TICKET_CLASS_GLOSSARY=off give the same class\n'
+fi
+
 ac_finish
