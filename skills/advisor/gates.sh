@@ -11,7 +11,8 @@
 #                                       [--question TEXT] [--card-context FILE]
 #   bash skills/advisor/gates.sh mode   --run-id ID
 #
-# Allowed gate ids (M24): bc7 | bc2-diagnosis | bc6-diagnosis | bc1-mis-fire.
+# Allowed gate ids (M24): bc7 | bc2-diagnosis | bc6-diagnosis | bc1-mis-fire,
+# plus class-verify (CDT-589-C3 trigger-d fence; M24 set extension, M39).
 # The M23 denylist — bc3 | bc8 | bc6-extension | bc1-as-human-preference — is
 # structurally unreachable: `allow`/`shadow` exit 64 with a stable refusal
 # reason on stderr. Unknown ids exit 64 too (an unmapped id can never pass).
@@ -62,7 +63,9 @@ CMD="${1:-}"
 shift
 
 # ---- M24 allowed set / M23 denylist (exact SPEC-039 identifiers) ------------
-ALLOWED_IDS="bc7|bc2-diagnosis|bc6-diagnosis|bc1-mis-fire"
+# `class-verify` (CDT-589-C3, M39) extends the allowed set for the trigger-d
+# structural fence; the M23 denylist itself is unchanged.
+ALLOWED_IDS="bc7|bc2-diagnosis|bc6-diagnosis|bc1-mis-fire|class-verify"
 # Stable M23 refusal reasons: <id> (<spec label>) — SPEC-039 M23 denylist.
 deny_reason() {
   case "$1" in
@@ -78,7 +81,7 @@ deny_reason() {
 # the stable reason on stderr so both scripted and human callers are served.
 allow() {
   case "$1" in
-    bc7|bc2-diagnosis|bc6-diagnosis|bc1-mis-fire)
+    bc7|bc2-diagnosis|bc6-diagnosis|bc1-mis-fire|class-verify)
       jq -cn --arg g "$1" '{gate:$g, allowed:true}'
       return 0 ;;
     bc3|bc8|bc6-extension|bc1-as-human-preference)
@@ -100,6 +103,7 @@ vocab_for() {
     bc2-diagnosis|bc6-diagnosis) echo "halt|decompose" ;;
     bc1-mis-fire)                echo "halt-stands|mis-fire" ;;
     bc7)                         echo "AGREE|CONTRADICT|INSUFFICIENT" ;;
+    class-verify)                echo "auth-relevant|not-auth-relevant" ;;
   esac
 }
 
@@ -110,6 +114,7 @@ check_ruling() { # check_ruling <gate-id> <ruling> — exit 0 / 64
     halt\|decompose)      case "$2" in halt|decompose) ok=1 ;; esac ;;
     halt-stands\|mis-fire) case "$2" in halt-stands|mis-fire) ok=1 ;; esac ;;
     AGREE\|CONTRADICT\|INSUFFICIENT) case "$2" in AGREE|CONTRADICT|INSUFFICIENT) ok=1 ;; esac ;;
+    auth-relevant\|not-auth-relevant) case "$2" in auth-relevant|not-auth-relevant) ok=1 ;; esac ;;
   esac
   if [ "$ok" -ne 1 ]; then
     jq -cn --arg g "$1" --arg r "$2" --arg v "$VOCAB" \
@@ -147,7 +152,7 @@ case "$CMD" in
     ;;
   ruling)
     [ "$#" -eq 4 ] && [ "$1" = "--bc" ] && [ "$3" = "--ruling" ] || usage
-    case "$2" in bc7|bc2-diagnosis|bc6-diagnosis|bc1-mis-fire) ;; *) usage ;; esac
+    case "$2" in bc7|bc2-diagnosis|bc6-diagnosis|bc1-mis-fire|class-verify) ;; *) usage ;; esac
     [ -n "$4" ] || usage
     check_ruling "$2" "$4"
     exit $?

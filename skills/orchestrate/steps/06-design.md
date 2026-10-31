@@ -218,7 +218,88 @@ Step 7:
 Step 6c (security council): skipped — ticket_class: none
 ```
 
-If `ticket_class: auth-secrets`, invoke `/council --plan <approved-plan-path>`
+#### Step 6c class-verify probe — advisor stage-2 demotion (CDT-589-C3; SPEC-039 trigger d)
+
+When `ticket_class` is `auth-secrets` and the advisor is enabled for this run
+(`ADVISOR_ON=true`, Step 0) and `ADVISOR_SKIP_TRIGGER` is not `1`, run AT MOST
+ONE class-verify probe per run, BEFORE any `/council` invoke below
+(SPEC-039 trigger d; reserve d=1, global cap 5 unchanged). Export
+`TICKET_CLASS=<the plan's ticket_class value>` and stage the classifier
+evidence — the ticket title, body, and ACs — into a fresh directory exported
+as `CV_EVIDENCE_DIR` (M18 directory travel). The fixed question text lives
+only in the advisor SKILL trigger table (`CLASS_VERIFY_QUESTION=`); the fence
+reads it from there. Advisor off, bypassed, or `ticket_class: none`: zero
+advisor calls, zero cards, zero added lines — byte-identical to the 6c path
+without this child.
+
+```bash
+# Fresh shell — re-resolve PDH (SPEC-021 C1). CDT-589-C3 class-verify probe
+# (SPEC-039 trigger d). At most ONE per run (reserve d=1, M26), BEFORE any
+# /council invoke. Advisor off, bypassed, or ticket_class not auth-secrets:
+# silent skip — byte-identical to today (no probe line, no card). A refused
+# gate id fails closed to the council below; never a halt, never BC8.
+# lint-ok: C3 — marketplace */ for-loop + -f guarded (SPEC-021 Q2 residual, CDT-82 PDH)
+PDH="${PDH:-$( { [ -n "${CLAUDE_PLUGIN_ROOT:-}" ] && [ -f "$CLAUDE_PLUGIN_ROOT/skills/plugin-dir.sh" ] && printf '%s\n' "$CLAUDE_PLUGIN_ROOT"; } || { [ -f skills/plugin-dir.sh ] && [ -f agents/pm.md ] && grep -qF '"name": "dev-team"' .claude-plugin/plugin.json 2>/dev/null && pwd; } || { _pr='${CLAUDE_PLUGIN_ROOT}'; [ "${_pr#\$}" = "$_pr" ] && [ -f "$_pr/skills/plugin-dir.sh" ] && printf '%s\n' "$_pr"; } || { for _mp in "$HOME"/.claude/plugins/marketplaces/*/; do [ -f "${_mp}skills/plugin-dir.sh" ] && [ -f "${_mp}agents/pm.md" ] && grep -qF '"name": "dev-team"' "${_mp}.claude-plugin/plugin.json" 2>/dev/null && printf '%s\n' "${_mp%/}" && break; done; } || find ~/.claude/plugins/cache \( -path '*/dev-team/*/skills/plugin-dir.sh' -o -path '*/dev-team-edge/*/skills/plugin-dir.sh' \) 2>/dev/null | awk -F/ '{ver=""; for(i=1;i<=NF;i++) if(($i=="dev-team"||$i=="dev-team-edge")&&i<NF){ver=$(i+1);break}; if(ver=="") next; m=ver; gsub(/-pre\./,"~pre.",m); p=($0 ~ /\/cache\/cold-dark-void\/dev-team\//)?2:(($0 ~ /\/cache\/cold-dark-void\/dev-team-edge\//)?1:0); print m "\t" p "\t" $0}' | sort -t $'\t' -k1,1V -k2,2n -k3,3 | tail -1 | cut -f3 | xargs -r dirname | xargs -r dirname )}"
+if [ "${ADVISOR_ON:-}" = "true" ] && [ "${ADVISOR_SKIP_TRIGGER:-}" != "1" ] && [ "${TICKET_CLASS:-}" = "auth-secrets" ]; then
+  GATES=$(bash "$PDH/skills/plugin-dir.sh" file skills/advisor/gates.sh)
+  ASK=$(bash "$PDH/skills/plugin-dir.sh" file skills/advisor/ask.sh)
+  SKILL=$(bash "$PDH/skills/plugin-dir.sh" file skills/advisor/SKILL.md)
+  if bash "$GATES" allow --bc class-verify >/dev/null 2>&1; then
+    # One home for the question text: the advisor SKILL trigger table.
+    CV_QUESTION=$(sed -n 's/^CLASS_VERIFY_QUESTION=//p' "$SKILL" | head -n 1)
+    bash "$ASK" probe --trigger d --question "$CV_QUESTION" \
+      --evidence-dir "${CV_EVIDENCE_DIR:?stage the ticket evidence dir first (M18)}" \
+      --run-id "<RUN_ID>" ${ADVISOR_MODEL:+--model "$ADVISOR_MODEL"}
+  fi
+fi
+```
+
+Act on the probe `action`:
+- `spawn` — spawn the advisor Agent natively with the spawn-request question
+  and the `CV_EVIDENCE_DIR` evidence, write the ruling file, then finalize
+  with the card context (`--card-workflow orchestrate --card-ticket
+  <ISSUE-ID> --card-gate plan-approve --card-iteration <ITER>
+  --card-run-start-epoch <RUN_START_EPOCH>`). A demotion card is
+  `decision: proceed`, `blocking_condition: null`, `actor: advisor`,
+  `gate: plan-approve` — no new gate enum. A finalize exit 64 (bad ruling
+  shape) is a council outcome, not a halt.
+- `cache-hit` — the ruling is at `cached_ruling_path`; spawn nothing.
+- `refuse` or `cap` — no probe is spent; run the `/council` invoke below.
+  Cap exhaustion on this trigger NEVER maps to BC8 (the §3g BC8 fence is
+  `a|b|c` only) — the council simply runs.
+- finalize `--timeout` / `--spawn-fail` — no ruling exists; run the
+  `/council` invoke below.
+
+```bash
+# CDT-589-C3 demotion decision (SPEC-039 M40/M41): demote ONLY on
+# not-auth-relevant at confidence >= 80. Anything else — auth-relevant at any
+# confidence, confidence < 80, refuse/cap, timeout/spawn-fail — runs the
+# /council invoke below: fail-closed, never a halt, never BC8. The ruling
+# never rewrites ticket_class (demotion-only; none is never raised to
+# auth-secrets). The demoted path prints the existing skip line with
+# class-verify named as the reason and continues to Step 7 — the council is
+# NOT run.
+if [ "${ADVISOR_ON:-}" = "true" ] && [ "${ADVISOR_SKIP_TRIGGER:-}" != "1" ]; then
+  CV_RULING=$(jq -r '.ruling // empty' "<class-verify-ruling-file>" 2>/dev/null)
+  CV_CONF=$(jq -r '.confidence // empty' "<class-verify-ruling-file>" 2>/dev/null)
+  case "${CV_CONF:-}" in ''|*[!0-9]*) CV_CONF=0 ;; esac
+  if [ "$CV_RULING" = "not-auth-relevant" ] && [ "$CV_CONF" -ge 80 ]; then
+    echo "Step 6c (security council): skipped — class-verify: not-auth-relevant"
+  fi
+fi
+```
+
+Demoted → continue to Step 7; the council NOT run — skip the
+`/council --plan <approved-plan-path>` invoke below. Every other outcome —
+`auth-relevant` at any confidence, confidence < 80, advisor off or unmapped,
+probe `refuse`/`cap`, finalize `--timeout`/`--spawn-fail` — runs the invoke
+below unchanged: fail-closed to the council, never a halt, never BC8.
+
+`<class-verify-ruling-file>` is the finalize's `runs/<RUN_ID>/ruling.json`
+(or the `cached_ruling_path` on a cache hit).
+
+If `ticket_class: auth-secrets` and the class-verify probe above did not
+demote, invoke `/council --plan <approved-plan-path>`
 unbound: no `--task-id`, no `--diff`, no `--preset diff-mode` (plan scope infers
 `generic`). Do not export `CLAUDE_TASK_ID` for this invoke.
 

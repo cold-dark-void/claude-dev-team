@@ -31,10 +31,12 @@
 # takes a FILE PATH — the ruling object travels on disk, never inside argv
 # or shell interpolation (untrusted-input rule). Flag absent or an empty
 # file → advisor: null. A present, non-empty file must parse as exactly one
-# JSON object with the M30 shape (ruling AGREE|CONTRADICT|INSUFFICIENT|null,
-# corrected_claim string|null, evidence array of {cmd,exit,sha256,locator}
-# objects, model string, evidence_over_memory boolean, question_hash string,
-# trigger a|b|c, cache_hit boolean, timeout boolean, marker string|null) —
+# JSON object with the M30 shape (ruling AGREE|CONTRADICT|INSUFFICIENT|null —
+# or, when the object's trigger is d (CDT-589-C3), auth-relevant|
+# not-auth-relevant|null; corrected_claim string|null, evidence array of
+# {cmd,exit,sha256,locator} objects, model string, evidence_over_memory
+# boolean, question_hash string, trigger a|b|c|d, cache_hit boolean, timeout
+# boolean, marker string|null) —
 # any other shape is a hard 64 with no ledger line.
 # Argc is 13 (all optionals null) | 14 (max_loc, council pair null) |
 # 15 (council pair, max_loc null) | 16 (council pair + max_loc).
@@ -237,8 +239,11 @@ if [ -n "$ADVISOR_JSON_PATH" ]; then
       | select(
           type == "object"
           and has("ruling")
-          and (.ruling == null or .ruling == "AGREE"
-               or .ruling == "CONTRADICT" or .ruling == "INSUFFICIENT")
+          and ((.trigger == "d" and (.ruling == null or .ruling == "auth-relevant"
+                    or .ruling == "not-auth-relevant"))
+               or (.trigger != "d" and (.ruling == null or .ruling == "AGREE"
+                    or .ruling == "CONTRADICT" or .ruling == "INSUFFICIENT"))
+               or .trigger == null)
           and has("corrected_claim")
           and (.corrected_claim == null or (.corrected_claim | type == "string"))
           and has("evidence") and (.evidence | type == "array")
@@ -251,7 +256,8 @@ if [ -n "$ADVISOR_JSON_PATH" ]; then
           and has("model") and (.model == null or (.model | type == "string"))
           and has("evidence_over_memory") and (.evidence_over_memory | type == "boolean")
           and has("question_hash") and (.question_hash | type == "string")
-          and has("trigger") and (.trigger == "a" or .trigger == "b" or .trigger == "c")
+          and has("trigger") and (.trigger == "a" or .trigger == "b"
+               or .trigger == "c" or .trigger == "d")
           and has("cache_hit") and (.cache_hit | type == "boolean")
           and has("timeout") and (.timeout | type == "boolean")
           and has("marker") and (.marker == null or (.marker | type == "string"))

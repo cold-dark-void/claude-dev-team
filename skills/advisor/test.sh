@@ -6,7 +6,7 @@
 # Covers the CDT-556-C4 acceptance criteria:
 #   - probe actions spawn|cache-hit|refuse|cap; probe never spawns
 #   - unmapped -> refuse "advisor not configured", never a tier default
-#   - caps: per-trigger reserves a=3/b=4/c=2, global 5,
+#   - caps: per-trigger reserves a=3/b=4/c=2/d=1, global 5,
 #     ADVISOR_MAX_CALLS lowers only, hash dedupe, epic total 8
 #   - re-entrant probe exits 64; finalize ruling taxonomy; timeout is
 #     never a partial ruling; bad locator 64; spawn-fail/refuse status-only;

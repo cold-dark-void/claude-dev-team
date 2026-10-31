@@ -23,7 +23,7 @@ drives:
 ## Probe
 
 ```bash
-bash skills/advisor/ask.sh probe --trigger a|b|c --question TEXT \
+bash skills/advisor/ask.sh probe --trigger a|b|c|d --question TEXT \
   [--evidence-dir PATH] [--run-id ID] [--epic-id ID] [--bc N] [--model MODEL]
 ```
 
@@ -64,7 +64,9 @@ bash skills/advisor/ask.sh finalize --run-id ID --refuse
 ```
 
 `--ruling-file` validates M18 shape before caching: `ruling` MUST be
-`AGREE|CONTRADICT|INSUFFICIENT` (any other value exits 64), `confidence`
+`AGREE|CONTRADICT|INSUFFICIENT` (any other value exits 64) — except on a
+trigger-(d) spawn request, where the class-verify vocabulary
+(`auth-relevant|not-auth-relevant`, M39) is required instead — `confidence`
 integer 0–100, `evidence[].locator` `path:line`. A valid ruling is written to
 the question-hash cache — the next identical probe is a free cache-hit.
 
@@ -133,7 +135,8 @@ never sourced). The orchestrator runs it before any
 §3g):
 
 1. `allow --bc <gate-id>` — exit 0 only for the M24 allowed set: `bc7`,
-   `bc2-diagnosis`, `bc6-diagnosis`, `bc1-mis-fire`. The M23 denylist — `bc3`,
+   `bc2-diagnosis`, `bc6-diagnosis`, `bc1-mis-fire` (plus `class-verify`,
+   the CDT-589-C3 trigger-(d) fence id). The M23 denylist — `bc3`,
    `bc8`, `bc6-extension`, `bc1-as-human-preference` — and any unknown id exit
    64 with a stable refusal reason on stderr
    (`advisor gate refused: <id> ... — SPEC-039 M23 denylist`) and an
@@ -194,10 +197,43 @@ span `{present, count, items|reasons}`: `below_threshold`, `contradicted`,
 and `unverified` carry `{present, count, items}`; `degraded` carries
 `{present, count, reasons}`; the object also carries `threshold`.
 
+## Trigger (d) — class verify (CDT-589-C3, SPEC-039 M38–M41)
+
+Step 6c (`skills/orchestrate/steps/06-design.md`) asks the advisor ONCE per
+run whether a deterministic `ticket_class: auth-secrets` classifier hit
+deserves the plan-scope security council. The mechanical classifier decides
+WHEN; this trigger decides WHETHER the council is demoted.
+
+| Field | Value |
+|-------|-------|
+| trigger | `d` — `ask.sh probe --trigger d` (reserve 1 per run, M26; global 5 unchanged) |
+| allow fence | `gates.sh allow --bc class-verify` (M24 set extended; the M23 denylist is unchanged) |
+| ruling | `auth-relevant` or `not-auth-relevant` + `confidence` 0–100 — anything else exits 64 (M39) |
+| evidence | the staged ticket text (title, body, ACs) as a directory (M18) |
+| demotion | `not-auth-relevant` at confidence >= 80 ONLY (M40): the existing 6c skip line prints, the run continues to Step 7, the council is NOT run |
+| card | demotion only: `gate: plan-approve`, `decision: proceed`, `blocking_condition: null`, `actor: advisor`, confidence = the ruling's, rationale `trigger=d ruling=<r> model=<m>` (M40; no new gate enum) |
+| log | one `class-verify` row per trigger-d finalize in `runs/<run_id>/class-verify.jsonl` (`decision: demote|council`) — precision measurement (M40) |
+| fail-closed | `auth-relevant` at any confidence, confidence < 80, advisor off/unmapped, probe `refuse`/`cap`, finalize `--timeout`/`--spawn-fail` → the council runs; never a halt, never BC8 (M41) |
+| demotion-only | the ruling never rewrites `ticket_class`; `none` is never raised to `auth-secrets` (M41) |
+
+The fixed question text has ONE home — the `CLASS_VERIFY_QUESTION=` line
+below. The 6c fence `sed`s it out of this file; do not copy the question
+body into any other doc or fence.
+
+```
+CLASS_VERIFY_QUESTION=The deterministic keyword classifier tagged this ticket ticket_class: auth-secrets. Read the staged ticket text (title, body, ACs) and rule whether its change surface actually involves authentication, authorization, sessions, credentials, secrets, tokens, private keys, or PII handling. Rule not-auth-relevant only when the staged evidence provably touches none of those surfaces; otherwise rule auth-relevant. Reply with a ruling file holding ruling (auth-relevant or not-auth-relevant), confidence (integer 0-100), and at least one evidence item with a path:line locator into the staged ticket text.
+```
+
+End-to-end order: `gates.sh allow --bc class-verify` → `ask.sh probe
+--trigger d` → (spawn) native advisor spawn → `ask.sh finalize` with the
+card context (`--card-gate plan-approve`) → demotion fence. A cache-hit
+probe is free and returns the cached ruling (reserve d=1 still holds for
+spawn-probes: retries count).
+
 
 ## Caps (M26)
 
-- Per-trigger reserves per run: `a`=3, `b`=4, `c`=2.
+- Per-trigger reserves per run: `a`=3, `b`=4, `c`=2, `d`=1.
 - Global per-run total 5. `ADVISOR_MAX_CALLS` only lowers the global 5
   (integer ≥ 1; any other value is ignored).
 - Retries count; cache hits are free and never increment.
