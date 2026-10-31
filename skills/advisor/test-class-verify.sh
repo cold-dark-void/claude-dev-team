@@ -169,6 +169,15 @@ if want_ac; then
   cv_finalize cv-vocab not-auth-relevant abc >/dev/null 2>&1
   [ $? -eq 64 ] && ok "finalize rejects non-integer confidence with 64" || bad "finalize rejects conf abc" "see fin.err"
 
+  # Boundary acceptance: the AC1 vocabulary is confidence 0-100 inclusive, so
+  # the edges are ACCEPTED (by finalize, the layer that owns the check).
+  cv_probe cv-bnd0 "$Q bnd0" >/dev/null 2>&1
+  cv_finalize cv-bnd0 not-auth-relevant 0 >/dev/null 2>&1
+  [ $? -eq 0 ] && ok "finalize accepts boundary confidence 0" || bad "finalize accepts conf 0" "see fin.err"
+  cv_probe cv-bnd100 "$Q bnd100" >/dev/null 2>&1
+  cv_finalize cv-bnd100 not-auth-relevant 100 >/dev/null 2>&1
+  [ $? -eq 0 ] && ok "finalize accepts boundary confidence 100" || bad "finalize accepts conf 100" "see fin.err"
+
   # M23 denylist unchanged.
   for ID in bc3 bc8 bc6-extension bc1-as-human-preference; do
     OUT=$(ADVISOR_STATE_ROOT="$ST" timeout 20 bash "$GATES" allow --bc "$ID" 2>"$HERMETIC_ROOT/g.err"); RC=$?
