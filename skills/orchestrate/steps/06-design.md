@@ -337,6 +337,20 @@ MUST NOT spawn Step 8 ICs when any of:
 - report `verification_mode: self-verified` or marker `self-verified — refuters unavailable`
 - no usable report
 
+One exception — the CDT-589-C5 BC1 mis-fire enforce clear: when the Step 0
+advisor is on, the human config `ADVISOR_ENFORCE` is set (validated by
+`gates.sh`; default off/absent), and the trigger-(a) `bc1-mis-fire` second
+opinion rules `mis-fire` at confidence ≥ 80, the self-answer §3g enforce
+fence clears this BC1 halt — exactly one advisor decision card (`gate:
+plan-approve`, `decision: proceed`, `decided_by: auto`, `actor: advisor`) and
+Step 7 proceeds (then Step 8 as normal). Every other outcome — enforce
+off/absent or junk, `halt-stands`, confidence < 80, timeout, spawn-fail,
+refuse, cap, a writer reject — fails closed: the MUST NOT above and the BC1
+halt stand unchanged. The clear is scoped to this Step 6c BC1 halt only; no
+clearing path reaches Step 8 IC spawns outside 6c, and the clear and the
+CDT-589-C3 class-verify demotion are distinct paths with distinct provenance
+(trigger `a` vs `d`, distinct rationales, no `class-verify.jsonl` row).
+
 MUST NOT auto-replan (do not fire the replan gate).
 
 **Autopilot — Step 6c fail:** if `AUTOPILOT_ON` (Step 0), do NOT wait for the user
@@ -358,6 +372,11 @@ run_start_epoch:RUN_START_EPOCH, autopilot_bump:AUTOPILOT_BUMP, max_loc:MAX_LOC,
 ```
 plan-approve <decision>: <rationale> — card: <card-file-path>
 ```
+- `halt` with the CDT-589-C5 BC1 mis-fire enforce clear fired (the §3g fence:
+  `ADVISOR_ENFORCE` set + a `bc1-mis-fire` `mis-fire` ruling at confidence ≥ 80
+  on this `plan-approve` halt) → do NOT emit `task_blocked`; the enforce fence
+  writes the one clear card and Step 7 proceeds (the exception above). Every
+  other case emits `task_blocked` exactly as above.
 Otherwise (autopilot off): print the council report and wait. Do not proceed to
 Step 7 or spawn Step 8 ICs.
 

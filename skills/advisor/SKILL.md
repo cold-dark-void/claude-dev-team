@@ -155,8 +155,19 @@ never sourced). The orchestrator runs it before any
    (`ADVISOR_SHADOW_N`, only lowers) are the measured window; the mode stays
    `shadow` at and after the boundary. Growth past shadow is a human config
    edit — no code path transitions the mode (M25).
-4. `mode --run-id ID` — prints `{"mode":"shadow","shadow_used":N,"shadow_n":N}`.
-5. Subprocess form: `gates.sh mode --run-id ID` — never sourced.
+4. `mode --run-id ID` — prints `{"mode":"<mode>","shadow_used":N,"shadow_n":N}`:
+   `mode` is `enforce` when the human config `ADVISOR_ENFORCE` is validly on,
+   else `shadow` (M25: the mode value transitions only from the human config,
+   never from code). The config defaults off/absent; `1|true|on` enable,
+   `0|false|off` are explicit off; any other value is junk — one stderr line
+   and off, never parsed as code (CDT-589-C5).
+5. `apply --run-id ID --bc bc1-mis-fire --ruling mis-fire --confidence <0-100>`
+   — the deterministic CDT-589-C5 clear decision for the Step 6c BC1 halt:
+   exits 0 with `applied: true` only for the opt-in enforce config + `mis-fire`
+   at confidence ≥ 80; every other outcome (config off/junk, another gate id, a
+   denylisted id, `halt-stands`, confidence < 80) is `applied: false` — the
+   halt stands. Usage/validation failures exit 64; the caller fails closed.
+6. Subprocess form: `gates.sh mode --run-id ID` — never sourced.
    Full form: `gates.sh shadow --run-id ID --bc <gate> --ruling <ruling>` — every allowed ruling logged as SHADOW.
 ## Trigger (c) — council-residue appeal (SPEC-039 M20–M22, CDT-561)
 

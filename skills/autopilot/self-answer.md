@@ -508,6 +508,87 @@ if [ "${ADVISOR_ON:-}" = "true" ] && [ "${ADVISOR_SKIP_TRIGGER:-}" != "1" ]; the
 fi
 ```
 
+**Trigger (a) enforce — the Step 6c BC1 mis-fire clear (CDT-589-C5, opt-in
+`ADVISOR_ENFORCE`).** `ADVISOR_ENFORCE` is a human config that does not exist by
+default: unset, the ruling above stays shadow-only (`applied: false`, the halt
+stands) and every line below is skipped — byte-identical to the shadow path.
+When the human sets it (`1|true|on`; `0|false|off` explicit off; any other
+value is junk → one stderr line from `gates.sh` and off, never parsed as code),
+`gates.sh apply` is the deterministic clear decision and `gates.sh mode`
+reports the resulting mode (`enforce`). The clear is scoped to the Step 6c BC1
+halt ONLY: the second-opinion id is `bc1-mis-fire` AND the halted gate is
+`plan-approve`. BC2–BC8, the M23 denylist, the Step 9 task-gate council, and
+the M14 ship-gate have no clearing path — for any other `<gate-id>` or
+`<halt-gate>` the fence is a no-op and the halt stands. Fail-closed cases:
+`halt-stands`, confidence < 80, timeout, spawn-fail, refuse, cap, a junk
+config, a writer reject, a missing/unparseable ruling file. `<gate-id>` and
+`<ruling>` copy the probe call per this section; `<confidence>` is the
+ruling's 0–100; `<ruling-file>` is the raw advisor ruling file from the spawn
+(M18 shape); `<halt-gate>` is the halted gate from the §2 envelope;
+`<model>` / `<question-hash>` copy the spawn request; `<ticket_id>`,
+`<RUN_ID>`, `<iteration>`, `<run_start_epoch>` copy the envelope. The clear
+writes exactly ONE decision card — `gate: plan-approve`, `decision: proceed`,
+`blocking_condition: null`, `decided_by: auto`, `actor: advisor`, confidence =
+the ruling's, rationale `trigger=a bc=bc1-mis-fire ruling=mis-fire model=<m>`
+(no new enums; `schema_version` stays 1; SPEC-033 documents the trigger-a
+`halt-stands|mis-fire` accept case) — then prints one line and Step 7
+proceeds: no `task_blocked` is emitted for this halt. A mis-fire clear and a
+CDT-589-C3 class-verify demotion are distinct paths with distinct provenance
+(trigger `a` vs `d`, distinct rationale, no `class-verify.jsonl` row).
+
+```bash template
+# CDT-589-C5 BC1 mis-fire enforce — opt-in via the human config
+# ADVISOR_ENFORCE (default off/absent). Scope: the Step 6c BC1 halt ONLY.
+# Later fence: the single-line PDH wrapper (skills/lib/pdh-later-fence.sh,
+# CDT-502-C5) — §3g already carries the one full-stanza emission this file owns.
+PDH="${PDH:-$( { [ -n "${CLAUDE_PLUGIN_ROOT:-}" ] && [ -f "$CLAUDE_PLUGIN_ROOT/skills/plugin-dir.sh" ] && printf '%s\n' "$CLAUDE_PLUGIN_ROOT"; } || { [ -f skills/plugin-dir.sh ] && [ -f agents/pm.md ] && grep -qF '"name": "dev-team"' .claude-plugin/plugin.json 2>/dev/null && pwd; } || { _pr='${CLAUDE_PLUGIN_ROOT}'; [ "${_pr#\$}" = "$_pr" ] && [ -f "$_pr/skills/plugin-dir.sh" ] && printf '%s\n' "$_pr"; } || { for _mp in "$HOME"/.claude/plugins/marketplaces/*/; do [ -f "${_mp}skills/plugin-dir.sh" ] && [ -f "${_mp}agents/pm.md" ] && grep -qF '"name": "dev-team"' "${_mp}.claude-plugin/plugin.json" 2>/dev/null && printf '%s\n' "${_mp%/}" && break; done; } || find ~/.claude/plugins/cache \( -path '*/dev-team/*/skills/plugin-dir.sh' -o -path '*/dev-team-edge/*/skills/plugin-dir.sh' \) 2>/dev/null | awk -F/ '{ver=""; for(i=1;i<=NF;i++) if(($i=="dev-team"||$i=="dev-team-edge")&&i<NF){ver=$(i+1);break}; if(ver=="") next; m=ver; gsub(/-pre\./,"~pre.",m); p=($0 ~ /\/cache\/cold-dark-void\/dev-team\//)?2:(($0 ~ /\/cache\/cold-dark-void\/dev-team-edge\//)?1:0); print m "\t" p "\t" $0}' | sort -t $'\t' -k1,1V -k2,2n -k3,3 | tail -1 | cut -f3 | xargs -r dirname | xargs -r dirname )}"
+if [ "${ADVISOR_ON:-}" = "true" ] && [ "<gate-id>" = "bc1-mis-fire" ] && [ "<halt-gate>" = "plan-approve" ]; then
+  GATES=$(bash "$PDH/skills/plugin-dir.sh" file skills/advisor/gates.sh)
+  # Off/absent config: mode reports shadow and the fence is SILENT — the
+  # shadow row above stands and the behavior is byte-identical to today. A
+  # junk config is off with exactly one stderr line from gates.sh itself.
+  if [ "$(bash "$GATES" mode --run-id "<RUN_ID>" | jq -r '.mode')" != "enforce" ]; then
+    exit 0
+  fi
+  if APPLY_OUT=$(bash "$GATES" apply --run-id "<RUN_ID>" --bc bc1-mis-fire \
+       --ruling "<ruling>" --confidence "<confidence>" 2>&1) \
+     && [ "$(printf '%s' "$APPLY_OUT" | jq -r '.applied // false')" = "true" ]; then
+    # Clear: exactly ONE decision card (decided_by auto, actor advisor), then
+    # Step 7 proceeds — no task_blocked for this halt. Anything else stands.
+    BUDGET_CHECK=$(bash "$PDH/skills/plugin-dir.sh" file skills/autopilot/budget-check.sh)
+    APPEND_CARD=$(bash "$PDH/skills/plugin-dir.sh" file skills/autopilot/append-card.sh)
+    if BC_OUT=$(bash "$BUDGET_CHECK" "<iteration>" "<run_start_epoch>"); then BC_RC=0; else BC_RC=$?; fi
+    if [ "$BC_RC" -eq 64 ]; then
+      echo "advisor enforce: budget-check validation failure — the halt stands" >&2
+    else
+      WALL_CLOCK_S=$(printf '%s' "$BC_OUT" | jq -r '.wall_clock_s')
+      ADVISOR_OBJ=$(mktemp "${TMPDIR:-/tmp}/advisor-enforce.XXXXXX.json") || ADVISOR_OBJ=""
+      if [ -z "$ADVISOR_OBJ" ] \
+         || ! jq -cn --slurpfile r "<ruling-file>" --arg model "<model>" \
+              --arg qh "<question-hash>" \
+              '{ruling: $r[0].ruling, corrected_claim: ($r[0].corrected_claim // null),
+                evidence: ($r[0].evidence // []), model: $model,
+                evidence_over_memory: true, question_hash: $qh, trigger: "a",
+                cache_hit: false, timeout: false, marker: null}' > "$ADVISOR_OBJ"; then
+        rm -f "${ADVISOR_OBJ:-}"
+        echo "advisor enforce: cannot build the advisor object — the halt stands" >&2
+      elif ! bash "$APPEND_CARD" orchestrate "<ticket_id>" plan-approve proceed auto \
+             null "<confidence>" null "<RUN_ID>" "<iteration>" "$WALL_CLOCK_S" advisor \
+             "trigger=a bc=bc1-mis-fire ruling=mis-fire model=<model>" \
+             --advisor-json "$ADVISOR_OBJ"; then
+        rm -f "$ADVISOR_OBJ"
+        echo "advisor enforce: append-card rejected the clear card — the halt stands" >&2
+      else
+        rm -f "$ADVISOR_OBJ"
+        echo "plan-approve proceed: bc1 mis-fire cleared by advisor enforce (CDT-589-C5) — Step 7 proceeds"
+      fi
+    fi
+  else
+    echo "advisor enforce: halt stands (${APPLY_OUT:-apply refused})" >&2
+  fi
+fi
+```
+
 ## 4. Writer-invariant preconditions
 
 `append-card.sh` **hard-fails with exit 64 on any bad arg** (deliberate inversion of

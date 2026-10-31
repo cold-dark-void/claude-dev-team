@@ -33,7 +33,9 @@
 # file → advisor: null. A present, non-empty file must parse as exactly one
 # JSON object with the M30 shape (ruling AGREE|CONTRADICT|INSUFFICIENT|null —
 # or, when the object's trigger is d (CDT-589-C3), auth-relevant|
-# not-auth-relevant|null; corrected_claim string|null, evidence array of
+# not-auth-relevant|null; or, when the object's trigger is a
+# (CDT-589-C5), the M24 bc1-mis-fire vocabulary halt-stands|mis-fire is
+# additionally accepted; corrected_claim string|null, evidence array of
 # {cmd,exit,sha256,locator} objects, model string, evidence_over_memory
 # boolean, question_hash string, trigger a|b|c|d, cache_hit boolean, timeout
 # boolean, marker string|null) —
@@ -241,8 +243,12 @@ if [ -n "$ADVISOR_JSON_PATH" ]; then
           and has("ruling")
           and ((.trigger == "d" and (.ruling == null or .ruling == "auth-relevant"
                     or .ruling == "not-auth-relevant"))
-               or (.trigger != "d" and (.ruling == null or .ruling == "AGREE"
-                    or .ruling == "CONTRADICT" or .ruling == "INSUFFICIENT"))
+               or (.trigger == "a" and (.ruling == null or .ruling == "AGREE"
+                    or .ruling == "CONTRADICT" or .ruling == "INSUFFICIENT"
+                    or .ruling == "halt-stands" or .ruling == "mis-fire"))
+               or ((.trigger == "b" or .trigger == "c") and (.ruling == null
+                    or .ruling == "AGREE" or .ruling == "CONTRADICT"
+                    or .ruling == "INSUFFICIENT"))
                or .trigger == null)
           and has("corrected_claim")
           and (.corrected_claim == null or (.corrected_claim | type == "string"))

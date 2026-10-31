@@ -10,6 +10,8 @@
 #   bash skills/advisor/gates.sh shadow --run-id ID --bc <gate-id> --ruling <ruling>
 #                                       [--question TEXT] [--card-context FILE]
 #   bash skills/advisor/gates.sh mode   --run-id ID
+#   bash skills/advisor/gates.sh apply  --run-id ID --bc <gate-id>
+#                                       --ruling <ruling> --confidence <0-100>
 #
 # Allowed gate ids (M24): bc7 | bc2-diagnosis | bc6-diagnosis | bc1-mis-fire,
 # plus class-verify (CDT-589-C3 trigger-d fence; M24 set extension, M39).
@@ -30,6 +32,16 @@
 # measured window; the mode STAYS shadow at and after the boundary. Growing
 # past shadow is a human config edit: NO code path in this file writes any
 # mode other than the literal "shadow".
+#
+# CDT-589-C5 opt-in enforce: ADVISOR_ENFORCE is a HUMAN config (default
+# off/absent). `1|true|on` enable; `0|false|off` are explicit off; any other
+# value is junk -> one stderr line and off (never parsed as code). The mode
+# value comes from this config only — no code path computes a mode from
+# state. `apply` is the deterministic clear decision for the Step 6c BC1
+# halt ONLY: it exits 0 with applied:false (halt stands) unless the config
+# is on, the gate is bc1-mis-fire, the ruling is mis-fire, and the
+# confidence is >= 80. Usage/validation failures exit 64 — the caller fails
+# closed to the halt.
 
 if [ "${BASH_SOURCE[0]:-}" != "$0" ]; then
   echo "gates.sh is a subprocess CLI — never source it (SPEC-039 M23)" >&2
@@ -45,6 +57,8 @@ usage: gates.sh allow  --bc bc7|bc2-diagnosis|bc6-diagnosis|bc1-mis-fire
        gates.sh shadow --run-id ID --bc <gate-id> --ruling <ruling>
                        [--question TEXT] [--card-context FILE]
        gates.sh mode   --run-id ID
+       gates.sh apply  --run-id ID --bc bc1-mis-fire
+                       --ruling mis-fire --confidence <0-100>
 EOF
   exit 64
 }
@@ -144,6 +158,47 @@ shadow_n() {
   echo "$n"
 }
 
+# CDT-589-C5 enforce config: the human's opt-in. Valid values 1|true|on
+# (enforce), 0|false|off (explicit off); junk -> one stderr line + off.
+enforce_on() {
+  case "${ADVISOR_ENFORCE:-}" in
+    '') return 1 ;;
+    1|true|on) return 0 ;;
+    0|false|off) return 1 ;;
+    *)
+      echo "gates.sh: ADVISOR_ENFORCE '${ADVISOR_ENFORCE}' is not 1|true|on|0|false|off — enforce stays off" >&2
+      return 1 ;;
+  esac
+}
+
+# apply_decision <bc> <ruling> <confidence> — the CDT-589-C5 clear decision.
+# applied:true ONLY for the Step 6c BC1 halt (bc1-mis-fire) with a mis-fire
+# ruling at confidence >= 80 AND a valid on config; every other outcome is
+# applied:false (the halt stands, fail-closed).
+apply_decision() {
+  if ! enforce_on; then
+    jq -cn '{applied:false, reason:"ADVISOR_ENFORCE off/absent (default) — the halt stands"}'
+    return 0
+  fi
+  if [ "$1" != "bc1-mis-fire" ]; then
+    jq -cn --arg bc "$1" \
+      '{applied:false, bc:$bc, reason:"enforce scope is the Step 6c BC1 halt (bc1-mis-fire) only — the halt stands"}'
+    return 0
+  fi
+  if [ "$2" != "mis-fire" ]; then
+    jq -cn --arg r "$2" \
+      '{applied:false, ruling:$r, reason:"ruling is not mis-fire — the halt stands"}'
+    return 0
+  fi
+  if [ "$3" -lt 80 ]; then
+    jq -cn --argjson c "$3" \
+      '{applied:false, confidence:$c, reason:"confidence below 80 — the halt stands"}'
+    return 0
+  fi
+  jq -cn --arg bc "$1" --arg r "$2" --argjson c "$3" \
+    '{applied:true, bc:$bc, ruling:$r, confidence:$c, reason:"BC1 mis-fire clear (CDT-589-C5)"}'
+}
+
 case "$CMD" in
   allow)
     [ "$#" -eq 2 ] && [ "$1" = "--bc" ] || usage
@@ -215,8 +270,39 @@ case "$CMD" in
     USED=0
     [ -f "$MODE_FILE" ] && USED=$(jq -r '.shadow_used // 0' "$MODE_FILE" 2>/dev/null) && case "$USED" in ''|*[!0-9]*) USED=0 ;; esac
     N=$(shadow_n)
-    jq -cn --argjson u "$USED" --argjson n "$N" \
-      '{mode:"shadow", shadow_used:$u, shadow_n:$n}'
+    # M25 + CDT-589-C5: the mode value comes from the human config only —
+    # "enforce" when ADVISOR_ENFORCE is validly on, else the literal "shadow".
+    MODE="shadow"; enforce_on && MODE="enforce"
+    jq -cn --arg m "$MODE" --argjson u "$USED" --argjson n "$N" \
+      '{mode:$m, shadow_used:$u, shadow_n:$n}'
+    exit 0
+    ;;
+  apply)
+    RUN_ID="" BC="" RULING="" CONF=""
+    while [ $# -gt 0 ]; do
+      case "$1" in
+        --run-id) [ $# -ge 2 ] || usage; RUN_ID="$2"; shift 2 ;;
+        --run-id=*) RUN_ID="${1#*=}"; shift ;;
+        --bc) [ $# -ge 2 ] || usage; BC="$2"; shift 2 ;;
+        --bc=*) BC="${1#*=}"; shift ;;
+        --ruling) [ $# -ge 2 ] || usage; RULING="$2"; shift 2 ;;
+        --ruling=*) RULING="${1#*=}"; shift ;;
+        --confidence) [ $# -ge 2 ] || usage; CONF="$2"; shift 2 ;;
+        --confidence=*) CONF="${1#*=}"; shift ;;
+        *) usage ;;
+      esac
+    done
+    check_run_id "$RUN_ID"
+    [ -n "$BC" ] && [ -n "$RULING" ] && [ -n "$CONF" ] || usage
+    # A denylisted/unknown bc and an out-of-vocabulary ruling are structurally
+    # unreachable (exit 64 first) — the caller fails closed to the halt.
+    allow "$BC" >/dev/null || exit 64
+    check_ruling "$BC" "$RULING" >/dev/null || exit 64
+    case "$CONF" in
+      ''|*[!0-9]*) die64 "apply: confidence must be an integer 0-100" ;;
+    esac
+    [ "$CONF" -ge 0 ] && [ "$CONF" -le 100 ] || die64 "apply: confidence must be an integer 0-100"
+    apply_decision "$BC" "$RULING" "$CONF"
     exit 0
     ;;
   *) usage ;;

@@ -546,7 +546,19 @@ target.
     provenance and the M29 decision map live in SPEC-039 M28–M30; the BC8
     unavailable card (`blocking_condition: 8`, exact marker
     `advisor unavailable — fell back`) is SPEC-039 M27 documented reuse — the BC
-    list stays eight.
+    list stays eight. **CDT-589-C5 card compatibility:** the C5 BC1 mis-fire
+    clear card uses the existing schema — `gate: plan-approve`,
+    `decision: proceed`, `blocking_condition: null`, `decided_by: auto`,
+    `actor: advisor`, `schema_version` 1 unchanged — and its M30 advisor
+    object carries `trigger: "a"` with ruling `mis-fire`. The writer's
+    accept/reject cases for trigger-`a` objects widen accordingly: `null`,
+    the M18 `AGREE|CONTRADICT|INSUFFICIENT`, and now the M24
+    `halt-stands|mis-fire` are accepted; `halt`/`decompose` (the BC2/BC6
+    diagnosis vocabulary) are still rejected on trigger `a`, and trigger-`b`/`c`
+    objects keep the M18 vocabulary. No enum gains a member, so existing card
+    readers and the `read-cards.sh` tests pass unchanged. The C5 clear card
+    and the CDT-589-C3 demotion card are distinct provenance (`trigger: "a"`
+    vs `"d"`, distinct rationales).
 
 ### AC7 — Council ship-gate pass (CDT-111-C5)
 
@@ -1585,6 +1597,7 @@ Format and rules: M14(g) and M14(h). Each ticket that ships through M14 has one
 
 | Date | Change |
 |------|--------|
+| 2026-10-31 | CDT-589-C5: card compatibility — the Step 6c BC1 mis-fire clear card is existing-schema (`gate: plan-approve`, `decision: proceed`, `blocking_condition: null`, `decided_by: auto`, `actor: advisor`, `schema_version` 1) with an M30 advisor object carrying `trigger: "a"` + ruling `mis-fire`; `append-card.sh` trigger-a accept set gains the M24 `halt-stands\|mis-fire` (reject cases and trigger-b/c unchanged); no enum gains a member. M13 advisor bullet amended. |
 | 2026-10-27 | CDT-589-C4: **M8.6c pointer.** Step 6c halt list (`skills/orchestrate/steps/06-design.md`) is evaluated on unstruck post-finalize verdicts. Plan-scope Forward claim rewrite is SPEC-013 Phase 5 (`engine-finalize.sh`); this spec does not restate the list. M14 ship-gate (AC7) unchanged. No new AC subsection here — ACs live in SPEC-013 `### CDT-589-C4`. |
 | 2026-10-13 | grok-nest-child-kickoff-cannot-spawn-pm-tl-c6-only (CDT-523): C6 deferred only the `/council` ship gate; a Grok nest child then skipped `/orchestrate` Step 4 / `/kickoff` Step 2 and ran the PM/TL work in-session. Both steps now apply a resume-consume guard (a handoff already carrying parent kickoff outputs spawns nothing), then probe `nest-host.sh can-spawn-agents` (new subcommand, one shared dispatch arm) and return `needs-parent-PM-TL SHA=<sha> branch=<branch>` — a procedure outcome, not a new decision. Mode B parent runs the PM+TL(+Finder) blocks at depth unset and re-invokes the child with outputs embedded AND `DEVTEAM_NEST_DEPTH=1` (ship gate keeps deferring M14); light tier gets parent-composed scoper-planner duties. M14(l) kickoff bullet + `### CDT-523` AC subsection. Suites `test-nest-host.sh` / `test-nest-m14.sh` extended. Status stays DRAFT. |
 | 2026-10-12 | CDT-537 (`cdt-537-m14-evidence-bar`): **M14 evidence bar.** The M14 ship-gate per-AC >=80 confidence bar scored evidence packaging, not correctness: the CDT-534 gate's round 1 (two blocking bugs) scored min 68 and round 2 (all fixed, 15 ACs green) min 54, because the judge capped confidence wherever an AC sub-clause was evidenced by source asserts rather than exhibited per-case run output. Investigator bundles now MUST quote actual run output (command + exit code + relevant output lines) for each AC sub-clause where a run exists; the judge scores confidence on exhibited run output and keeps a sub-clause evidenced only by source asserts at 79 or lower; a bite-coverage strike on an AC routes a follow-up ticket through the existing struck-lines audit trail. **M14(b)** aggregation, the >=80 bar, the firing rule, the two cards and the mapper are unchanged — the bar now scores exhibited correctness evidence, not packaging. Prompts: `skills/council/prompts/investigator.md`, `judge.md` (SPEC-013 Phase 5 "Run-output evidence bar"). |
