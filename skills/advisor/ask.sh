@@ -6,7 +6,7 @@
 # Bash cannot spawn agents. The orchestrator (or any caller) runs:
 #
 #   bash skills/advisor/ask.sh probe \
-#     --trigger a|b|c --question TEXT [--evidence-dir PATH]
+#     --trigger a|b|c|d --question TEXT [--evidence-dir PATH]
 #     [--run-id ID] [--epic-id ID] [--bc N] [--model MODEL]
 #
 #   probe NEVER spawns an agent. On action=spawn the CALLER spawns the advisor
@@ -32,7 +32,7 @@
 #   cache/<question_hash>.json            cached ruling (written by finalize only)
 #   epic/<epic_id>/counters.json          epic-level total (default limit 8, M26)
 #
-# Caps (M26): per-trigger reserves a=3, b=4, c=2; global per-run total 5;
+# Caps (M26): per-trigger reserves a=3, b=4, c=2, d=1; global per-run total 5;
 # ADVISOR_MAX_CALLS only lowers the global 5 (integer >= 1, else ignored);
 # retries count; dedupe by question hash; cache hits are free and never
 # increment caps. Cap exhaustion -> action=cap, no spawn (the CALLER maps
@@ -64,7 +64,12 @@
 # runs/<run_id>/advisor-object.json and handed over as a file path. A card
 # write failure exits 64 BEFORE the ruling is cached, so a retry re-spawns
 # instead of silently losing the card. Without card context, finalize records
-# outcomes under runs/<run_id>/ and the cache and writes no card. The BC8
+# outcomes under runs/<run_id>/ and the cache and writes no card. A
+# trigger-d (class-verify) finalize applies the M40 demotion map instead of
+# M29: not-auth-relevant at confidence >= 80 -> proceed/null; any other
+# trigger-d outcome writes NO card (fail-closed to the council, M41), and
+# every trigger-d ruling appends one row to runs/<run_id>/class-verify.jsonl
+# (the M40 precision-measurement log). The BC8
 # unavailable card is written by the CALLER under autopilot (M27 — this seam
 # only reports; see skills/autopilot/self-answer.md §3g).
 
@@ -72,7 +77,7 @@ set -u
 
 usage() {
   cat >&2 <<'EOF'
-usage: ask.sh probe --trigger a|b|c --question TEXT [--evidence-dir PATH]
+usage: ask.sh probe --trigger a|b|c|d --question TEXT [--evidence-dir PATH]
                     [--run-id ID] [--epic-id ID] [--bc N] [--model MODEL]
        ask.sh finalize --run-id ID (--ruling-file PATH | --timeout | --spawn-fail | --refuse)
                        [--card-workflow W --card-ticket T --card-gate G
@@ -162,7 +167,7 @@ case "$CMD" in
       esac
     done
     [ -n "$TRIGGER" ] || usage
-    case "$TRIGGER" in a|b|c) ;; *) die64 "probe: --trigger must be a|b|c" ;; esac
+    case "$TRIGGER" in a|b|c|d) ;; *) die64 "probe: --trigger must be a|b|c|d" ;; esac
     [ -n "$QUESTION" ] || usage
     if [ "$MODEL_SEEN" -eq 1 ]; then
       MODEL_OVERRIDE=$(trim "$MODEL_OVERRIDE")
@@ -259,6 +264,9 @@ if [ "$CMD" = "finalize" ]; then
   [ -f "$SRP" ] || die64 "finalize: no spawn-request for run $RUN_ID (probe first)"
   HASH=$(json_get "$SRP" ".question_hash")
   [ -n "$HASH" ] || die64 "finalize: spawn-request missing question_hash"
+  # The trigger decides the ruling vocabulary (M18 vs the CDT-589-C3 M39
+  # class-verify vocab), so read it before validating the ruling.
+  SRP_TRIGGER=$(json_get "$SRP" ".trigger"); SRP_TRIGGER=${SRP_TRIGGER:-}
 
   (
     exec 9>>"$ADVISOR_DIR/lock" || die64 "finalize: cannot open advisor lock"
@@ -272,9 +280,18 @@ if [ "$CMD" = "finalize" ]; then
     fi
     [ -f "$RULING_FILE" ] || die64 "finalize: ruling file not found: $RULING_FILE"
     RULING=$(json_get "$RULING_FILE" ".ruling")
-    case "$RULING" in
-      AGREE|CONTRADICT|INSUFFICIENT) ;;
-      *) die64 "finalize: ruling must be AGREE|CONTRADICT|INSUFFICIENT (got '$RULING')" ;;
+    case "$SRP_TRIGGER" in
+      d)
+        # M39 (CDT-589-C3): the class-verify vocabulary.
+        case "$RULING" in
+          auth-relevant|not-auth-relevant) ;;
+          *) die64 "finalize: trigger-d ruling must be auth-relevant|not-auth-relevant (got '$RULING')" ;;
+        esac ;;
+      *)
+        case "$RULING" in
+          AGREE|CONTRADICT|INSUFFICIENT) ;;
+          *) die64 "finalize: ruling must be AGREE|CONTRADICT|INSUFFICIENT (got '$RULING')" ;;
+        esac ;;
     esac
     CONF=$(json_get "$RULING_FILE" ".confidence")
     case "$CONF" in
@@ -290,59 +307,83 @@ if [ "$CMD" = "finalize" ]; then
     # Provenance travels from the spawn request: the model that ran this ruling
     # and where that model came from (flag | env | model-map, SPEC-039 M37).
     SRP_MODEL=$(json_get "$SRP" ".model"); SRP_MODEL=${SRP_MODEL:-}
-    SRP_TRIGGER=$(json_get "$SRP" ".trigger"); SRP_TRIGGER=${SRP_TRIGGER:-}
     SRP_SOURCE=$(json_get "$SRP" ".model_source"); SRP_SOURCE=${SRP_SOURCE:-model-map}
+    CARD_DECISION=""
     if [ "$CARD_CTX" -eq 5 ]; then
-      # M29 decision map: AGREE + confidence >= 80 -> proceed/null; CONTRADICT
-      # or INSUFFICIENT, or confidence < 80 regardless of ruling, -> halt/BC7.
-      # M29 says the card confidence is the ruling's 0-100, but append-card
-      # cross-field invariant (b) (SPEC-033 M13) hard-rejects a BC7 card with
-      # confidence >= 80 — a high-confidence CONTRADICT/INSUFFICIENT (the C4
-      # fixture itself rules CONTRADICT at 92) would be unwritable. Fail closed
-      # to 0 there, the M14(b) CONTRADICTED->BC7->confidence-0 precedent.
-      case "$RULING" in
-        AGREE)
-          if [ "$CONF" -ge 80 ]; then CARD_DECISION="proceed"; CARD_BC="null"; CARD_CONF="$CONF"
-          else CARD_DECISION="halt"; CARD_BC="7"; CARD_CONF="$CONF"; fi ;;
-        *)
-          CARD_DECISION="halt"; CARD_BC="7"
-          if [ "$CONF" -ge 80 ]; then CARD_CONF=0; else CARD_CONF="$CONF"; fi ;;
-      esac
-      # wall_clock_s measured at write time via budget-check.sh argc=2 (the
-      # self-answer §3f C5 discipline); a breach (6) is an outcome — only a
-      # validation failure (64) aborts the card.
-      BUDGET_CHECK=$(bash "$PDH/skills/plugin-dir.sh" file skills/autopilot/budget-check.sh)
-      BC_RC=0
-      BC_OUT=$(bash "$BUDGET_CHECK" "$CARD_ITERATION" "$CARD_RUN_START_EPOCH" 2>/dev/null)
-      BC_RC=$?
-      # CDT-568 fix: $? after `!` is always 0 - capture the raw rc instead.
-      if [ "$BC_RC" != 0 ] && [ "$BC_RC" != 6 ]; then
-        die64 "finalize: budget-check.sh failed (rc $BC_RC) — no decision card written"
+      if [ "$SRP_TRIGGER" = "d" ]; then
+        # M40 (CDT-589-C3): demotion card ONLY — not-auth-relevant at
+        # confidence >= 80 maps to proceed/null. Every other trigger-d outcome
+        # is fail-closed to the council (M41) and writes NO card.
+        if [ "$RULING" = "not-auth-relevant" ] && [ "$CONF" -ge 80 ]; then
+          CARD_DECISION="proceed"; CARD_BC="null"; CARD_CONF="$CONF"
+        fi
+      else
+        # M29 decision map: AGREE + confidence >= 80 -> proceed/null; CONTRADICT
+        # or INSUFFICIENT, or confidence < 80 regardless of ruling, -> halt/BC7.
+        # M29 says the card confidence is the ruling's 0-100, but append-card
+        # cross-field invariant (b) (SPEC-033 M13) hard-rejects a BC7 card with
+        # confidence >= 80 — a high-confidence CONTRADICT/INSUFFICIENT (the C4
+        # fixture itself rules CONTRADICT at 92) would be unwritable. Fail closed
+        # to 0 there, the M14(b) CONTRADICTED->BC7->confidence-0 precedent.
+        case "$RULING" in
+          AGREE)
+            if [ "$CONF" -ge 80 ]; then CARD_DECISION="proceed"; CARD_BC="null"; CARD_CONF="$CONF"
+            else CARD_DECISION="halt"; CARD_BC="7"; CARD_CONF="$CONF"; fi ;;
+          *)
+            CARD_DECISION="halt"; CARD_BC="7"
+            if [ "$CONF" -ge 80 ]; then CARD_CONF=0; else CARD_CONF="$CONF"; fi ;;
+        esac
       fi
-      WALL_CLOCK_S=$(printf '%s' "$BC_OUT" | jq -r '.wall_clock_s')
-      # The advisor object rides on disk (M30: argv/file-path only, never
-      # embedded in shell interpolation) and stays as the run's audit artifact.
-      ADVISOR_OBJ="$RUN_DIR/advisor-object.json"
-      jq -cn --slurpfile r "$RULING_FILE" \
-        --arg model "$SRP_MODEL" --arg qhash "$HASH" --arg trigger "$SRP_TRIGGER" \
-        '{ruling: $r[0].ruling,
-          corrected_claim: ($r[0].corrected_claim // null),
-          evidence: ($r[0].evidence),
-          model: $model,
-          evidence_over_memory: (if ($r[0] | has("evidence_over_memory")) and ($r[0].evidence_over_memory | type == "boolean") then $r[0].evidence_over_memory else true end),
-          question_hash: $qhash,
-          trigger: $trigger,
-          cache_hit: false,
-          timeout: false,
-          marker: null}' > "$ADVISOR_OBJ" \
-        || die64 "finalize: cannot write the advisor object to $ADVISOR_OBJ"
-      RATIONALE="trigger=$SRP_TRIGGER ruling=$RULING model=$SRP_MODEL"
-      APPEND_CARD=$(bash "$PDH/skills/plugin-dir.sh" file skills/autopilot/append-card.sh)
-      bash "$APPEND_CARD" "$CARD_WORKFLOW" "$CARD_TICKET" "$CARD_GATE" \
-        "$CARD_DECISION" auto null "$CARD_CONF" "$CARD_BC" "$RUN_ID" \
-        "$CARD_ITERATION" "$WALL_CLOCK_S" advisor "$RATIONALE" \
-        --advisor-json "$ADVISOR_OBJ" \
-        || die64 "finalize: append-card.sh rejected the decision card — ruling not cached"
+      if [ -n "$CARD_DECISION" ]; then
+        # wall_clock_s measured at write time via budget-check.sh argc=2 (the
+        # self-answer §3f C5 discipline); a breach (6) is an outcome — only a
+        # validation failure (64) aborts the card.
+        BUDGET_CHECK=$(bash "$PDH/skills/plugin-dir.sh" file skills/autopilot/budget-check.sh)
+        BC_RC=0
+        BC_OUT=$(bash "$BUDGET_CHECK" "$CARD_ITERATION" "$CARD_RUN_START_EPOCH" 2>/dev/null)
+        BC_RC=$?
+        # CDT-568 fix: $? after `!` is always 0 - capture the raw rc instead.
+        if [ "$BC_RC" != 0 ] && [ "$BC_RC" != 6 ]; then
+          die64 "finalize: budget-check.sh failed (rc $BC_RC) — no decision card written"
+        fi
+        WALL_CLOCK_S=$(printf '%s' "$BC_OUT" | jq -r '.wall_clock_s')
+        # The advisor object rides on disk (M30: argv/file-path only, never
+        # embedded in shell interpolation) and stays as the run's audit artifact.
+        ADVISOR_OBJ="$RUN_DIR/advisor-object.json"
+        jq -cn --slurpfile r "$RULING_FILE" \
+          --arg model "$SRP_MODEL" --arg qhash "$HASH" --arg trigger "$SRP_TRIGGER" \
+          '{ruling: $r[0].ruling,
+            corrected_claim: ($r[0].corrected_claim // null),
+            evidence: ($r[0].evidence),
+            model: $model,
+            evidence_over_memory: (if ($r[0] | has("evidence_over_memory")) and ($r[0].evidence_over_memory | type == "boolean") then $r[0].evidence_over_memory else true end),
+            question_hash: $qhash,
+            trigger: $trigger,
+            cache_hit: false,
+            timeout: false,
+            marker: null}' > "$ADVISOR_OBJ" \
+          || die64 "finalize: cannot write the advisor object to $ADVISOR_OBJ"
+        RATIONALE="trigger=$SRP_TRIGGER ruling=$RULING model=$SRP_MODEL"
+        APPEND_CARD=$(bash "$PDH/skills/plugin-dir.sh" file skills/autopilot/append-card.sh)
+        bash "$APPEND_CARD" "$CARD_WORKFLOW" "$CARD_TICKET" "$CARD_GATE" \
+          "$CARD_DECISION" auto null "$CARD_CONF" "$CARD_BC" "$RUN_ID" \
+          "$CARD_ITERATION" "$WALL_CLOCK_S" advisor "$RATIONALE" \
+          --advisor-json "$ADVISOR_OBJ" \
+          || die64 "finalize: append-card.sh rejected the decision card — ruling not cached"
+      fi
+    fi
+    if [ "$SRP_TRIGGER" = "d" ]; then
+      # M40: precision-measurement log — one row per trigger-d ruling. The
+      # decision is the 6c outcome (demote iff not-auth-relevant at
+      # confidence >= 80), independent of whether a card context was passed.
+      if [ "$RULING" = "not-auth-relevant" ] && [ "$CONF" -ge 80 ]; then CV_DECISION="demote"; else CV_DECISION="council"; fi
+      jq -cn --arg decision "$CV_DECISION" --arg ruling "$RULING" --argjson conf "$CONF" \
+        --arg model "$SRP_MODEL" --arg ticket "${CARD_TICKET:-}" \
+        --arg ts "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+        '{class:"class-verify", decision:$decision, ruling:$ruling, confidence:$conf,
+          model:$model, ticket:(if $ticket == "" then null else $ticket end), ts:$ts}' \
+        >> "$RUN_DIR/class-verify.jsonl" \
+        || die64 "finalize: cannot append the class-verify log row"
     fi
     jq -cn --arg hash "$HASH" --arg run_id "$RUN_ID" --arg ts "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
         --arg model "$SRP_MODEL" --arg msrc "$SRP_SOURCE" \
@@ -421,20 +462,21 @@ RUN_ID="${RUN_ID:-advisor-$(date -u +%Y%m%dT%H%M%SZ)-$HASH}"
 RUN_DIR="$ADVISOR_DIR/runs/$RUN_ID"
 mkdir -p "$RUN_DIR"
 
-# Caps (M26): per-trigger reserves (a)=3 (b)=4 (c)=2; global per-run 5;
+# Caps (M26): per-trigger reserves (a)=3 (b)=4 (c)=2 (d)=1; global per-run 5;
 # ADVISOR_MAX_CALLS only lowers the global (integer >= 1, else ignored).
 GLOBAL_LIMIT=5
 case "${ADVISOR_MAX_CALLS:-}" in
   ''|*[!0-9]*) : ;;
   *) [ "${ADVISOR_MAX_CALLS}" -ge 1 ] && [ "${ADVISOR_MAX_CALLS}" -lt "$GLOBAL_LIMIT" ] && GLOBAL_LIMIT="${ADVISOR_MAX_CALLS}" ;;
 esac
-case "$TRIGGER" in a) RESERVE=3 ;; b) RESERVE=4 ;; c) RESERVE=2 ;; esac
+case "$TRIGGER" in a) RESERVE=3 ;; b) RESERVE=4 ;; c) RESERVE=2 ;; d) RESERVE=1 ;; esac
 
 COUNTERS="$RUN_DIR/counters.json"
-[ -f "$COUNTERS" ] || echo '{"a":0,"b":0,"c":0,"total":0}' > "$COUNTERS"
+[ -f "$COUNTERS" ] || echo '{"a":0,"b":0,"c":0,"d":0,"total":0}' > "$COUNTERS"
 CNT_A=$(json_get "$COUNTERS" ".a"); CNT_A=${CNT_A:-0}
 CNT_B=$(json_get "$COUNTERS" ".b"); CNT_B=${CNT_B:-0}
 CNT_C=$(json_get "$COUNTERS" ".c"); CNT_C=${CNT_C:-0}
+CNT_D=$(json_get "$COUNTERS" ".d"); CNT_D=${CNT_D:-0}
 CNT_T=$(json_get "$COUNTERS" ".total"); CNT_T=${CNT_T:-0}
 
 cap_reason=""
@@ -442,6 +484,7 @@ case "$TRIGGER" in
   a) [ "$CNT_A" -ge "$RESERVE" ] && cap_reason="trigger a reserve exhausted (3)" ;;
   b) [ "$CNT_B" -ge "$RESERVE" ] && cap_reason="trigger b reserve exhausted (4)" ;;
   c) [ "$CNT_C" -ge "$RESERVE" ] && cap_reason="trigger c reserve exhausted (2)" ;;
+  d) [ "$CNT_D" -ge "$RESERVE" ] && cap_reason="trigger d reserve exhausted (1)" ;;
 esac
 if [ -z "$cap_reason" ] && [ "$CNT_T" -ge "$GLOBAL_LIMIT" ]; then
   cap_reason="global per-run cap exhausted ($GLOBAL_LIMIT)"
@@ -470,8 +513,9 @@ fi
 
 # Increment (retries count; cache hits never reach here).
 jq --argjson a "$((CNT_A + 1))" --argjson b "$((CNT_B + 1))" \
-   --argjson c "$((CNT_C + 1))" --argjson t "$((CNT_T + 1))" \
-   '.a=$a | .b=$b | .c=$c | .total=$t' "$COUNTERS" > "$COUNTERS.tmp" \
+   --argjson c "$((CNT_C + 1))" --argjson d "$((CNT_D + 1))" \
+   --argjson t "$((CNT_T + 1))" \
+   '.a=$a | .b=$b | .c=$c | .d=$d | .total=$t' "$COUNTERS" > "$COUNTERS.tmp" \
   && mv "$COUNTERS.tmp" "$COUNTERS"
 
 # Spawn request for the CALLER to act on — probe itself never spawns.

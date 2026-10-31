@@ -141,7 +141,8 @@ Glossary term: Advisor (`CONTEXT.md`).
   `{ruling: AGREE|CONTRADICT|INSUFFICIENT, confidence: 0-100,
   corrected_claim?: string, evidence: [{cmd, exit, sha256, locator}]}`.
   `locator` is `path:line`. Finalize rejects any other `ruling` value
-  (exit 64).
+  (exit 64). A trigger-(d) finalize validates the M39 class-verify
+  vocabulary instead (CDT-589-C3).
 - **M19 — Static checks first.** `skills/advisor/static-check.sh` MUST run
   before every trigger-(b) probe. It runs package queries (`pacman -Q*`,
   `command -v`), `file`, `strings`, and repo docs. Binary execution only
@@ -180,9 +181,42 @@ Glossary term: Advisor (`CONTEXT.md`).
   action after measured agreement ≥ 90% and zero
   proceed-where-human-halted. MUST NOT auto-widen.
 
+### Trigger (d) — class verify (CDT-589-C3)
+
+- **M38 — Seam.** `ask.sh probe --trigger d` is accepted (the `a|b|c` set
+  extends to `a|b|c|d`). Step 6c runs AT MOST ONE class-verify probe per run
+  on `ticket_class: auth-secrets`, BEFORE any `/council` invoke. The fixed
+  question text has ONE named home: the `CLASS_VERIFY_QUESTION=` line of the
+  advisor SKILL trigger table — no other doc or fence copies the question
+  body. Evidence travels as a directory (M18): the staged ticket text
+  (title, body, ACs). `gates.sh allow --bc class-verify` extends the M24
+  allowed set for the deterministic pre-probe fence; the M23 denylist is
+  unchanged.
+- **M39 — Vocabulary.** The trigger-d ruling is exactly `auth-relevant` or
+  `not-auth-relevant` with `confidence` integer 0–100 — anything else exits
+  64. `ask.sh finalize` validates the trigger-d vocabulary on a trigger-d
+  spawn request (M18 applies to the other triggers); `gates.sh ruling --bc
+  class-verify` mirrors it.
+- **M40 — Demotion.** `not-auth-relevant` at confidence ≥ 80 demotes: 6c
+  prints the existing skip line with `class-verify` named as the reason and
+  continues to Step 7 — the council is NOT run. A demotion writes exactly
+  one decision card: `gate: plan-approve` (no new gate enum), `decision:
+  proceed`, `blocking_condition: null`, `actor: advisor`, confidence =
+  the ruling's, rationale `trigger=d ruling=<r> model=<m>`. The ruling is
+  also logged for precision measurement: one `class-verify` row
+  (`decision: demote|council`) per trigger-d finalize in
+  `runs/<run_id>/class-verify.jsonl` under the advisor state root.
+- **M41 — Demotion-only, fail-closed.** The verifier never raises: a `none`
+  classification is never `auth-secrets`, and the ruling never rewrites the
+  plan's `ticket_class`. Fail-closed to the council — never a halt:
+  `auth-relevant` at any confidence; confidence < 80; advisor off/unmapped;
+  probe `refuse`/`cap`; finalize `--timeout`/`--spawn-fail`. Cap exhaustion
+  on trigger d MUST NOT emit BC8 (the §3g BC8 unavailable fence stays
+  `a|b|c`); a non-demotion trigger-d finalize writes no card.
+
 ### Caps (AC19)
 
-- **M26 — Caps.** Per-run reserves: (a)=3, (b)=4, (c)=2. Global per-run
+- **M26 — Caps.** Per-run reserves: (a)=3, (b)=4, (c)=2, (d)=1. Global per-run
   total 5. `ADVISOR_MAX_CALLS` only lowers the global 5 (integer ≥ 1).
   Retries count. Dedupe by question hash (sha256 of trigger+normalized
   question+evidence hashes); cache hits are free and MUST NOT increment
@@ -217,6 +251,10 @@ Glossary term: Advisor (`CONTEXT.md`).
   - `CONTRADICT` or `INSUFFICIENT` → `decision: halt`, `blocking_condition: 7`
   - confidence < 80 → `decision: halt`, `blocking_condition: 7` regardless of ruling
   - unavailable (M27) → `decision: halt`, `blocking_condition: 8` (autopilot)
+  - trigger d (class verify, CDT-589-C3): `not-auth-relevant` and
+    confidence ≥ 80 → `decision: proceed`, `blocking_condition: null`;
+    every other trigger-d outcome writes NO card (M41 — fail-closed to the
+    council)
   `decided_by: auto`. `bump: null`. `confidence` is the ruling's 0–100.
 - **M30 — Additive `advisor` object.** SPEC-033 M13 gains one additive
   nullable top-level key `advisor` (object or null). `schema_version` stays
@@ -232,7 +270,7 @@ Glossary term: Advisor (`CONTEXT.md`).
     "model": "",
     "evidence_over_memory": true,
     "question_hash": "",
-    "trigger": "a|b|c",
+    "trigger": "a|b|c|d",
     "cache_hit": false,
     "timeout": false,
     "marker": null
@@ -241,8 +279,9 @@ Glossary term: Advisor (`CONTEXT.md`).
 
   `model` is the spawned map-string. `evidence_over_memory` MUST be true
   whenever a tool result disagrees with a memory row. `rationale` stays a
-  one-line ≤1000-char summary: `trigger=<a|b|c> ruling=<…> model=<…>`.
-  Gate enum stays 3 values. Decision enum stays 6 values.
+  one-line ≤1000-char summary: `trigger=<a|b|c|d> ruling=<…> model=<…>`
+  (the trigger-d ruling is the M39 vocabulary). Gate enum stays 3 values.
+  Decision enum stays 6 values.
 
 ### Memory (AC21, AC22, AC23)
 
@@ -374,6 +413,12 @@ Glossary term: Advisor (`CONTEXT.md`).
   vocabularies (halt|decompose for BC2/BC6 diagnosis), M25 shadow N=5 logging
   to `runs/<run_id>/shadow.jsonl` with the no-grow invariant, and the
   `self-answer.md` §3g gate fence.
+- `bash skills/advisor/test-class-verify.sh` covers trigger (d) class verify
+  (CDT-589-C3) per AC: probe/finalize `a|b|c|d` acceptance, the
+  `class-verify` allow fence and vocabulary, reserve d=1, demotion card
+  shape, the class-verify precision log, demotion-only, fail-closed
+  outcomes, byte-identical-off, roster unchanged, and the SPEC-009/SPEC-039
+  prose bites.
 - `bash skills/model-map/spawn-site-test.sh` includes `advisor:opus:high`
   and tools exactly `Read, Grep, Glob, Bash`.
 - `bash install-test.sh` strips `tools:` from `agents/advisor.md`.
@@ -413,6 +458,7 @@ Glossary term: Advisor (`CONTEXT.md`).
 
 | Date | Change |
 |------|--------|
+| 2026-10-31 | CDT-589-C3: `### CDT-589-C3` ACs for trigger (d) class verify — M38 seam (`a|b|c|d`, reserve d=1, question home in the SKILL trigger table), M39 vocabulary (`auth-relevant`/`not-auth-relevant`, `gates.sh allow`/`ruling` fence), M40 demotion card (`gate: plan-approve`, proceed/null) + `class-verify.jsonl` precision log, M41 demotion-only fail-closed (never BC8); M18/M26/M29/M30 amended; `append-card.sh` M30 shape accepts trigger d. |
 | 2026-10-20 | M37: per-run advisor model override — `--with-advisor=<model>`, `ADVISOR_MODEL`, `ask.sh probe --model`, `appeal.sh gate --model`, epic `advisor_model` persistence; M8/M9/M10/M12 amended (council diff-mode review). |
 | 2026-10-18 | CDT-561: `### CDT-561` ACs for trigger (c) — `residue.sh` detector, `appeal.sh` gate/authority/check-bundle-set, the ship-gate-council §4a hook, M20 clean-pass zero-advisor, M21 authority fence, M22 label + outside-bundle evidence (epic child C6). |
 | 2026-10-18 | CDT-563: `### CDT-563` ACs for the trigger-(a) restricted gates + shadow mode — `gates.sh` (M23 denylist, M24 vocabularies, M25 shadow N=5), the `self-answer.md` §3g gate fence, and `SKILL.md` documentation (epic child C7). |
@@ -530,7 +576,7 @@ Format and rules: SPEC-033 M14(g) and M14(h).
 
 - **AC1.** `skills/autopilot/append-card.sh` accepts an optional `--advisor-json PATH` flag (position-independent, at most once, value must not be flag-like); when given it reads the M30 advisor ruling object from disk and writes it as the 19th top-level key `advisor` (after `actor`); `schema_version` stays 1; argc 13–16 stays valid with the flag present or absent; the object travels on disk, never embedded in argv or shell interpolation.
   Verify: bash skills/autopilot/test-card-validation.sh
-- **AC2.** Flag absent or an empty advisor file writes `advisor: null`. A present non-empty file must parse as exactly one JSON object with the M30 shape (`ruling` AGREE|CONTRADICT|INSUFFICIENT|null, `corrected_claim` string|null, `evidence` array of `{cmd, exit, sha256, locator}` objects, `model` string, `evidence_over_memory` boolean, `question_hash` string, `trigger` a|b|c, `cache_hit` boolean, `timeout` boolean, `marker` string|null) — malformed JSON, a non-object, a multi-object file, or an unknown ruling exits 64 with no ledger line; injection content inside the object is data (no execution, verbatim on the card).
+- **AC2.** Flag absent or an empty advisor file writes `advisor: null`. A present non-empty file must parse as exactly one JSON object with the M30 shape (`ruling` AGREE|CONTRADICT|INSUFFICIENT|null, `corrected_claim` string|null, `evidence` array of `{cmd, exit, sha256, locator}` objects, `model` string, `evidence_over_memory` boolean, `question_hash` string, `trigger` a|b|c, `cache_hit` boolean, `timeout` boolean, `marker` string|null) — malformed JSON, a non-object, a multi-object file, or an unknown ruling exits 64 with no ledger line; injection content inside the object is data (no execution, verbatim on the card). (Amended by CDT-589-C3: `trigger` extends to a|b|c|d and a trigger-d object carries the M39 vocabulary — see M30.)
   Verify: bash skills/autopilot/test-card-validation.sh
 - **AC3.** `skills/autopilot/read-cards.sh` backfills a missing top-level `advisor` as explicit `null` in frozen key order (19th, after `actor`); pre-CDT-565 18-key cards read back with the full 19-key shape and `schema_version` 1; a mixed ledger round-trips (the object intact on new cards, explicit null on old cards).
   Verify: bash skills/autopilot/test-card-validation.sh
@@ -610,6 +656,31 @@ Format and rules: SPEC-033 M14(g) and M14(h).
   Verify: bash skills/advisor/test-gates.sh
 - **AC7.** `skills/advisor/SKILL.md` documents the trigger-(a) gate: the `allow`, `ruling`, `shadow`, `mode` subcommands, the M23 denylist ids, the M24 vocabularies, and the `runs/<run_id>/shadow.jsonl` log path.
   Verify: bash skills/advisor/test-gates.sh
+
+### CDT-589-C3
+
+- **AC1.** `ask.sh probe --trigger d` is accepted (the `a|b|c` set extends to `a|b|c|d`) and `gates.sh allow --bc class-verify` exits 0 with `allowed: true`; the trigger-d ruling vocabulary is exactly `auth-relevant` / `not-auth-relevant` with `confidence` 0–100 — any other ruling or confidence exits 64 in `ask.sh finalize` and `gates.sh ruling`; the `SPEC-039 M23 denylist` ids still exit 64; the trigger-d reserve is 1 probe per run and the global per-run cap stays 5 (`GLOBAL_LIMIT=5`; `ADVISOR_MAX_CALLS` still only lowers it); the fixed question text has one named home, the `CLASS_VERIFY_QUESTION=` line of the advisor SKILL trigger table.
+  Verify: bash skills/advisor/test-class-verify.sh --ac AC1
+- **AC2.** Step 6c runs at most one class-verify probe per run on `ticket_class: auth-secrets`, before any `/council` invoke: a second trigger-d spawn-probe in the same run returns `action: cap`; the executed 6c probe fence probes once with the advisor on and its text precedes the council invoke in `06-design.md`; the spawn-request question equals the SKILL trigger-table question.
+  Verify: bash skills/advisor/test-class-verify.sh --ac AC2
+- **AC3.** `ticket_class: none` produces zero advisor calls, zero cards, and zero added lines: the executed probe fence is silent, no runs state is created, no ledger is written, and the existing none skip line is unchanged.
+  Verify: bash skills/advisor/test-class-verify.sh --ac AC3
+- **AC4.** `not-auth-relevant` at confidence ≥ 80 demotes: the executed demotion fence prints the existing skip line `Step 6c (security council): skipped — class-verify: not-auth-relevant`, and the prose continues to Step 7 with the council NOT run; confidence 79, an `auth-relevant` ruling, and a junk confidence each print nothing.
+  Verify: bash skills/advisor/test-class-verify.sh --ac AC4
+- **AC5.** A demotion writes exactly one decision card: `gate: plan-approve`, `decision: proceed`, `blocking_condition: null`, `actor: advisor`, confidence = the ruling's, rationale `trigger=d ruling=not-auth-relevant model=test-model`, with the M30 advisor object carrying `trigger: "d"`; the ruling is also logged for precision measurement as one `class-verify` row with `decision: demote` in `runs/<run_id>/class-verify.jsonl`.
+  Verify: bash skills/advisor/test-class-verify.sh --ac AC5
+- **AC6.** Demotion-only: a `none` classification is never raised to `auth-secrets` — the 6c section states demotion-only, never assigns `ticket_class`, and a demotion finalize writes no ticket_class artifact.
+  Verify: bash skills/advisor/test-class-verify.sh --ac AC6
+- **AC7.** Fail-closed to the council, never a halt: `auth-relevant` at any confidence and confidence < 80 write no card and log `decision: council`; an unmapped advisor probes to `refuse` (`advisor not configured`); finalize `--timeout` / `--spawn-fail` record status only and never cache; cap exhaustion on this trigger emits no `BC8` (the §3g BC8 fence stays `a|b|c`).
+  Verify: bash skills/advisor/test-class-verify.sh --ac AC7
+- **AC8.** Advisor off: the 6c path is byte-identical to today — with `ADVISOR_ON` unset the probe and demotion fences are silent and no state is written (no probe line, no card); the `ADVISOR_SKIP_TRIGGER=1` bypass is equally silent.
+  Verify: bash skills/advisor/test-class-verify.sh --ac AC8
+- **AC9.** No new agent role and no new user-invoked Surface: no `agents/class-verify.md` and no `commands/class-verify.md` exist, `agents/advisor.md` still names the single advisor role, and the README and AGENTS.md rosters keep exactly one advisor row each.
+  Verify: bash skills/advisor/test-class-verify.sh --ac AC9
+- **AC10.** The checks live in the hermetic engine-side suite `skills/advisor/test-class-verify.sh` (no live LLM, scratch `ADVISOR_STATE_ROOT`, fixture-ledger MROOT) sourcing `tests/lib/ac-receipt.sh` with `--ac AC<n>` filtered runs.
+  Verify: bash skills/advisor/test-class-verify.sh --ac AC10
+- **AC11.** `SPEC-039` gains the Class verify section (`CDT-589-C3` ACs plus the Trigger (d) MUST) and the `SPEC-009` Step 6c MUST names the probe, the skip line, the demotion card, and the fail-closed rule (`not-auth-relevant`, `BC8`, `plan-approve`, `never a halt`).
+  Verify: bash skills/advisor/test-class-verify.sh --ac AC11
 
 ## Alternatives considered
 

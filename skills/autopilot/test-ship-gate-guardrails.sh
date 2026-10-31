@@ -659,7 +659,7 @@ else
 fi
 
 # =============================================================================
-# g8 (WP 1-16 AC F) — append-card.sh blob pin. Re-pinned at WP 5-03 for the 1000-character cap; re-pinned at CDT-565 for --advisor-json (SPEC-039 M30).
+# g8 (WP 1-16 AC F) — append-card.sh blob pin. Re-pinned at WP 5-03 for the 1000-character cap; re-pinned at CDT-565 for --advisor-json (SPEC-039 M30); re-pinned at CDT-589-C3 for the trigger-d M30 shape (auth-relevant|not-auth-relevant rulings, trigger d).
 # =============================================================================
 assert_blob_hash "$APPEND_CARD_SH" "$APPEND_CARD_BLOB" "g8 append-card.sh"
 # =============================================================================
