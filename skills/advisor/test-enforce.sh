@@ -542,6 +542,16 @@ if want_ac; then
   else
     bad "executed demotion card" "rc=$RC ledger=$(cat "$LD" 2>/dev/null)"
   fi
+  # The rationale field bytes, read back from the executed card: the real
+  # finalize composes `trigger=<t> ruling=<r> model=<m>` with the actual
+  # model name — printed here as written, never a fabricated placeholder.
+  RAT=$(jq -r '.rationale // empty' "$LD" 2>/dev/null)
+  if [ "$RAT" = "trigger=d ruling=not-auth-relevant model=test-model" ]; then
+    ok "executed demotion card rationale field bytes read back from the ledger: $RAT"
+    exhibit "AC6: demotion card rationale -> $RAT"
+  else
+    bad "executed demotion rationale bytes" "got=$RAT ledger=$(cat "$LD" 2>/dev/null)"
+  fi
   # (b) The executed enforce fence writes no class-verify.jsonl row: the clear
   # case runs, then the scratch run dir is checked for the artifact.
   OUT=$(run_fence enforce=1 run_id=enf-e2); RC=$?
