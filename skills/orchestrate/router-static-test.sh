@@ -1,7 +1,14 @@
 #!/usr/bin/env bash
 # router-static-test.sh — CDT-199 PR1: /orchestrate SKILL.md is a ≤80-line router.
 # Greps committed protocol only (no network, no LLM).
-# Run: bash skills/orchestrate/router-static-test.sh
+# Run: bash skills/orchestrate/router-static-test.sh [--ac AC12]
+#
+# Per-AC run receipts (CDT-595 pattern): the AC12 block prints
+# `ok AC12: <slug>` receipts from tests/lib/ac-receipt.sh and `--ac AC12`
+# runs only that block. A filtered run echoes
+# `CMD: bash skills/orchestrate/router-static-test.sh --ac AC12` first and
+# `CMD exit=<rc>` just before the PASS= summary. The T-checks keep their
+# bare counters, so a full run prints only the summary (unchanged in spirit).
 set -u
 
 HERE=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
@@ -14,9 +21,29 @@ STEPS="$HERE/steps"
 # git state.
 . "$ROOT/tests/lib/hermetic.sh"
 . "$ROOT/tests/lib/fence.sh"
+# shellcheck source=../../tests/lib/ac-receipt.sh
+. "$ROOT/tests/lib/ac-receipt.sh"
 hermetic_init
+parse_ac_args "$@"
 export GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1
 unset GIT_DIR GIT_INDEX_FILE GIT_WORK_TREE
+
+if [ -n "${AC_FILTER:-}" ]; then
+  printf 'CMD: bash skills/orchestrate/router-static-test.sh --ac %s\n' "$AC_FILTER"
+fi
+
+# Only AC12 carries a receipt block in this suite; any other id would run an
+# unlabeled T-check subset and look like a pass, so refuse it up front.
+if [ -n "${AC_FILTER:-}" ] && [ "$AC_FILTER" != "AC12" ]; then
+  printf 'usage: %s [--ac AC12]\n' "$(basename -- "$0")" >&2
+  exit 64
+fi
+
+# Keep the labeled receipt form under dedicated names for the AC12 block
+# (same contract as ac-receipt.sh ok/bad: colon form, shared PASS/FAIL) —
+# the T-checks below keep their bare counters.
+_ac_ok() { PASS=$((PASS+1)); printf 'ok %s: %s\n' "${CUR_AC:-}" "$1"; }
+_ac_bad() { FAIL=$((FAIL+1)); printf 'FAIL: %s: %s: %s\n' "${CUR_AC:-}" "$1" "$2" >&2; }
 
 PASS=0; FAIL=0
 ok()  { PASS=$((PASS+1)); }
@@ -317,6 +344,42 @@ for f in "$STEPS/plan-contract.md" "$KICKOFF" "$STEPS/06-design.md" "$ROOT/specs
 done
 if [ -z "$t34_fail" ]; then ok
 else bad "T34 carve-out clause missing:$t34_fail"; fi
+
+# ---- AC12 receipts (CDT-589-C1): per-home executed exhibits --------------
+# Each ok line names one AC12 home and is backed by an executed grep of the
+# exact dual-home clause; the T34 pin above is the aggregate form.
+set_ac AC12
+if want_ac; then
+  CLAUSE='Glossary carve-out: before the PHRASE-then-WORD scan'
+  for home in \
+    "SPEC-009 § classifier MUST|$ROOT/specs/core/SPEC-009-ticket-workflow.md" \
+    "plan-contract.md § Ticket class|$STEPS/plan-contract.md" \
+    "steps/06-design.md Step 6c|$STEPS/06-design.md" \
+    "kickoff Step 6|$KICKOFF"; do
+    label=${home%%|*}
+    file=${home#*|}
+    if grep -qF -- "$CLAUSE" "$file"; then
+      _ac_ok "AC12: $label carries the Glossary carve-out clause in the same words (dual-home, no shared partial)"
+    else
+      _ac_bad "AC12 $label" "clause missing from $file"
+    fi
+  done
+  if [ "$(grep -lF -- "$CLAUSE" "$ROOT/specs/core/SPEC-009-ticket-workflow.md" \
+    "$STEPS/plan-contract.md" "$STEPS/06-design.md" "$KICKOFF" 2>/dev/null | wc -l)" = "4" ]; then
+    _ac_ok "AC12: one exact clause string greps in all four homes — the T34 pin holds"
+  else
+    _ac_bad "AC12 four-home pin" "clause not in every home"
+  fi
+  t12tok_fail=""
+  for tok in auth-secrets oauth oidc jwt csrf pii ssn apikey 'private key' 'api key' ticket_class; do
+    grep -qF -- "$tok" "$KICKOFF" || t12tok_fail="$t12tok_fail $tok"
+  done
+  if [ -z "$t12tok_fail" ]; then
+    _ac_ok "AC12: kickoff T14 token list is unchanged (auth-secrets oauth oidc jwt csrf pii ssn apikey 'private key' 'api key' ticket_class all present)"
+  else
+    _ac_bad "AC12 T14 token list" "missing:$t12tok_fail"
+  fi
+fi
 
 # ---- T15: CDT-244 council Phase 2 flavor-append (AC9) ----
 COUNCIL="$ROOT/commands/council.md"
@@ -958,15 +1021,26 @@ done
 if [ -z "$t33_fail" ]; then ok
 else bad "T33:$t33_fail"; fi
 
-# ---- Harness self-check: the suite defines 35 checks (T0-T34). Check numbers
-# follow the block label, not the run order (T34 sits next to T14). A total
-# below 35 means a check was skipped silently (stale copy of this file, an
-# early return, or an environment-dependent short-circuit) — turn that into
-# an explicit failure instead of a quietly-smaller PASS count.
-EXPECTED_CHECKS=35
+# ---- Harness self-check: the suite defines 35 T-checks (T0-T34) plus the
+# 6-check AC12 receipt block (41 on every supported run — the T-checks run
+# in filtered mode too, so the T34 pin stays in the AC12 receipt). Check
+# numbers follow the block label, not the run order (T34 sits next to T14).
+# A total below the expected count means a check was skipped silently (stale
+# copy of this file, an early return, or an environment-dependent
+# short-circuit) — turn that into an explicit failure instead of a
+# quietly-smaller PASS count.
+EXPECTED_CHECKS=41
 RUN_TOTAL=$((PASS + FAIL))
 if [ "$RUN_TOTAL" -ne "$EXPECTED_CHECKS" ]; then
   bad "harness ran $RUN_TOTAL checks, expected $EXPECTED_CHECKS (a check did not run)"
+fi
+if [ -n "${AC_FILTER:-}" ]; then
+  # Mirror the exit decision so the CMD echo is honest (ac_finish semantics).
+  if [ $((PASS + FAIL)) -eq 0 ]; then
+    echo "CMD exit=64"
+    ac_finish
+  fi
+  if [ "$FAIL" -eq 0 ]; then echo "CMD exit=0"; else echo "CMD exit=1"; fi
 fi
 echo "PASS=$PASS FAIL=$FAIL"
 if [ "$FAIL" -eq 0 ]; then
