@@ -181,6 +181,32 @@ Glossary term: Advisor (`CONTEXT.md`).
   action after measured agreement ≥ 90% and zero
   proceed-where-human-halted. MUST NOT auto-widen.
 
+### Trigger (a) enforce — the Step 6c BC1 mis-fire clear (CDT-589-C5)
+
+- **M42 — Enforce is opt-in and narrow.** `ADVISOR_ENFORCE` is a human config
+  that does not exist by default (off/absent). `1|true|on` enable; `0|false|off`
+  are explicit off; any other value is junk → one stderr line and off (never
+  parsed as code). With the config off, every behavior is byte-identical to
+  the M25 shadow path (one `class=gate-shadow` row, `applied: false`, the halt
+  stands). When on, `gates.sh mode --run-id ID` reports `mode: enforce` and
+  `gates.sh apply` is the deterministic clear decision. The M25 invariant is
+  unchanged: the mode value transitions only from the human config, never from
+  code — no state write computes a mode. The clear is scoped to the Step 6c
+  BC1 halt ONLY: bc1-mis-fire + a `mis-fire` ruling at confidence ≥ 80 on a
+  `plan-approve` halt. BC2–BC8, the M23 denylist, the Step 9 task-gate
+  council, and the M14 ship-gate have no clearing path, and no clearing path
+  reaches Step 8 IC spawns outside 6c. Fail-closed: `halt-stands`, confidence
+  < 80, timeout, spawn-fail, refuse, cap, junk config, a writer reject, a
+  missing/unparseable ruling file — the halt stands. The clear writes exactly
+  ONE decision card (`gate: plan-approve`, `decision: proceed`,
+  `blocking_condition: null`, `decided_by: auto`, `actor: advisor`,
+  `schema_version` 1 unchanged, rationale
+  `trigger=a bc=bc1-mis-fire ruling=mis-fire model=<m>`, M30 advisor object
+  with `trigger: "a"` and the `mis-fire` ruling) — no duplicate human/auto
+  card for the same gate — and Step 7 proceeds with no `task_blocked`. A
+  mis-fire clear and a CDT-589-C3 class-verify demotion are distinct paths
+  with distinct provenance (trigger `a` vs `d`; no `class-verify.jsonl` row).
+
 ### Trigger (d) — class verify (CDT-589-C3)
 
 - **M38 — Seam.** `ask.sh probe --trigger d` is accepted (the `a|b|c` set
@@ -458,6 +484,7 @@ Glossary term: Advisor (`CONTEXT.md`).
 
 | Date | Change |
 |------|--------|
+| 2026-10-31 | CDT-589-C5: `### CDT-589-C5` ACs for the opt-in Step 6c BC1 mis-fire enforce clear — M42 (`ADVISOR_ENFORCE` human config, default off; `gates.sh mode` reports `enforce`; `gates.sh apply` clears a `bc1-mis-fire` `mis-fire` ruling at confidence ≥ 80 on a `plan-approve` halt only, fail-closed otherwise); `append-card.sh` M30 shape accepts trigger-a `halt-stands\|mis-fire`; §3g enforce fence + `06-design.md` 6c exception; one auto/advisor clear card, distinct from the C3 demotion. |
 | 2026-10-31 | CDT-589-C3: `### CDT-589-C3` ACs for trigger (d) class verify — M38 seam (`a|b|c|d`, reserve d=1, question home in the SKILL trigger table), M39 vocabulary (`auth-relevant`/`not-auth-relevant`, `gates.sh allow`/`ruling` fence), M40 demotion card (`gate: plan-approve`, proceed/null) + `class-verify.jsonl` precision log, M41 demotion-only fail-closed (never BC8); M18/M26/M29/M30 amended; `append-card.sh` M30 shape accepts trigger d. |
 | 2026-10-20 | M37: per-run advisor model override — `--with-advisor=<model>`, `ADVISOR_MODEL`, `ask.sh probe --model`, `appeal.sh gate --model`, epic `advisor_model` persistence; M8/M9/M10/M12 amended (council diff-mode review). |
 | 2026-10-18 | CDT-561: `### CDT-561` ACs for trigger (c) — `residue.sh` detector, `appeal.sh` gate/authority/check-bundle-set, the ship-gate-council §4a hook, M20 clean-pass zero-advisor, M21 authority fence, M22 label + outside-bundle evidence (epic child C6). |
@@ -681,6 +708,29 @@ Format and rules: SPEC-033 M14(g) and M14(h).
   Verify: bash skills/advisor/test-class-verify.sh --ac AC10
 - **AC11.** `SPEC-039` gains the Class verify section (`CDT-589-C3` ACs plus the Trigger (d) MUST) and the `SPEC-009` Step 6c MUST names the probe, the skip line, the demotion card, and the fail-closed rule (`not-auth-relevant`, `BC8`, `plan-approve`, `never a halt`).
   Verify: bash skills/advisor/test-class-verify.sh --ac AC11
+
+### CDT-589-C5
+
+- **AC1.** `ADVISOR_ENFORCE` is a human config that defaults off/absent: with it unset, `gates.sh apply --run-id ID --bc bc1-mis-fire --ruling mis-fire --confidence 93` exits 0 with `applied: false`, `gates.sh mode` still reports `shadow`, the trigger-(a) shadow row stands with `applied: false`, and the executed §3g enforce fence is a no-op (halt stands, no card, no added lines).
+  Verify: bash skills/advisor/test-enforce.sh --ac AC1
+- **AC2.** With a valid on config (`1|true|on`), a `bc1-mis-fire` `mis-fire` ruling at confidence ≥ 80 on a `plan-approve` halt clears: `apply` exits 0 with `applied: true`, the executed §3g enforce fence writes exactly ONE decision card (`gate: plan-approve`, `decision: proceed`, `blocking_condition: null`, `decided_by: auto`, `actor: advisor`, confidence = the ruling's, rationale `trigger=a bc=bc1-mis-fire ruling=mis-fire model=<m>`, M30 advisor object with `trigger: "a"`, `schema_version` 1) and prints the one clear line — Step 7 proceeds, no `task_blocked`, and no duplicate human/auto card for the same gate.
+  Verify: bash skills/advisor/test-enforce.sh --ac AC2
+- **AC3.** Fail-closed: with the config on, `halt-stands`, confidence < 80 (79), a non-integer or out-of-range confidence (exit 64), timeout, spawn-fail, refuse, cap, and a missing/unparseable ruling file each leave the halt standing — `applied: false`, no card, no clear line.
+  Verify: bash skills/advisor/test-enforce.sh --ac AC3
+- **AC4.** Scope is the 6c BC1 halt only: `apply` on any other allowed gate id (`bc7`, `bc2-diagnosis`, `bc6-diagnosis`) exits 0 with `applied: false` naming the scope; a denylisted id (`bc3`) exits 64; the executed fence is a no-op for any `<gate-id>` other than `bc1-mis-fire` or any `<halt-gate>` other than `plan-approve`.
+  Verify: bash skills/advisor/test-enforce.sh --ac AC4
+- **AC5.** The M25 invariant holds: the mode value transitions only from the human config, never from code — `gates.sh mode` reports `enforce` exactly when `ADVISOR_ENFORCE` is validly on and `shadow` otherwise, regardless of `shadow_used` (seven recorded rulings included) and with no mode state written; a junk config reports `shadow` plus exactly one stderr line and is never parsed as code.
+  Verify: bash skills/advisor/test-enforce.sh --ac AC5
+- **AC6.** A C5 mis-fire clear and a C3 class-verify demotion are distinct paths with distinct card provenance: the clear card carries `trigger: "a"` and rationale `trigger=a bc=bc1-mis-fire ruling=mis-fire model=<m>`, the demotion card carries `trigger: "d"` and rationale `trigger=d ruling=not-auth-relevant model=<m>`, and the enforce path writes no `class-verify.jsonl` row.
+  Verify: bash skills/advisor/test-enforce.sh --ac AC6
+- **AC7.** Card-schema compatibility: `append-card.sh` accepts a trigger-a M30 advisor object whose ruling is `halt-stands` or `mis-fire` (the M24 vocabulary) and still rejects `halt`/`decompose` on trigger a; trigger-b/c objects keep the M18 vocabulary; `schema_version` stays 1; the written clear card passes `read-cards.sh` unchanged.
+  Verify: bash skills/advisor/test-enforce.sh --ac AC7
+- **AC8.** The config value is validated before use (junk → off + one stderr line, never executed) and the M23 denylist, M24 vocabularies, M26 caps, and `ADVISOR_SHADOW_N` semantics are unchanged.
+  Verify: bash skills/advisor/test-enforce.sh --ac AC8
+- **AC9.** The checks live in the hermetic engine-side suite `skills/advisor/test-enforce.sh` (no live LLM, scratch `ADVISOR_STATE_ROOT`, fixture-ledger MROOT) sourcing `tests/lib/ac-receipt.sh` with `--ac AC<n>` filtered runs, covering default-off, on-clears, on-below-80-stands, non-6c BC1 unaffected, card provenance, and mode-report.
+  Verify: bash skills/advisor/test-enforce.sh --ac AC9
+- **AC10.** `skills/advisor/SKILL.md` documents `ADVISOR_ENFORCE` (default off/absent, valid values, junk handling) and the `apply` subcommand; there is no new Surface (no `commands/*.md`), no new flag on any command, and no new agent role.
+  Verify: bash skills/advisor/test-enforce.sh --ac AC10
 
 ## Alternatives considered
 
