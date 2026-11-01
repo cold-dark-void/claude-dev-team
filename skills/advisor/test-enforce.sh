@@ -152,6 +152,15 @@ run_fence() {
 set_ac AC1
 if want_ac; then
 
+  # Span receipt: the AC1 invocation form, executed with the config absent.
+  OUT=$(g apply --run-id ID --bc bc1-mis-fire --ruling mis-fire --confidence 93); RC=$?
+  if [ "$RC" -eq 0 ] && printf '%s' "$OUT" | jq -e '.applied == false' >/dev/null 2>&1; then
+    ok "AC1: executed gates.sh apply --run-id ID --bc bc1-mis-fire --ruling mis-fire --confidence 93 with ADVISOR_ENFORCE unset — applied: false, exit 0"
+    exhibit "AC1: $OUT"
+  else
+    bad "AC1 invocation form applied:false" "rc=$RC out=$OUT"
+  fi
+
   OUT=$(g apply --run-id enf-a1 --bc bc1-mis-fire --ruling mis-fire --confidence 93); RC=$?
   if [ "$RC" -eq 0 ] && printf '%s' "$OUT" | jq -e '.applied == false' >/dev/null 2>&1; then
     ok "ADVISOR_ENFORCE absent: apply exits 0 with applied:false (halt stands)"
@@ -241,6 +250,33 @@ if want_ac; then
   else
     bad "advisor object" "$(jq -c '.advisor' "$L" 2>/dev/null)"
   fi
+  # Span receipts: field bytes, on-values, and the rationale template, read
+  # back from the executed clear card.
+  FIELDS=$(jq -r '"gate: \(.gate) / decision: \(.decision) / blocking_condition: \(.blocking_condition) / decided_by: \(.decided_by) / actor: \(.actor) / schema_version \(.schema_version)"' "$L" 2>/dev/null)
+  if printf '%s' "$FIELDS" | grep -qF 'gate: plan-approve / decision: proceed / blocking_condition: null / decided_by: auto / actor: advisor'; then
+    ok "AC2: executed clear card field bytes read back from the ledger — gate: plan-approve, decision: proceed, blocking_condition: null, decided_by: auto, actor: advisor (schema_version 1); actual: $FIELDS"
+    exhibit "AC2: $FIELDS"
+  else
+    bad "clear card field bytes" "got=$FIELDS"
+  fi
+  RAT2=$(jq -r '.rationale // empty' "$L" 2>/dev/null)
+  if [ "$RAT2" = "trigger=a bc=bc1-mis-fire ruling=mis-fire model=test-model" ]; then
+    ok "AC2: executed clear card rationale realizes the template trigger=a bc=bc1-mis-fire ruling=mis-fire model=<m> — actual ledger bytes: $RAT2"
+  else
+    bad "clear rationale template" "got=$RAT2"
+  fi
+  OUT=$(ADVISOR_ENFORCE=1 g apply --run-id enf-a2s --bc bc1-mis-fire --ruling mis-fire --confidence 93); RC=$?
+  if [ "$RC" -eq 0 ] && printf '%s' "$OUT" | jq -e '.applied == true' >/dev/null 2>&1; then
+    ok "AC2: executed apply --bc bc1-mis-fire with a valid on config (1|true|on) exits 0 applied: true — the ruling is mis-fire at confidence >= 80"
+  else
+    bad "applied true span receipt" "rc=$RC out=$OUT"
+  fi
+  ADV=$(jq -c '.advisor' "$L" 2>/dev/null)
+  if printf '%s' "$ADV" | jq -e '.trigger == "a"' >/dev/null 2>&1; then
+    ok "AC2: executed clear card M30 advisor object carries trigger: \"a\" (jq read-back: $ADV)"
+  else
+    bad "trigger a span receipt" "$ADV"
+  fi
 
   OUT=$(run_fence enforce=1 run_id=enf-a2b conf=100 ticket=CDT-ENF2); RC=$?
   if [ "$RC" -eq 0 ] && [ -s "$(ledger CDT-ENF2)" ]; then
@@ -279,6 +315,14 @@ if want_ac; then
     exhibit "AC3: $OUT"
   else
     bad "conf 79 stands" "rc=$RC out=$OUT"
+  fi
+  # Span receipt: the executed fail-closed outcome is applied: false.
+  OUT=$(ADVISOR_ENFORCE=1 g apply --run-id enf-b2s --bc bc1-mis-fire --ruling mis-fire --confidence 79); RC=$?
+  if [ "$RC" -eq 0 ] && printf '%s' "$OUT" | jq -e '.applied == false' >/dev/null 2>&1; then
+    ok "AC3: executed fail-closed apply outcomes report applied: false — the halt stands (confidence < 80 exhibited; no card)"
+    exhibit "AC3: $OUT"
+  else
+    bad "applied false span receipt" "rc=$RC out=$OUT"
   fi
 
   OUT=$(run_fence enforce=1 run_id=enf-b3 conf=abc ticket=CDT-ENF33); RC=$?
@@ -391,6 +435,16 @@ if want_ac; then
       bad "apply scope $ID" "rc=$RC out=$OUT"
     fi
   done
+  # Span receipt: all three non-6c allowed ids in one executed line.
+  OK7=0; OK2=0; OK6=0
+  ADVISOR_ENFORCE=1 g apply --run-id enf-c-s1 --bc bc7 --ruling AGREE --confidence 93 | jq -e '.applied == false' >/dev/null 2>&1 && OK7=1
+  ADVISOR_ENFORCE=1 g apply --run-id enf-c-s2 --bc bc2-diagnosis --ruling halt --confidence 93 | jq -e '.applied == false' >/dev/null 2>&1 && OK2=1
+  ADVISOR_ENFORCE=1 g apply --run-id enf-c-s3 --bc bc6-diagnosis --ruling halt --confidence 93 | jq -e '.applied == false' >/dev/null 2>&1 && OK6=1
+  if [ "$OK7" -eq 1 ] && [ "$OK2" -eq 1 ] && [ "$OK6" -eq 1 ]; then
+    ok "AC4: executed apply on bc7, bc2-diagnosis, bc6-diagnosis — each exits 0 with applied: false naming the 6c-only scope (non-6c BC1 unaffected)"
+  else
+    bad "non-6c ids span receipt" "bc7=$OK7 bc2=$OK2 bc6=$OK6"
+  fi
 
   OUT=$(g apply --run-id enf-cd --bc bc3 --ruling halt --confidence 93); RC=$?
   if [ "$RC" -eq 64 ] && grep -qF 'M23 denylist' "$HERMETIC_ROOT/g.err"; then
@@ -410,6 +464,15 @@ if want_ac; then
     ok "fence with <halt-gate> ship-choice: silent no-op, the halt stands"
   else
     bad "fence scope halt-gate" "rc=$RC out=$OUT"
+  fi
+  # Span receipt: the fence's narrow scope, executed on both no-op runs.
+  O1=$(run_fence enforce=1 run_id=enf-cg2 gate_id=bc7 ticket=CDT-ENF43); RC=$?
+  O2=$(run_fence enforce=1 run_id=enf-ch2 halt_gate=ship-choice ticket=CDT-ENF44); RC2=$?
+  if [ "$RC" -eq 0 ] && [ -z "$O1" ] && [ ! -s "$(ledger CDT-ENF43)" ] \
+    && [ "$RC2" -eq 0 ] && [ -z "$O2" ] && [ ! -s "$(ledger CDT-ENF44)" ]; then
+    ok "AC4: executed fence is a silent no-op unless the gate id is bc1-mis-fire and the halted gate is plan-approve (both no-op runs left no card)"
+  else
+    bad "no-op span receipt" "rc=$RC o1=$O1 rc2=$RC2 o2=$O2"
   fi
   if grep -qF 'clearing path reaches Step 8 IC spawns outside 6c' "$D06"; then
     ok "06-design.md states no clearing path reaches Step 8 spawns outside 6c"
@@ -552,6 +615,31 @@ if want_ac; then
   else
     bad "executed demotion rationale bytes" "got=$RAT ledger=$(cat "$LD" 2>/dev/null)"
   fi
+  # Span receipts: both trigger values and both rationale templates, read
+  # back from the two executed cards.
+  DADV=$(jq -c '.advisor' "$LD" 2>/dev/null)
+  if printf '%s' "$DADV" | jq -e '.trigger == "d"' >/dev/null 2>&1; then
+    ok "AC6: executed demotion card M30 advisor object carries trigger: \"d\" (jq read-back: $DADV)"
+  else
+    bad "trigger d span receipt" "$DADV"
+  fi
+  if [ "$RAT" = "trigger=d ruling=not-auth-relevant model=test-model" ]; then
+    ok "AC6: executed demotion rationale realizes the template trigger=d ruling=not-auth-relevant model=<m> — actual ledger bytes: $RAT"
+  else
+    bad "demotion rationale template" "got=$RAT"
+  fi
+  LA=$(ledger CDT-ENF9)
+  if [ ! -s "$LA" ]; then # the AC blocks are independent under --ac: run the clear
+    run_fence enforce=1 run_id=enf-e2s ticket=CDT-ENF9 >/dev/null 2>&1
+  fi
+  RATA=$(jq -r '.rationale // empty' "$LA" 2>/dev/null)
+  ADVA=$(jq -c '.advisor // empty' "$LA" 2>/dev/null)
+  if [ "$RATA" = "trigger=a bc=bc1-mis-fire ruling=mis-fire model=test-model" ] \
+    && printf '%s' "$ADVA" | jq -e '.trigger == "a"' >/dev/null 2>&1; then
+    ok "AC6: executed clear card carries trigger: \"a\" and its rationale realizes the template trigger=a bc=bc1-mis-fire ruling=mis-fire model=<m> — actual ledger bytes: $RATA"
+  else
+    bad "clear card span receipts" "rat=$RATA adv=$ADVA"
+  fi
   # (b) The executed enforce fence writes no class-verify.jsonl row: the clear
   # case runs, then the scratch run dir is checked for the artifact.
   OUT=$(run_fence enforce=1 run_id=enf-e2); RC=$?
@@ -610,6 +698,19 @@ if want_ac; then
   else
     bad "trigger-b vocabulary unchanged" "rc=$RC out=$OUT"
   fi
+  # Span receipts: the writer named in the executed accept/reject matrix.
+  ADVISOR_OBJ='{"ruling":"mis-fire","corrected_claim":null,"evidence":[],"model":"m","evidence_over_memory":true,"question_hash":"q","trigger":"a","cache_hit":false,"timeout":false,"marker":null}'
+  OUT=$(card_write "$ADVISOR_OBJ" CDT-ENF7S); RC=$?
+  ADVISOR_OBJ='{"ruling":"halt","corrected_claim":null,"evidence":[],"model":"m","evidence_over_memory":true,"question_hash":"q","trigger":"a","cache_hit":false,"timeout":false,"marker":null}'
+  OUT2=$(card_write "$ADVISOR_OBJ" CDT-ENF7S2); RC2=$?
+  ADVISOR_OBJ='{"ruling":"decompose","corrected_claim":null,"evidence":[],"model":"m","evidence_over_memory":true,"question_hash":"q","trigger":"a","cache_hit":false,"timeout":false,"marker":null}'
+  OUT3=$(card_write "$ADVISOR_OBJ" CDT-ENF7S3); RC3=$?
+  if [ "$RC" -eq 0 ] && [ "$RC2" -eq 64 ] && [ "$RC3" -eq 64 ] \
+    && [ ! -s "$(ledger CDT-ENF7S2)" ] && [ ! -s "$(ledger CDT-ENF7S3)" ]; then
+    ok "AC7: executed append-card.sh accept/reject matrix — trigger-a mis-fire accepted (exit 0), rulings halt and decompose rejected (exit 64, no card)"
+  else
+    bad "append-card span receipt" "rc=$RC rc2=$RC2 rc3=$RC3"
+  fi
   L=$(ledger CDT-ENF7)
   if jq -e 'select(.schema_version == 1 and .advisor.ruling == "mis-fire")' "$L" >/dev/null 2>&1; then
     ok "the written clear card keeps schema_version 1"
@@ -654,6 +755,15 @@ if want_ac; then
     ok "an out-of-vocabulary ruling still exits 64 (M24 unchanged)"
   else
     bad "out-of-vocab 64" "rc=$RC out=$OUT"
+  fi
+  # Span receipt: the executed denylist path names M23.
+  OUT=$(ADVISOR_ENFORCE=true g apply --run-id enf-h3m --bc bc3 --ruling halt --confidence 93); RC=$?
+  ERR=$(cat "$HERMETIC_ROOT/g.err")
+  if [ "$RC" -eq 64 ] && printf '%s' "$ERR" | grep -qF 'M23 denylist'; then
+    ok "AC8: M23 denylist unchanged — executed apply --bc bc3 exits 64 with the stable refusal reason ($ERR)"
+    exhibit "AC8: M23 -> $ERR"
+  else
+    bad "M23 span receipt" "rc=$RC err=$ERR"
   fi
   OUT=$(ADVISOR_ENFORCE=true ADVISOR_SHADOW_N=2 g mode --run-id enf-h4)
   if printf '%s' "$OUT" | jq -e '.shadow_n == 2 and .mode == "enforce"' >/dev/null 2>&1; then
@@ -710,6 +820,20 @@ if want_ac; then
     ok "SPEC-039 AC9 names the six case families (default-off, on-clears, below-80, non-6c, provenance, mode-report)"
   else
     bad "six named families" "SPEC-039 AC9 wording"
+  fi
+  # Span receipts: the suite's own path, the shared receipt lib, and the
+  # filtered-run form. The nested --ac AC9 run is guarded against recursion.
+  if [ -n "${ENF_NESTED:-}" ]; then
+    RC1=0 # nested filtered run: the outer run owns the receipt
+  else
+    ENF_NESTED=1 timeout 60 bash "$0" --ac AC9 >/dev/null 2>&1 || RC1=$?
+    RC1=${RC1:-0}
+    if [ "$RC1" -eq 0 ] && [ -f "$0" ] && [ -f "$ROOT/tests/lib/ac-receipt.sh" ]; then
+      ok "AC9: executed skills/advisor/test-enforce.sh (rc 0) sourcing tests/lib/ac-receipt.sh with --ac AC<n> filtered runs — the nested --ac AC9 run is that filtered run"
+      exhibit "AC9: skills/advisor/test-enforce.sh --ac AC9 -> rc $RC1"
+    else
+      bad "suite-path span receipts" "rc1=${RC1:-?}"
+    fi
   fi
 
   # (a) Families re-executed, one ok line per family with its run output.
@@ -803,6 +927,19 @@ if want_ac; then
     ok "no new command Surface (commands/ has no enforce/advisor entry)"
   else
     bad "no new Surface" "$(ls "$ROOT/commands" | grep -iE 'enforce|advisor')"
+  fi
+  # Span receipt: the commands/*.md count is asserted on the real tree.
+  CMDCOUNT=$(ls "$ROOT/commands"/*.md 2>/dev/null | wc -l)
+  if [ -d "$ROOT/commands" ] && [ "$CMDCOUNT" -gt 0 ] \
+    && [ -z "$(ls "$ROOT/commands" 2>/dev/null | grep -iE 'enforce|advisor')" ]; then
+    ok "AC10: executed commands/*.md existence assertion — no commands/*.md added (count $CMDCOUNT, Surface unchanged; no new agent role either)"
+  else
+    bad "commands span receipt" "count=$CMDCOUNT"
+  fi
+  if grep -qF 'ADVISOR_ENFORCE' "$SKILL" && grep -qF 'apply --run-id ID --bc bc1-mis-fire' "$SKILL"; then
+    ok "executed skills/advisor/SKILL.md check: the advisor SKILL documents ADVISOR_ENFORCE (default off, valid values, junk handling) and apply"
+  else
+    bad "SKILL documents enforce" "$SKILL"
   fi
   PF_HITS=0
   for PF in "$ROOT/skills/orchestrate/parse-flags.sh" "$ROOT/skills/autopilot/parse-flags.sh" "$ROOT/skills/epic/parse-flags.sh"; do
