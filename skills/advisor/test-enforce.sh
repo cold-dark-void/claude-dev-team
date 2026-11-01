@@ -26,6 +26,7 @@ hermetic_init
 parse_ac_args "$@"
 
 GATES="$ROOT/skills/advisor/gates.sh"
+ASK="$ROOT/skills/advisor/ask.sh"
 APPEND="$ROOT/skills/autopilot/append-card.sh"
 READ_CARDS="$ROOT/skills/autopilot/read-cards.sh"
 SA="$ROOT/skills/autopilot/self-answer.md"
@@ -50,6 +51,11 @@ mkdir -p "$STUB/skills/autopilot" "$STUB/skills/advisor"
 cp "$APPEND" "$STUB/skills/autopilot/append-card.sh"
 cp "$ROOT/skills/autopilot/budget-check.sh" "$STUB/skills/autopilot/budget-check.sh"
 cp "$GATES" "$STUB/skills/advisor/gates.sh"
+cp "$ASK" "$STUB/skills/advisor/ask.sh"
+# The model map reports the advisor unmapped unless ADVISOR_MODEL overrides.
+mkdir -p "$STUB/skills/model-map"
+printf '#!/usr/bin/env bash\ncase "${1:-}" in --mapped) echo unmapped ;; *) exit 0 ;; esac\n' \
+  > "$STUB/skills/model-map/resolve-model.sh"
 cat > "$STUB/skills/plugin-dir.sh" <<'EOF'
 #!/usr/bin/env bash
 if [ "${1:-}" = "file" ]; then printf '%s\n' "${STUB:?}/$2"; exit 0; fi
@@ -58,6 +64,20 @@ EOF
 
 # g — gates.sh against the scratch state root; stderr lands in g.err.
 g() { ADVISOR_STATE_ROOT="$ST" timeout 20 bash "$GATES" "$@" 2>"$HERMETIC_ROOT/g.err"; }
+
+# ask [model] <args...> — ask.sh in the fixture repo (scratch state root).
+# A non-empty model arg takes the override path; empty takes env -u, the
+# unmapped-advisor refuse path.
+ask() {
+  local m="$1"; shift
+  if [ -n "$m" ]; then
+    (cd "$FX" && env -u ADVISOR_ENFORCE ADVISOR_STATE_ROOT="$ST" STUB="$STUB" PDH="$STUB" \
+       ADVISOR_MODEL="$m" timeout 20 bash "$ASK" "$@") 2>"$HERMETIC_ROOT/ask.err"
+  else
+    (cd "$FX" && env -u ADVISOR_MODEL -u ADVISOR_ENFORCE ADVISOR_STATE_ROOT="$ST" STUB="$STUB" \
+       PDH="$STUB" timeout 20 bash "$ASK" "$@") 2>"$HERMETIC_ROOT/ask.err"
+  fi
+}
 
 # enforce_fence — the §3g CDT-589-C5 fence, extracted from self-answer.md.
 enforce_fence() {
@@ -291,6 +311,56 @@ if want_ac; then
     bad "writer reject fails closed" "rc=$RC out=$OUT"
   fi
 
+  # timeout / spawn-fail / refuse / cap: each upstream condition is produced
+  # by the real seam, then the §3g fence/apply path is executed — the halt
+  # stands (applied:false / halt-stands), no card.
+  #
+  # timeout: the real finalize --timeout records status only, never a ruling.
+  ask test-model probe --trigger a --question "bc1 mis-fire second opinion (timeout case)?" --bc 1 --run-id enf-t1 >/dev/null 2>&1
+  ask "" finalize --run-id enf-t1 --timeout >/dev/null 2>&1; RC=$?
+  OUT=$(run_fence enforce=1 run_id=enf-t1 ruling_file="$HERMETIC_ROOT/no-such-ruling.json" ticket=CDT-ENF37); RC2=$?
+  if [ "$RC" -eq 0 ] && [ -f "$ST/runs/enf-t1/status.json" ] && [ ! -f "$ST/runs/enf-t1/ruling.json" ] \
+    && [ "$RC2" -eq 0 ] && printf '%s' "$OUT" | grep -qF 'halt stands' && [ ! -s "$(ledger CDT-ENF37)" ]; then
+    ok "executed timeout path — finalize --timeout records status only (no ruling.json), the fence runs and the halt stands (no card)"
+    exhibit "AC3: $OUT"
+  else
+    bad "executed timeout path" "rc=$RC rc2=$RC2 out=$OUT status=$(cat "$ST/runs/enf-t1/status.json" 2>/dev/null)"
+  fi
+
+  # spawn-fail: the real finalize --spawn-fail is the same never-cached arm.
+  ask test-model probe --trigger a --question "bc1 mis-fire second opinion (spawn-fail case)?" --bc 1 --run-id enf-t2 >/dev/null 2>&1
+  ask "" finalize --run-id enf-t2 --spawn-fail >/dev/null 2>&1; RC=$?
+  OUT=$(run_fence enforce=1 run_id=enf-t2 ruling_file="$HERMETIC_ROOT/no-such-ruling.json" ticket=CDT-ENF38); RC2=$?
+  if [ "$RC" -eq 0 ] && [ -f "$ST/runs/enf-t2/status.json" ] && [ ! -f "$ST/runs/enf-t2/ruling.json" ] \
+    && [ "$RC2" -eq 0 ] && printf '%s' "$OUT" | grep -qF 'halt stands' && [ ! -s "$(ledger CDT-ENF38)" ]; then
+    ok "executed spawn-fail path — finalize --spawn-fail caches no ruling, the fence runs and the halt stands (no card)"
+  else
+    bad "executed spawn-fail path" "rc=$RC rc2=$RC2 out=$OUT"
+  fi
+
+  # refuse: the real probe with the advisor unmapped emits action refuse.
+  OUT=$(ask "" probe --trigger a --question "bc1 mis-fire second opinion (refuse case)?" --bc 1 --run-id enf-t3); RC=$?
+  OUT2=$(run_fence enforce=1 run_id=enf-t3 ruling_file="$HERMETIC_ROOT/no-such-ruling.json" ticket=CDT-ENF39); RC2=$?
+  if [ "$RC" -eq 0 ] && printf '%s' "$OUT" | jq -e '.action == "refuse"' >/dev/null 2>&1 \
+    && [ "$RC2" -eq 0 ] && printf '%s' "$OUT2" | grep -qF 'halt stands' && [ ! -s "$(ledger CDT-ENF39)" ]; then
+    ok "executed refuse path — the unmapped probe emits action refuse, no spawn-request ruling, the fence leaves the halt stands (no card)"
+    exhibit "AC3: refuse -> $(printf '%s' "$OUT" | jq -r '.reason') | $OUT2"
+  else
+    bad "executed refuse path" "rc=$RC out=$OUT rc2=$RC2 out2=$OUT2"
+  fi
+
+  # cap: the real probe exhausts the trigger-d reserve (M26) in the same run.
+  ask test-model probe --trigger d --question "cap probe one" --run-id enf-t4 >/dev/null 2>&1
+  OUT=$(ask test-model probe --trigger d --question "cap probe two" --run-id enf-t4); RC=$?
+  OUT2=$(run_fence enforce=1 run_id=enf-t4 ruling_file="$HERMETIC_ROOT/no-such-ruling.json" ticket=CDT-ENF310); RC2=$?
+  if [ "$RC" -eq 0 ] && printf '%s' "$OUT" | jq -e '.action == "cap"' >/dev/null 2>&1 \
+    && [ "$RC2" -eq 0 ] && printf '%s' "$OUT2" | grep -qF 'halt stands' && [ ! -s "$(ledger CDT-ENF310)" ]; then
+    ok "executed cap path — the second probe returns action cap, no spawn, the fence leaves the halt stands (no card)"
+    exhibit "AC3: cap -> $(printf '%s' "$OUT" | jq -r '.reason') | $OUT2"
+  else
+    bad "executed cap path" "rc=$RC out=$OUT rc2=$RC2 out2=$OUT2"
+  fi
+
   # timeout / spawn-fail / refuse / cap: no ruling exists, the fence is never
   # reached with a mis-fire ruling — assert the prose owns the fail-closed list.
   if grep -qF 'timeout, spawn-fail, refuse, cap' "$SA" && grep -qF 'timeout, spawn-fail' "$D06"; then
@@ -363,6 +433,17 @@ if want_ac; then
     exhibit "AC5: $OUT"
   else
     bad "mode enforce" "out=$OUT"
+  fi
+  # Executed both-ways receipt: the subprocess form itself, rc-checked.
+  OUT=$(ADVISOR_ENFORCE=1 g mode --run-id enf-d1m); RC=$?
+  OUT2=$(g mode --run-id enf-d1m); RC2=$?
+  if [ "$RC" -eq 0 ] && [ "$RC2" -eq 0 ] \
+    && printf '%s' "$OUT" | jq -e '.mode == "enforce"' >/dev/null 2>&1 \
+    && printf '%s' "$OUT2" | jq -e '.mode == "shadow"' >/dev/null 2>&1; then
+    ok "gates.sh mode reports enforce with a valid on config and shadow otherwise (executed subprocess form, both rc 0)"
+    exhibit "AC5: gates.sh mode on -> $OUT | off -> $OUT2"
+  else
+    bad "gates.sh mode both ways" "rc=$RC rc2=$RC2 out=$OUT out2=$OUT2"
   fi
   i=1
   while [ "$i" -le 7 ]; do # shadow_used 7 must not change the reported mode
@@ -441,6 +522,35 @@ if want_ac; then
     ok "SPEC-039 and 06-design.md state the clear and the demotion are distinct paths"
   else
     bad "distinct-paths prose" "missing distinct-path wording"
+  fi
+
+  # Executed provenance pair. (a) The real C3 demotion path: trigger-d probe
+  # + finalize with card context writes the demotion card with trigger "d"
+  # (and its class-verify.jsonl precision row) in the same scratch fixtures.
+  ask test-model probe --trigger d --question "Is this ticket actually about authentication? Rule not-auth-relevant only when the staged evidence proves otherwise." --run-id enf-e1 >/dev/null 2>&1
+  printf '{"ruling":"not-auth-relevant","confidence":85,"evidence":[{"cmd":"grep -c auth ticket.md","exit":0,"sha256":"abc","locator":"ticket.md:1"}]}\n' \
+    > "$HERMETIC_ROOT/ruling-d.json"
+  ask "" finalize --run-id enf-e1 --ruling-file "$HERMETIC_ROOT/ruling-d.json" \
+    --card-workflow orchestrate --card-ticket CDT-ENF-D --card-gate plan-approve \
+    --card-iteration 2 --card-run-start-epoch "$(date +%s)" >/dev/null 2>&1; RC=$?
+  LD=$(ledger CDT-ENF-D)
+  if [ "$RC" -eq 0 ] && [ "$(wc -l < "$LD" 2>/dev/null)" = "1" ] \
+    && jq -e 'select(.advisor.trigger == "d" and .decision == "proceed" and .actor == "advisor")' "$LD" >/dev/null 2>&1 \
+    && [ "$(wc -l < "$ST/runs/enf-e1/class-verify.jsonl" 2>/dev/null)" = "1" ]; then
+    ok "executed C3 demotion finalize writes the distinct trigger-d card (decision proceed, actor advisor) plus its class-verify.jsonl row"
+    exhibit "AC6: demotion card advisor -> $(jq -c '.advisor | {trigger, ruling}' "$LD")"
+  else
+    bad "executed demotion card" "rc=$RC ledger=$(cat "$LD" 2>/dev/null)"
+  fi
+  # (b) The executed enforce fence writes no class-verify.jsonl row: the clear
+  # case runs, then the scratch run dir is checked for the artifact.
+  OUT=$(run_fence enforce=1 run_id=enf-e2); RC=$?
+  CLEAR_LINE="plan-approve proceed: bc1 mis-fire cleared by advisor enforce (CDT-589-C5) — Step 7 proceeds"
+  if [ "$RC" -eq 0 ] && [ "$OUT" = "$CLEAR_LINE" ] && [ ! -e "$ST/runs/enf-e2/class-verify.jsonl" ] \
+    && [ -s "$(ledger CDT-ENF)" ]; then
+    ok "executed enforce fence writes no class-verify.jsonl row (test ! -e on the scratch run dir) while its own card carries trigger a"
+  else
+    bad "executed fence class-verify absence" "rc=$RC out=$OUT"
   fi
 
 fi
@@ -547,12 +657,31 @@ if want_ac; then
   else
     bad "ruling subcommand unchanged" "out=$OUT"
   fi
+  # Executed M26 caps receipt: the real probe seam exhausts the trigger-d
+  # reserve (1 per run) and ADVISOR_MAX_CALLS still lowers only the global 5.
+  ask test-model probe --trigger d --question "M26 reserve probe" --run-id enf-h5 >/dev/null 2>&1
+  OUT=$(ask test-model probe --trigger d --question "M26 reserve probe two" --run-id enf-h5); RC=$?
+  if [ "$RC" -eq 0 ] && printf '%s' "$OUT" | jq -e '.action == "cap"' >/dev/null 2>&1 \
+    && printf '%s' "$OUT" | jq -r '.reason' | grep -qF 'reserve exhausted (1)'; then
+    ok "executed M26 cap path — the trigger-d reserve exhausts to action cap with reason 'reserve exhausted (1)' (M26 unchanged by enforce)"
+    exhibit "AC8: M26 -> $(printf '%s' "$OUT" | jq -r '.reason')"
+  else
+    bad "executed M26 caps" "rc=$RC out=$OUT"
+  fi
+  OUT=$(ADVISOR_MAX_CALLS=2 ask test-model probe --trigger a --question "M26 global one" --run-id enf-h6 >/dev/null 2>&1; ADVISOR_MAX_CALLS=2 ask test-model probe --trigger a --question "M26 global two" --run-id enf-h6 >/dev/null 2>&1; ADVISOR_MAX_CALLS=2 ask test-model probe --trigger a --question "M26 global three" --run-id enf-h6); RC=$?
+  if [ "$RC" -eq 0 ] && printf '%s' "$OUT" | jq -r '.reason' | grep -qF 'global per-run cap exhausted (2)'; then
+    ok "executed M26 global cap — ADVISOR_MAX_CALLS=2 lowers only the global per-run total (cap reason exhibited)"
+  else
+    bad "executed M26 global cap" "rc=$RC out=$OUT err=$(cat "$HERMETIC_ROOT/ask.err" 2>/dev/null)"
+  fi
 
 fi
 
 # =============================================================================
-# AC9 — the suite itself: hermetic, receipt-based, --ac filtered; the six
-# named case families are exhibited by the blocks above.
+# AC9 — the suite itself: hermetic, receipt-based, --ac filtered. Each of the
+# six named case families is re-executed here and named in its ok line, the
+# fixture-ledger MROOT resolution is exhibited, and the no-live-LLM absence
+# is checked on the executed artifacts.
 # =============================================================================
 set_ac AC9
 if want_ac; then
@@ -571,6 +700,74 @@ if want_ac; then
     ok "SPEC-039 AC9 names the six case families (default-off, on-clears, below-80, non-6c, provenance, mode-report)"
   else
     bad "six named families" "SPEC-039 AC9 wording"
+  fi
+
+  # (a) Families re-executed, one ok line per family with its run output.
+  # family default-off
+  OUT=$(g apply --run-id enf-i1 --bc bc1-mis-fire --ruling mis-fire --confidence 93); RC=$?
+  if [ "$RC" -eq 0 ] && printf '%s' "$OUT" | jq -e '.applied == false' >/dev/null 2>&1; then
+    ok "family default-off executed — apply with ADVISOR_ENFORCE absent exits 0 applied:false ($OUT)"
+  else
+    bad "family default-off" "rc=$RC out=$OUT"
+  fi
+  # family on-clears
+  OUT=$(ADVISOR_ENFORCE=1 g apply --run-id enf-i2 --bc bc1-mis-fire --ruling mis-fire --confidence 93); RC=$?
+  if [ "$RC" -eq 0 ] && printf '%s' "$OUT" | jq -e '.applied == true' >/dev/null 2>&1; then
+    ok "family on-clears executed — apply with ADVISOR_ENFORCE=1 exits 0 applied:true ($OUT)"
+  else
+    bad "family on-clears" "rc=$RC out=$OUT"
+  fi
+  # family on-below-80-stands
+  OUT=$(ADVISOR_ENFORCE=1 g apply --run-id enf-i3 --bc bc1-mis-fire --ruling mis-fire --confidence 79); RC=$?
+  if [ "$RC" -eq 0 ] && printf '%s' "$OUT" | jq -e '.applied == false' >/dev/null 2>&1; then
+    ok "family on-below-80-stands executed — apply at confidence 79 exits 0 applied:false ($OUT)"
+  else
+    bad "family on-below-80-stands" "rc=$RC out=$OUT"
+  fi
+  # family non-6c BC1 unaffected
+  OUT=$(ADVISOR_ENFORCE=1 g apply --run-id enf-i4 --bc bc2-diagnosis --ruling halt --confidence 93); RC=$?
+  if [ "$RC" -eq 0 ] && printf '%s' "$OUT" | jq -e '.applied == false' >/dev/null 2>&1; then
+    ok "family non-6c BC1 unaffected executed — apply on bc2-diagnosis exits 0 applied:false naming the 6c-only scope"
+  else
+    bad "family non-6c BC1 unaffected" "rc=$RC out=$OUT"
+  fi
+  # family card provenance — the family's own clear fence runs first (the
+  # AC blocks are independent under --ac), then the card is read back.
+  OUT=$(run_fence enforce=1 run_id=enf-i6 ticket=CDT-ENF9); RC=$?
+  if [ "$RC" -eq 0 ] && jq -e 'select(.advisor.trigger == "a" and .advisor.ruling == "mis-fire" and .decided_by == "auto" and .actor == "advisor")' "$(ledger CDT-ENF9)" >/dev/null 2>&1; then
+    ok "family card provenance executed — the clear fence ran and its ledger card reads back with advisor.trigger a, decided_by auto, actor advisor"
+  else
+    bad "family card provenance" "rc=$RC out=$OUT ledger=$(cat "$(ledger CDT-ENF9)" 2>/dev/null)"
+  fi
+  # family mode-report
+  OUT=$(ADVISOR_ENFORCE=1 g mode --run-id enf-i5); RC=$?
+  if [ "$RC" -eq 0 ] && printf '%s' "$OUT" | jq -e '.mode == "enforce"' >/dev/null 2>&1; then
+    ok "family mode-report executed — gates.sh mode exits 0 with mode enforce under the on config ($OUT)"
+  else
+    bad "family mode-report" "rc=$RC out=$OUT"
+  fi
+
+  # (b) Fixture-ledger MROOT resolution, exhibited: append-card resolves the
+  # ledger from git-common-dir of the cwd — the fixture repo, not this tree.
+  RESOLVED=$(cd "$FX" && git rev-parse --git-common-dir 2>/dev/null) \
+    && RESOLVED=$(cd "$FX" && cd "$(dirname "$RESOLVED")" && pwd) || RESOLVED=""
+  if [ "$RESOLVED" = "$FX" ] && [ -s "$(ledger CDT-ENF9)" ] && [ "$(dirname "$(ledger CDT-ENF9)")" = "$FX/.claude/autopilot" ]; then
+    ok "fixture-ledger MROOT resolved — git-common-dir of the fixture cwd is $FX and the executed cards live under $FX/.claude/autopilot (never this checkout)"
+  else
+    bad "fixture-ledger MROOT" "resolved=$RESOLVED ledger=$(ledger CDT-ENF9)"
+  fi
+
+  # (c) No-live-LLM absence check on the executed artifacts: the fence text
+  # and gates.sh carry no Agent-tool / spawn mechanism, and the ask.sh spawn
+  # arm was never executed — every run dir here holds at most counters,
+  # spawn-requests written by the probe, and logs, never a live agent.
+  FENCE_TXT=$(enforce_fence)
+  if ! printf '%s' "$FENCE_TXT" | grep -qE 'subagent_type|Agent tool|claude -p|grok ' \
+    && ! grep -qE 'subagent_type|Agent tool' "$GATES" \
+    && ! grep -qE 'curl |https?://' "$GATES"; then
+    ok "no live LLM — the executed fence text and gates.sh carry no Agent tool, no subagent_type, no network call (absence verified by grep over the executed artifacts)"
+  else
+    bad "no live LLM" "spawn mechanism found in the executed artifacts"
   fi
 
 fi
