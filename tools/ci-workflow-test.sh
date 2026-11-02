@@ -194,6 +194,8 @@ check_workflow() {
     echo "FAIL: B8: macos job does not run bash tools/run-all-tests.sh --portable --platform macos"
   elif printf '%s\n' "$mac_block" | grep -qE -- '--jobs'; then
     echo "FAIL: B8: macos job must not pass --jobs (R32; default jobs=1)"
+  elif ! printf '%s\n' "$mac_block" | grep -qE 'fetch-depth:[[:space:]]*0([[:space:]]|$)'; then
+    echo "FAIL: B8: macos job missing fetch-depth: 0 (R22: the lane runs suites that read pinned base commits)"
   fi
 
   # --- B9: the hook-templates job runs the template gate (CDT-502). ---
@@ -295,6 +297,12 @@ bite "spec-lint-wrong-command" 's#bash tools/spec-lint\.sh#bash tools/smoke/run.
 
 # Drop the macos job.
 bite "no-macos" '/^  macos:$/,/^$/d' "B8"
+
+# Drop fetch-depth from the macos job only (all-tests keeps its own).
+# A shallow macOS clone has no pinned base commits, so the receipts suite
+# fails AC7/AC8/AC9 on that lane (SPEC-030 R22).
+bite "macos-shallow" '/^  macos:$/,/^  hook-templates:$/!b
+/fetch-depth:/d' "B8"
 
 # Restore the informational skip: continue-on-error present must FAIL B8.
 bite "macos-continue-on-error" 's/^    runs-on: macos-latest$/&\
