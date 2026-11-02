@@ -136,7 +136,12 @@ workflow_vars() {
   [ -f "$wf" ] || return 0
   awk -v name="$name" '
     function take(line) {
-      if (match(line, /^[[:space:]]*([A-Z][A-Z0-9_]*)[[:space:]]*:/, m)) print "{{" m[1] "}}"
+      # BSD awk has no 3-argument match(); the macOS lane runs BSD awk (CDT-621).
+      if (match(line, /^[[:space:]]*[A-Z][A-Z0-9_]*[[:space:]]*:/)) {
+        key = substr(line, RSTART, RLENGTH)
+        gsub(/[^A-Z0-9_]/, "", key)
+        if (key != "") print "{{" key "}}"
+      }
     }
     function bump(line) {
       depth += gsub(/\{/, "{", line)
@@ -150,8 +155,11 @@ workflow_vars() {
         bump($0)
         next
       }
-      if (match($0, /loadPrompt\('"'"'([A-Za-z0-9-]+)'"'"'/, m)) {
-        cur=m[1]; grab=1; depth=0; bump($0); next
+      if (match($0, /loadPrompt\('"'"'[A-Za-z0-9-]+'"'"'/)) {
+        key = substr($0, RSTART, RLENGTH)
+        sub(/^loadPrompt\('"'"'/, "", key)
+        sub(/'"'"'$/, "", key)
+        cur=key; grab=1; depth=0; bump($0); next
       }
       if ($0 ~ /extractPromptName === .plan-extractor./) { arm="plan-extractor"; next }
       if (arm=="plan-extractor" && $0 ~ /\{/) {

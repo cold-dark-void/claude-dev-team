@@ -429,9 +429,10 @@ for df in $DOCS_CAP; do
   grep_file "docs carry the per-run phrase: $df" 'per-run, not machine-wide' "$ROOT/$df"
   grep_file "docs carry the N×X machine-total note: $df" 'N×X' "$ROOT/$df"
 done
-PER_RUN_N=$(grep -rlF --include='*.md' -- 'per-run, not machine-wide' "$ROOT/docs" | wc -l)
+# BSD wc pads its count to 8 columns; tr -d ' ' normalizes both lanes (CDT-621).
+PER_RUN_N=$(grep -rlF --include='*.md' -- 'per-run, not machine-wide' "$ROOT/docs" | wc -l | tr -d ' ')
 want "per-run phrase in exactly 7 docs files" "7" "$PER_RUN_N"
-NX_N=$(grep -rlF --include='*.md' -- 'N×X' "$ROOT/docs" | wc -l)
+NX_N=$(grep -rlF --include='*.md' -- 'N×X' "$ROOT/docs" | wc -l | tr -d ' ')
 want "N×X note in exactly 7 docs files" "7" "$NX_N"
 
 echo ""
