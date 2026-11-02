@@ -16,6 +16,7 @@
 # OUTPUT still holds each literal.
 set -u
 HERE=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+ROOT=$(CDPATH= cd -- "$HERE/../.." && pwd)
 CLASS="$HERE/ticket-class.sh"
 FIX="$HERE/fixtures/glossary-carve-out"
 # shellcheck source=../../tests/lib/hermetic.sh
@@ -115,6 +116,24 @@ if want_ac; then
   else
     ok "AC1: verbatim XYZ-434/describer text is not in the repo (0 hits in fixtures/)"
   fi
+  NSURF=$(grep -icE 'curl|wget|https?|linear' "$CLASS")
+  if [ "$NSURF" = "0" ]; then
+    ok "AC1: no Linear fetch — executed surface sweep of ticket-class.sh for curl/wget/http/linear (case-insensitive): 0 hits"
+  else
+    bad "AC1 network surface" "$NSURF hit(s)"
+  fi
+  # Repo-wide verbatim sweep: the only legitimate XYZ-434 mentions are the AC
+  # bullet itself (specs/) and this receipt; anything else would be vendored
+  # ticket text.
+  XHITS=$(grep -rIl 'XYZ-434' "$ROOT" --exclude-dir=.git 2>/dev/null \
+    | grep -vF "$ROOT/specs/" \
+    | grep -vF "$ROOT/skills/orchestrate/ticket-class-test.sh" \
+    | wc -l)
+  if [ "$XHITS" = "0" ]; then
+    ok "AC1: Verbatim XYZ-434/describer text is not in the repo — executed repo-wide sweep of the worktree (grep -rIl XYZ-434, .git excluded): 0 hits outside the SPEC-009 bullet and this receipt"
+  else
+    bad "AC1 verbatim text repo-wide" "$XHITS file(s) outside specs/ and this receipt"
+  fi
 fi
 
 # --- AC2: carve is per occurrence, not per document -----------------------
@@ -172,6 +191,17 @@ if want_ac; then
   else
     bad "AC6 fixture structure" "missing ## Decisions / ## Terms headings"
   fi
+  # Live run: a non-hyphenated col-1 term is carved from nothing.
+  mk_gloss "$TMP/nonhyphen.md" "Widget"
+  run_class "$TMP/nonhyphen.md" "Widget launch"
+  NH1_RC=$RC; NH1=$OUT
+  run_class "$TMP/nonhyphen.md" "Widget session theft"
+  NH2_RC=$RC; NH2=$OUT
+  if [ "$NH1" = "none" ] && [ "$NH1_RC" = 0 ] && [ "$NH2" = "auth-secrets" ] && [ "$NH2_RC" = 0 ]; then
+    ok "AC6: non-hyphenated col-1 term is carved from nothing — live run [Widget launch] -> none (exit 0) and [Widget session theft] -> auth-secrets (the term masked no keyword)"
+  else
+    bad "AC6 non-hyphenated live run" "nh1=[$NH1] rc=$NH1_RC nh2=[$NH2] rc=$NH2_RC"
+  fi
 fi
 
 # --- AC7: fail-closed on every unparsable glossary -----------------------
@@ -187,6 +217,18 @@ if want_ac; then
   fail_closed "$TMP/rows.md" "empty col 1 and non-pipe row"
   fail_closed "$TMP/does-not-exist.md" "missing path"
   fail_closed "$TMP" "directory path"
+  # Dedicated no-glossary-file case: live run with no CONTEXT.md anywhere on
+  # the D1 paths (git-less scratch cwd, TICKET_CLASS_GLOSSARY unset).
+  NOG_DIR="$TMP/nogloss"
+  mkdir -p "$NOG_DIR"
+  OUT=$(cd "$NOG_DIR" && env -u TICKET_CLASS_GLOSSARY bash "$CLASS" --text "pin stays shared Same-session via preferences" 2>"$TMP/nogloss.err")
+  NG_RC=$?
+  NG_ERR=$(cat "$TMP/nogloss.err")
+  if [ "$NG_RC" = 0 ] && [ "$OUT" = "auth-secrets" ] && [ -z "$NG_ERR" ]; then
+    ok "AC7: no glossary file — live run with no CONTEXT.md on any D1 path: [pin stays shared Same-session via preferences] -> auth-secrets, exit 0, no carve line (carve-out absent, hit stands)"
+  else
+    bad "AC7 no glossary file" "rc=$NG_RC out=[$OUT] err=[$NG_ERR]"
+  fi
   printf '## Terms\n\n| Café-session | d | a |\n| Same-session | d | a |\n' > "$TMP/utf8.md"
   gcheck none "Same-session" "$TMP/utf8.md"
   if [ "$(id -u)" = "0" ]; then
@@ -195,6 +237,17 @@ if want_ac; then
     printf '## Terms\n\n| Same-session | d | a |\n' > "$TMP/mode000.md"
     chmod 000 "$TMP/mode000.md"
     fail_closed "$TMP/mode000.md" "mode 000 unreadable"
+    # Live scan-tool failure: the classifier's internal Terms-heading grep
+    # over the unreadable glossary exits 2 (rc>=2), and the run is still
+    # fail-closed (no carve-out, hit stands, exit 0, no stderr).
+    grep -Eq '^##[[:space:]]+Terms([[:space:]]|$)' "$TMP/mode000.md" 2>/dev/null
+    GRC=$?
+    run_class "$TMP/mode000.md" "pin stays shared Same-session via preferences"
+    if [ "$GRC" -eq 2 ] && [ "$RC" -eq 0 ] && [ "$OUT" = "auth-secrets" ] && [ -z "$ERR" ]; then
+      ok "AC7: Scan-tool failure (grep rc>=2) → no carve-out, hit stands — executed: the Terms-heading grep over the mode-000 glossary exits 2 and the live run prints auth-secrets with exit 0 and empty stderr"
+    else
+      bad "AC7 scan-tool failure" "grc=$GRC rc=$RC out=[$OUT] err=[$ERR]"
+    fi
     chmod 644 "$TMP/mode000.md"
   fi
   # The scan-tool rc>=2 branch cannot be forced through the CLI (no injectable
