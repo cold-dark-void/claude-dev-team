@@ -189,7 +189,9 @@ and `{{MEMORY_BATCH}}` with that stripped JSON. Spawn a Task subagent
 — the six command-enforced validation rules below catch malformed output.
 
 Spawn all extraction batches in parallel (all Task calls in one tool-use
-block).
+block), capped by the `concurrency` key of the local Model map
+(`.claude/dev-team/models.local.json`; resolve via the `model-map` skill).
+Spawn the next wave only when a slot frees. Do not exceed the cap.
 
 ### Step 3.3: Validate extraction results
 
@@ -390,7 +392,9 @@ section "Investigator Prompt Template".
    (`subagent_type: "general-purpose"`,
    `model: haiku`). Cheap tier is safe here — malformed/missing verdicts
    default to `AMBIGUOUS` conf 50 rather than being trusted blindly.
-4. Spawn all investigation batches in parallel.
+4. Spawn all investigation batches in parallel, in waves capped by the
+   `concurrency` key of the local Model map
+   (`.claude/dev-team/models.local.json`; resolve via the `model-map` skill).
 5. Apply that table's run cap and overflow handling: claims beyond the cap are
    skipped — their parent memories are excluded from scoring and deferred to the
    next run (do NOT set `validated_at`, so they retain highest processing

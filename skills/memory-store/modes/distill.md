@@ -293,6 +293,11 @@ For each target agent, spawn the @distiller agent with:
 If the user has configured a `distill_model` other than the default, pass it as
 the model override when spawning the agent.
 
+**Concurrency cap:** spawn in waves capped by the `concurrency` key of the
+local Model map (`.claude/dev-team/models.local.json`; resolve via the
+`model-map` skill). Do not exceed that cap — excess subagents queue with zero
+progress and are lost if the session restarts.
+
 The @distiller processes all batches for one agent, prints its summary line
 (`@<agent>: N raw -> M digests, P promoted to core`), then the command moves
 to the next agent.

@@ -4,6 +4,11 @@ All notable changes to **claude-dev-team**, newest first.
 Authoritative version history. Prefer **`/release`** to add `### vX.Y.Z` headings.
 Pre-written headings (release-train M5c, orchestrate version-sync tasks) are kept
 via skip-if-present when `/release` is given an explicit version — do not invent a
+### v1.28.8
+
+- **Subagent spawn waves capped by the configured concurrency (CDT-111 class)** — `/memory distill` and `/memory validate` spawned their full claim-extractor / investigator batches in one parallel wave; with `.claude/dev-team/models.local.json` `concurrency: 4` the excess subagents sat queued at 0 tool calls and a session restart orphaned them (a full distill run lost its first 10-extractor wave). `skills/memory-store/modes/distill.md` Step 7 and `skills/validate-memory/host-pipeline.md` Steps 3.2/4b now instruct waves capped at the local Model map's `concurrency` key (resolve via the `model-map` skill), with the next wave starting only as slots free.
+- Patch: guidance text in two existing skill files — no new Surface, no new `commands/*.md`, no default-behavior change.
+
 ### v1.28.7
 
 - **Sweep `--ship=auto` tiering lands the ship-gate bump classifier (SPEC-041)** — `skills/backlog/sweep.sh` accepts `--ship=auto`: `parse-flags` extends the ship enum to `pr|master|patch|minor|major|auto` and `compile-ship --ship=auto` prints `--autopilot=auto` (every legacy value compiles byte-identical; unknown and empty values still exit 64; the attended default stays — no `--ship` means the per-ticket ship question). `--autopilot=auto` rides the existing BC5 reroute on `/orchestrate`, `/kickoff`, and `/epic`, persists `release_bump: auto` through the epic worktree path, and no decision card ever carries `bump: auto` (append-card rejects it, rc 64). Token and card surfaces: `skills/autopilot/test-auto-token.sh` 33/0.
