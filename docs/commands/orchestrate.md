@@ -7,7 +7,7 @@ End-to-end issue orchestrator. Fetches issue context, creates a worktree, spawns
 ```
 /orchestrate <ISSUE-ID>
 /orchestrate
-/orchestrate <ISSUE-ID> --autopilot=<patch|minor|major|master> --tier=light
+/orchestrate <ISSUE-ID> --autopilot=<auto|patch|minor|major|master> --tier=light
 /orchestrate --resume-ship[=<patch|minor|major|master>]
 /orchestrate <ISSUE-ID> --concurrency 4
 ```
@@ -17,7 +17,7 @@ End-to-end issue orchestrator. Fetches issue context, creates a worktree, spawns
 | Flag / Argument | Description |
 |-----------------|-------------|
 | `<ISSUE-ID>` | Linear ticket ID (e.g. `CDV-42`) **or** local backlog slug. Omit to be prompted. |
-| `[--autopilot[=<token>]]` | Optional. Enable autopilot for this run (CDT-111-C4 / SPEC-033); bare flag or `AUTOPILOT=1` env = enabled with no ship-intent token. `--autopilot=<patch\|minor\|major>` = release ship intent; `--autopilot=master` = **land-no-release** (token spelling only — land target is worktree baseline / origin default, not necessarily a branch named `master`). Flag wins over env. |
+| `[--autopilot[=<token>]]` | Optional. Enable autopilot for this run (CDT-111-C4 / SPEC-033); bare flag or `AUTOPILOT=1` env = enabled with no ship-intent token. `--autopilot=<patch\|minor\|major>` = release ship intent; `--autopilot=master` = **land-no-release** (token spelling only — land target is worktree baseline / origin default, not necessarily a branch named `master`); `--autopilot=auto` = the ship gate decides the bump per item from the baseline diff (SPEC-041). Flag wins over env. |
 | `[--tier=<light\|standard\|full>]` | Pipeline cost tier (CDT-206 / SPEC-009). `standard` / `full` = current Step 0–12 pipeline. `light` = scoper-planner, skip DAG, one IC4, single-pass TL, no council default, wrap-lite. No `--tier`: Step 2 auto-sizes S→light, M→standard, L→full (cheap signals, no extra spawn) in the existing scope-confirm gate; explicit `--tier` wins. Independent of `--council-tier`. |
 | `[--council-tier=<skip\|light\|full>]` | DRI council-pipeline override (CDT-126 / SPEC-013). Independent of `--tier`. |
 | `[--max-loc=<n\|unbound>]` | Per-run DRI LOC-cap override (CDT-223 / SPEC-033 AC8). `=` form only. No env. `n` = BC4 per-PR hard cap + M10.1 (raise or tighten). `unbound` = BC4 + M10.1 off. Per-file 1000 unchanged unless `unbound`. Independent of `--tier` / `--council-tier`. |

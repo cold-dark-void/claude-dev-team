@@ -5,7 +5,7 @@
 # THIS SCRIPT IS A SUBPROCESS CLI — NEVER SOURCE IT (SPEC-040 M2).
 #
 # Usage:
-#   sweep.sh compile-ship --ship=<pr|master|patch|minor|major>
+#   sweep.sh compile-ship --ship=<pr|master|patch|minor|major|auto>
 #   sweep.sh compile-orchestrate-args --size <S|M|L> [--council-tier <skip|light|full>] [--ship <val>]
 #   sweep.sh last-release-tag [--root PATH]
 #   sweep.sh tag-date --root PATH --tag TAG
@@ -122,7 +122,7 @@ SHIP_HIST_SH="$SCRIPT_DIR/../release/check-ship-history.sh"
 TS_SH="$SCRIPT_DIR/terminal-status.sh"
 
 USAGE='Usage: sweep.sh <verb> [options]
-  compile-ship --ship=<pr|master|patch|minor|major>
+  compile-ship --ship=<pr|master|patch|minor|major|auto>
   compile-orchestrate-args --size <S|M|L> [--council-tier <skip|light|full>] [--ship <val>]
   last-release-tag [--root PATH]
   tag-date --root PATH --tag TAG
@@ -223,7 +223,7 @@ load_is_release_tag() {
 
 validate_ship() {
   case "$1" in
-    pr|master|patch|minor|major) return 0 ;;
+    pr|master|patch|minor|major|auto) return 0 ;;
   esac
   return 1
 }
@@ -304,7 +304,7 @@ cmd_compile_ship() {
     esac
   done
   [ -n "$ship" ] || usage_err "compile-ship: --ship is required"
-  ship_argv "$ship" || usage_err "invalid --ship '$ship' (expected pr|master|patch|minor|major)"
+  ship_argv "$ship" || usage_err "invalid --ship '$ship' (expected pr|master|patch|minor|major|auto)"
   printf '\n'
 }
 
@@ -345,7 +345,7 @@ cmd_compile_orchestrate_args() {
   if [ "$have_ship" -eq 1 ] && [ -n "$ship" ]; then
     reject_ctrl "$ship" --ship
     ap=$(ship_argv "$ship") \
-      || usage_err "invalid --ship '$ship' (expected pr|master|patch|minor|major)"
+      || usage_err "invalid --ship '$ship' (expected pr|master|patch|minor|major|auto)"
     if [ -n "$ap" ]; then
       out+=("$ap")
     fi
@@ -989,7 +989,7 @@ cmd_parse_flags() {
   fi
   if [ "$n_ship" -eq 1 ]; then
     reject_ctrl "$ship" --ship
-    validate_ship "$ship" || usage_err "invalid --ship '$ship' (expected pr|master|patch|minor|major)"
+    validate_ship "$ship" || usage_err "invalid --ship '$ship' (expected pr|master|patch|minor|major|auto)"
   fi
   reject_ctrl "$limit" --limit
   case "$limit" in

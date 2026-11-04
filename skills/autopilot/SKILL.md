@@ -38,11 +38,15 @@ than guessing (SPEC-033 M6/M7). It never proceeds past a hard block on its own.
 
 - **Opt-in, default off.** Inactive unless requested via the `--autopilot` argument
   or `AUTOPILOT=1` in the environment. Inactive ⇒ gates fully human-interactive.
-- **Ship-intent tokens: borrowed release bumps + one land-no-release sentinel (M2 /
-  CDT-195).** `--autopilot=<token>` MAY carry either:
+- **Ship-intent tokens: borrowed release bumps, one land-no-release sentinel,
+  and the auto tier (M2 / CDT-195 / SPEC-041 M1).** `--autopilot=<token>` MAY carry any of:
   1. a `/release` bump token (`patch` | `minor` | `major`) — **release** ship intent; or
   2. the non-release ship-intent sentinel `master` — **land-no-release** (squash-land onto
-     the worktree baseline with **no** `/release`).
+     the worktree baseline with **no** `/release`); or
+  3. the auto tier token `auto` — the ship gate decides this item's concrete bump at the
+     gate (`skills/autopilot/classify.md`, SPEC-041 M5). Flag-only like `master`; env
+     NEVER carries it. Cards record the decided concrete bump — `auto` never appears in
+     a `bump` field (SPEC-041 M3).
   For (1), autopilot treats the token as a *reference* to the `/release` vocabulary and
   MUST NOT redefine those bump semantics. For (2), `master` is a **flag-only ship-intent
   sentinel**, not a `/release` version: the decision-card records `bump:"master"`; the CLI
@@ -135,9 +139,14 @@ deterministic push-target check + squash-stage, then **release** via `/release` 
 **land-no-release** without `/release`), gated behind `--autopilot=<token>` (N3/N3a).
 
 One ordered pipeline: `skills/autopilot/ship-pipeline.md` composes the clean
-ship-choice path — Stage 1 decide (`self-answer.md`) → Stage 2 audit
+ship-choice path — Stage 0 classify (`classify.md`, `--autopilot=auto` only,
+SPEC-041 M5–M11) → Stage 1 decide (`self-answer.md`) → Stage 2 audit
 (`ship-gate-council.md`) → Stage 3 execute (`end-state.md`). Read it instead of
-wiring the three by hand; it cites, it does not fork.
+wiring the stages by hand; it cites, it does not fork. Under `auto` the gate
+order is fixed: the in-session two-stage classifier (deterministic Surface veto
+after the LLM; output `{patch, minor, halt}` — never `major`) runs **before**
+the ship-choice stages, and its decided bump — not `auto` — is the
+`autopilot_bump` those stages see.
 
 **Grok nest (SPEC-033 M14(l) / CDT-512-C6).** Cite, do not fork. On Grok at
 `nest_depth>=1`, Stage 2 defers: `needs-parent-M14`, no BC7, no resume-ship y.

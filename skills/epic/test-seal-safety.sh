@@ -583,6 +583,106 @@ mk_ready_epic() {
   fi
 }
 
+# ============================================================================
+# SPEC-041 M4: a BC5 reroute under --autopilot=auto persists release_bump:auto
+# in durable epic state. Seal-intent invariants unchanged: worktree required,
+# resume does not persist, mid-epic /release stays forbidden, and the seal
+# stays bump-agnostic (each child decides its concrete bump at its own gate).
+# ============================================================================
+{
+  # S-1: init --release-bump auto persists release_bump:"auto" + worktree true.
+  mk_repo || true
+  if [ -n "${REPO:-}" ]; then
+    EPIC_ID="EPIC-$$-$RANDOM"
+    seal_run "$REPO" init "$EPIC_ID" --title t --mode orchestrate \
+      --worktree-enabled true --release-bump auto
+    [ "$RC" -eq 0 ] && pass || fail "S-1 init --release-bump auto rc=$RC out=$OUT"
+    jq -e '.release_bump == "auto" and .worktree_enabled == true' \
+      "$REPO/.claude/epics/$EPIC_ID/state.json" >/dev/null 2>&1 \
+      && pass || fail "S-1 state must record release_bump:\"auto\" (state=$(cat "$REPO/.claude/epics/$EPIC_ID/state.json" 2>/dev/null))"
+
+    # S-2: seal-intent invariant holds under auto: mid-epic /release forbidden.
+    seal_run "$REPO" assert-release-allowed "$EPIC_ID"
+    [ "$RC" -eq 64 ] && pass || fail "S-2 assert-release-allowed must refuse mid-epic under auto (rc=$RC out=$OUT)"
+
+    # S-3: the seal path is bump-agnostic — it passes the stored auto through;
+    # the concrete bump is decided per child at its own ship gate (OQ5).
+    seal_run "$REPO" seal-ready "$EPIC_ID"
+    [ "$RC" -eq 0 ] && pass || fail "S-3 seal-ready rc=$RC out=$OUT"
+    printf '%s' "$OUT" | jq -e '.release_bump == "auto"' >/dev/null 2>&1 \
+      && pass || fail "S-3 seal-ready must pass release_bump:auto through (out=$OUT)"
+    rm -rf "$REPO"
+  fi
+
+  # S-4: --release-bump auto still requires --worktree-enabled true
+  # (seal-intent invariant), zero side effects on the refusal.
+  mk_repo || true
+  if [ -n "${REPO:-}" ]; then
+    EPIC_ID="EPIC-$$-$RANDOM"
+    seal_run "$REPO" init "$EPIC_ID" --title t --mode orchestrate --release-bump auto
+    [ "$RC" -eq 64 ] && pass || fail "S-4 auto without worktree rc=$RC (want 64) out=$OUT"
+    [ ! -f "$REPO/.claude/epics/$EPIC_ID/state.json" ] && pass || fail "S-4 state written on refused init"
+    rm -rf "$REPO"
+  fi
+
+  # S-5: resume does not persist seal-intent (rv-w2-34, unchanged for auto):
+  # a stub autopilot parser reporting bump=auto over a null durable
+  # release_bump exits 64; over a stored auto it honors the store.
+  S5_ROOT=$(mktemp -d "${TMPDIR:-/tmp}/seal-s5.XXXXXX")
+  printf '%s\n' '{"enabled":true,"bump":"auto","source":"flag"}' >"$S5_ROOT/ap.json"
+  printf '#!/usr/bin/env bash\ncat "%s/ap.json"\n' "$S5_ROOT" >"$S5_ROOT/ap-stub.sh"
+  s5_run() { # s5_run <epic> -> OUT/RC from resolve-resume-flags with the stub parser
+    OUT=$(cd "$S5_ROOT" && EPIC_ROOT="$S5_ROOT" EPIC_TEST_MODE=1 \
+      EPIC_AUTOPILOT_PARSE_FLAGS="$S5_ROOT/ap-stub.sh" \
+      bash "$LIB" resolve-resume-flags "$1" -- "$1" 2>&1)
+    RC=$?
+  }
+  seal_run "$S5_ROOT" init S5-NULL --title t --mode orchestrate
+  [ "$RC" -eq 0 ] || fail "S-5 null-state init rc=$RC out=$OUT"
+  seal_run "$S5_ROOT" init S5-AUTO --title t --mode orchestrate \
+    --worktree-enabled true --release-bump auto
+  [ "$RC" -eq 0 ] || fail "S-5 auto-state init rc=$RC out=$OUT"
+  s5_run S5-NULL
+  [ "$RC" -eq 64 ] && pass || fail "S-5 resume auto over null release_bump rc=$RC (want 64) out=$OUT"
+  printf '%s\n' "$OUT" | grep -q 'release_bump: auto' \
+    && pass || fail "S-5 auto refusal must not recommend --release auto (out=$OUT)"
+  s5_run S5-AUTO
+  [ "$RC" -eq 0 ] && pass || fail "S-5 resume over stored auto rc=$RC out=$OUT"
+  printf '%s' "$OUT" | jq -e '.release_bump == "auto"' >/dev/null 2>&1 \
+    && pass || fail "S-5 stored auto must win on resume (out=$OUT)"
+
+  # S-6: the BC5 reroute shape (SPEC-041 M4) — the reroute is a NEW decompose
+  # under auto, not a resume: the new epic persists release_bump:"auto", and
+  # the pre-reroute epic's durable state stays untouched (release_bump null).
+  mk_repo || true
+  if [ -n "${REPO:-}" ]; then
+    EPIC_ID="EPIC-$$-$RANDOM"
+    seal_run "$REPO" init "$EPIC_ID" --title t --mode orchestrate
+    [ "$RC" -eq 0 ] || fail "S-6 pre-reroute epic init rc=$RC out=$OUT"
+    seal_run "$REPO" init "${EPIC_ID}-R" --title t --mode orchestrate \
+      --worktree-enabled true --release-bump auto
+    [ "$RC" -eq 0 ] && pass || fail "S-6 BC5-reroute decompose rc=$RC out=$OUT"
+    jq -e '.release_bump == "auto" and .worktree_enabled == true' \
+      "$REPO/.claude/epics/${EPIC_ID}-R/state.json" >/dev/null 2>&1 \
+      && pass || fail "S-6 rerouted epic must persist release_bump:\"auto\" (state=$(cat "$REPO/.claude/epics/${EPIC_ID}-R/state.json" 2>/dev/null))"
+    jq -e '.release_bump == null' "$REPO/.claude/epics/$EPIC_ID/state.json" >/dev/null 2>&1 \
+      && pass || fail "S-6 pre-reroute epic release_bump changed (state=$(cat "$REPO/.claude/epics/$EPIC_ID/state.json" 2>/dev/null))"
+    rm -rf "$REPO"
+  fi
+
+  # S-7: the auto token flows through the REAL parse-flags on the epic resume
+  # path (no stub override — skills/autopilot/parse-flags.sh owns the grammar).
+  OUT=$(cd "$S5_ROOT" && EPIC_ROOT="$S5_ROOT" EPIC_TEST_MODE=1 \
+    bash "$LIB" resolve-resume-flags S5-AUTO -- S5-AUTO --autopilot=auto 2>&1)
+  RC=$?
+  if [ "$RC" -eq 0 ] && printf '%s' "$OUT" | jq -e '.release_bump == "auto"' >/dev/null 2>&1; then
+    pass "S-7 real parse-flags: --autopilot=auto resolves on the epic resume path"
+  else
+    fail "S-7 real parse-flags rc=$RC out=$OUT"
+  fi
+  rm -rf "$S5_ROOT"
+}
+
 echo "----------------------------------------"
 echo "PASS=$PASS FAIL=$FAIL"
 [ "$FAIL" -eq 0 ]

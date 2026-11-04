@@ -28,7 +28,7 @@ Usage: bash skills/epic/epic-lib.sh <cmd> …
 
 Commands:
   init <EPIC-ID> --title T --mode kickoff|orchestrate
-       [--worktree-enabled true|false] [--release-bump patch|minor|major]
+       [--worktree-enabled true|false] [--release-bump patch|minor|major|auto]
   add-child <EPIC-ID> --id ID --slug S --title T --estimate S|M|L
             --agent ic4|ic5 --depends-on '["…"]'
             [--linear-id L] [--problem P] [--ac '["…"]']
@@ -235,8 +235,10 @@ cmd_init() {
         rel_set=true
         rel_bump="${2:-}"; shift 2 || die 64 "init: --release-bump needs value"
         case "$rel_bump" in
-          patch|minor|major) ;;
-          *) die 64 "init: --release-bump must be patch|minor|major" ;;
+          # auto (SPEC-041): BC5 reroute seal-intent — children decide their
+          # concrete bump at their own ship gates.
+          patch|minor|major|auto) ;;
+          *) die 64 "init: --release-bump must be patch|minor|major|auto" ;;
         esac
         ;;
       -*)
@@ -647,7 +649,7 @@ cmd_resolve_resume_flags() {
   #   (worktree_enabled // false, release_bump // null). No silent downgrade.
   # - M14 flags present → must match state exactly or exit 64 (zero side effects).
   # - Always re-parses via parse-flags first (illegal combos still 64).
-  # - --autopilot=patch|minor|major over a null durable release_bump → exit 64
+  # - --autopilot=patch|minor|major|auto over a null durable release_bump → exit 64
   #   (rv-w2-34: resume has no init, so seal-intent cannot be persisted here).
   # Stdout: same JSON as parse-flags.sh.
   local epic_id="${1:-}"
@@ -688,6 +690,8 @@ cmd_resolve_resume_flags() {
   # ap_bump: the release bump of --autopilot=<bump>, read from the autopilot
   # parser (skills/autopilot/parse-flags.sh owns the token grammar; nothing here
   # restates it). null (no token) and `master` (land-no-release) are not a bump.
+  # `auto` (SPEC-041) IS a seal-intent bump: it persists like patch|minor|major;
+  # each child decides its concrete bump at its own ship gate.
   local ap_parse
   ap_parse=$(_test_path_override EPIC_AUTOPILOT_PARSE_FLAGS "$HERE/../autopilot/parse-flags.sh")
   [ -f "$ap_parse" ] || die 1 "resolve-resume-flags: autopilot parse-flags not found: $ap_parse"
@@ -718,6 +722,12 @@ cmd_resolve_resume_flags() {
   # assert-release-allowed would still allow a mid-epic land). Fail instead;
   # zero side effects (C6 policy).
   if [ -n "$ap_bump" ] && [ "$sr" = "null" ]; then
+    # `--release auto` is not a legal SPEC-025 flag, so the auto guidance must
+    # not recommend it — the seal-intent route for auto is a new-decompose BC5
+    # reroute carrying --autopilot=auto.
+    if [ "$ap_bump" = "auto" ]; then
+      die 64 "resume --autopilot=auto: state release_bump is null, so the bump cannot be seal-intent on resume (no session-only release_bump). Resume with bare --autopilot or --autopilot=master, or start a new epic with --autopilot=auto (a BC5 reroute on a new decompose persists release_bump: auto)"
+    fi
     die 64 "resume --autopilot=$ap_bump: state release_bump is null, so the bump cannot be seal-intent on resume (no session-only release_bump). Resume with bare --autopilot or --autopilot=master, or start a new epic with --worktree --release $ap_bump"
   fi
 

@@ -33,7 +33,9 @@
 #
 # Bump vocabulary: /release tokens {patch,minor,major} plus land-no-release
 # sentinel master (SPEC-033 M2 / CDT-195). master is flag-only ship intent —
-# never a /release version; env NEVER carries it.
+# never a /release version; env NEVER carries it. SPEC-041 M1 adds the
+# ship-intent token auto: the ship gate decides the concrete bump per item;
+# like master, auto is flag-only and env NEVER carries it.
 #
 # --council-tier=<skip|light|full> — CDT-126, SPEC-013 § Council tiering.
 # DRI-only override, per-run, never auto-selected, no env-var equivalent
@@ -75,7 +77,7 @@
 #
 # Exit codes:
 #   0   parsed OK (enabled true or false)
-#  64   malformed --autopilot=<bump> (bump not in {patch,minor,major,master}, incl. empty --autopilot=)
+#  64   malformed --autopilot=<bump> (bump not in {patch,minor,major,master,auto}, incl. empty --autopilot=)
 #       or malformed --council-tier (value not in {skip,light,full}, incl. bare/empty)
 #       or malformed --tier (value not in {light,standard,full}, incl. bare/empty/duplicate)
 #       or malformed --max-loc (not a positive integer or unbound, incl. bare/empty)
@@ -196,13 +198,13 @@ done
 if [ "$FLAG_SEEN" = true ]; then
   if [ "$FLAG_HAS_EQ" = true ]; then
     case "$FLAG_BUMP" in
-      patch|minor|major|master)
+      patch|minor|major|master|auto)
         ENABLED=true
         BUMP="$FLAG_BUMP"
         SOURCE="flag"
         ;;
       *)
-        die "--autopilot=$FLAG_BUMP: bump must be one of patch, minor, major, master"
+        die "--autopilot=$FLAG_BUMP: bump must be one of patch, minor, major, master, auto"
         ;;
     esac
   else

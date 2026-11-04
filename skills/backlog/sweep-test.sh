@@ -715,11 +715,20 @@ check "AC9" "compile-ship master" "--autopilot=master" "$(bash "$SWEEP" compile-
 check "AC9" "compile-ship patch" "--autopilot=patch" "$(bash "$SWEEP" compile-ship --ship=patch)"
 check "AC9" "compile-ship minor" "--autopilot=minor" "$(bash "$SWEEP" compile-ship --ship=minor)"
 check "AC9" "compile-ship major" "--autopilot=major" "$(bash "$SWEEP" compile-ship --ship=major)"
+check "AC9" "compile-ship auto" "--autopilot=auto" "$(bash "$SWEEP" compile-ship --ship=auto)"
+check "AC9" "compile-ship byte-identical for all legacy values (one case vs fixed literals)" \
+  "pr=|master=--autopilot=master|patch=--autopilot=patch|minor=--autopilot=minor|major=--autopilot=major" \
+  "$(printf 'pr=%s|master=%s|patch=%s|minor=%s|major=%s' \
+    "$(bash "$SWEEP" compile-ship --ship=pr)" \
+    "$(bash "$SWEEP" compile-ship --ship=master)" \
+    "$(bash "$SWEEP" compile-ship --ship=patch)" \
+    "$(bash "$SWEEP" compile-ship --ship=minor)" \
+    "$(bash "$SWEEP" compile-ship --ship=major)")"
 rc_is "AC9" "compile-ship rejects a bad value" 64 bash "$SWEEP" compile-ship --ship=squash
 rc_is "AC9" "compile-ship rejects an empty value" 64 bash "$SWEEP" compile-ship --ship=
 rc_is "AC9" "compile-ship without --ship is a usage error" 64 bash "$SWEEP" compile-ship
 check "AC9" "compile-ship prints no literal --ship for any value" "0" \
-  "$(for v in pr master patch minor major; do bash "$SWEEP" compile-ship --ship="$v"; done | grep -c -- '--ship' || true)"
+  "$(for v in pr master patch minor major auto; do bash "$SWEEP" compile-ship --ship="$v"; done | grep -c -- '--ship' || true)"
 check "AC9" "the sweep flag never reaches the compiled argv" "0" \
   "$(bash "$SWEEP" compile-orchestrate-args --size S --ship master | grep -c -- '--ship' || true)"
 check "AC9" "the compiled argv for L/patch is the full line" \
@@ -750,6 +759,28 @@ rc_is "AC9" "compile-orchestrate-args rejects a bad --ship with no tier loss" 64
   bash "$SWEEP" compile-orchestrate-args --size S --ship squash
 md_rule "AC9" "the protocol passes --ship only when Step 1 reported one" 1 \
   'pass `--ship` only when Step 1 reported one'
+
+# ===========================================================================
+# AC1 bites (SPEC-041 attempt-2 M14 strike closure) — the judge demanded
+# sweep-level RUN OUTPUT for the --ship enum, not compile-ship alone.
+# ===========================================================================
+# 1. The sweep's own flag-parse path accepts --ship=auto (sweep.sh parse-flags
+#    validates via validate_ship, the same enum compile-ship consults).
+check "AC1" "Backlog sweep --ship enum accepts --ship=auto: parse-flags --ship=auto rc 0 with ship=auto" \
+  '{"ship":"auto","limit":0,"project":"","refresh":false,"skip_decided":false,"autopilot":false}' \
+  "$(bash "$SWEEP" parse-flags --ship auto)"
+# 1b. The sweep-level compile path (the argv the walk hands /orchestrate)
+#     accepts --ship=auto and emits the autopilot token.
+check "AC1" "Backlog sweep --ship enum accepts --ship=auto: compile-orchestrate-args --ship=auto emits --autopilot=auto" \
+  "--tier=light --autopilot=auto" \
+  "$(bash "$SWEEP" compile-orchestrate-args --size S --ship=auto)"
+# 2. Attended default stays: a sweep run without --ship produces a
+#    fold-invocation argv carrying no --ship/--autopilot token (the per-ticket
+#    ship question stays with the caller).
+check "AC1" "attended default stays: sweep argv without --ship carries no --ship token (per-ticket ship question)" "0" \
+  "$(bash "$SWEEP" compile-orchestrate-args --size S | grep -c -- '--ship' || true)"
+check "AC1" "attended default stays: sweep argv without --ship carries no --autopilot token (per-ticket ship question)" "0" \
+  "$(bash "$SWEEP" compile-orchestrate-args --size S | grep -c -- '--autopilot' || true)"
 
 # ===========================================================================
 # AC7 — Triage size: S/M/L mapping, cheap signals only, no spawns

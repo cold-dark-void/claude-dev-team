@@ -42,7 +42,7 @@ Full protocol: `skills/epic/SKILL.md`. CLI: `bash skills/epic/epic-lib.sh`.
 | `sync [--dry-run]` | Refresh existing `state.json` from Linear (M15) when stale — fill null `linear_id`/project, pull status forward, never re-open `completed`; orphans report-only. Illegal with `--worktree`/`--release`. |
 | `--worktree` | (decompose/execute/resume/`--redecompose` only) Integration-worktree mode (SPEC-025 M14). Bare boolean only. Ensures one `$MROOT/.worktrees/epic-<ID>` tree; all children share it. Resume omit → honor store. Illegal on `status`/`complete`/`block`/`unblock`/`sync`. |
 | `--release <bump>` | (with `--worktree` only) End-of-epic release intent; `<bump>` ∈ {patch,minor,major}. Space form canonical; `--release=<bump>` alias. After last child: seal once → one `/release <bump>` → `sealed=true`. Without this flag: no epic seal. |
-| `--autopilot[=<token>]` | (decompose/resume) Self-answer A.5 and B.3 (SPEC-033). `<token>` ∈ {patch,minor,major,master}. A release bump is seal-intent: on a new decompose it persists `release_bump` and sets `worktree_enabled` when `--release` did not. `master` does not set `release_bump`. Resume with a bump token over a null `release_bump` exits 64. |
+| `--autopilot[=<token>]` | (decompose/resume) Self-answer A.5 and B.3 (SPEC-033). `<token>` ∈ {patch,minor,major,master,auto}. A release bump is seal-intent: on a new decompose it persists `release_bump` and sets `worktree_enabled` when `--release` did not. `master` does not set `release_bump`. `auto` is also seal-intent: it persists `release_bump: auto` and each child's ship gate decides its concrete bump (SPEC-041). Resume with a bump token over a null `release_bump` exits 64. |
 | `--no-context-discipline` | Debug opt-out of Mode B between-child context discipline (default on). Also `EPIC_NO_CONTEXT_DISCIPLINE=1`. |
 
 ### Hard-fail rules (exit 64, zero side effects)
@@ -77,6 +77,8 @@ mechanical subcommands, not `/epic` flags.)
    it as `release_bump` (with `worktree_enabled=true`) when `--release` did not.
    On resume, a bump token over a null `release_bump` exits 64 (resume has no
    init to persist it). `--autopilot=master` never sets `release_bump`.
+   `--autopilot=auto` is also seal-intent: it persists `release_bump: auto`
+   and each child's ship gate decides its concrete bump (SPEC-041).
 3. **Mid-epic forbid (`release_bump` set):** when `release_bump` set and not sealed,
    `/release` and master-merge hard-fail (exit 64) until seal. When
    `release_bump` is null/absent, `/release` Step 0 prints a warn-only

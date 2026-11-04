@@ -34,7 +34,7 @@ delivery.
 
 | Flag | Effect |
 |------|--------|
-| `--ship=<pr\|master\|patch\|minor\|major>` | Compiled to `/orchestrate` autopilot argv; sweep `--autopilot` defaults it to `master`; omitted = attended, so the walk runs with no autopilot flag |
+| `--ship=<pr\|master\|patch\|minor\|major\|auto>` | Compiled to `/orchestrate` autopilot argv; sweep `--autopilot` defaults it to `master`; omitted = attended, so the walk runs with no autopilot flag. `auto` = the ship gate decides the bump per item (SPEC-041) |
 | `--limit <N>` | Bounds code-bearing `/orchestrate` runs only; the purge stays full; the items the bound truncates are `SKIP`-counted |
 | `--project <X>` | Filters the Linear query only |
 | `--refresh` | Re-judge every item; ignore the journal |

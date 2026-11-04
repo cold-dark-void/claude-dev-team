@@ -103,9 +103,10 @@ Phase 2 (spec text only): MERGE + EPIC + BC5 mid-flight reroute.
   (S then M then L). Within a size bucket: Linear priority 1, 2, 3, 4,
   then 0 (None); local-only items last, `Added:` ascending.
 - **M17 — `--ship` compile.** Sweep flag
-  `--ship=<pr|master|patch|minor|major>` compiles to orchestrate argv:
+  `--ship=<pr|master|patch|minor|major|auto>` compiles to orchestrate argv:
   `pr` → no autopilot flag (attended Step-11 gate); `master` →
-  `--autopilot=master`; `patch|minor|major` → `--autopilot=<bump>`.
+  `--autopilot=master`; `patch|minor|major` → `--autopilot=<bump>`;
+  `auto` → `--autopilot=auto` (ship-gate bump classifier, SPEC-041).
   Attended default: no `--ship` (per-ticket gate). Sweep `--autopilot`
   default `--ship` is `master`. Sweep MUST NOT pass literal `--ship` to
   `/orchestrate`. Orchestrate arg contract is unchanged (SPEC-009 / SPEC-033).
@@ -232,6 +233,7 @@ Phase 2 (spec text only): MERGE + EPIC + BC5 mid-flight reroute.
 
 | Date | Change |
 |------|--------|
+| 2026-11-03 | M17/AC9 amendment: `auto` joins the `--ship` enum, compiling to `--autopilot=auto` (SPEC-041). |
 | 2026-10-23 | Fold old AC17 into AC1 and old AC18 into AC3 (M14(j) claim budget ≤16). |
 | 2026-10-23 | Register `tag-date` and `walk-outcome` helper verbs (CDT-582). |
 | 2026-10-22 | Initial ACTIVE (CDT-582). Phase 1 Backlog sweep: sidecar protocol, Purge pre-pass, CLOSE/ASK/ORCHESTRATE/DEFER, journal, `--ship` compile. Phase 2 MERGE/EPIC/BC5 spec text only. |
@@ -260,7 +262,7 @@ Format and rules: SPEC-033 M14(g) and M14(h).
   Verify: bash skills/backlog/sweep-test.sh
 - **AC8.** Walk is strict serial; size ascending; Linear priority within size (client-side sort); local-only items last within a bucket by Added date ascending.
   Verify: bash skills/backlog/sweep-test.sh
-- **AC9.** Sweep flag `--ship=<pr|master|patch|minor|major>` compiles: `pr` to no autopilot flag; `master` to `--autopilot=master`; `patch|minor|major` to `--autopilot=<bump>`; attended default is the per-ticket gate; sweep `--autopilot` default `--ship` is `master`; sweep does not pass literal `--ship` to `/orchestrate`.
+- **AC9.** Sweep flag `--ship=<pr|master|patch|minor|major|auto>` compiles: `pr` to no autopilot flag; `master` to `--autopilot=master`; `patch|minor|major` to `--autopilot=<bump>`; `auto` to `--autopilot=auto` (SPEC-041); attended default is the per-ticket gate; sweep `--autopilot` default `--ship` is `master`; sweep does not pass literal `--ship` to `/orchestrate`.
   Verify: bash skills/backlog/sweep-test.sh
 - **AC10.** Local `epic_parent` frontmatter or a non-empty Linear `parentId` yields SKIP (no triage, no journal record, counted in the summary).
   Verify: bash skills/backlog/sweep-test.sh

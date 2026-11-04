@@ -14,6 +14,9 @@
 # THIS SCRIPT IS A SUBPROCESS CLI — NEVER SOURCE IT.
 set -euo pipefail
 
+HERE=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+DETECT="$HERE/detect-surfaces.sh"
+
 usage() {
   cat >&2 <<'EOF'
 Usage: check-bump-class.sh [--cached] [--against REF] [--commit REV] [--range BASE..TIP]
@@ -250,12 +253,9 @@ if [ "$MODE" = "range" ]; then
   exit 0
 fi
 
-# True if p is a new top-level command surface: commands/<name>.md (not
-# commands/<sub>/<name>.md — nested paths are not a new Surface).
-is_surface_path() {
-  [[ "$1" =~ ^commands/[^/]+\.md$ ]]
-}
-
+# Surface collection is delegated to detect-surfaces.sh (SPEC-041 AC8 —
+# shared helper, no private copy here). It prints added top-level
+# commands/<name>.md paths, one per line.
 added=()
 old_ver=""
 new_ver=""
@@ -269,12 +269,8 @@ if [ "$MODE" = "commit" ]; then
     echo "check-bump-class.sh: --commit has no parent (skip)" >&2
     exit 0
   fi
-  while IFS= read -r p; do
-    [ -n "$p" ] || continue
-    if is_surface_path "$p"; then
-      added+=("$p")
-    fi
-  done < <(git diff-tree --no-commit-id --no-renames --name-only --diff-filter=A -r "$COMMIT^" "$COMMIT" -- commands/)
+  added=()
+  while IFS= read -r _line; do added+=("$_line"); done < <(bash "$DETECT" --commit "$COMMIT")
   old_ver=$(git show "${COMMIT}^:.claude-plugin/plugin.json" 2>/dev/null | json_ver || true)
   new_ver=$(git show "${COMMIT}:.claude-plugin/plugin.json" 2>/dev/null | json_ver || true)
 else
@@ -286,27 +282,14 @@ else
     exit 64
   }
   if [ "$MODE" = "cached" ]; then
-    while IFS= read -r p; do
-      [ -n "$p" ] || continue
-      if is_surface_path "$p"; then
-        added+=("$p")
-      fi
-    done < <(git diff --cached --no-renames --name-only --diff-filter=A "$AGAINST" -- commands/)
+    added=()
+    while IFS= read -r _line; do added+=("$_line"); done < <(bash "$DETECT" --cached "$AGAINST")
     new_ver=$(git show ":.claude-plugin/plugin.json" 2>/dev/null | json_ver || true)
   else
-    while IFS= read -r p; do
-      [ -n "$p" ] || continue
-      if is_surface_path "$p"; then
-        added+=("$p")
-      fi
-    done < <(git diff --no-renames --name-only --diff-filter=A "$AGAINST" -- commands/)
-    # Untracked commands/*.md ( /release runs this before git add )
-    while IFS= read -r p; do
-      [ -n "$p" ] || continue
-      if is_surface_path "$p"; then
-        added+=("$p")
-      fi
-    done < <(git ls-files --others --exclude-standard -- commands/)
+    added=()
+    while IFS= read -r _line; do added+=("$_line"); done < <(bash "$DETECT" --against "$AGAINST")
+    # Untracked commands/*.md ( /release runs this before git add ) are
+    # counted inside detect-surfaces.sh --against.
     if [ -f .claude-plugin/plugin.json ]; then
       new_ver=$(json_ver < .claude-plugin/plugin.json || true)
     fi
