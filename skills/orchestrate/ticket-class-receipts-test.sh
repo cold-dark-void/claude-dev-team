@@ -22,16 +22,22 @@
 #   AC8  the T1 spike (investigator <AC_LABEL> template, colon form) plus a
 #        >=1-line filtered receipt per technical AC of a real full-suite log
 #   AC9  the `### CDT-589-C1` Verify repoint, spec-lint findings-set equality
-#        vs an faa0249 archive, and C1 criterion-text (sans Verify) equality
+#        vs an faa0249 archive (modulo the two v1.28.9-fixed lines), and C1
+#        criterion-text (sans Verify) equality
 #
 # Nested targets are ticket-class-test.sh, router-static-test.sh and
 # tools/spec-lint.sh only. This suite never invokes itself, so a nested
 # `--ac AC2` cannot recurse into its own case.
 #
-# AC9 is findings-set baseline equality, not rc 0: tools/spec-lint.sh exits 1
-# on master, on the stack base faa0249, and here, from two pre-existing
-# findings (specs/OWNERS missing skills/advisor; SPEC-038 [history] order).
-# The gate is that no finding names SPEC-009. That debt is a follow-up ticket.
+# AC9 is findings-set baseline equality, modulo the v1.28.9 fixes. Through
+# v1.28.8 the baseline was rc 1: two pre-existing findings (specs/OWNERS
+# missing skills/advisor; SPEC-038 [history] order). v1.28.9 fixed both, so
+# HEAD must lint clean (rc 0) and the faa0249 set minus exactly those two
+# documented lines must equal HEAD's set — any other drift still fails
+# closed. The gate is that no finding names SPEC-009. Known red on the CI
+# lane only: the base archive there lints to 3 lines vs 22 at HEAD (run
+# 41885808667) — a base-tree scan-set collapse to diagnose separately; the
+# doctor scoped-entry model (all-scoped: 0) forbids an all-lane quarantine.
 #
 # bash 3.2 / BSD-safe: this file stays in the run-all-tests --portable lane.
 # Run: bash skills/orchestrate/ticket-class-receipts-test.sh [--ac AC<n>]
@@ -623,10 +629,10 @@ if want_ac; then
   LINT_OUT=$( (cd "$ROOT" && bash "$LINT") 2>&1 ) || LRC=$?
   printf 'lint head CMD: (cd %s && bash %s)\n' "$ROOT" "$LINT"
   printf 'lint head CMD exit=%s\n' "$LRC"
-  if [ "$LRC" -eq 1 ]; then
+  if [ "$LRC" -eq 0 ]; then
     ok speclint-rc-baseline
   else
-    bad speclint-rc-baseline "spec-lint rc=$LRC — the findings set moved off the faa0249 baseline (expect 1: specs/OWNERS plus SPEC-038 [history])"
+    bad speclint-rc-baseline "spec-lint rc=$LRC — the tree must lint clean (v1.28.9 fixed the faa0249-era findings: specs/OWNERS and SPEC-038 [history]; expect 0)"
   fi
   if printf '%s\n' "$LINT_OUT" | grep -qF -- 'SPEC-009'; then
     bad speclint-no-spec009 "new finding touches the spec: [$(printf '%s\n' "$LINT_OUT" | grep -F -- 'SPEC-009' | head -1)]"
@@ -646,11 +652,14 @@ if want_ac; then
     BASE_OUT=$( (cd "$WORK/base" && bash tools/spec-lint.sh) 2>&1 ) || BR=$?
     printf 'lint base CMD: (cd %s && bash tools/spec-lint.sh)\n' "$WORK/base"
     printf 'lint base CMD exit=%s\n' "$BR"
-    HSET=$(printf '%s\n' "$LINT_OUT" | LC_ALL=C sort)
-    BSET=$(printf '%s\n' "$BASE_OUT" | LC_ALL=C sort)
+    # Findings only: the trailing `spec-lint: …` summary line moves with the
+    # count, so both sides drop it before compare. The two `grep -vxF` arms
+    # are the v1.28.9 allowlist — the only permitted HEAD-vs-base delta.
+    HSET=$(printf '%s\n' "$LINT_OUT" | grep -v '^spec-lint: ' | LC_ALL=C sort)
+    BSET=$(printf '%s\n' "$BASE_OUT" | grep -v '^spec-lint: ' | LC_ALL=C sort | grep -vxF -- 'specs/OWNERS: [owners] missing skills/advisor' | grep -vxF -- 'specs/core/SPEC-038-intercom-spool-protocol.md: [history] 2026-10-05 then 2026-10-07 breaks newest-first order')
     if [ -n "$BASE_OUT" ] && [ "$HSET" = "$BSET" ]; then
       ok speclint-findings-set-equal
-      printf 'HEAD vs faa0249 spec-lint: identical finding lines (%s)\n' "$(printf '%s\n' "$LINT_OUT" | tail -1)"
+      printf 'HEAD vs faa0249 spec-lint: equal after the v1.28.9 delta (%s)\n' "$(printf '%s\n' "$LINT_OUT" | tail -1)"
       # Findings-set exhibit (pass-6 AC9 strike): the compare predicate,
       # made observable. Show each side's sorted finding lines plus a
       # checksum, so equality is witnessed, not asserted.
@@ -658,7 +667,7 @@ if want_ac; then
         "$(printf '%s\n' "$HSET" | cksum | tr ' ' ':')" \
         "$(printf '%s\n' "$BSET" | cksum | tr ' ' ':')" \
         "$([ "$HSET" = "$BSET" ] && echo yes || echo no)"
-      printf 'findings-set head:\n%s\nfindings-set base:\n%s\n' "$HSET" "$BSET"
+      printf 'findings-set head:\n%s\nfindings-set base (minus v1.28.9 delta):\n%s\n' "$HSET" "$BSET"
       # Pass-8 strike: the compare predicate itself was never printed, so the
       # judge inferred the rule. Echo it verbatim from this suite's source.
       printf 'findings-set compare rule (this suite, verbatim):\n'
@@ -721,8 +730,12 @@ if want_ac; then
       MBC=$( (cd "$WORK/mirror/base" && bash tools/spec-lint.sh) 2>&1 ) || MBR=$?
       printf 'mirror base CMD: (cd %s && bash tools/spec-lint.sh)\n' "$WORK/mirror/base"
       printf 'mirror base CMD exit=%s\n' "$MBR"
-      MHSET=$(printf '%s\n' "$MHC" | LC_ALL=C sort)
-      MBSET=$(printf '%s\n' "$MBC" | LC_ALL=C sort)
+      # The v1.28.9 allowlist applies to BOTH sides: pre-fold, HEAD is still
+      # the v1.28.8 tree and carries the two findings; post-fold it is clean.
+      # Removing an allowlisted line from each side is a no-op on the clean
+      # side and keeps the assertion true in both states.
+      MHSET=$(printf '%s\n' "$MHC" | grep -v '^spec-lint: ' | LC_ALL=C sort | grep -vxF -- 'specs/OWNERS: [owners] missing skills/advisor' | grep -vxF -- 'specs/core/SPEC-038-intercom-spool-protocol.md: [history] 2026-10-05 then 2026-10-07 breaks newest-first order')
+      MBSET=$(printf '%s\n' "$MBC" | grep -v '^spec-lint: ' | LC_ALL=C sort | grep -vxF -- 'specs/OWNERS: [owners] missing skills/advisor' | grep -vxF -- 'specs/core/SPEC-038-intercom-spool-protocol.md: [history] 2026-10-05 then 2026-10-07 breaks newest-first order')
       printf 'mirror head_cksum=%s base_cksum=%s equal=%s\n' \
         "$(printf '%s\n' "$MHSET" | cksum | tr ' ' ':')" \
         "$(printf '%s\n' "$MBSET" | cksum | tr ' ' ':')" \

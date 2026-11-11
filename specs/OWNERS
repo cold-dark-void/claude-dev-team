@@ -31,6 +31,7 @@ commands/spec.md	SPEC-008
 commands/status.md	SPEC-009
 commands/tdd-gate.md	UNSPECCED
 commands/worktree.md	SPEC-016
+skills/advisor	SPEC-039
 skills/audit	SPEC-035
 skills/autopilot	SPEC-033
 # skills/backlog sweep subcommand contract is SPEC-040; owner stays SPEC-009
