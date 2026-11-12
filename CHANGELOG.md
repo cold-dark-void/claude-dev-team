@@ -4,6 +4,11 @@ All notable changes to **claude-dev-team**, newest first.
 Authoritative version history. Prefer **`/release`** to add `### vX.Y.Z` headings.
 Pre-written headings (release-train M5c, orchestrate version-sync tasks) are kept
 via skip-if-present when `/release` is given an explicit version — do not invent a
+### v1.28.12
+
+- **m14-ac-split's first-ERR report no longer SIGPIPEs its feeder (CDT-635)** — `printf '%s\n' "$parsed" | awk '$1=="ERR"{print; exit}'` exits awk early on any ERR run, so printf dies with "write error: Broken pipe" and the error text — carrying the lint root's machine-specific tmp path — leaked into spec-lint's `[m14-ac]` WARN lines. That is what the AC9 self-diagnosing diff exposed on the v1.28.11 run: the mirror head/base sets differed only in that path. The awk now buffers the first ERR and prints it from `END`, so the feeder always completes; output is byte-identical across every spec subsection (full parity sweep) and `tools/spec-lint.sh` output is unchanged.
+- **CI: the all-tests job prints failing check lines on red** — the pool keep-dir with each failed suite's full output dies with the runner, so a red run showed only a 20-line tail. A `failure()` step now prints every `FAIL` line from the kept outputs, making a red run self-diagnosing (used here for the remaining `test-classify.sh` CI-only assertion failure, previously masked by the CDT-634 dirt failure).
+
 ### v1.28.11
 
 - **Advisor suite Model-map lock file ignored (CDT-634)** — The advisor suites take a `flock` sidecar at `.claude/dev-team/.test-map.lock` and the exit trap restores only `models.local.json`, so the lock file stays behind as untracked. `tools/run-all-tests.sh` diffs `git status --porcelain --untracked-files=all` before and after each suite, so `test-classify.sh`, `test-residue.sh`, and `test.sh` reported FAIL (modified the working tree) on GitHub Actions. The maintainer host hid the file through `core.excludesFile=~/.gitignore`; CI and the `--jobs` worker pool (per-worker `HOME`) have no global excludes. Scope: one `.gitignore` line matching the existing prod lock pattern; no lock path or trap changes.

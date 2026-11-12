@@ -269,7 +269,11 @@ parsed="$(printf '%s\n' "$content" | awk -v ticket="$ticket_id" '
 ')"
 
 # ---- Report the first ERR line, or emit JSON from the OK lines ------------
-err_line="$(printf '%s\n' "$parsed" | awk -F'\t' '$1=="ERR"{print; exit}')"
+# First ERR line without an early awk exit: an `exit` here SIGPIPEs the
+# feeding printf on ERR runs ("printf: write error: Broken pipe" leaked
+# into spec-lint's [m14-ac] WARN text with a machine-specific path and
+# broke the receipts suite's set-equality on CI — CDT-635).
+err_line="$(printf '%s\n' "$parsed" | awk -F'\t' '$1=="ERR" && !seen {seen=1; line=$0} END {if (seen) print line}')"
 if [ -n "$err_line" ]; then
   cause="$(printf '%s\n' "$err_line" | cut -f3-)"
   fail "$cause"

@@ -130,6 +130,16 @@ jobs:
         with:
           fetch-depth: 0  # suites read pinned base commits (git show <sha>:path)
       - run: bash tools/run-all-tests.sh --jobs 8
+      # Diagnosability: the pool keep-dir holds each failed suite's full
+      # output but dies with the runner. Print every failing check line so
+      # a red run is self-diagnosing (CDT-635 class).
+      - if: failure()
+        run: |
+          shopt -s nullglob
+          for f in /tmp/run-all-tests-failed.*/*.out; do
+            echo "=== $f ==="
+            grep -n 'FAIL' "$f" | head -20 || true
+          done
 
   # CDT-502 — required macOS gate (SPEC-030 R32); quarantine: tools/test-quarantine.txt
   macos:
