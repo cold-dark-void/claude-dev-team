@@ -780,4 +780,20 @@ if want_ac; then
   fi
 fi
 
+# Recording override of ac-receipt's bad(): keep the exact output/counter
+# contract but remember each AC/slug pair, so the end-of-run summary can name
+# them inside run-all-tests' 20-line tail window (the serial macos lane keeps
+# no full output for red suites).
+FAILED_SLUGS=""
+bad() {
+  local slug="${1:-}" detail="${2:-}"
+  FAILED_SLUGS="$FAILED_SLUGS ${CUR_AC:-}/$slug"
+  FAIL=$(( ${FAIL:-0} + 1 ))
+  printf 'FAIL: %s: %s: %s\n' "${CUR_AC:-}" "$slug" "$detail" >&2 || return 1
+  return 0
+}
+
 ac_finish
+if [ -n "$FAILED_SLUGS" ]; then
+  printf 'receipts failed slugs:%s\n' "$FAILED_SLUGS" >&2
+fi
