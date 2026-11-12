@@ -31,7 +31,11 @@
 # "<dir>" holding a stamp "<pid> <epoch> <owner>". Stale — and stolen — when
 # the stamping PID is no longer alive OR the stamp is older than <ttl>
 # seconds (default 600); a missing/unparseable stamp gets one 1s grace
-# re-read first (another acquirer may be mid-mkdir). A flock-era leftover
+# re-read first (another acquirer may be mid-mkdir). Stamp creation is
+# exclusive (noclobber), so it is part of the test-and-set: a dir stolen
+# between the mkdir and the stamp write cannot be stamped over — that
+# acquirer retries instead, up to 3 times (_pl_stampfail), before giving up
+# with an empty-dir-guarded rmdir (CDT-637). A flock-era leftover
 # regular file at the lock path is unlinked and the mkdir retried; a failed
 # unlink fails fast. A carried-off copy that turns out fresh (restamped or
 # replaced between the read and the mv) is handed back, never destroyed —
@@ -154,7 +158,7 @@ portable_lock_acquire() {
   if [ $# -ge 1 ]; then _pl_dir="$1"; fi
   _pl_wait="${2:-0}"
   _pl_ttl="${3:-600}"
-  local _pl_start _pl_now _pl_pid _pl_epoch _pl_pid2 _pl_epoch2 _pl_status
+  local _pl_start _pl_now _pl_pid _pl_epoch _pl_pid2 _pl_epoch2 _pl_status _pl_stampfail
   [ -n "${_pl_dir:-}" ] || return 64
   case "$_pl_dir" in */) _pl_dir="${_pl_dir%/}" ;; esac
   case "$_pl_wait" in ''|*[!0-9]*) return 64 ;; esac
@@ -172,13 +176,30 @@ portable_lock_acquire() {
   trap 'portable_lock_release; exit 143' TERM
 
   _pl_start=$(date +%s)
+  _pl_stampfail=0
   while :; do
     if mkdir "$PORTABLE_LOCK_DIR" 2>/dev/null; then
-      if printf '%s %s %s\n' "$$" "$(date +%s)" "$PORTABLE_LOCK_OWNER" \
-        > "$PORTABLE_LOCK_DIR/stamp" 2>/dev/null; then
+      # The stamp write is part of the test-and-set: noclobber makes it fail
+      # against an existing stamp (CDT-637). A stale reclaim can carry this
+      # dir off between the mkdir and here, and a third acquirer can
+      # re-create the path and stamp it first; a plain > would overwrite that
+      # live holder's stamp and leave two processes holding one lock.
+      if ( set -C; printf '%s %s %s\n' "$$" "$(date +%s)" "$PORTABLE_LOCK_OWNER" \
+        > "$PORTABLE_LOCK_DIR/stamp" ) 2>/dev/null; then
         return 0
       fi
-      rm -rf "$PORTABLE_LOCK_DIR" 2>/dev/null
+      # Lost the stamp race, or the write failed outright. Retry the loop:
+      # the path can name a LIVE holder's lock, so NEVER rm -rf it here.
+      # The counter bounds the retries a persistent write error can cause.
+      _pl_stampfail=$((_pl_stampfail + 1))
+      if [ "$_pl_stampfail" -le 3 ]; then
+        continue
+      fi
+      # Give up. rmdir (not rm -rf) is the guard: it succeeds only while the
+      # dir is empty, so it can never carry off a stamped lock — a stamped
+      # path belongs to the acquirer that won the stamp race.
+      rmdir "$PORTABLE_LOCK_DIR" 2>/dev/null || :
+      echo "portable.sh: cannot write lock stamp: $PORTABLE_LOCK_DIR" >&2
       return 1
     fi
 

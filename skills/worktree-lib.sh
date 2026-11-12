@@ -96,14 +96,19 @@ git_retry() {
 #   <EPOCH_SECONDS> <ISO_8601_UTC>
 write_lock() {
   local lock="$1"
-  (umask 077; printf '%s %s\n' "$(date +%s)" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" > "$lock")
+  # Noclobber (CDT-637): a second concurrent registration must never
+  # overwrite the first one's stamp.
+  (umask 077; set -C; printf '%s %s\n' "$(date +%s)" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" > "$lock")
 }
 
 # write_lock_and_exit <wt> <lock>
 # Write lock, print worktree path on stdout, exit 0.
 write_lock_and_exit() {
   local wt="$1" lock="$2"
-  write_lock "$lock"
+  if ! write_lock "$lock"; then
+    printf 'worktree-lib: lock %s already stamped (concurrent registration?)\n' "$lock" >&2
+    exit 1
+  fi
   printf '%s\n' "$wt"
   exit 0
 }
@@ -353,6 +358,24 @@ cmd_ensure() {
     else
       echo "stale lock (unparseable / legacy format) — reclaiming" >&2
     fi
+    # CDT-637 reclaim posture: move the stale file aside atomically, then
+    # re-read the MOVED copy before discarding — the lock may have been
+    # re-stamped by a concurrent ensure between our STALE check and here,
+    # and a plain rm+overwrite would let two holds race.
+    if ! mv "$lock" "$lock.stale.$$" 2>/dev/null; then
+      echo "ensure: lost the stale-lock reclaim race for $slug" >&2
+      exit 1
+    fi
+    local moved_epoch
+    moved_epoch=$(awk 'NR==1 { print $1; exit }' "$lock.stale.$$" 2>/dev/null || true)
+    if [ "${moved_epoch:-x}" != "x" ] \
+      && [ "$(( $(date +%s) - moved_epoch ))" -lt "$WT_LOCK_TTL_SECONDS" ]; then
+      # Fresh copy moved aside: hand it back when the path is free.
+      [ -e "$lock" ] || mv "$lock.stale.$$" "$lock" 2>/dev/null || :
+      echo "ensure: lock for $slug went FRESH during reclaim — retry ensure" >&2
+      exit 1
+    fi
+    rm -f "$lock.stale.$$"
     exclude_lock "$wt"
     write_lock_and_exit "$wt" "$lock"
   fi

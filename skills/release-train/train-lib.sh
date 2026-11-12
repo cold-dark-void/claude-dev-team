@@ -932,7 +932,22 @@ cmd_acquire_lock() {
   if [ "$stale" -eq 0 ]; then
     die 1 "acquire-lock: lock held ($(head -c 80 "$LOCK" 2>/dev/null || true))"
   fi
-  rm -f "$LOCK"
+  # Reclaim posture from skills/backlog/lock.sh (CDT-637): move the stale
+  # file aside atomically, then re-read the MOVED copy before discarding —
+  # a plain `rm -f` here could delete another acquirer's just-created fresh
+  # lock and let two trains hold at once.
+  if ! mv "$LOCK" "$LOCK.stale.$$" 2>/dev/null; then
+    die 1 "acquire-lock: lock held (lost reclaim race)"
+  fi
+  held_epoch=$(awk 'NR==1 { print $1; exit }' "$LOCK.stale.$$" 2>/dev/null || true)
+  if [[ "${held_epoch}" =~ ^[0-9]+$ ]] && [ $((now - held_epoch)) -lt "$ttl" ]; then
+    # Fresh copy moved aside: hand it back when the path is free.
+    if [ ! -e "$LOCK" ]; then
+      mv "$LOCK.stale.$$" "$LOCK" 2>/dev/null || :
+    fi
+    die 1 "acquire-lock: lock held (fresh after reclaim race)"
+  fi
+  rm -f "$LOCK.stale.$$"
   if _lock_create; then
     printf '%s\n' "$LOCK"
     return 0

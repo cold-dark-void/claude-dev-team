@@ -4,6 +4,10 @@ All notable changes to **claude-dev-team**, newest first.
 Authoritative version history. Prefer **`/release`** to add `### vX.Y.Z` headings.
 Pre-written headings (release-train M5c, orchestrate version-sync tasks) are kept
 via skip-if-present when `/release` is given an explicit version — do not invent a
+### v1.28.18
+
+- **portable/backlog lock: exclusive stamp write closes the dual-holder window (CDT-637)** — `portable_lock_acquire` mkdir'd the lock dir and stamped it in a second, unguarded step; a holder descheduled between the two let a racing acquirer declare the stamp-less dir stale, carry it off, re-mkdir and stamp it, after which the original holder's plain `>` overwrote that stamp — both returned 0 holding one lock, and the three concurrent `epic-lib` mutators' last `write_state` dropped `linear_project_id`. Stamp creation is now noclobber in `skills/lib/portable.sh` and `skills/backlog/lock.sh`, so the loser retries the acquire loop instead of stamping over a live holder; the give-up path uses `rmdir` (an empty-dir guard) rather than `rm -rf`. The same class was fixed in `skills/transcript-mirror/sid-lock.sh`, `skills/release-train/train-lib.sh` (reclaim now mv-aside + re-verify), and `skills/worktree-lib.sh` (.wt-lock), and the SPEC-009 stamp-write contract was amended to pin the new semantics. Deterministic steal-window tests in `skills/lib/portable-test.sh` and `skills/backlog/lock-test.sh` force the window with a stub `mkdir`: red on the pre-fix libs, green after.
+
 ### v1.28.17
 
 - **receipts: failed-slug summary printed before ac_finish (CDT-635)** — v1.28.16 placed the summary after `ac_finish`, which exits, so the line never ran and the v1.28.16 macos run still cut off the failing slug. It now precedes the summary line, still inside the 20-line tail window on both lanes.

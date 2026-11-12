@@ -462,6 +462,81 @@ kill "$FRESHPID" 2>/dev/null
 wait "$FRESHPID" 2>/dev/null
 rm -rf "$L"
 
+# --- lock: CDT-637 steal window — the stamp write never overwrites a stamp ----
+# The dual-holder race behind the lost epic-lib fields: acquirer B mkdir's the
+# lock dir and is descheduled before its stamp write; acquirer A sees the
+# stamp-less dir, declares it stale after the 1s grace re-read, carries it
+# off, re-mkdir's and stamps it. Pre-fix, B resumed with a plain `>` and
+# overwrote A's stamp — both returned 0 holding one lock. The stub mkdir makes
+# the window deterministic: B resumes only once A's stamp is on disk, so no
+# sleep timing decides the outcome.
+wait_for() { # wait_for <path> — up to ~10s for a file to appear
+  local _i=0
+  while [ "$_i" -lt 200 ]; do
+    [ -e "$1" ] && return 0
+    _i=$((_i + 1))
+    sleep 0.05
+  done
+  return 1
+}
+
+L="$WORK/lock-steal"
+STEAL_DRIVER="$WORK/steal-driver.sh"
+STEAL_B_FLAG="$WORK/lock-steal.b-mkdir"
+STEAL_A_PID="$WORK/lock-steal.a-pid"
+STEAL_A_HELD="$WORK/lock-steal.a-held"
+rm -rf "$L"
+: > "$STEAL_A_PID"
+cat > "$STEAL_DRIVER" <<'EOS'
+. "$1"
+LOCKPATH="$2"
+A_PID_FILE="$3"
+B_FLAG="$4"
+mkdir() {
+  command mkdir "$@" || return 1
+  [ "$1" = "$LOCKPATH" ] || return 0
+  : > "$B_FLAG"
+  # B is the mkdir winner, descheduled before its stamp write. Resume only
+  # once the reclaimer (A) has stamped its own fresh lock at this path.
+  _i=0
+  while [ "$_i" -lt 200 ]; do
+    _i=$((_i + 1))
+    if [ -s "$A_PID_FILE" ] && [ -f "$LOCKPATH/stamp" ] \
+      && [ "$(awk '{print $1; exit}' "$LOCKPATH/stamp")" = "$(cat "$A_PID_FILE")" ]; then
+      break
+    fi
+    sleep 0.05
+  done
+}
+portable_lock_acquire "$LOCKPATH" 3 600
+EOS
+timeout 30 bash "$STEAL_DRIVER" "$LIB" "$L" "$STEAL_A_PID" "$STEAL_B_FLAG" \
+  >"$WORK/lock-steal.b.out" 2>"$WORK/lock-steal.b.err" &
+PB=$!
+wait_for "$STEAL_B_FLAG" && pass "steal window: mkdir winner reached the stamp write" \
+  || fail "steal window: mkdir winner reached the stamp write" "never mkdir'd"
+# A: the reclaimer. Plain `bash -c` (not wrapped in timeout) so its $$ is $!.
+bash -c '. "$1"; portable_lock_acquire "$2" 10 600 || exit 1; : > "$3"; sleep 5' \
+  _ "$LIB" "$L" "$STEAL_A_HELD" &
+PA=$!
+printf '%s\n' "$PA" > "$STEAL_A_PID"
+RC_B=0
+wait "$PB" || RC_B=$?
+assert_eq "steal window: descheduled mkdir winner stays busy" "1" "$RC_B"
+wait_for "$STEAL_A_HELD" && pass "steal window: reclaimer acquired the lock" \
+  || fail "steal window: reclaimer acquired the lock" "no acquire flag"
+assert_eq "steal window: reclaimer's stamp is not overwritten" "$PA" \
+  "$(awk '{print $1; exit}' "$L/stamp" 2>/dev/null)"
+[ -d "$L" ] && pass "steal window: live lock dir not destroyed" \
+  || fail "steal window: live lock dir not destroyed" "removed"
+wait "$PA"
+[ ! -e "$L" ] && pass "steal window: reclaimer released cleanly" \
+  || fail "steal window: reclaimer released cleanly" "$(ls -ld "$L" 2>/dev/null)"
+ls "$WORK"/lock-steal.stale.* >/dev/null 2>&1 \
+  && fail "steal window: no .stale leftovers" "copy remains" \
+  || pass "steal window: no .stale leftovers"
+rm -rf "$L"
+
 # --- with_timeout: passthrough, deadline, perl fallback, usage ----------------
 portable_with_timeout 5 true; RC=$?
 assert_eq "with_timeout true rc" "0" "$RC"

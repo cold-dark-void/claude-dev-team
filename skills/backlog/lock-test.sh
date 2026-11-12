@@ -495,5 +495,84 @@ if [ "$elapsed" -le 5 ]; then pass "14 missing-.claude elapsed <=5s ($elapsed)"
 else fail "14 missing-.claude elapsed <=5s" "elapsed=$elapsed"; fi
 assert_match "14 missing-.claude stderr" "$(cat "$errfile" 2>/dev/null)" "cannot create backlog lock:"
 
+# ============================================================================
+# 15. CDT-637 steal window: a stamp write never overwrites a live stamp.
+#     B mkdir's the lock dir and is descheduled before its stamp write; A sees
+#     the stamp-less dir, calls it stale after the 1s grace re-read, carries
+#     it off, re-mkdir's and stamps it. Pre-fix, B resumed with a plain `>`
+#     and overwrote A's stamp — both returned 0 holding one lock, and the
+#     concurrent writer's update was lost. The stub mkdir makes the window
+#     deterministic: B resumes only once A's stamp is on disk, so no sleep
+#     timing decides the outcome.
+# ============================================================================
+wait_for_file() { # wait_for_file <path> — up to ~10s for the path to appear
+  local _i=0
+  while [ "$_i" -lt 200 ]; do
+    [ -e "$1" ] && return 0
+    _i=$((_i + 1))
+    sleep 0.05
+  done
+  return 1
+}
+
+root=$(new_root steal)
+lockdir=$(lockdir_of "$root")
+STEAL_DRIVER="$WORK/steal-driver.sh"
+STEAL_B_FLAG="$WORK/steal.b-mkdir"
+STEAL_A_STAMP="$WORK/steal.a-stamp"
+: > "$STEAL_A_STAMP"
+cat > "$STEAL_DRIVER" <<'EOS'
+. "$1"
+ROOT="$2"
+LOCKDIR="$3"
+A_STAMP="$4"
+B_FLAG="$5"
+mkdir() {
+  command mkdir "$@" || return 1
+  [ "$1" = "$LOCKDIR" ] || return 0
+  : > "$B_FLAG"
+  # B is the mkdir winner, descheduled before its stamp write. Resume only
+  # once the reclaimer (A) has stamped its own fresh lock at this path.
+  _i=0
+  while [ "$_i" -lt 200 ]; do
+    _i=$((_i + 1))
+    if [ -s "$A_STAMP" ] \
+      && [ "$(cat "$LOCKDIR/stamp" 2>/dev/null)" = "$(cat "$A_STAMP")" ]; then
+      break
+    fi
+    sleep 0.05
+  done
+}
+BACKLOG_LOCK_WAIT_SECONDS=3 backlog_lock_acquire "$ROOT"
+EOS
+timeout 10 bash "$STEAL_DRIVER" "$LOCK" "$root" "$lockdir" "$STEAL_A_STAMP" "$STEAL_B_FLAG" \
+  >"$WORK/steal.b.out" 2>"$WORK/steal.b.err" &
+PB=$!
+if wait_for_file "$STEAL_B_FLAG"; then pass "15 steal window: mkdir winner reached the stamp write"
+else fail "15 steal window: mkdir winner reached the stamp write" "never mkdir'd"; fi
+# A: the reclaimer, holding the lock for 5s after it acquires.
+timeout 10 bash -c '
+  . "$1"
+  BACKLOG_LOCK_WAIT_SECONDS=10 backlog_lock_acquire "$2" || exit 1
+  cat "$BACKLOG_LOCK_DIR/stamp" > "$3"
+  sleep 5
+' _ "$LOCK" "$root" "$STEAL_A_STAMP" &
+PA=$!
+rc=0
+wait "$PB" || rc=$?
+assert_eq "15 steal window: descheduled mkdir winner stays busy" "1" "$rc"
+if wait_for_file "$STEAL_A_STAMP"; then pass "15 steal window: reclaimer acquired the lock"
+else fail "15 steal window: reclaimer acquired the lock" "no stamp captured"; fi
+assert_eq "15 steal window: reclaimer's stamp is not overwritten" \
+  "$(cat "$STEAL_A_STAMP" 2>/dev/null)" "$(cat "$lockdir/stamp" 2>/dev/null)"
+if [ -d "$lockdir" ]; then pass "15 steal window: live lock dir not destroyed"
+else fail "15 steal window: live lock dir not destroyed" "removed"; fi
+rc=0
+wait "$PA" || rc=$?
+if [ -e "$lockdir" ]; then fail "15 steal window: reclaimer released cleanly" "present"
+else pass "15 steal window: reclaimer released cleanly"; fi
+if ls -d "$lockdir".stale.* >/dev/null 2>&1; then fail "15 steal window: no leftover .stale. dir" "found"
+else pass "15 steal window: no leftover .stale. dir"; fi
+
 printf '\n%d passed, %d failed\n' "$PASS" "$FAIL"
 [ "$FAIL" -eq 0 ]

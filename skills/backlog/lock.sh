@@ -39,15 +39,24 @@
 # lock directory that can never be reclaimed (e.g. a read-only ancestor) fails
 # in bounded time instead of spinning forever.
 #
-# Known residual (understates to "TOCTOU on one mv" if read narrowly — the
-# actual worst case is two live holders, not just a failed mv): two processes
-# can reclaim the SAME stale lock at the same time, each moving their own copy
-# aside and re-mkdir'ing. If a THIRD process's acquire lands in the resulting
-# hand-back window (the `mv <stale-copy> "$BACKLOG_LOCK_DIR"` that restores a
-# copy that turned out to be fresh, per the reclaim-race check below), two
-# processes can both believe they hold the lock at once — not just a failed
-# `mv` that self-heals next pass. The worst case from that overlap is ONE lost
-# index update (a write from the loser gets clobbered by the winner's next
+# Concurrency posture (CDT-637 closes the widest window): the stamp is written
+# under noclobber, so stamp creation is part of the mkdir test-and-set. A
+# lock dir reclaimed between an acquirer's mkdir and its stamp write can no
+# longer be stamped over — that acquirer retries, up to 3 times
+# (_bl_stampfail), so two processes can no longer both hold; on persistent
+# failure it gives up via an empty-dir-guarded rmdir (CDT-637).
+# Residual windows (understates to
+# "TOCTOU on one mv" if read narrowly — the actual worst case is two live
+# holders, not just a failed mv): two processes can reclaim the SAME stale
+# lock at the same time, each moving their own copy aside and re-mkdir'ing. If
+# a THIRD process's acquire lands in the resulting hand-back window (the
+# `mv <stale-copy> "$BACKLOG_LOCK_DIR"` that restores a copy that turned out
+# to be fresh, per the reclaim-race check below), the copy of a live lock can
+# be discarded and its holder keeps believing it holds. The age gate has the
+# same effect for a holder that outlives BACKLOG_LOCK_TTL_SECONDS — stealing
+# it is deliberate, a hung holder must not pin the lock forever. The worst
+# case from those overlaps is ONE lost index update (a write from the loser
+# gets clobbered by the winner's next
 # write). This is bounded, not silent corruption: every file write still goes
 # through `atomic_write` (dest is always fully-formed, never partially
 # written), and the item file keeps its terminal status, and the next
@@ -118,14 +127,35 @@ backlog_lock_acquire() {
   trap 'backlog_lock_release; exit 130' INT
   trap 'backlog_lock_release; exit 143' TERM
 
-  local _bl_start _bl_now _bl_epoch _bl_epoch2 _bl_status
+  local _bl_start _bl_now _bl_epoch _bl_epoch2 _bl_status _bl_stampfail
   _bl_start=$(date +%s)
+  _bl_stampfail=0
 
   while :; do
     if mkdir "$BACKLOG_LOCK_DIR" 2>/dev/null; then
-      printf '%s %s %s\n' "$(date +%s)" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$BACKLOG_LOCK_OWNER" \
-        > "$BACKLOG_LOCK_DIR/stamp" \
-        || { rm -rf "$BACKLOG_LOCK_DIR"; printf 'error: cannot write lock stamp: %s\n' "$BACKLOG_LOCK_DIR" >&2; return 1; }
+      # The stamp write is part of the test-and-set: noclobber makes it fail
+      # against an existing stamp (CDT-637). A stale reclaim can carry this
+      # dir off between the mkdir and here, and a third acquirer can
+      # re-create the path and stamp it first; a plain > would overwrite that
+      # live holder's stamp and leave two processes holding one lock.
+      if ! ( set -C; printf '%s %s %s\n' "$(date +%s)" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$BACKLOG_LOCK_OWNER" \
+        > "$BACKLOG_LOCK_DIR/stamp" ) 2>/dev/null; then
+        # Lost the stamp race, or the write failed outright. Retry the loop:
+        # the path can name a LIVE holder's lock, so NEVER rm -rf it here.
+        # The counter bounds the retries a persistent write error can cause
+        # (a `continue` here skips the WAIT deadline check, same as a
+        # completed reclaim).
+        _bl_stampfail=$((_bl_stampfail + 1))
+        if [ "$_bl_stampfail" -le 3 ]; then
+          continue
+        fi
+        # Give up. rmdir (not rm -rf) is the guard: it succeeds only while
+        # the dir is empty, so it can never carry off a stamped lock — a
+        # stamped path belongs to the acquirer that won the stamp race.
+        rmdir "$BACKLOG_LOCK_DIR" 2>/dev/null || :
+        printf 'error: cannot write lock stamp: %s\n' "$BACKLOG_LOCK_DIR" >&2
+        return 1
+      fi
       return 0
     fi
 

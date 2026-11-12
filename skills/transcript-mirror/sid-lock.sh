@@ -63,8 +63,14 @@ case "$cmd" in
     while [ "$n" -lt 20 ]; do
       if mkdir "$LOCK" 2>/dev/null; then
         # The holder is the parent. This script exits, so $$ would look dead.
-        printf '%s\n%s\n' "$PPID" "$(date +%s)" > "$LOCK/owner" || true
-        exit 0
+        # Noclobber: a descheduled mkdir winner can lose its dir to the stale
+        # reclaimer and find it re-stamped — our write must fail there, never
+        # overwrite a live holder's owner line (CDT-637).
+        if ( set -C; printf '%s\n%s\n' "$PPID" "$(date +%s)" > "$LOCK/owner" ) 2>/dev/null; then
+          exit 0
+        fi
+        n=$((n + 1))
+        continue
       fi
       if is_stale; then
         rm -rf "$LOCK"

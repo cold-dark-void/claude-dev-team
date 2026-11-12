@@ -390,8 +390,14 @@ only other content is `set -u` and a subprocess entry point that calls
   - The holder MUST write the file `stamp` in the lock directory. It holds one
     line, `<epoch-seconds> <ISO-8601-UTC> <owner>` (the SPEC-016 `.wt-lock`
     format plus an owner id).
-  - The holder MUST check that the stamp write succeeds. When it fails, the
-    holder MUST remove the lock directory and exit `1`.
+  - The stamp write MUST be exclusive (noclobber): it MUST fail when a stamp
+    already exists, never overwrite one (CDT-637 — a plain `>` lets a
+    descheduled first acquirer overwrite the reclaimer's stamp, so both
+    believe they hold the lock). The holder MUST check that the stamp write
+    succeeds. When it fails, the holder MUST retry the acquire loop a bounded
+    number of times; if it still fails, the holder MUST remove the lock
+    directory only when it is empty (an empty-dir guard — never a stamped
+    one) and exit `1`.
   - Staleness is decided by age only. A lock is stale when its stamp epoch is
     `BACKLOG_LOCK_TTL_SECONDS` (default 60) or more seconds old. A missing or
     unparseable stamp that is still missing or unparseable after a 1 s re-read
