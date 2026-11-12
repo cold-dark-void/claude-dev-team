@@ -648,7 +648,17 @@ if want_ac; then
     # tracked context, or the scan sets differ for a non-semantic reason.
     git -C "$WORK/base" init -q . >/dev/null 2>&1
     git -C "$WORK/base" add -A >/dev/null 2>&1
-    BR=0
+    # Tool-constant compare (as with the mirror pair below): lint the base
+    # tree with HEAD's spec-lint + m14-ac-split — faa0249's own copies carry
+    # the SIGPIPE race that flakes the base side's [m14-ac] WARN text
+    # under runner load (CDT-635).
+    if cp "$ROOT/tools/spec-lint.sh" "$WORK/base/tools/spec-lint.sh" \
+      && mkdir -p "$WORK/base/skills/council" \
+      && cp "$ROOT/skills/council/m14-ac-split.sh" "$WORK/base/skills/council/m14-ac-split.sh"; then
+      BR=0
+    else
+      BR=99
+    fi
     BASE_OUT=$( (cd "$WORK/base" && bash tools/spec-lint.sh) 2>&1 ) || BR=$?
     printf 'lint base CMD: (cd %s && bash tools/spec-lint.sh)\n' "$WORK/base"
     printf 'lint base CMD exit=%s\n' "$BR"

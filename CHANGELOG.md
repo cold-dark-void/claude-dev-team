@@ -4,6 +4,10 @@ All notable changes to **claude-dev-team**, newest first.
 Authoritative version history. Prefer **`/release`** to add `### vX.Y.Z` headings.
 Pre-written headings (release-train M5c, orchestrate version-sync tasks) are kept
 via skip-if-present when `/release` is given an explicit version — do not invent a
+### v1.28.15
+
+- **receipts: the faa0249 archive lint also uses HEAD's tooling (CDT-635)** — v1.28.14 made the AC9 mirror pair tool-constant but left the first comparison (`speclint-findings-set-equal`) linting the base archive with faa0249's own racy copies; the v1.28.14 run's self-diagnosing diff showed exactly that: a clean head side against a broken-pipe base side. The archive tree now gets HEAD's `tools/spec-lint.sh` and `skills/council/m14-ac-split.sh` before its lint, matching the mirror pair. The compare stays a pure tree-to-tree findings comparison; a copy failure marks the base unavailable (BR=99) rather than silently comparing with mixed tooling.
+
 ### v1.28.14
 
 - **advisor static-check's pacman skip row is now a valid 4-field TSV row (CDT-634 follow-up)** — the no-pacman branch wrote `pacman\t\t...` (five fields); the 4-field capture mis-parsed it, the summary jq died on `tonumber`, and no `static-check.json` was written — so `test-classify.sh`'s `c4-host-cmds-run-when-opted-in (no-pacman branch)` failed on every CI run once the CDT-634 dirt fix stopped masking it. The maintainer host has pacman and never produces the row, which is why it never failed locally. Verified by running the no-pacman branch under a pacman-free PATH.
