@@ -658,6 +658,152 @@ expect_rc 64 "--cached outside git repo"
 rm -rf "$NOT_GIT"
 
 # ---------------------------------------------------------------------------
+# CDT-633 / SPEC-010 P4 (AC-3): lead-summary.sh accepts the -pre.N suffix on
+# VERSION input, the CHANGELOG heading, and the D2 commit subject.
+# ---------------------------------------------------------------------------
+REPO=$(make_repo)
+write_changelog_section "$REPO" "2.0.0-pre.2" "control plane arc"
+run_lead "$REPO" -- 2.0.0-pre.2
+expect_rc 0 "lead-summary VERSION 2.0.0-pre.2"
+if [ "$OUT" = "control plane arc" ]; then
+  pass "pre VERSION prints normalized lead"
+else
+  fail "pre VERSION lead mismatch: [$OUT]"
+fi
+run_lead "$REPO" -- v2.0.0-pre.2
+expect_rc 0 "lead-summary vVERSION v2.0.0-pre.2"
+if [ "$OUT" = "control plane arc" ]; then
+  pass "pre vVERSION matches ### v2.0.0-pre.N"
+else
+  fail "pre vVERSION lead mismatch: [$OUT]"
+fi
+
+# pre heading without v
+cat >"$REPO/CHANGELOG.md" <<'EOF'
+# Changelog
+
+### 2.0.0-pre.3
+- plain arc lead — trailing detail
+EOF
+run_lead "$REPO" -- 2.0.0-pre.3
+expect_rc 0 "pre heading without v"
+if [ "$OUT" = "plain arc lead" ]; then
+  pass "pre heading strips trailing em-dash detail"
+else
+  fail "pre heading em-dash strip failed: [$OUT]"
+fi
+
+# D2 subject arm: the arc subject matches, the core-only subject does not
+run_lead "$REPO" -- --check 2.0.0-pre.3 "feat: v2.0.0-pre.3 — plain arc lead"
+expect_rc 0 "--check pre subject match"
+run_lead "$REPO" -- --check 2.0.0-pre.3 "feat: v2.0.0 — plain arc lead"
+expect_rc 1 "--check core-only subject is a pre version mismatch"
+expect_contains "D2:"
+rm -rf "$REPO"
+
+# ---------------------------------------------------------------------------
+# CDT-633 / SPEC-010 P6 (AC-5): is_release_tag admits v2.0.0-pre.N, so a pre
+# tag is subject to the one-folded-commit rule (D1).
+# ---------------------------------------------------------------------------
+REPO=$(make_repo)
+SHIP_START=$(head_sha "$REPO")
+write_changelog_section "$REPO" "2.0.0-pre.1" "arc fold feature"
+commit_all "$REPO" "feat: v2.0.0-pre.1 — arc fold feature"
+tag_at_head "$REPO" "v2.0.0-pre.1"
+run_in_repo "$REPO" -- --since "$SHIP_START"
+expect_rc 0 "pre tag with one fold commit is clean"
+expect_contains "1 release tag(s) in W"
+expect_contains "clean"
+rm -rf "$REPO"
+
+# Negative control: two non-merge commits under one pre tag → D1 fires
+REPO=$(make_repo)
+SHIP_START=$(head_sha "$REPO")
+# two non-merge commits before tag (delivery + fold)
+printf 'work\n' >"$REPO/work.txt"
+commit_all "$REPO" "feat: delivery work for 2.0.0-pre.9"
+write_changelog_section "$REPO" "2.0.0-pre.9" "arc multi commit feature"
+commit_all "$REPO" "feat: v2.0.0-pre.9 — arc multi commit feature"
+tag_at_head "$REPO" "v2.0.0-pre.9"
+# sanity: must be 2 commits in window
+_cnt=$(git -C "$REPO" rev-list --count --no-merges "${SHIP_START}..HEAD")
+if [ "$_cnt" -ne 2 ]; then
+  fail "pre D1 fixture setup: expected 2 commits got $_cnt"
+fi
+run_in_repo "$REPO" -- --since "$SHIP_START"
+expect_rc 1 "D1 multi-commit under a pre tag"
+expect_contains "history dirty — rewrite needed"
+expect_contains "D1: v2.0.0-pre.9 has 2 non-merge commit(s)"
+rm -rf "$REPO"
+
+# ---------------------------------------------------------------------------
+# CDT-633 / AC-3: D2 over an arc fold. The canonical arc subject passes; a
+# core-only subject (v2.0.0) under the arc tag is a full-version mismatch.
+# ---------------------------------------------------------------------------
+REPO=$(make_repo)
+SHIP_START=$(head_sha "$REPO")
+write_changelog_section "$REPO" "2.0.0-pre.2" "arc lead text"
+commit_all "$REPO" "feat: v2.0.0-pre.2 — arc lead text"
+tag_at_head "$REPO" "v2.0.0-pre.2"
+run_in_repo "$REPO" -- --since "$SHIP_START"
+expect_rc 0 "D2 clean for an arc-form fold subject"
+# core-only subject under the same arc tag → version mismatch
+git -C "$REPO" commit -q --amend -m "feat: v2.0.0 — arc lead text"
+git -C "$REPO" tag -f v2.0.0-pre.2 >/dev/null 2>&1
+run_in_repo "$REPO" -- --since "$SHIP_START"
+expect_rc 1 "D2 fires for a core-only subject under a pre tag"
+expect_contains "history dirty — rewrite needed"
+expect_contains "D2: v2.0.0-pre.2 subject version 2.0.0 != tag 2.0.0-pre.2"
+rm -rf "$REPO"
+
+# ---------------------------------------------------------------------------
+# CDT-633 / P6 prev chaining: consecutive arc tags take the prior pre tag as
+# prev, so each tag verifies exactly one fold commit. If a pre tag were not a
+# release tag, prev would fall back to $SINCE and the second tag would see 2
+# commits (D1) — the clean exit below is the bite.
+# ---------------------------------------------------------------------------
+REPO=$(make_repo)
+SHIP_START=$(head_sha "$REPO")
+write_changelog_section "$REPO" "2.0.0-pre.1" "arc first"
+commit_all "$REPO" "feat: v2.0.0-pre.1 — arc first"
+tag_at_head "$REPO" "v2.0.0-pre.1"
+# arc keeps both sections — write multi-section changelog at each step
+cat >"$REPO/CHANGELOG.md" <<'EOF'
+# Changelog
+
+### v2.0.0-pre.2
+- **arc second** — b
+
+### v2.0.0-pre.1
+- **arc first** — a
+EOF
+commit_all "$REPO" "feat: v2.0.0-pre.2 — arc second"
+tag_at_head "$REPO" "v2.0.0-pre.2"
+run_in_repo "$REPO" -- --since "$SHIP_START"
+expect_rc 0 "arc chain 2 pre tags × 1 commit"
+expect_contains "2 release tag(s) in W"
+expect_contains "clean"
+rm -rf "$REPO"
+
+# Direct proof of the prev boundary: a second arc tag with 2 commits fires D1
+# over (prior pre tag .. tip], not ($SINCE .. tip].
+REPO=$(make_repo)
+SHIP_START=$(head_sha "$REPO")
+write_changelog_section "$REPO" "2.0.0-pre.1" "arc chain first"
+commit_all "$REPO" "feat: v2.0.0-pre.1 — arc chain first"
+tag_at_head "$REPO" "v2.0.0-pre.1"
+PREV7=$(git -C "$REPO" rev-parse --short=7 v2.0.0-pre.1)
+printf 'work\n' >"$REPO/work.txt"
+commit_all "$REPO" "feat: delivery work in the arc"
+write_changelog_section "$REPO" "2.0.0-pre.2" "arc chain second"
+commit_all "$REPO" "feat: v2.0.0-pre.2 — arc chain second"
+tag_at_head "$REPO" "v2.0.0-pre.2"
+run_in_repo "$REPO" -- --since "$SHIP_START"
+expect_rc 1 "D1 multi-commit under the second arc tag"
+expect_contains "D1: v2.0.0-pre.2 has 2 non-merge commit(s) in (${PREV7}.."
+rm -rf "$REPO"
+
+# ---------------------------------------------------------------------------
 # plan DD6 linear prev lookup: O(T) git calls, not O(T^2) (bite in plan verify)
 # ---------------------------------------------------------------------------
 SHIP_HISTORY_T="${SHIP_HISTORY_T:-200}"

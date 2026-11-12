@@ -405,6 +405,54 @@ REMOTE_AFTER=$(git -C "$MM_REMOTE" for-each-ref)
 [ "$REMOTE_BEFORE" = "$REMOTE_AFTER" ] && pass "--print on D2-mismatch still leaves remote unchanged" || fail "--print changed remote"
 rm -rf "$MM" "$MM_REMOTE"
 
+# CDT-633 P5 / AC-4: a pre-release tag round-trips the D2 tag-compare path.
+# push-release.sh keeps the --tag suffix arm and passes the full tag version
+# (2.0.0-pre.2) to lead-summary.sh --check --from-commit, so the fold it accepts
+# is the canonical arc form: heading `### v2.0.0-pre.2`, subject
+# `feat: v2.0.0-pre.2 — …` (SPEC-010 P1). No push: the only remote is a path
+# that does not exist, so git push fails after D2 runs and there is nothing to
+# push to.
+PRE=$(mktemp -d "${TMPDIR:-/tmp}/ship-steps-pre-XXXXXX")
+git -C "$PRE" init -q -b master
+git -C "$PRE" config user.email "test@example.com"
+git -C "$PRE" config user.name "Test"
+printf 'x\n' >"$PRE/f.txt"
+write_changelog_section "$PRE" "2.0.0-pre.2" "control plane arc" "fixture"
+git -C "$PRE" add f.txt CHANGELOG.md
+git -C "$PRE" commit -q -m "feat: v2.0.0-pre.2 — control plane arc"
+git -C "$PRE" tag v2.0.0-pre.2
+PRE_NOWHERE="$PRE/no-such-remote"
+RC=0
+OUT=$(cd "$PRE" && bash "$PUSH_RELEASE" --tag v2.0.0-pre.2 --remote "$PRE_NOWHERE" 2>&1) && RC=0 || RC=$?
+expect_rc 1 "push-release pre tag: D2 passes, only the push fails"
+expect_not_contains "does not match vX.Y.Z"
+expect_not_contains "D2:"
+expect_contains "Run by hand"
+if [ -z "$(git -C "$PRE" remote)" ]; then
+  pass "pre-tag fixture has no remote: nothing could be pushed"
+else
+  fail "pre-tag fixture has a remote configured"
+fi
+
+# Negative control: the same arc tag with a core-only subject (no -pre.N) is a
+# full-version mismatch — D2 fires and prints the full expected subject.
+git -C "$PRE" commit -q --amend -m "feat: v2.0.0 — control plane arc"
+git -C "$PRE" tag -f v2.0.0-pre.2 >/dev/null 2>&1
+RC=0
+OUT=$(cd "$PRE" && bash "$PUSH_RELEASE" --tag v2.0.0-pre.2 --remote "$PRE_NOWHERE" 2>&1) && RC=0 || RC=$?
+expect_rc 1 "push-release pre tag D2 mismatch (core-only subject)"
+expect_contains "D2:"
+expect_contains "feat: v2.0.0-pre.2 — control plane arc"
+expect_not_contains "Run by hand"
+
+# --print on the pre tag: full tag name in the push command, pushes nothing
+RC=0
+OUT=$(cd "$PRE" && bash "$PUSH_RELEASE" --tag v2.0.0-pre.2 --remote origin --print 2>&1) && RC=0 || RC=$?
+expect_rc 0 "push-release --print pre tag"
+expect_contains "refs/tags/v2.0.0-pre.2"
+expect_contains "refs/heads/master"
+rm -rf "$PRE"
+
 # =========================== static (AC A) ====================================
 
 STATIC_DIR="$REPO_ROOT/skills/release $REPO_ROOT/skills/release-train"

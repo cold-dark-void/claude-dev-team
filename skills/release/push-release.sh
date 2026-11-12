@@ -109,7 +109,10 @@ fi
 HERE=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 LEAD_SUMMARY_SH="$HERE/lead-summary.sh"
 VER="${TAG#v}"
-VER="${VER%%[-+]*}"
+# CDT-633 P5: the -pre.N tail survives to the D2 compare — the arc fold heading
+# and subject carry it (SPEC-010 P1). Only +build metadata is dropped;
+# lead-summary.sh does not accept it.
+VER="${VER%%+*}"
 SUBJECT=$(git log -1 --format=%s "$TAG_SHA")
 if ! bash "$LEAD_SUMMARY_SH" --check --from-commit "$TAG_SHA" "$VER" "$SUBJECT"; then
   exit 1

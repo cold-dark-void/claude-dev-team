@@ -366,6 +366,98 @@ expect_rc 1 "pre-release: 1.19.0 -> 1.19.0-pre.1 (invalid, same core)"
 expect_contains "(invalid)"
 rm -rf "$REPO"
 
+# ---- pre-release arc scheme (SPEC-010 CDT-633; AC1/AC2/AC11) ----------------
+
+# AC1 — a cross-core move to a pre-release core classifies numerically: major
+REPO=$(make_repo_at "1.28.9")
+set_ver "$REPO" "2.0.0-pre.1"
+set_sec "$REPO" 2.0
+add_command "$REPO"
+run_in "$REPO"
+expect_rc 0 "arc: 1.28.9 -> 2.0.0-pre.1 + new command (cross-core major)"
+expect_contains "1.28.9 -> 2.0.0-pre.1 (major)"
+rm -rf "$REPO"
+
+# AC2 — pre -> pre on the same core is allowed and carries the core's own line
+# class (2.0.0 core -> major): the recorded P2 decision, no new class string.
+REPO=$(make_repo_at "2.0.0-pre.1")
+set_ver "$REPO" "2.0.0-pre.2"
+set_sec "$REPO" 2.0
+add_command "$REPO"
+run_in "$REPO"
+expect_rc 0 "arc: 2.0.0-pre.1 -> 2.0.0-pre.2 + new command (same-core pre -> pre)"
+expect_contains "2.0.0-pre.1 -> 2.0.0-pre.2 (major)"
+rm -rf "$REPO"
+
+# AC1 — pre -> final on the same core is allowed (the final cut of the arc)
+REPO=$(make_repo_at "2.0.0-pre.9")
+set_ver "$REPO" "2.0.0"
+set_sec "$REPO" 2.0
+add_command "$REPO"
+run_in "$REPO"
+expect_rc 0 "arc: 2.0.0-pre.9 -> 2.0.0 + new command (same-core pre -> final)"
+expect_contains "2.0.0-pre.9 -> 2.0.0 (major)"
+rm -rf "$REPO"
+
+# AC1 — release -> pre-release on the SAME core stays invalid
+REPO=$(make_repo_at "2.0.0")
+set_ver "$REPO" "2.0.0-pre.1"
+add_command "$REPO"
+run_in "$REPO"
+expect_rc 1 "arc: 2.0.0 -> 2.0.0-pre.1 + new command (invalid, same core)"
+expect_contains "2.0.0 -> 2.0.0-pre.1 (invalid)"
+rm -rf "$REPO"
+
+# AC1 — pre -> pre on the SAME core with a LOWER pre-release number is a
+# version-down move: invalid.
+REPO=$(make_repo_at "2.0.0-pre.2")
+set_ver "$REPO" "2.0.0-pre.1"
+add_command "$REPO"
+run_in "$REPO"
+expect_rc 1 "arc: 2.0.0-pre.2 -> 2.0.0-pre.1 + new command (invalid, pre-downgrade)"
+expect_contains "2.0.0-pre.2 -> 2.0.0-pre.1 (invalid)"
+rm -rf "$REPO"
+
+# AC11 — a pre bump with a new Surface is allowed as a major: the shape of the
+# 'new command + major' case above with a pre-release version.
+REPO=$(make_repo)
+set_ver "$REPO" "2.0.0-pre.1"
+set_sec "$REPO" 2.0
+add_command "$REPO"
+run_in "$REPO"
+expect_rc 0 "arc: 1.7.36 -> 2.0.0-pre.1 + new command (major, new Surface)"
+expect_contains "1.7.36 -> 2.0.0-pre.1 (major)"
+rm -rf "$REPO"
+
+# AC2 — the SECURITY.md pre-gate keeps failing closed on the pre series: the
+# same major-class pre -> pre bump, table left on the old minor.
+REPO=$(make_repo_at "2.0.0-pre.1")
+set_ver "$REPO" "2.0.0-pre.2"
+run_in "$REPO"
+expect_rc 1 "arc: 2.0.0-pre.1 -> 2.0.0-pre.2 with a stale SECURITY.md table"
+expect_contains "does not track minor 2.0"
+rm -rf "$REPO"
+
+# AC2 — the decision is recorded in the checker: an explanatory comment above
+# the same-core branch of bump_class, and no class string outside the set the
+# gate has always emitted.
+BCC=$(grep -nF 'if [ "$ocore" = "$ncore" ]' "$CHECK" | head -1 | cut -d: -f1)
+BC_CMT=""
+if [ -n "$BCC" ]; then
+  BC_CMT=$(awk -v stop="$BCC" 'NR < stop && /#.*(CDT-633|class string)/ {print NR": "$0; exit}' "$CHECK")
+fi
+if [ -n "$BC_CMT" ]; then
+  pass "AC2 recorded decision: explanatory comment above the same-core branch of bump_class ($BC_CMT)"
+else
+  fail "AC2 recorded decision: no CDT-633 / class-string comment above the same-core branch (branch at line '${BCC:-<none>}')"
+fi
+BC_CLASSES=$(awk -F"'" '/printf .%s\\n. [a-z]+$/ {gsub(/^[ \t]+/, "", $NF); print $NF}' "$CHECK" | sort -u | tr '\n' ' ')
+if [ "$BC_CLASSES" = "invalid major minor none patch " ]; then
+  pass "AC2 no new class string: check-bump-class.sh emits only '$BC_CLASSES'"
+else
+  fail "AC2 no new class string: emitted classes '$BC_CLASSES' != 'invalid major minor none patch '"
+fi
+
 # nested commands/sub/y.md is not a top-level Surface
 REPO=$(make_repo)
 set_ver "$REPO" "1.7.37"

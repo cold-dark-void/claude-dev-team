@@ -41,6 +41,22 @@ SKILL_PATH_RE = re.compile(
     r"skills/([a-z0-9][a-z0-9_-]*)/([A-Za-z0-9_./-]+\.(?:md|sh|py))"
 )
 
+# Strict semver. Group 1 is the X.Y.Z core. A `-pre.N` pre-release or
+# `+build` suffix is tolerated (SPEC-010 P8 / CDT-633) and dropped.
+SEMVER_RE = re.compile(r"^v?(\d+\.\d+\.\d+)(?:[-+][0-9A-Za-z.-]+)?$")
+
+
+def version_core(version: str) -> str:
+    """SPEC-010 P8 (CDT-633): return the X.Y.Z core of a version string.
+
+    Drops an optional leading `v` and any pre-release or build suffix
+    (`2.0.0-pre.2`). A string that is not strict semver is returned
+    unchanged, so the downstream tool still reports the real error.
+    """
+    v = str(version).strip()
+    m = SEMVER_RE.match(v)
+    return m.group(1) if m else v
+
 
 def resolve_root(explicit: str | None) -> str:
     if explicit:
@@ -972,7 +988,11 @@ def check_spec_examples(root: str, f: Findings) -> None:
 def check_security_versions(root: str, f: Findings) -> None:
     """security-versions (CDT-296 / 10 E9 / W3-22): SECURITY.md's
     supported-versions table must match the generator's output for the
-    current plugin.json version. Skips fixture trees without the generator."""
+    current plugin.json version. Skips fixture trees without the generator.
+
+    SPEC-010 P8 (CDT-633): a `-pre.N` suffix on the plugin.json version is
+    tolerated — the core version goes to the generator, so the table keeps
+    tracking the core minor (e.g. `2.0` for `2.0.0-pre.2`)."""
     plugin_path = os.path.join(root, ".claude-plugin", "plugin.json")
     sec_path = os.path.join(root, "SECURITY.md")
     gen_path = os.path.join(root, "skills", "release", "gen-supported-versions.sh")
@@ -985,9 +1005,11 @@ def check_security_versions(root: str, f: Findings) -> None:
         return
     if not version:
         return
+    ver = str(version).strip()
+    gen_version = version_core(ver)
     try:
         proc = subprocess.run(
-            ["bash", gen_path, str(version)],
+            ["bash", gen_path, gen_version],
             capture_output=True, text=True, check=True,
         )
     except (subprocess.CalledProcessError, OSError) as e:
@@ -1009,11 +1031,12 @@ def check_security_versions(root: str, f: Findings) -> None:
             section.append(line)
     got = [ln for ln in section if ln.strip()]
     if got != want:
+        label = ver if gen_version == ver else f"{ver} (core {gen_version})"
         f.add(
             sec_path,
             "security-versions",
             f"supported-versions table does not match generated output for "
-            f"plugin.json {version} — run skills/release/gen-supported-versions.sh --write",
+            f"plugin.json {label} — run skills/release/gen-supported-versions.sh --write",
             line=1,
             src_lines=src_lines,
         )

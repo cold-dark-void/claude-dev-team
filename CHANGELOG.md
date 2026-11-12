@@ -4,6 +4,14 @@ All notable changes to **claude-dev-team**, newest first.
 Authoritative version history. Prefer **`/release`** to add `### vX.Y.Z` headings.
 Pre-written headings (release-train M5c, orchestrate version-sync tasks) are kept
 via skip-if-present when `/release` is given an explicit version — do not invent a
+### v1.28.10
+
+- **Pre-release arc scheme (CDT-633)** — release tooling accepts semver pre-release versions: check-bump-class.sh classifies pre pairs on the core shape, rejects release→pre and pre-downgrade moves on the same core; lead-summary.sh, push-release.sh, and check-ship-history.sh accept `-pre.N` tags, headings, and subjects with full-version D2 compare; gen-supported-versions.sh strips the suffix; docs-drift tolerates pre versions.
+- **/release SKILL.md** — new "Pre-release arc scheme" run-book: explicit pre version input, one-write SECURITY.md rule, stable-stays rule, canonical arc fold form.
+- **check-ship-history.sh** — pre-release tags count as release tags for D1/D2/D4.
+- **AGENTS.md** — Release Rules gain the pre-release arc-versioning note.
+- **SPEC-010** — "Pre-release arc scheme" section (P1–P10) resolves the open pre-release question.
+
 ### v1.28.9
 
 - **spec-lint's two red findings cleared (owners + history checks)** — `tools/spec-lint.sh` exited 1 with `spec-lint: 2 finding(s)`, which kept the CI `spec-lint` job red on every `master` push from v1.27.5 to v1.28.8.

@@ -28,7 +28,8 @@ under commands/*/, are not a new Surface.
 Version classification uses the X.Y.Z core. Equal cores with a different
 full string classify on the core's own shape (X.0.0 major, X.Y.0 minor,
 else patch). A release followed by a pre-release of the same core is
-invalid.
+invalid, and so is a pre-release pair of the same core whose pre-release
+number goes down.
 
 --range BASE..TIP runs commit mode (self-invoked) over every non-merge
 commit in the range and reports each failing commit.
@@ -143,8 +144,24 @@ core_line_class() {
   fi
 }
 
+pre_seq() {
+  # $1 = pre-release tail without the leading '-' (e.g. "pre.1"). Prints the
+  # numeric pre-release sequence; returns 1 for any tail that is not exactly
+  # 'pre.<digits>' (rc.1, alpha, pre.1.2), so the caller skips the comparison
+  # rather than doing arithmetic on a non-number.
+  local t="$1"
+  case "$t" in
+    pre.*) t="${t#pre.}" ;;
+    *) return 1 ;;
+  esac
+  case "$t" in
+    ''|*[!0-9]*) return 1 ;;
+  esac
+  printf '%s\n' "$t"
+}
+
 bump_class() {
-  local old new ocore opre ncore npre oparts nparts oM om op nM nm np
+  local old new ocore opre ncore npre oparts nparts oM om op nM nm np opre_n npre_n
   old=$(strip_v "$1")
   new=$(strip_v "$2")
   if [ "$old" = "$new" ]; then
@@ -157,8 +174,25 @@ bump_class() {
   nparts=$(parse_core "$ncore") || { printf '%s\n' invalid; return 0; }
   read -r oM om op <<<"$oparts"
   read -r nM nm np <<<"$nparts"
+  # Same-core pair: classify on the core's own shape. CDT-633 (SPEC-010
+  # "Pre-release arc scheme" P2) keeps this rule for pre-release pairs and
+  # adds no class string. Two moves are invalid: a release followed by a
+  # pre-release of the same core (opre empty, npre set), and a pre→pre pair
+  # whose number goes down (SPEC-010 AC1) — 2.0.0-pre.2 → 2.0.0-pre.1. An
+  # equal number never reaches here; the old = new check above returns none.
+  # Every other pair — pre→pre upward and pre→final — falls through to the
+  # core's line class, so 2.0.0-pre.1 → 2.0.0-pre.2 and 2.0.0-pre.9 → 2.0.0
+  # are both major. A move to a different core classifies numerically below.
   if [ "$ocore" = "$ncore" ]; then
     if [ -z "$opre" ] && [ -n "$npre" ]; then
+      printf '%s\n' invalid
+      return 0
+    fi
+    # A pre→pre pair compares on the pre-release number. A tail that is not
+    # 'pre.<digits>' carries no number to compare, so the pair keeps the
+    # core's line class (SPEC-010 B2 behavior unchanged).
+    if [ -n "$opre" ] && [ -n "$npre" ] && opre_n=$(pre_seq "$opre") \
+       && npre_n=$(pre_seq "$npre") && [ "$npre_n" -lt "$opre_n" ]; then
       printf '%s\n' invalid
       return 0
     fi

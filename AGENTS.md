@@ -35,6 +35,12 @@ Versioning: semver patch (x.y.Z) for fixes, minor (x.Y.0) for features.
 New opt-in flags with unchanged defaults = patch; default-behavior changes or new command surfaces = minor.
 Enforced on `master` by `githooks/pre-commit` → `skills/release/check-bump-class.sh` (also `/release` Step 4.11 and CI). The hook fires only after a one-time `bash skills/release/install-git-hooks.sh` (or `git config core.hooksPath githooks`) — do that once per clone. A new `commands/*.md` on a patch bump MUST NOT commit.
 
+**Pre-release arc scheme (SPEC-010, CDT-633)** — prose note; no gate enforces the arc rule:
+- During the Control plane arc (control plane Option C+ (CDT-626)), every release is `2.0.0-pre.N` — `plugin.json` bare, tag and CHANGELOG heading with `v`.
+- Do not cut a plain `X.Y.Z` release while the arc is open; the final cut is `v2.0.0`, which fast-forwards `stable`.
+- `stable` stays at the last 1.x final release during the arc; arc pre-releases ride `master` (the `dev-team-edge` channel).
+- Full flow: `skills/release/SKILL.md` § "Pre-release arc scheme"; enforcement: `skills/release/check-bump-class.sh` (SPEC-010).
+
 **Ship / land (plugin-wide — not personal memory):**
 - Never FF-merge epic children onto master so the next worktree can fast-forward. Epic-child work stays on `feat/<ticket>` or the epic integration branch. For epic children, master moves only at epic seal / one `/release` fold (SPEC-033).
 - A non-epic `--autopilot=master` is land-no-release (SPEC-033 M2). It squash-lands onto the worktree baseline and does not run `/release`.

@@ -605,12 +605,38 @@ EOF
     || fail "S11: --write did not update the table"
   grep -q 'security@example.com' "$GEN_TMP/SECURITY.md" && pass "S11: --write preserves the rest of the file" \
     || fail "S11: --write clobbered the reporting section"
+  # pre-release input (CDT-633 P7 / AC-6): the -pre.N suffix is stripped, the
+  # table tracks the core minor
+  OUTP=$(bash "$GEN" 2.0.0-pre.2)
+  echo "$OUTP" | grep -q '| 2.0.x | Yes' && pass "S11: pre-release input derives the core minor" \
+    || fail "S11: pre-release input output: $OUTP"
+  echo "$OUTP" | grep -q '| < 2.0 | No' && pass "S11: pre-release input marks older minors unsupported" \
+    || fail "S11: pre-release older-minor row missing"
+  OUTP10=$(bash "$GEN" 2.0.0-pre.10)
+  echo "$OUTP10" | grep -q '| 2.0.x | Yes' && pass "S11: multi-digit pre number derives the core minor" \
+    || fail "S11: multi-digit pre input output: $OUTP10"
+  # one --write covers the whole pre series: a later pre bump rewrites the same table
+  (cd "$GEN_TMP" && SECURITY_MD="$GEN_TMP/SECURITY.md" bash skills/release/gen.sh 2.0.0-pre.2 --write)
+  cp "$GEN_TMP/SECURITY.md" "$GEN_TMP/sec-pre2.md"
+  (cd "$GEN_TMP" && SECURITY_MD="$GEN_TMP/SECURITY.md" bash skills/release/gen.sh 2.0.0-pre.9 --write)
+  grep -q '| 2.0.x | Yes' "$GEN_TMP/SECURITY.md" && pass "S11: --write on a pre input tracks minor 2.0" \
+    || fail "S11: --write on a pre input did not track minor 2.0"
+  cmp -s "$GEN_TMP/SECURITY.md" "$GEN_TMP/sec-pre2.md" \
+    && pass "S11: a later pre bump --write is a no-op (one write covers the series)" \
+    || fail "S11: 2.0.0-pre.9 --write changed the table 2.0.0-pre.2 wrote"
   # a bad argv exits 64
   if bash "$GEN" not-a-version >/dev/null 2>&1; then
     fail "S11: non-semver argv should exit 64"
   else
     rc=$?
     [ "$rc" -eq 64 ] && pass "S11: non-semver argv exits 64" || fail "S11: non-semver argv exit $rc"
+  fi
+  # a non-pre suffix (-rc) is not a supported shape: fail closed with exit 1
+  if bash "$GEN" 2.0.0-rc.1 >/dev/null 2>&1; then
+    fail "S11: -rc.1 suffix should exit 1"
+  else
+    rc=$?
+    [ "$rc" -eq 1 ] && pass "S11: -rc.1 suffix fails closed (exit 1)" || fail "S11: -rc.1 suffix exit $rc"
   fi
 else
   fail "S11: gen-supported-versions.sh missing"
@@ -698,6 +724,50 @@ if printf '%s\n' "$STEP65_BODY" | grep -Fq 'MUST NOT fail the release'; then
 else
   fail "S13: Step 6.5 missing non-fatal contract prose"
 fi
+
+# ---------------------------------------------------------------------------
+# S14 (CDT-633 AC10): AGENTS.md Release Rules carry the pre-release arc note.
+# The arc rule is prose-only (SPEC-010) — this fixture proves the note is
+# present, not that releases obey it.
+# ---------------------------------------------------------------------------
+if grep -Fq 'Pre-release arc scheme' "$AGENTS_MD" && grep -Fq '2.0.0-pre.N' "$AGENTS_MD"; then
+  pass "S14: AGENTS.md carries the pre-release arc note"
+else
+  fail "S14: AGENTS.md missing the pre-release arc note ('Pre-release arc scheme' + '2.0.0-pre.N') — SPEC-010 AC10"
+fi
+if grep -Fq 'the final cut is `v2.0.0`, which fast-forwards `stable`' "$AGENTS_MD"; then
+  pass "S14: AGENTS.md arc note states the v2.0.0 final cut and stable fast-forward"
+else
+  fail "S14: AGENTS.md arc note missing the final-cut/stable clause — SPEC-010 AC10"
+fi
+
+# ---------------------------------------------------------------------------
+# S15 (CDT-633 AC9): the /release SKILL.md carries the pre-release arc
+# run-book — heading, CDT-626 citation, the bare-in-files / v-on-tag input
+# rule, and the stable-stays clause. Presence only: SPEC-010 P9 owns the
+# behaviour, which the bump-class and ship-history suites cover.
+# ---------------------------------------------------------------------------
+ARC_BODY=$(awk '/^### Pre-release arc scheme \(CDT-633\)/ {grab=1; print; next}
+    /^## / {if (grab) exit}
+    grab {print}' "$SKILL")
+if [ -n "$ARC_BODY" ]; then
+  pass "S15: SKILL.md carries the 'Pre-release arc scheme' section"
+else
+  fail "S15: SKILL.md section 'Pre-release arc scheme' not found — SPEC-010 AC9"
+fi
+# The section wraps prose, so match needles on newlines flattened to spaces.
+ARC_FLAT=$(printf '%s\n' "$ARC_BODY" | tr '\n' ' ' | tr -s ' ')
+for needle in 'control plane Option C+ (CDT-626)' \
+              '`plugin.json` carries `2.0.0-pre.N` (no `v`)' \
+              'heading carry `v2.0.0-pre.N`' \
+              'a pre-release never moves it' \
+              'fast-forwards `stable`'; do
+  if printf '%s\n' "$ARC_FLAT" | grep -Fqi -- "$needle"; then
+    pass "S15: arc section holds: $needle"
+  else
+    fail "S15: arc section missing: $needle — SPEC-010 AC9"
+  fi
+done
 
 # ---------------------------------------------------------------------------
 echo

@@ -2,12 +2,13 @@
 # gen-supported-versions.sh — emit (or rewrite) the SECURITY.md
 # supported-versions table from the plugin version (CDT-296 / 10 E9 / W3-22).
 #
-#   gen-supported-versions.sh [X.Y.Z]           print the markdown table
-#   gen-supported-versions.sh [X.Y.Z] --write   rewrite the section in SECURITY.md
+#   gen-supported-versions.sh [X.Y.Z[-pre.N]]           print the markdown table
+#   gen-supported-versions.sh [X.Y.Z[-pre.N]] --write   rewrite the section in SECURITY.md
 #
 # The version argument defaults to .claude-plugin/plugin.json ("version"),
 # resolved from this script's plugin root (works in-repo and installed).
-# Policy: the current minor is supported; every older minor is not.
+# Policy: the current minor is supported; every older minor is not. A pre-release
+# input (2.0.0-pre.N) tracks the minor of its core (2.0).
 # The docs-drift `security-versions` check fails when SECURITY.md lags this
 # output, and /release regenerates the table at Step 3d.
 set -euo pipefail
@@ -18,7 +19,7 @@ PLUGIN_JSON="$ROOT/.claude-plugin/plugin.json"
 SECURITY="${SECURITY_MD:-$ROOT/SECURITY.md}"
 
 usage() {
-  echo "usage: gen-supported-versions.sh [X.Y.Z] [--write]" >&2
+  echo "usage: gen-supported-versions.sh [X.Y.Z[-pre.N]] [--write]" >&2
   exit 64
 }
 
@@ -37,6 +38,12 @@ if [ -z "$ver" ]; then
   [ -f "$PLUGIN_JSON" ] || { echo "gen-supported-versions.sh: no version argument and $PLUGIN_JSON not found" >&2; exit 1; }
   ver=$(grep -o '"version"[[:space:]]*:[[:space:]]*"[^"]*"' "$PLUGIN_JSON" | head -1 | sed 's/.*"\([^"]*\)"$/\1/')
 fi
+# Pre-release input (CDT-633 P7): a pre-release is supported by its core minor,
+# so strip the -pre.N tail (and any +build metadata after it) in this one place.
+# The shape checks and the minor derivation below stay X.Y.Z-only.
+case "$ver" in
+  *-pre.[0-9]*) ver=${ver%%-pre.*} ;;
+esac
 case "$ver" in
   *[!0-9.]*) { echo "gen-supported-versions.sh: not a semver: $ver" >&2; exit 1; } ;;
 esac

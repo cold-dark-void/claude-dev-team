@@ -17,7 +17,8 @@ Usage: lead-summary.sh [--changelog PATH | --cached | --from-commit REV] VERSION
        lead-summary.sh --check [source flags] VERSION SUBJECT
 
 Print the D2-normalized lead of ### vVERSION / ### VERSION in CHANGELOG.md
-(strip leading - / **, trailing " — …" detail). VERSION is X.Y.Z or vX.Y.Z.
+(strip leading - / **, trailing " — …" detail). VERSION is X.Y.Z or vX.Y.Z,
+with an optional -pre.N suffix (CDT-633).
 
 --cached         read git show :CHANGELOG.md (index)
 --from-commit R  read git show R:CHANGELOG.md
@@ -106,8 +107,9 @@ else
   SUBJECT=""
 fi
 
-if ! [[ "$VERSION" =~ ^v?[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
-  echo "lead-summary.sh: VERSION must be X.Y.Z or vX.Y.Z (got: $VERSION)" >&2
+# CDT-633 P4: optional -pre.N tail on the strict core. Plain X.Y.Z is unchanged.
+if ! [[ "$VERSION" =~ ^v?[0-9]+\.[0-9]+\.[0-9]+(-pre\.[0-9]+)?$ ]]; then
+  echo "lead-summary.sh: VERSION must be X.Y.Z, vX.Y.Z, X.Y.Z-pre.N or vX.Y.Z-pre.N (got: $VERSION)" >&2
   exit 64
 fi
 VER_PLAIN="${VERSION#v}"
@@ -150,7 +152,7 @@ changelog_lead_for() {
   local body="$1" ver="$2"
   local section_found=0 line lead=""
   while IFS= read -r line || [ -n "$line" ]; do
-    if [[ "$line" =~ ^###[[:space:]]+v?([0-9]+\.[0-9]+\.[0-9]+)[[:space:]]*$ ]]; then
+    if [[ "$line" =~ ^###[[:space:]]+v?([0-9]+\.[0-9]+\.[0-9]+(-pre\.[0-9]+)?)[[:space:]]*$ ]]; then
       if [ "$section_found" -eq 1 ]; then
         break
       fi
@@ -232,9 +234,9 @@ if [ -z "$LEAD_TEXT" ]; then
   d2_fail
 fi
 
-if [[ "$SUBJECT" =~ ^(feat|fix):[[:space:]]+v?([0-9]+\.[0-9]+\.[0-9]+)[[:space:]]+—[[:space:]]+(.*)$ ]]; then
+if [[ "$SUBJECT" =~ ^(feat|fix):[[:space:]]+v?([0-9]+\.[0-9]+\.[0-9]+(-pre\.[0-9]+)?)[[:space:]]+—[[:space:]]+(.*)$ ]]; then
   subj_ver="${BASH_REMATCH[2]}"
-  summary="${BASH_REMATCH[3]}"
+  summary="${BASH_REMATCH[4]}"
   if [ "$subj_ver" = "$VER_PLAIN" ] && [ "$summary" = "$LEAD_TEXT" ]; then
     exit 0
   fi

@@ -4,7 +4,7 @@
 **Category**: core
 **Created**: 2026-03-22
 
-**Covers**: `skills/review-and-commit/SKILL.md`, `skills/release/SKILL.md`, `skills/release/check-staged-paths.sh`, `skills/release/check-ship-history.sh`, `skills/release/lead-summary.sh`, `skills/release/check-bump-class.sh`, `skills/release/install-git-hooks.sh`, `skills/release/step0.sh`, `skills/release/ship-start.sh`, `skills/release/push-release.sh`, `skills/release/test.sh`, `skills/release/test-bump-class.sh`, `skills/release/test-ship-history.sh`, `skills/release/test-step0.sh`, `skills/release/test-ship-steps.sh`, `githooks/pre-commit`, `skills/docs-drift/SKILL.md`, `skills/docs-drift/check.py`, `skills/docs-drift/check-docs-drift.sh`, `skills/docs-drift/test.sh`
+**Covers**: `skills/review-and-commit/SKILL.md`, `skills/release/SKILL.md`, `skills/release/check-staged-paths.sh`, `skills/release/check-ship-history.sh`, `skills/release/lead-summary.sh`, `skills/release/check-bump-class.sh`, `skills/release/gen-supported-versions.sh`, `skills/release/install-git-hooks.sh`, `skills/release/step0.sh`, `skills/release/ship-start.sh`, `skills/release/push-release.sh`, `skills/release/test.sh`, `skills/release/test-bump-class.sh`, `skills/release/test-ship-history.sh`, `skills/release/test-step0.sh`, `skills/release/test-ship-steps.sh`, `githooks/pre-commit`, `skills/docs-drift/SKILL.md`, `skills/docs-drift/check.py`, `skills/docs-drift/check-docs-drift.sh`, `skills/docs-drift/test.sh`, `install-test.sh`
 
 ## Overview
 
@@ -190,6 +190,21 @@ beyond its own documented job.
   NOT mutate the index or refs. Sibling of `check-ship-history.sh`
   (same `HERE` pattern as `ship-start.sh`).
 
+### Pre-release arc scheme (CDT-633)
+
+Control plane Option C+ (CDT-626): the maintainer ruled the whole Control plane arc ships as a pre-release major. This subsection is the single SoT for arc-versioning policy; `skills/release/SKILL.md` and `AGENTS.md` cite it and MUST NOT fork a second statement of P1.
+
+- **P1 — Arc versioning.** While the Control plane arc is open, every release MUST be `2.0.0-pre.N`: `plugin.json` `"version"` carries `2.0.0-pre.N` (no `v`); the git tag and the CHANGELOG heading carry `v2.0.0-pre.N`. A plain `X.Y.Z` (non-pre) release MUST NOT be cut while the arc is open. The `stable` branch MUST stay at the last 1.x final for the arc; pre-releases ride `master` (the `dev-team-edge` channel). The final cut `v2.0.0` MUST fast-forward `stable`. The arc rule itself is prose-only (AGENTS.md Release Rules note): no gate enforces which arc is open.
+- **P2 — Classification decision (B2).** `check-bump-class.sh` MUST keep core-shape classification for pre-release pairs; MUST NOT introduce a new class string. Release→pre-release on the same core stays `invalid`; pre→pre and pre→final on the same core are allowed and classify as the core's line class (`2.0.0` core → `major`); a cross-core move classifies numerically (`1.28.9 → 2.0.0-pre.1` → `major`). The script MUST carry an explanatory comment stating this decision at the same-core branch of `bump_class`.
+- **P3 — SECURITY pre-gate.** `security_gate` MUST fail closed on the pre series: a `2.0.0-pre.N` bump classified `major` or `minor` requires the SECURITY.md supported-versions table to track the new core minor (`2.0`). The `-pre.N` suffix MUST NOT weaken the gate: the core-minor derivation strips the suffix, the table row stays `| 2.0.x | Yes |`.
+- **P4 — `lead-summary.sh` pre tolerance (R4).** `VERSION` MUST accept `X.Y.Z-pre.N` and `vX.Y.Z-pre.N`. The CHANGELOG heading match and the D2 subject match MUST accept an optional `-pre.N` suffix on the strict `X.Y.Z` forms (extend, not replace). A plain `X.Y.Z` input MUST behave exactly as before.
+- **P5 — `push-release.sh` (R3).** The `--tag` validator already matches `v2.0.0-pre.2` (the `[-+]` suffix arm). A test MUST prove the D2 tag-compare path round-trips a pre tag at unit level. (Amended by CDT-633 T9b, commits `47ef47f`/`4be8b52`: the D2 derivation now passes the **full** tag version, so `-pre.N` survives the compare and only `+build` metadata is stripped. The arc fold's CHANGELOG heading and commit subject MUST therefore carry the same `-pre.N` as the tag — canonical form, per P1.)
+- **P6 — `check-ship-history.sh` `is_release_tag`.** MUST treat `v2.0.0-pre.N` (optional `v`) as release tags: the one-folded-commit rule (D1) and the D4 halves apply. The comment at the former pre-release exclusion (~L282) MUST be updated. A pre-release tag is the nearest-older tag for `prev_for_tag`, so consecutive arc tags each verify exactly one fold commit.
+- **P7 — `gen-supported-versions.sh`.** MUST accept a pre-suffixed version (argument or `plugin.json`), strip the `-pre.N` suffix internally, and emit the table for the core minor. One `--write` therefore covers the whole pre series (the core minor stays `2.0` for the arc). A suffix-free version argument behaves unchanged.
+- **P8 — Tolerances: docs-drift and install-test.** `skills/docs-drift/check.py` `security-versions` MUST validate a `plugin.json` at `2.0.0-pre.2` without false drift. `install-test.sh` MUST complete without error against a `plugin.json` at `2.0.0-pre.2`. No version check in either MAY hard-fail on a semver pre-release suffix.
+- **P9 — SKILL.md flow.** `/release` SKILL.md MUST document the pre-release flow: explicit `2.0.0-pre.N` version input (bare in `plugin.json`; `v` on tag and CHANGELOG heading), the heading format, the tag/push sequence (unchanged — R3), the classification table (pre→pre allowed; release→pre invalid; pre→final allowed), and the stable-stays rule. It MUST cite "control plane Option C+ (CDT-626)".
+- **P10 — Tests.** `test-bump-class.sh` and `test.sh` MUST add: release→pre (invalid), pre→pre (allowed, recorded class), pre→final (allowed), pre with a new Surface (allowed — major). `test-ship-history.sh` MUST add `lead-summary.sh` pre-suffix fixtures and an `is_release_tag` pre-tag D1 fixture. `test-ship-steps.sh` MUST add the `push-release.sh` pre-tag D2 fixture. `test.sh` S11 MUST add a `gen-supported-versions.sh` pre-input case. `skills/docs-drift/test.sh` and `install-test.sh` MUST cover their P8 cases. All fixtures live in temp repos; the live tree is never the test subject.
+
 ### Docs drift gate
 
 Goal: a deterministic, LLM-free docs-consistency gate for `/release` — a structural sibling of the SPEC-021 skill-bash lint gate (Step 4.8). **Scope boundary:** SPEC-021 owns the *content* of fenced ```bash blocks (its C1–C4 defect classes); THIS gate owns *structural* documentation drift — index tables, roster tables, page links, and manifest description fields that can silently diverge from the `commands/`, `agents/`, `docs/`, and `.claude-plugin/` surfaces they describe. Neither gate inspects what the other owns.
@@ -274,7 +289,8 @@ Goal: a deterministic, LLM-free docs-consistency gate for `/release` — a struc
 
 - [ ] Should review-and-commit auto-fix nitpicks instead of just reporting them?
 - [ ] Is the 80 confidence threshold optimal, or should it be configurable per project?
-- [ ] Should release support pre-release versions (e.g., 0.16.0-beta.1)?
+
+(Resolved 2026-11-12, CDT-633: release supports pre-release versions — see "Pre-release arc scheme".)
 
 ## Acceptance criteria
 
@@ -293,10 +309,38 @@ Format and rules: SPEC-033 M14(g) and M14(h). Each ticket that ships through M14
 - **E.** `check-ship-history.sh` D2 lead extraction invokes `lead-summary.sh` (sibling path, same `HERE` pattern as `ship-start.sh`). It has no `normalize_lead` or `changelog_lead_for` function of its own. Existing D2 mismatch fixtures still exit 1 with a `D2:` line.
   Verify: bash skills/release/test-ship-history.sh
 
+### CDT-633
+
+- **AC1.** `check-bump-class.sh` classifies, in test mode: `1.28.9 → 2.0.0-pre.1` → major; `2.0.0-pre.1 → 2.0.0-pre.2` → major (same-core pre→pre); `2.0.0-pre.9 → 2.0.0` → allowed. Still rejects `2.0.0 → 2.0.0-pre.1` (release→pre on same core) and any version-down move.
+  Verify: bash skills/release/test-bump-class.sh
+- **AC2.** Pre→pre classification decision recorded per ruling: core-shape classification kept, with an explanatory comment in `check-bump-class.sh` and test coverage. No new class string. The SECURITY.md pre-gate (`security_gate`) keeps failing closed on the pre series: a `2.0.0-pre.N` major-class bump requires the SECURITY table to track minor `2.0`.
+  Verify: bash skills/release/test-bump-class.sh
+- **AC3.** `lead-summary.sh` accepts `2.0.0-pre.2` (or `v2.0.0-pre.2`) for: VERSION input, CHANGELOG heading `### v2.0.0-pre.N`, and D2 commit-subject `v2.0.0-pre.N`. Existing strict `X.Y.Z` regexes (L109/153/235) extended, not replaced.
+  Verify: bash skills/release/test-ship-history.sh
+- **AC4.** `push-release.sh` accepts `--tag v2.0.0-pre.2` and its D2 tag-compare path works at unit level (no real push).
+  Verify: bash skills/release/test-ship-steps.sh
+- **AC5.** `check-ship-history.sh` `is_release_tag` includes `v2.0.0-pre.N` tags: they satisfy the one-folded-commit rule and D1 checks. Comment at ~L282 ("pre-release excluded") updated to match.
+  Verify: bash skills/release/test-ship-history.sh
+- **AC6.** `gen-supported-versions.sh` accepts a pre version input (e.g. `2.0.0-pre.2`), strips the `-pre.N` suffix internally, and emits a table tracking minor `2.0`. One `--write` covers the whole pre series.
+  Verify: bash skills/release/test.sh
+- **AC7.** docs-drift `security-versions` check (`skills/docs-drift/check.py`) validates a plugin.json at `2.0.0-pre.2` without false drift.
+  Verify: bash skills/docs-drift/test.sh
+- **AC8.** `install-test.sh` completes without error against a plugin.json at `2.0.0-pre.2`.
+  Verify: bash install-test.sh
+- **AC9.** `skills/release/SKILL.md` documents the pre-release flow: explicit `2.0.0-pre.N` version input (plugin.json bare, no `v`; tag and CHANGELOG heading `v2.0.0-pre.N`), CHANGELOG heading format, tag/push sequence, pre→pre allowed / release→pre invalid / pre→final allowed, and the stable-stays rule (`stable` untouched during the arc; fast-forwarded only at the final `v2.0.0` cut). Cites "control plane Option C+ (CDT-626)".
+  Verify: bash skills/release/test.sh
+- **AC10.** AGENTS.md Release Rules carry the arc-versioning note: all arc releases are `2.0.0-pre.N`; final cut is `v2.0.0` fast-forwarding `stable`; no plain `X.Y.Z` release while the arc is open. Arc rule is prose-only — no gate enforces it.
+  Verify: bash skills/release/test.sh
+- **AC11.** `skills/release/test-bump-class.sh` (and `skills/release/test.sh` suite) extended with: release→pre (invalid), pre→pre (allowed, recorded class), pre→final (allowed), pre with new Surface (allowed — major).
+  Verify: bash skills/release/test-bump-class.sh
+- **AC12.** [process] Full release test suite (`skills/release/test.sh`) and docs-drift test suite pass in CI on the PR.
+- **AC13.** [process] Review confirms the maintainer can run `/release` for a pre-release by following SKILL.md alone, without improvisation.
+
 ## Version History
 
 | Date | Change |
 |------|--------|
+| 2026-11-12 | CDT-633: pre-release arc scheme (control plane Option C+ / CDT-626) — new P1–P10; `is_release_tag` admits `v2.0.0-pre.N`; `lead-summary.sh` accepts pre suffixes; `gen-supported-versions.sh` strips `-pre.N`; core-shape classification kept (no new class string); SECURITY gate fails closed on the pre series. Open question on pre-release support resolved. `### CDT-633` ACs 1–13. |
 | 2026-10-10 | CDT-534: Step 4.13 pointer runs `bash tools/run-all-tests.sh --jobs 8`; contract SPEC-030 R1–R17, R36–R38. |
 | 2026-10-08 | CDT-533: fold-commit subject from CHANGELOG lead. New R4 `lead-summary.sh`; H6.2 pre-commit `--check --cached`; R3 pre-push D2 (`--print` skips); D2 lead extraction is that CLI (no second normalizer in `check-ship-history.sh`). `### CDT-533` ACs A–E. |
 | 2026-10-02 | CDT-371 / CDT-391: the release bump is the version pair. Steps 4.6 and 4.12 are named. CDT-54 Task 2 is landed. Review does not spawn 5 sub-agents. Covers includes `skills/docs-drift/`. |

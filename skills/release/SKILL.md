@@ -169,6 +169,50 @@ one minor line:
 `0.37.0` (PR1 wrapper) → `0.37.1` (PR2 orchestrate integration) →
 `0.37.2` (OS-leash) → `0.37.3` (/local-do), all `feat:`, all patches.
 
+### Pre-release arc scheme (CDT-633)
+
+Control plane Option C+ (CDT-626) rules that the whole Control plane arc ships as
+pre-releases. SPEC-010 § "Pre-release arc scheme" is the single source of truth for
+that policy; this section is the `/release` run-book. Cite it — do not restate P1.
+
+1. **Pass the version explicitly.** Run `/release 2.0.0-pre.2`. Step 1 rule 1 uses
+   it verbatim, and the Step 1 "Version format" rule applies: `plugin.json` carries
+   `2.0.0-pre.N` (no `v`); the git tag and the `CHANGELOG.md` heading carry
+   `v2.0.0-pre.N`. Auto-detect and the bump keywords never compute a pre version —
+   `patch` on `2.0.0-pre.1` reads as the final `2.0.0`. Do not cut a plain `X.Y.Z`
+   release while the arc is open.
+2. **Sequences.** `skills/release/check-bump-class.sh` (Step 4.11) enforces all
+   four rows and adds no new class string — a pre pair takes the core's line class:
+
+   | Pair | Verdict |
+   |------|---------|
+   | `2.0.0-pre.1 → 2.0.0-pre.2` (pre → pre, same core, upward) | allowed → `major` |
+   | `2.0.0-pre.2 → 2.0.0-pre.1` (pre downgrade) | invalid |
+   | `2.0.0 → 2.0.0-pre.1` (final → pre, same core) | invalid |
+   | `2.0.0-pre.9 → 2.0.0` (pre → final) | allowed → `major` |
+
+   A move to a different core classifies numerically: `1.28.9 → 2.0.0-pre.1` is
+   `major`.
+3. **Regenerate `SECURITY.md` once.** The first pre tag is a major-class bump, so
+   the Step 4.11 pre-gate needs the supported-versions table. Run Step 3d once, with
+   the pre version as the argument: `gen-supported-versions.sh --write 2.0.0-pre.1`.
+   The generator strips the suffix and tracks the core minor, so the row stays
+   `| 2.0.x | Yes |`. That one write covers the whole series — a later pre release
+   stages no `SECURITY.md` change.
+4. **Heading, subject, and tag must agree exactly.** `push-release.sh` (Step 6) and
+   `check-ship-history.sh` (Step 5.5) D2-compare the **full** tag version, `-pre.N`
+   included. So the arc fold is `### v2.0.0-pre.2` +
+   `feat: v2.0.0-pre.2 — <lead>` + tag `v2.0.0-pre.2`. Derive the subject with
+   `lead-summary.sh` as in Step 5 — it accepts the suffix. `+build` metadata is the
+   only part dropped before the compare. The tag/push sequence itself is unchanged
+   (Step 6, R3).
+5. **`stable` stays put.** The `stable` install channel (Step 3c) stays at the last
+   1.x final release for the whole arc; a pre-release never moves it. Pre-releases
+   ride `master`, which `dev-team-edge` installs.
+6. **Cut the final when the arc completes.** Release `2.0.0` (pre → final) and tag
+   `v2.0.0`. That cut retires the pre series, fast-forwards `stable`, and resumes
+   plain `X.Y.Z` releases.
+
 ## Step 2: Generate changelog entry
 
 **Do NOT ask the user for a description.** Auto-generate it from the actual

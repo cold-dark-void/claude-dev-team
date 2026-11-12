@@ -568,6 +568,59 @@ json.dump({"name":"t","description":"A test plugin description for docs-drift.",
 PY
 
 # ---------------------------------------------------------------------------
+# T4h2 security-versions pre-release (CDT-633 AC-7 / P8) — a plugin.json at
+# 2.0.0-pre.2 must not report false drift; a stale table still bites
+# ---------------------------------------------------------------------------
+mkdir -p "$MINI/skills/release"
+cp "$REPO_ROOT/skills/release/gen-supported-versions.sh" "$MINI/skills/release/"
+python3 - <<PY
+import json
+json.dump({"name":"t","description":"A test plugin description for docs-drift.","version":"2.0.0-pre.2"}, open("$MINI/.claude-plugin/plugin.json","w"))
+PY
+cat > "$MINI/SECURITY.md" <<'EOF'
+# Security Policy
+
+## Supported Versions
+
+| Version | Supported |
+|---------|-----------|
+| 2.0.x | Yes       |
+| < 2.0 | No        |
+
+## Reporting a Vulnerability
+
+Email security@example.com.
+EOF
+run_check 0 --root "$MINI"
+expect_no_finding security-versions
+# Fail-closed: the same pre plugin.json with a stale 1.28 table still bites
+cat > "$MINI/SECURITY.md" <<'EOF'
+# Security Policy
+
+## Supported Versions
+
+| Version | Supported |
+|---------|-----------|
+| 1.28.x | Yes       |
+| < 1.28 | No        |
+
+## Reporting a Vulnerability
+
+Email security@example.com.
+EOF
+run_check 1 --root "$MINI"
+expect_finding security-versions
+echo "$OUT" | grep -q "2.0.0-pre.2 (core 2.0.0)" \
+  && PASS=$((PASS+1)) || {
+  FAIL=$((FAIL+1)); echo "FAIL: security-versions message should name the pre version and its core"
+}
+rm -rf "$MINI/skills/release" "$MINI/SECURITY.md"
+python3 - <<PY
+import json
+json.dump({"name":"t","description":"A test plugin description for docs-drift.","version":"0.0.1"}, open("$MINI/.claude-plugin/plugin.json","w"))
+PY
+
+# ---------------------------------------------------------------------------
 # T5 waiver (D6)
 # ---------------------------------------------------------------------------
 backup "$MINI/README.md"

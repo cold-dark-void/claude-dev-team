@@ -12,7 +12,8 @@
 #   1  — dirty (history dirty — rewrite needed)
 #  64  — usage / not a git repo / unresolvable --since / unreadable --tag-snapshot
 #
-# Release tags only: names matching v?X.Y.Z (optional leading v).
+# Release tags only: names matching v?X.Y.Z (optional leading v), with the
+# optional -pre.N suffix included (SPEC-010 P6 / CDT-633).
 # Non-release tags are ignored.
 #
 # Tags are read by full refname under refs/tags/ (SPEC-010 D4/R2). D4's
@@ -27,8 +28,8 @@ usage() {
 Usage: check-ship-history.sh --since <ship-start-sha> \
          [--changelog PATH] [--expect-tag TAG=SHA ...] [--tag-snapshot FILE]
 
-Ship window W = commits and release tags (v?X.Y.Z) whose targets are
-strictly after --since and ancestor-of-or-equal HEAD.
+Ship window W = commits and release tags (v?X.Y.Z, optional -pre.N)
+whose targets are strictly after --since and ancestor-of-or-equal HEAD.
 
 Dirty classes D1–D4 (SPEC-010 H): multi-commit-per-tag, subject/CHANGELOG
 mismatch, repair-class commits, tag retarget (--expect-tag / remote-tracking
@@ -148,12 +149,15 @@ fi
 
 # --- helpers ---
 
-# True if name is a release tag: optional v + X.Y.Z (numeric components)
+# True if name is a release tag: optional v + X.Y.Z (numeric components) with
+# an optional -pre.N suffix (SPEC-010 "Pre-release arc scheme" P6, CDT-633).
+# Any other suffix (e.g. -rc.1, +build) stays a non-release tag.
 is_release_tag() {
-  [[ "$1" =~ ^v?[0-9]+\.[0-9]+\.[0-9]+$ ]]
+  [[ "$1" =~ ^v?[0-9]+\.[0-9]+\.[0-9]+(-pre\.[0-9]+)?$ ]]
 }
 
-# Strip optional leading v → X.Y.Z
+# Strip optional leading v. The -pre.N tail is kept, so the result matches
+# parse_release_subject output for a release subject of the same tag.
 tag_version() {
   local t="$1"
   t="${t#v}"
@@ -186,11 +190,15 @@ is_repair_subject() {
   return 1
 }
 
-# Release-shaped subject → prints version X.Y.Z or returns 1
-# Matches: ^(feat|fix): v?X.Y.Z — <summary>
+# Release-shaped subject (CDT-633 P4/P6). Groups: 1 type, 2 version
+# (v?X.Y.Z, optional -pre.N), 3 the -pre.N tail, 4 summary after the em-dash.
+# Shared by the two readers below — one pattern, so the group numbers move once.
+RELEASE_SUBJECT_RE='^(feat|fix):[[:space:]]+v?([0-9]+\.[0-9]+\.[0-9]+(-pre\.[0-9]+)?)[[:space:]]+—[[:space:]]+(.*)$'
+
+# Release-shaped subject → prints version X.Y.Z (optional -pre.N) or returns 1
 parse_release_subject() {
   local s="$1"
-  if [[ "$s" =~ ^(feat|fix):[[:space:]]+v?([0-9]+\.[0-9]+\.[0-9]+)[[:space:]]+—[[:space:]]+(.*)$ ]]; then
+  if [[ "$s" =~ $RELEASE_SUBJECT_RE ]]; then
     printf '%s\n' "${BASH_REMATCH[2]}"
     return 0
   fi
@@ -200,8 +208,8 @@ parse_release_subject() {
 # Extract summary after em-dash from release subject
 release_subject_summary() {
   local s="$1"
-  if [[ "$s" =~ ^(feat|fix):[[:space:]]+v?[0-9]+\.[0-9]+\.[0-9]+[[:space:]]+—[[:space:]]+(.*)$ ]]; then
-    printf '%s\n' "${BASH_REMATCH[2]}"
+  if [[ "$s" =~ $RELEASE_SUBJECT_RE ]]; then
+    printf '%s\n' "${BASH_REMATCH[4]}"
     return 0
   fi
   return 1
@@ -278,8 +286,10 @@ done
 n_tags=${#tag_names[@]}
 
 # For a tag commit, find the nearest older release-tag ancestor via linear
-# `git describe` lookup (plan DD6) — no all-tags rescan. A --match hit
-# that is not itself a release tag (e.g. a pre-release) is excluded and
+# `git describe` lookup (plan DD6) — no all-tags rescan. A pre-release tag
+# (v2.0.0-pre.N) counts as a release tag (CDT-633), so consecutive arc tags
+# each get the previous pre tag as prev and verify exactly one fold commit.
+# A --match hit that is not a release tag (e.g. v2.0.0-rc.1) is excluded and
 # describe runs again. No hit, or the commit has no parent → SINCE.
 prev_for_tag() {
   local this_commit="$1"
