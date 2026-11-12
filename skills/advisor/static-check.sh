@@ -137,7 +137,11 @@ if [ "${ADVISOR_STATIC_HOST_CMDS:-}" = "1" ]; then
 $TOKENS
 EOF
   else
-    printf 'pacman\t\tpacman -Q <token>\tskip\tno pacman on host\n' >> "$CHECKS_TSV"
+    # One tab between fields — a 5-field row breaks the 4-field capture and
+    # the JSON converter dies on exit tonumber, leaving no static-check.json
+    # (c4 no-pacman branch failed on every CI run; the maintainer host has
+    # pacman and never produces this row).
+    printf 'pacman\tpacman -Q <token>\tskip\tno pacman on host\n' >> "$CHECKS_TSV"
   fi
   PIDX=0
   while IFS= read -r p; do

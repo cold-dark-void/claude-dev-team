@@ -725,6 +725,15 @@ if want_ac; then
       git -C "$WORK/mirror/$side" init -q . >/dev/null 2>&1 || PRC=$?
       git -C "$WORK/mirror/$side" add -A    >/dev/null 2>&1 || PRC=$?
     done
+    # Tool-constant pair: lint BOTH trees with HEAD's tooling. The base
+    # mirror otherwise carries faa0249's own copies, and a SIGPIPE race in
+    # the old m14-ac-split feeder made the base side's [m14-ac] WARN text
+    # nondeterministic under runner load (CDT-635). The receipt compares
+    # trees; the tool must be constant.
+    if [ "$PRC" = 0 ]; then
+      cp "$WORK/mirror/head/tools/spec-lint.sh" "$WORK/mirror/base/tools/spec-lint.sh" || PRC=$?
+      cp "$WORK/mirror/head/skills/council/m14-ac-split.sh" "$WORK/mirror/base/skills/council/m14-ac-split.sh" 2>/dev/null || PRC=$?
+    fi
     if [ "$PRC" = 0 ] && [ -f "$WORK/mirror/head/tools/spec-lint.sh" ]; then
       MHR=0
       MHC=$( (cd "$WORK/mirror/head" && bash tools/spec-lint.sh) 2>&1 ) || MHR=$?

@@ -4,6 +4,11 @@ All notable changes to **claude-dev-team**, newest first.
 Authoritative version history. Prefer **`/release`** to add `### vX.Y.Z` headings.
 Pre-written headings (release-train M5c, orchestrate version-sync tasks) are kept
 via skip-if-present when `/release` is given an explicit version — do not invent a
+### v1.28.14
+
+- **advisor static-check's pacman skip row is now a valid 4-field TSV row (CDT-634 follow-up)** — the no-pacman branch wrote `pacman\t\t...` (five fields); the 4-field capture mis-parsed it, the summary jq died on `tonumber`, and no `static-check.json` was written — so `test-classify.sh`'s `c4-host-cmds-run-when-opted-in (no-pacman branch)` failed on every CI run once the CDT-634 dirt fix stopped masking it. The maintainer host has pacman and never produces the row, which is why it never failed locally. Verified by running the no-pacman branch under a pacman-free PATH.
+- **receipts suite lints the faa0249 base mirror with HEAD's tooling (CDT-635)** — the AC9 mirror pair was never condition-identical: the base carried faa0249's own racy `m14-ac-split.sh` feeder, so its `[m14-ac]` WARN text flaked under runner load even after the v1.28.13 head-side fix. Both mirrors now get HEAD's `tools/spec-lint.sh` and `skills/council/m14-ac-split.sh` before linting — the receipt compares trees with a constant tool. The v1.28.13 run's diff proved the head side is already clean.
+
 ### v1.28.13
 
 - **m14-ac-split's parse feeder can no longer race its reader (CDT-635)** — the v1.28.12 fix covered the wrong pipe: the SIGPIPE comes from the main parse awk (12 early-`exit` paths across cases 5/6/7/8/10), whose `printf | awk` feeder races the reader — under runner load printf writes after awk has closed and bash emits "printf: write error: Broken pipe" (attributed to the substitution's closing line) into spec-lint's `[m14-ac]` WARN text. The v1.28.12 macos run proved the flake: the same script version produced the artifact on the HEAD side and clean output on the base side. The feeder is now a here-string (temp file), which cannot SIGPIPE; a full parity sweep over every spec subsection is byte-identical and the ERR path (SPEC-030 `### CDT-502`, case 5) is unchanged.
