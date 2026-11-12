@@ -85,7 +85,12 @@ fi
 # "OK\t<id>\t<line>\t<process 0|1>\t<verify or empty>", and on failure a
 # single line "ERR\t<case>\t<cause>". Text is used inside awk only, for the
 # guard-1 word check, and is never printed.
-parsed="$(printf '%s\n' "$content" | awk -v ticket="$ticket_id" '
+# Feed via here-string (temp file), not a pipe: this awk exits early on any
+# ERR path, and a pipe feeder races the reader — under runner load printf
+# can write after awk has closed, producing "printf: write error: Broken
+# pipe" on stderr that leaked into spec-lint's [m14-ac] WARN text and broke
+# the receipts suite's set-equality (CDT-635). A here-string cannot SIGPIPE.
+parsed="$(awk -v ticket="$ticket_id" '
   function is_blank(s) {
     return (s ~ /^[ \t]*$/)
   }
@@ -266,7 +271,7 @@ parsed="$(printf '%s\n' "$content" | awk -v ticket="$ticket_id" '
       print "OK\t" ids[i] "\t" lines[i] "\t" proc[i] "\t" ver[i]
     }
   }
-')"
+' <<< "$content")"
 
 # ---- Report the first ERR line, or emit JSON from the OK lines ------------
 # First ERR line without an early awk exit: an `exit` here SIGPIPEs the

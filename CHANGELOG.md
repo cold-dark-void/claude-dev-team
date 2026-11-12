@@ -4,6 +4,10 @@ All notable changes to **claude-dev-team**, newest first.
 Authoritative version history. Prefer **`/release`** to add `### vX.Y.Z` headings.
 Pre-written headings (release-train M5c, orchestrate version-sync tasks) are kept
 via skip-if-present when `/release` is given an explicit version — do not invent a
+### v1.28.13
+
+- **m14-ac-split's parse feeder can no longer race its reader (CDT-635)** — the v1.28.12 fix covered the wrong pipe: the SIGPIPE comes from the main parse awk (12 early-`exit` paths across cases 5/6/7/8/10), whose `printf | awk` feeder races the reader — under runner load printf writes after awk has closed and bash emits "printf: write error: Broken pipe" (attributed to the substitution's closing line) into spec-lint's `[m14-ac]` WARN text. The v1.28.12 macos run proved the flake: the same script version produced the artifact on the HEAD side and clean output on the base side. The feeder is now a here-string (temp file), which cannot SIGPIPE; a full parity sweep over every spec subsection is byte-identical and the ERR path (SPEC-030 `### CDT-502`, case 5) is unchanged.
+
 ### v1.28.12
 
 - **m14-ac-split's first-ERR report no longer SIGPIPEs its feeder (CDT-635)** — `printf '%s\n' "$parsed" | awk '$1=="ERR"{print; exit}'` exits awk early on any ERR run, so printf dies with "write error: Broken pipe" and the error text — carrying the lint root's machine-specific tmp path — leaked into spec-lint's `[m14-ac]` WARN lines. That is what the AC9 self-diagnosing diff exposed on the v1.28.11 run: the mirror head/base sets differed only in that path. The awk now buffers the first ERR and prints it from `END`, so the feeder always completes; output is byte-identical across every spec subsection (full parity sweep) and `tools/spec-lint.sh` output is unchanged.
