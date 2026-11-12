@@ -793,7 +793,6 @@ bad() {
   return 0
 }
 
+# Summary BEFORE ac_finish: ac_finish exits, so anything after it never runs.
+[ -n "$FAILED_SLUGS" ] && printf 'receipts failed slugs:%s\n' "$FAILED_SLUGS" >&2
 ac_finish
-if [ -n "$FAILED_SLUGS" ]; then
-  printf 'receipts failed slugs:%s\n' "$FAILED_SLUGS" >&2
-fi

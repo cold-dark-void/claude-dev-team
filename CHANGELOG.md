@@ -4,6 +4,10 @@ All notable changes to **claude-dev-team**, newest first.
 Authoritative version history. Prefer **`/release`** to add `### vX.Y.Z` headings.
 Pre-written headings (release-train M5c, orchestrate version-sync tasks) are kept
 via skip-if-present when `/release` is given an explicit version — do not invent a
+### v1.28.17
+
+- **receipts: failed-slug summary printed before ac_finish (CDT-635)** — v1.28.16 placed the summary after `ac_finish`, which exits, so the line never ran and the v1.28.16 macos run still cut off the failing slug. It now precedes the summary line, still inside the 20-line tail window on both lanes.
+
 ### v1.28.16
 
 - **receipts: end-of-run failed-slug summary (CDT-635)** — the macos portable lane runs serial and keeps no full output for red suites, so its 20-line tail repeatedly cut off the failing slug name. `bad()` now records each AC/slug pair and the suite prints `receipts failed slugs: <AC>/<slug>…` as its final line — always inside the tail window, on both lanes. Green runs print nothing extra. (A serial-path keep-dir in `run-all-tests.sh` was considered and dropped: jobs=1 output must stay byte-identical, R10/AC2.)
