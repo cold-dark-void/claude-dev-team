@@ -56,6 +56,20 @@ LINT="$ROOT/tools/spec-lint.sh"
 . "$ROOT/tests/lib/hermetic.sh"
 # shellcheck source=../../tests/lib/ac-receipt.sh
 . "$ROOT/tests/lib/ac-receipt.sh"
+
+# Recording override of ac-receipt's bad(): keep the exact output/counter
+# contract but remember each AC/slug pair, so the end-of-run summary can name
+# them inside run-all-tests' 20-line tail window (the serial macos lane keeps
+# no full output for red suites). Must be defined BEFORE any check runs — a
+# redefinition after the checks have executed never takes effect.
+FAILED_SLUGS=""
+bad() {
+  local slug="${1:-}" detail="${2:-}"
+  FAILED_SLUGS="$FAILED_SLUGS ${CUR_AC:-}/$slug"
+  FAIL=$(( ${FAIL:-0} + 1 ))
+  printf 'FAIL: %s: %s: %s\n' "${CUR_AC:-}" "$slug" "$detail" >&2 || return 1
+  return 0
+}
 hermetic_init
 parse_ac_args "$@"
 
@@ -779,19 +793,6 @@ if want_ac; then
     skip_ac c1-criterion-text-untouched
   fi
 fi
-
-# Recording override of ac-receipt's bad(): keep the exact output/counter
-# contract but remember each AC/slug pair, so the end-of-run summary can name
-# them inside run-all-tests' 20-line tail window (the serial macos lane keeps
-# no full output for red suites).
-FAILED_SLUGS=""
-bad() {
-  local slug="${1:-}" detail="${2:-}"
-  FAILED_SLUGS="$FAILED_SLUGS ${CUR_AC:-}/$slug"
-  FAIL=$(( ${FAIL:-0} + 1 ))
-  printf 'FAIL: %s: %s: %s\n' "${CUR_AC:-}" "$slug" "$detail" >&2 || return 1
-  return 0
-}
 
 # Summary BEFORE ac_finish: ac_finish exits, so anything after it never runs.
 [ -n "$FAILED_SLUGS" ] && printf 'receipts failed slugs:%s\n' "$FAILED_SLUGS" >&2
