@@ -674,6 +674,10 @@ if want_ac; then
       sed -n '/^ *HSET=\$(printf/,/^ *BSET=\$(printf/p' "$HERE/ticket-class-receipts-test.sh"
       grep -nF -- '[ "$HSET" = "$BSET" ]' "$HERE/ticket-class-receipts-test.sh"
     else
+      # Fail-path exhibit: the sorted diff of both sets, so a red CI run is
+      # self-diagnosing (the pool keep-dir is never uploaded).
+      printf 'findings-set FAIL diff (head vs base):\n'
+      diff <(printf '%s\n' "$HSET") <(printf '%s\n' "$BSET") || true
       bad speclint-findings-set-equal "rc head=$LRC base=$BR; head lines=$(_lines "$LINT_OUT") base lines=$(_lines "$BASE_OUT")"
     fi
     # Criterion-text equality: the C1 section with its `  Verify:`
@@ -743,6 +747,9 @@ if want_ac; then
       if [ -n "$MHC" ] && [ "$MHSET" = "$MBSET" ]; then
         ok speclint-archive-pair-equal
       else
+        # Fail-path exhibit: the sorted diff of both mirror sets.
+        printf 'mirror FAIL diff (head vs base):\n'
+        diff <(printf '%s\n' "$MHSET") <(printf '%s\n' "$MBSET") || true
         bad speclint-archive-pair-equal "mirror lint sets differ (rc head=$MHR base=$MBR)"
       fi
     else

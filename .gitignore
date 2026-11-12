@@ -41,6 +41,8 @@
 .claude/dev-team/models.local.json
 .claude/dev-team/models.local.json.lock
 .claude/dev-team/models.local.json*
+# Advisor suite lock sidecar for the Model map (skills/advisor/test*.sh)
+.claude/dev-team/.test-map.lock
 
 # Memory store binaries and database (auto-generated)
 

@@ -137,15 +137,31 @@ while IFS= read -r spec; do
   # Same script the council ship gate runs (m14-ac-split.sh); worktree mode
   # checks the file on disk. Advisory WARN — see the header note.
   if [ "$M14_OK" = true ]; then
+    # The slug scan uses string compares, not regexes: regex-constant lexing
+    # and [[:space:]] support are not identical across awk implementations,
+    # and a rule one awk drops changes the advisory WARN set. substr() and ==
+    # are POSIX awk, so the slug set is implementation-stable.
     while IFS= read -r slug; do
       [ -n "$slug" ] || continue
       m14_err=$(cd "$ROOT" && M14_AC_SOURCE=worktree bash "$M14" "$slug" "$rel" 2>&1 1>/dev/null)
       m14_rc=$?
       [ "$m14_rc" -ne 0 ] && warn "$rel: [m14-ac] WARN: ### $slug: $m14_err"
     done < <(awk '
-      /^## Acceptance criteria[[:space:]]*$/ { in_sec=1; next }
-      in_sec && /^## / { in_sec=0 }
-      in_sec && /^### / { sub(/^### */, ""); print }
+      # chk is the trailing-[ \t\r]-stripped copy used only for the heading
+      # tests; line stays unstripped so extracted slugs keep the byte
+      # fidelity of the old regex extractor (m14 raw-matches them exactly).
+      {
+        line = $0
+        chk = line
+        sub(/[ \t\r]+$/, "", chk)
+        if (chk == "## Acceptance criteria") { in_sec = 1; next }
+        if (in_sec && substr(chk, 1, 3) == "## ") { in_sec = 0 }
+        if (in_sec && substr(line, 1, 4) == "### ") {
+          slug = substr(line, 4)
+          sub(/^ +/, "", slug)
+          print slug
+        }
+      }
     ' "$spec")
   fi
 
@@ -163,7 +179,9 @@ while IFS= read -r spec; do
   awk -v rel="$rel" '
     /^## Version History[[:space:]]*$/ { in_sec=1; next }
     in_sec && /^## / { in_sec=0 }
-    in_sec && /^\| *[0-9]{4}-[0-9]{2}-[0-9]{2} / {
+    # Date row spelled out: not every awk implements the {n,m} interval
+    # expression, so the ISO date uses repeated single-char classes.
+    in_sec && /^\| *[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9] / {
       d=$0
       sub(/^\| */, "", d)
       sub(/ *\|.*/, "", d)
