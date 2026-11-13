@@ -134,6 +134,20 @@ else
   fail "hermetic_init exit3: rc=$RC root=$ROOTVAL before=$BEFORE after=$AFTER"
 fi
 
+# ---- hermetic_init: ambient SHIP_START_SHA is cleared (CDT-639) -----------
+# A release session exports SHIP_START_SHA and the parallel pool forwards it.
+# Suites that run ship-start.sh in default mode must not inherit that SHA.
+OUT=$(SHIP_START_SHA=cafe1234 bash -c '
+. "'"$HERMETIC"'"
+hermetic_init
+echo "after=${SHIP_START_SHA:-absent}"
+' 2>&1)
+if [ "$OUT" = "after=absent" ]; then
+  pass
+else
+  fail "hermetic_init clears SHIP_START_SHA: $OUT"
+fi
+
 # ---- check.sh: pass_line / fail_line / check count and print ----------------
 CHECK_LIB="$HERE/check.sh"
 OUT=$(bash -c '

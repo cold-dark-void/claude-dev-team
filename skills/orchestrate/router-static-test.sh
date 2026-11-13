@@ -15,6 +15,11 @@ STEPS="$HERE/steps"
 . "$ROOT/tests/lib/hermetic.sh"
 . "$ROOT/tests/lib/fence.sh"
 . "$ROOT/tests/lib/ac-receipt.sh"
+# CDT-638: bare `timeout` is GNU-only and absent on stock macOS, so the
+# portable-lane scanner rejects this suite. portable_with_timeout falls back
+# to gtimeout, then to a perl supervisor (CDT-284).
+# shellcheck source=../lib/portable.sh
+. "$HERE/../lib/portable.sh"
 hermetic_init
 export GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1
 unset GIT_DIR GIT_INDEX_FILE GIT_WORK_TREE
@@ -497,8 +502,8 @@ else
           -e 's/<Kickoff|Orchestrate>/Test/g')
         printf '%s\n' "$w" > w.sh
         printf '%s\n' "$c" > c.sh
-        timeout 20 env CLAUDE_PLUGIN_ROOT="$ROOT" bash w.sh || return 90
-        timeout 20 env CLAUDE_PLUGIN_ROOT="$ROOT" bash c.sh
+        portable_with_timeout 20 env CLAUDE_PLUGIN_ROOT="$ROOT" bash w.sh || return 90
+        portable_with_timeout 20 env CLAUDE_PLUGIN_ROOT="$ROOT" bash c.sh
       }
       run_pair '[{"task_id":"1","depends_on":[]},{"task_id":"2","depends_on":["1"]}]' "$WRITE_FENCE" "$CHECK_FENCE" > acyclic.out 2>&1
       echo "acyclic_rc=$?" >> acyclic.out

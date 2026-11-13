@@ -1318,6 +1318,17 @@ check "AC14" "the mapped record appends (rc 0)" "0" \
   "$(bash "$SWEEP" journal-append --file "$WORK/halt-enum.jsonl" --json \
       '{"ts":"2026-10-23T09:00","disposition":"ORCHESTRATE","evidence":"halt: complexity-overflow","args":"/orchestrate --tier=light","tag_baseline":"v1.9.0","outcome":"pr-stopped"}' \
       >/dev/null 2>&1; echo $?)"
+# CDT-636 — that record carries the sweep.md minute-precision ts (no :SS). The
+# journal skip must parse it on BSD, so its skip verdict is asserted here.
+check "AC14" "a minute-precision terminal record skips at an earlier baseline" "0" \
+  "$(bash "$SWEEP" journal-skip --file "$WORK/halt-enum.jsonl" \
+      --tag-date "2026-10-20T00:00:00Z" >/dev/null 2>&1; echo $?)"
+check "AC14" "the minute-precision skip prints the reason line" \
+  "skip: journal halt-enum outcome=pr-stopped ts=2026-10-23T09:00 baseline=2026-10-20T00:00:00Z" \
+  "$(bash "$SWEEP" journal-skip --file "$WORK/halt-enum.jsonl" --tag-date "2026-10-20T00:00:00Z")"
+check "AC14" "a minute-precision record before the baseline re-judges" "1" \
+  "$(bash "$SWEEP" journal-skip --file "$WORK/halt-enum.jsonl" \
+      --tag-date "2026-10-24T00:00:00Z" >/dev/null 2>&1; echo $?)"
 check "AC14" "the halt event carries the child's named condition" "1" \
   "$(grep -c '^HALT work-m complexity-overflow$' "$EV_B" || true)"
 check "AC14" "the halt record keeps the name in evidence" "halt: complexity-overflow" \

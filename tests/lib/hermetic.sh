@@ -4,7 +4,8 @@
 #   hermetic_init     Creates one mktemp -d root under the caller's TMPDIR
 #                     (default /tmp), exports HERMETIC_ROOT (that root),
 #                     TMPDIR=$HERMETIC_ROOT/tmp and HOME=$HERMETIC_ROOT/home
-#                     (both created), unsets XDG_CONFIG_HOME, ceilings git
+#                     (both created), unsets XDG_CONFIG_HOME and
+#                     SHIP_START_SHA, ceilings git
 #                     directory discovery at HERMETIC_ROOT
 #                     (GIT_CEILING_DIRECTORIES), exports fixed
 #                     GIT_AUTHOR_NAME/GIT_AUTHOR_EMAIL/GIT_COMMITTER_NAME/
@@ -33,6 +34,9 @@ hermetic_init() {
   # above them.
   export GIT_CEILING_DIRECTORIES="$HERMETIC_ROOT"
   unset XDG_CONFIG_HOME
+  # A release session exports SHIP_START_SHA; the parallel pool forwards it, so
+  # clear it here or ship-start.sh default mode fails (exit 64) in fixtures.
+  unset SHIP_START_SHA
   export GIT_AUTHOR_NAME="hermetic"
   export GIT_AUTHOR_EMAIL="hermetic@example.invalid"
   export GIT_COMMITTER_NAME="hermetic"

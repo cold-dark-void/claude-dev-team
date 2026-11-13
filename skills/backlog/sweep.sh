@@ -261,6 +261,12 @@ iso_to_epoch() {
     *[+-][0-9][0-9]:[0-9][0-9]) t="${t%??????}" ;;
   esac
   [ -n "$t" ] || return 1
+  # The journal ts is minute-precision (sweep.md); BSD date -j -f needs :SS,
+  # so pad the seconds. A ts with no time part stays unparseable (rc 1).
+  case "$t" in
+    *:*:*) ;;
+    *:*) t="$t:00" ;;
+  esac
   date -u -j -f "%Y-%m-%dT%H:%M:%S" "$t" +%s 2>/dev/null
 }
 

@@ -150,6 +150,16 @@ jobs:
         with:
           fetch-depth: 0  # same reason as all-tests: suites read pinned base commits (git show <sha>:path)
       - run: bash tools/run-all-tests.sh --portable --platform macos
+      # Diagnosability: same as all-tests — print every failing check line so a
+      # red macos run is self-diagnosing (CDT-636 class). The keep-dir follows
+      # $TMPDIR, which on macos runners is not /tmp.
+      - if: failure()
+        run: |
+          shopt -s nullglob
+          for f in "${TMPDIR:-/tmp}"/run-all-tests-failed.*/*.out; do
+            echo "=== $f ==="
+            grep -n 'FAIL' "$f" | head -20 || true
+          done
 
   # Shellcheck gate on hook templates (strict-when-present, SPEC-030 R33)
   hook-templates:
