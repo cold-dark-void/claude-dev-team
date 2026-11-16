@@ -50,8 +50,8 @@ Usage: bash tools/run-all-tests.sh [--root DIR] [--list] [--portable] [--platfor
 
 Discovers every test.sh, test-*.sh and *-test.sh suite under --root (default:
 git rev-parse --show-toplevel of the cwd) via `git ls-files --cached --others
---exclude-standard`, excluding any path with a fixtures, .worktrees or
-node_modules segment and the runner itself. Runs each suite in sorted
+--exclude-standard`, excluding any path with a fixtures, .worktrees,
+node_modules or control-plane segment and the runner itself. Runs each suite in sorted
 order as `bash <repo-relative-path>` with cwd = root -- serially by
 default, or in a worker pool of N suites with --jobs N (N > 1).
 
@@ -330,7 +330,7 @@ discover_suites() {
           *) continue ;;
         esac
         case "/$p/" in
-          */fixtures/*|*/.worktrees/*|*/node_modules/*) continue ;;
+          */fixtures/*|*/.worktrees/*|*/node_modules/*|*/control-plane/*) continue ;;
         esac
         [ "$p" = "tools/run-all-tests.sh" ] && continue
         [ -f "$ROOT/$p" ] || continue

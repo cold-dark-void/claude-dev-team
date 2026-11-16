@@ -168,6 +168,28 @@ expect_rc 0 "allow-extra admits extra"
 rm -rf "$REPO"
 
 # ---------------------------------------------------------------------------
+# CDT-628-C1 (SPEC-010 S7): a service-only release passes when the staged
+# control-plane/ paths ride --intended exactly like product paths — the
+# S2/S4 exact-strings predicate is unchanged, no directory membership.
+# ---------------------------------------------------------------------------
+REPO=$(make_repo)
+stage_pair "$REPO"
+stage_file "$REPO" "control-plane/VERSION" "0.1.0"
+stage_file "$REPO" "control-plane/README.md" "service readme"
+run_in_repo "$REPO" -- --intended control-plane/VERSION control-plane/README.md
+expect_rc 0 "service-only release: staged control-plane paths declared in --intended"
+
+# the same service paths, undeclared, are foreign — the script is unchanged
+REPO=$(make_repo)
+stage_pair "$REPO"
+stage_file "$REPO" "control-plane/VERSION" "0.1.0"
+run_in_repo "$REPO" -- --intended skills/release/SKILL.md
+expect_rc 1 "service-only release: undeclared control-plane path is foreign"
+expect_contains "control-plane/VERSION"
+expect_contains "staged-path hard gate"
+rm -rf "$REPO"
+
+# ---------------------------------------------------------------------------
 # AC-9: unstaged foreign dirty only → 0 for this gate
 # ---------------------------------------------------------------------------
 REPO=$(make_repo)

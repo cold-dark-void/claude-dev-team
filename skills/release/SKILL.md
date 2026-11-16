@@ -494,6 +494,13 @@ bash "$CHECK_STAGED" \
 - **`--allow-extra PATH...`** — intentional multi-ticket / multi-arc ships only;
   admits additional staged paths beyond this ticket's product set. Do not use it
   to paper over accidental staging.
+- **Service-directory paths (CDT-628-C1)** — a service-only release stages its
+  `control-plane/` paths (for example `control-plane/VERSION`) and passes them
+  in `--intended` exactly like product paths (SPEC-010 S7). The gate's
+  exact-strings predicate is unchanged: a service path that was staged but not
+  declared is still a foreign path and hard-stops the release. The
+  `control-plane/` directory is never part of the plugin product set — do not
+  stage it on a plugin-only release.
 
 Commit the fold with a type-prefixed subject. Derive the summary from the
 staged CHANGELOG lead — do **not** hand-write it. No `chore: release`. No

@@ -1,0 +1,15 @@
+# control-plane image reference (placeholder)
+
+Pin file for the container image the Control plane service will run on
+(control plane Option C+ (CDT-626), phase 1).
+
+Status in CDT-628-C1: placeholder only. No image is pulled or built in this
+ticket, and no G-02 image-approval request is filed here. The real candidate
+image — source repo, maintenance status, official/verified status, root vs
+non-root evidence, and a digest pin — is presented to the maintainer in one
+consolidated G-02 request by CDT-628-C4, per the AC-10 guard in
+`docs/internal/control-plane/index.md` and the 0-new-images precedent in
+`docs/adr/0001-journal-engine.md`.
+
+This file is the single image reference for the service. Product surfaces
+never reference probe or throwaway images.

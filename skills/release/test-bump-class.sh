@@ -577,6 +577,53 @@ expect_rc 0 "detect: --cached untracked → rc 0"
 expect_empty "detect: --cached ignores untracked files"
 rm -rf "$REPO"
 
+# ---- CDT-628-C1: the service directory is not plugin-gate territory --------
+
+# a service-only commit with an unchanged version (none class) passes
+REPO=$(make_repo)
+mkdir -p "$REPO/control-plane"
+printf '0.1.0\n' >"$REPO/control-plane/VERSION"
+git -C "$REPO" add control-plane/VERSION
+run_in "$REPO" --cached
+expect_rc 0 "bump-class: service-only commit, no version bump → rc 0"
+expect_contains "no new commands"
+rm -rf "$REPO"
+
+# a service-only commit under a patch bump also passes
+REPO=$(make_repo)
+mkdir -p "$REPO/control-plane"
+printf '0.1.0\n' >"$REPO/control-plane/VERSION"
+set_ver "$REPO" 1.7.37
+git -C "$REPO" add control-plane/VERSION .claude-plugin/plugin.json
+run_in "$REPO" --cached
+expect_rc 0 "bump-class: service-only commit with a patch bump → rc 0"
+rm -rf "$REPO"
+
+# detect-surfaces never sees a control-plane file as a new Surface — a new
+# .md there on a patch bump does not trip the new-Surface rule
+REPO=$(make_repo)
+mkdir -p "$REPO/control-plane"
+printf '%s\n' '# service note' >"$REPO/control-plane/NOTES.md"
+git -C "$REPO" add control-plane/NOTES.md
+run_detect_in "$REPO" --cached
+expect_rc 0 "detect: control-plane file staged → rc 0"
+expect_empty "detect: control-plane file is not a Surface"
+set_ver "$REPO" 1.7.37
+git -C "$REPO" add .claude-plugin/plugin.json
+run_in "$REPO" --cached
+expect_rc 0 "bump-class: control-plane .md on a patch bump does not trip the Surface rule"
+rm -rf "$REPO"
+
+# the plugin path still fires: a new command surface on a patch bump fails
+REPO=$(make_repo)
+add_command "$REPO"
+set_ver "$REPO" 1.7.37
+git -C "$REPO" add commands/audit.md .claude-plugin/plugin.json
+run_in "$REPO" --cached
+expect_rc 1 "bump-class: new command + patch still fires (control absent)"
+expect_contains "require a minor or major bump"
+rm -rf "$REPO"
+
 # unresolvable ref is a usage error
 REPO=$(make_repo)
 run_detect_in "$REPO" --commit deadbeef

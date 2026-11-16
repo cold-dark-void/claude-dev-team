@@ -317,6 +317,28 @@ export HOME="$H" XDG_CONFIG_HOME="$H/.config"
 capture env PATH="$CLEAN_BIN" bash "$UNINSTALL" </dev/null
 [ "$rc" -eq 0 ] && grep -qi 'opencode not detected' <<<"$out" && ok "AC12d absent opencode skips uninstall" || bad "AC12d absent opencode rc=$rc out=$out"
 
+# AC13 (CDT-628-C1): the control-plane service directory never lands in the
+# installed tree — install.sh copies only agents/ and links commands/, so a
+# planted service artifact (including an executable) stays uninstalled.
+FIXX="$(mk_home)"
+cp "$INSTALL" "$FIXX/install.sh"
+mkdir -p "$FIXX/agents" "$FIXX/commands" "$FIXX/control-plane"
+printf '%s\n' '---' 'tools: Read' 'model: sonnet' 'effort: medium' '---' > "$FIXX/agents/one.md"
+printf '0.1.0\n' > "$FIXX/control-plane/VERSION"
+printf '#!/bin/sh\necho compiled-service\n' > "$FIXX/control-plane/service.sh"
+chmod +x "$FIXX/control-plane/service.sh"
+H="$(mk_home)"
+export HOME="$H" XDG_CONFIG_HOME="$H/.config"
+mkdir -p "$XDG_CONFIG_HOME/opencode"
+capture env PATH="$FAKE_BIN:$PATH" bash "$FIXX/install.sh" </dev/null
+[ "$rc" -eq 0 ] && ok "AC13 install exit 0 with control-plane present" || bad "AC13 install exit ($rc)"
+if find "$XDG_CONFIG_HOME/opencode" -name 'service.sh' -o -name 'VERSION' | grep -q .; then
+  bad "AC13 control-plane artifact leaked into the installed tree"
+else
+  ok "AC13 control-plane artifacts not installed"
+fi
+[ -f "$XDG_CONFIG_HOME/opencode/agents/dev-team/one.md" ] && ok "AC13 agents still installed" || bad "AC13 agents missing"
+
 temps+=("$FAKE_BIN" "$CLEAN_BIN")
 echo "----"
 echo "passed=$pass failed=$fail"

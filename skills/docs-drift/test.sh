@@ -123,6 +123,21 @@ expect_no_finding docs-hub
 expect_no_finding manifest-desc
 
 # ---------------------------------------------------------------------------
+# T0 CDT-628-C1 — root-anchoring: the control-plane service directory is
+# outside every docs-drift scan root. Plant service files (including a
+# manifest-shaped pair and a dead skill-ref) and prove no check fires on
+# them; the plugin-side checks still bite right after.
+# ---------------------------------------------------------------------------
+mkdir -p "$MINI/control-plane"
+printf '0.1.0\n' > "$MINI/control-plane/VERSION"
+printf '%s\n' "# control-plane" "See skills/no-such-service-skill/SKILL.md." > "$MINI/control-plane/README.md"
+run_check 0 --root "$MINI"
+expect_no_finding cmd-index
+expect_no_finding skill-ref
+expect_no_finding manifest-desc
+rm -rf "$MINI/control-plane"
+
+# ---------------------------------------------------------------------------
 # T1 cmd-index — both directions + skills-backed ok
 # ---------------------------------------------------------------------------
 # (a) undocumented command

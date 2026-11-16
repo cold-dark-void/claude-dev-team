@@ -55,5 +55,18 @@ __pycache__/
 
 # Bug-hunt stages 1–2 reports + findings JSON (SPEC-034 M25/M31 — process artifacts)
 .claude/bug-hunt/
+
+# Control plane service build outputs (CDT-628-C1): the compiled,
+# containerised service under control-plane/ is plugin-unowned product.
+# Its build artifacts never enter the plugin tree (SPEC-030 Discovery/R4
+# carve the path segment out of discovery too).
+control-plane/bin/
+control-plane/dist/
+control-plane/build/
+control-plane/*.test
+control-plane/*.out
+control-plane/vendor/
+control-plane/.gocache/
+control-plane/.docker/
 .wt-lock
 .worktrees/

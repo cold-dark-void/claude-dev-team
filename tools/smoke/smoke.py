@@ -496,11 +496,17 @@ def check_path(path, root, invoke_flags=False, warnings_out=None):
 
 def _excluded(relparts):
     """A path is excluded from no-arg discovery iff any segment is `fixtures`,
-    `.worktrees` or `node_modules` (SPEC-030 DD7) -- the harness's own fixtures
-    under tools/smoke/fixtures/ included; narrowed from the earlier blanket
-    tools/smoke/** exclusion so tools/smoke/run.sh, tools/smoke/test.sh and the
-    runner itself get checked like every other file."""
-    return any(seg in ("fixtures", ".worktrees", "node_modules") for seg in relparts)
+    `.worktrees`, `node_modules` or `control-plane` (SPEC-030 DD7) -- the
+    harness's own fixtures under tools/smoke/fixtures/ included; narrowed from
+    the earlier blanket tools/smoke/** exclusion so tools/smoke/run.sh,
+    tools/smoke/test.sh and the runner itself get checked like every other
+    file. `control-plane/` is the isolated top-level service directory
+    (CDT-628-C1): compiled, containerised, plugin-unowned -- never plugin
+    discovery."""
+    return any(
+        seg in ("fixtures", ".worktrees", "node_modules", "control-plane")
+        for seg in relparts
+    )
 
 
 def _relparts(root, path):
@@ -522,7 +528,7 @@ def _is_git_worktree(root):
 def _git_scripts(root):
     """Script set via `git ls-files` (tracked plus untracked-not-ignored, so a
     new script runs before it is staged): every path classify()'d "script",
-    excluding fixtures/.worktrees/node_modules, skipping index entries absent
+    excluding fixtures/.worktrees/node_modules/control-plane, skipping index entries absent
     on disk (SPEC-030 Discovery)."""
     proc = subprocess.run(
         ["git", "-C", root, "ls-files", "-z", "--cached", "--others",
@@ -569,7 +575,7 @@ def discover(root):
     Sub-doc: every other skills/**/*.md. Script: git ls-files (tracked plus
     untracked-not-ignored) filtered to *.sh or a githooks/ parent, or a sorted
     filesystem-walk fallback when root is not a git work tree. Excludes any
-    path with a fixtures/.worktrees/node_modules segment. Returns a flat list
+    path with a fixtures/.worktrees/node_modules/control-plane segment. Returns a flat list
     of paths, sorted within each kind, in kind order Surface/Agent/Sub-doc/
     Script.
     """

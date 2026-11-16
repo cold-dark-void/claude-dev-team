@@ -316,3 +316,39 @@ The same ruling applies to CDT-632: no `specs/` entry — the deliverable AC lis
   - Verify: `bash skills/docs-drift/check-docs-drift.sh` and `bash skills/skill-lint/check-skill-bash.sh` both exit 0 with zero unwaived findings; every cross-link resolves.
 - **AC22.** Release ships `2.0.0-pre.2` via `/release 2.0.0-pre.2` — explicit version; the issue's "docs-only patch release" line is stale (SPEC-010 arc scheme governs the version while the Control plane arc is open).
   - Verify: tag `v2.0.0-pre.2` exists; `plugin.json` carries `2.0.0-pre.2` bare; the CHANGELOG heading matches; `stable` is unchanged.
+
+CDT-645 follows the same ruling: no `specs/` entry — the deliverable AC list below is the spec, and the C1 gate home is the two SPEC amendments it owns (SPEC-030 Discovery/R4 exclusion, SPEC-010 S7 service-path wording, OQ-6). The service directory is `control-plane/` (OQ-1 — the CONTEXT.md Term; the creating ticket owns the name per `record-ownership.md`, which C1 does not edit: the directory name itself is C1's record). C1 scope is docs + gate + tests only (OQ-5): no `go.mod`, no Dockerfile, no Go file, no pulled or built image (OQ-4), no G-02 request. No AC carries the `[process]` tag: each asserts file content (AC1–AC4, AC8) or gate/diff content (AC5–AC7, AC9–AC13).
+
+### CDT-645
+
+- **AC1.** The isolated top-level service directory exists. `control-plane/` holds `VERSION` (`0.1.0`, OQ-3), an `image-reference` placeholder pin file (a written reference only — no pull, no build, no digest request in C1, OQ-4), and a `README.md` naming the service. `.claude-plugin/plugin.json` stays the plugin's only version surface.
+  - Verify: the three files exist; `control-plane/VERSION` reads `0.1.0`; `plugin.json` version is unchanged by this AC.
+- **AC2.** One version per artifact. The service version lives only in `control-plane/VERSION`; the plugin version lives only in `.claude-plugin/plugin.json`; service tags (when C4+ cuts them) never use the plugin tag shape `vX.Y.Z` (OQ-3).
+  - Verify: no service path is referenced from any version gate; `plugin.json` is the sole plugin version.
+- **AC3.** The boundary is written down and single-homed. The rule "the control plane talks to the plugin through files and CLI calls only" lives in `docs/adr/0001-journal-engine.md`; `control-plane/README.md` and `AGENTS.md` cite it and never restate a second copy (record-ownership: the ADR owns the boundary record).
+  - Verify: both citing files reference ADR 0001; the boundary sentence exists only in the ADR.
+- **AC4.** `AGENTS.md` scoping. The "Key directories" block lists `control-plane/` with its role; the "No build step" code-conventions line is scoped to plugin surfaces and names `control-plane/` as the exception, citing ADR 0001 for the boundary.
+  - Verify: grep `AGENTS.md` for `control-plane` hits the key-directories block and the scoped no-build-step line.
+- **AC5.** Bump-class guard case. `skills/release/test-bump-class.sh` proves a service-directory commit passes the gate on a patch/none bump (a new `control-plane/**` file is not a Surface — `detect-surfaces.sh` never sees one), while the plugin path still fires (new `commands/*.md` + patch → exit 1). `githooks/pre-commit` and the SPEC-002 plugin.json/CHANGELOG pair rule therefore stay silent for a service-only commit: the hook only runs `check-bump-class.sh --cached`, and the pair rule governs version files a service commit never touches.
+  - Verify: `bash skills/release/test-bump-class.sh` exits 0 with the service cases green.
+- **AC6.** Smoke-discovery carve-out (SPEC-030 Discovery). `tools/smoke/smoke.py` excludes any path with a `control-plane` segment from every no-arg discovery kind, and `tools/smoke/test.sh` proves a planted broken script under `control-plane/` stays out of the gate output.
+  - Verify: `bash tools/smoke/test.sh` exits 0 with the control-plane case green.
+- **AC7.** Suite-discovery rule (SPEC-030 R4). `tools/run-all-tests.sh` discovery excludes any path with a `control-plane` segment, so un-ignored service build outputs can never be seeded as suites, and `tools/run-all-tests-test.sh` proves it.
+  - Verify: `bash tools/run-all-tests-test.sh` exits 0 with the control-plane case green.
+- **AC8.** Dirty-tree-clean service outputs. `.gitignore` ignores the `control-plane/` build-output paths (Go and container artifacts), so R9 dirty-tree snapshots and the R37 pool seed never see service build dirt.
+  - Verify: `.gitignore` carries the `control-plane/` block; `git status` stays clean with a planted build output.
+- **AC9.** Staged-path gate cases (SPEC-010 S7). `skills/release/test.sh` proves `check-staged-paths.sh` passes a service-only release when the service paths ride `--intended`, and still fails a service path that was not declared — the script itself is unchanged (S2/S4 exact-strings contract).
+  - Verify: `bash skills/release/test.sh` exits 0 with the service cases green.
+- **AC10.** Docs-drift root-anchoring proof. `skills/docs-drift/test.sh` plants service files under `control-plane/` (including a manifest-desc-shaped file pair) and proves no check fires on them, while the plugin-side check still bites.
+  - Verify: `bash skills/docs-drift/test.sh` exits 0 with the root-anchoring case green.
+- **AC11.** Install surface unchanged. `install.sh` keeps copying only `agents/` and linking `commands/`; `install-test.sh` gains one bite case proving a planted `control-plane/` artifact never lands in the installed tree. The installed plugin stays pure markdown/JSON.
+  - Verify: `bash install-test.sh` exits 0 with the control-plane case green.
+- **AC12.** CI surface unchanged in C1. No `.github/workflows/` file changes; the existing bump-class CI job keeps passing because service commits add no Surface and the new suites run in the existing all-suites/smoke jobs.
+  - Verify: `git diff --name-only` over the ticket touches no `.github/` path; `bash skills/release/test-bump-class.sh` exits 0.
+- **AC13.** Ships `2.0.0-pre.3` via `/release 2.0.0-pre.3` — explicit version (SPEC-010 arc scheme; maintainer ruling 2026-11-16). Never patch, minor, major, or `2.0.0`.
+  - Verify: tag `v2.0.0-pre.3` exists; `plugin.json` carries `2.0.0-pre.3` bare; the CHANGELOG heading matches.
+
+
+## Ship gate (CDT-645)
+
+On the Grok nest at depth 1 the M14 ship-gate council defers to the parent walker (SPEC-033 M14(l)): the child run prints `needs-parent-M14 SHA=<head> branch=<branch>` at Step 11 Stage 2 and returns; the parent runs M14 at depth 0, then the Stage 3 end-state `/release 2.0.0-pre.3`.

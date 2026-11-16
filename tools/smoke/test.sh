@@ -110,7 +110,7 @@ expect_out "2 checked, 0 failed" "clean summary is 2 checked 0 failed"
 # script under a fixtures segment must stay excluded from the output.
 # ---------------------------------------------------------------------------
 HERM="$TMP/herm"
-mkdir -p "$HERM/commands" "$HERM/skills/ok-skill" "$HERM/tools/fixtures"
+mkdir -p "$HERM/commands" "$HERM/skills/ok-skill" "$HERM/tools/fixtures" "$HERM/control-plane"
 {
   printf -- '---\n'
   printf 'name: herm-command\n'
@@ -126,6 +126,9 @@ mkdir -p "$HERM/commands" "$HERM/skills/ok-skill" "$HERM/tools/fixtures"
 } > "$HERM/skills/ok-skill/SKILL.md"
 printf '#!/usr/bin/env bash\nprintf "ok\\n"\n' > "$HERM/tools/herm-helper.sh"
 printf '#!/usr/bin/env bash\nif true\n  echo "unclosed"\n' > "$HERM/tools/fixtures/broken-test.sh"
+# CDT-628-C1: the service directory is carved out of every discovery kind —
+# a broken script planted under control-plane/ must never reach the output.
+printf '#!/usr/bin/env bash\nif true\n  echo "unclosed"\n' > "$HERM/control-plane/broken.sh"
 git -C "$HERM" init -q
 git -C "$HERM" add -A
 git -C "$HERM" -c user.email=t@t.invalid -c user.name=t commit -qm init
@@ -139,6 +142,8 @@ expect_not_out "FAIL " "hermetic no-arg run has no FAIL lines"
 expect_out ", 0 warnings" "hermetic no-arg run has no description warnings"
 # Discovery sanity: the fixtures segment is excluded even when its script is broken.
 expect_not_out "tools/fixtures" "hermetic run excludes fixtures-segment scripts"
+# CDT-628-C1: the control-plane service segment is excluded the same way.
+expect_not_out "control-plane" "hermetic run excludes the control-plane service segment"
 
 # ---------------------------------------------------------------------------
 # Case 3b (W3-07): description lint on user-invocable skills — WARN lines,

@@ -1,7 +1,6 @@
 #!/usr/bin/env bash
 # SPEC-030 R17: tools/run-all-tests.sh bite-test. CDT-502 (R11/R12/R32):
 # quarantine scope column and the --platform flag.
-#
 # Builds disposable mktemp git trees (git init -q + git add; no commit --
 # ls-files --cached reads the index, which avoids identity/signing config on
 # CI) and drives the runner against them via --root. Never touches or
@@ -10,8 +9,8 @@
 # read-only, no runner invocation -- that run takes ~2 minutes and would
 # blow the <30s budget for this suite). All temp material lives under
 # mktemp -d / $TMPDIR and is removed on EXIT.
-# CDT-534 Task 5 (Q6) — self-concurrency audit. Under --jobs 8 every suite
-# temp path sits inside a per-worker clone nested in the runner scratch, so
+# CDT-534 Task 5 (Q6) — self-concurrency audit. Under --jobs 8 every suite temp
+# path sits inside a per-worker clone nested in the runner scratch, so
 # suites were fixed for hermetic-path hygiene (runner untouched). Fix classes
 # — per-suite causes live in the suites' own headers:
 #   ceiling at $HERMETIC_ROOT (now via hermetic_init): lib/git-safety-test.sh,
@@ -27,7 +26,6 @@
 #   fixture or harness at a .git-free temp root: init-orchestration/
 #     escalation-gate-test.sh, check-traceability-test.sh; allow the runner's
 #     .run-all-tests/ area: intercom/test.sh; match fence-exec/test.sh's form
-#
 # The two planted same-`/tmp`-lock collision cases below still prove per-worker
 # TMPDIR isolation at `--jobs 2`.
 set -u
@@ -52,8 +50,8 @@ HARNESS="$REPO_ROOT/tests/lib/run-all-tests-harness.sh"
 . "$HARNESS"
 
 # Case 1: discovery -- new *-test.sh (tracked and untracked-not-ignored),
-# test.sh, test-*.sh are found; fixtures/, .worktrees/, node_modules/ and a
-# non-matching name are not; sorted bytewise order.
+# test.sh, test-*.sh are found; fixtures/, .worktrees/, node_modules/,
+# control-plane/ (CDT-628-C1) and a non-matching name are not; sorted order.
 R1=$(new_root)
 ok_suite > "$R1/test.sh"
 ok_suite > "$R1/test-foo.sh"
@@ -62,10 +60,11 @@ ok_suite > "$R1/new-test.sh"          # untracked-not-ignored -- never `git add`
 ok_suite > "$R1/mytest.sh"            # close but non-matching (no leading '-')
 git -C "$R1" add mytest.sh
 
-mkdir -p "$R1/fixtures" "$R1/.worktrees" "$R1/node_modules"
+mkdir -p "$R1/fixtures" "$R1/.worktrees" "$R1/node_modules" "$R1/control-plane"
 ok_suite > "$R1/fixtures/sub-test.sh"
 ok_suite > "$R1/.worktrees/foo-test.sh"
 ok_suite > "$R1/node_modules/bar-test.sh"
+ok_suite > "$R1/control-plane/service-test.sh"
 git -C "$R1" add -A
 
 run_runner --root "$R1" --list
@@ -77,6 +76,7 @@ expect_not_out "mytest.sh" "case1 excludes non-matching name"
 expect_not_out "fixtures/sub-test.sh" "case1 excludes fixtures segment"
 expect_not_out ".worktrees/foo-test.sh" "case1 excludes .worktrees segment"
 expect_not_out "node_modules/bar-test.sh" "case1 excludes node_modules segment"
+expect_not_out "control-plane/service-test.sh" "case1 excludes the control-plane service segment"
 
 WANT_ORDER=$'new-test.sh\ntest-foo.sh\ntest.sh'
 GOT_ORDER=$(printf '%s' "$OUT")
