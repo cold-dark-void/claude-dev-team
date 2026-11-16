@@ -4,6 +4,17 @@ All notable changes to **claude-dev-team**, newest first.
 Authoritative version history. Prefer **`/release`** to add `### vX.Y.Z` headings.
 Pre-written headings (release-train M5c, orchestrate version-sync tasks) are kept
 via skip-if-present when `/release` is given an explicit version — do not invent a
+### v2.0.0-pre.2
+
+- **Journal engine ADR (AC10)** — `docs/adr/0001-journal-engine.md`: the phase-0 decision record — the control plane journal runs on **SQLite behind a narrow interface** (files + CLI calls only), scored on all four AC10 criteria with integer image counts; the durable-execution engine (Temporal / Restate) and three further alternatives are rejected with their mechanisms; phase 0 files no G-02 request (0 new images).
+- **Cloud auth and exposure (AC11)** — `docs/internal/control-plane/cloud-auth-and-exposure.md`: per-host cloud auth grid — Claude Code, Grok, and omp authenticate **both** directions, mini-swe is `api-key` only (Claude Code 2.1.325 probed); exposure is Cloudflare Access in front of a Cloudflare Tunnel (phase 3), compute-in-cloud reserved for phase 4; every cloud-VM claim reads `blocked:` — phase 0 probed none on cloud compute.
+- **Run budget proposal (AC12)** — `docs/internal/control-plane/run-budget.md`: scale the two SPEC-033 caps (`AUTOPILOT_ITERATION_CAP` / `AUTOPILOT_WALLCLOCK_CAP`) per model — env > map > tier precedence with a Tier-default fallback row; phase 0 adds no flag, store, precedence source, or ceiling (the SPEC-033 amendment is the phase-1 CDT-628 input).
+- **Record ownership (AC13)** — `docs/internal/control-plane/record-ownership.md`: each of the eleven plugin state records gets one owner and one conflict rule from a closed set of five; all eleven stay plugin-owned.
+- **Memory API shape (AC14)** — `docs/internal/control-plane/memory-api.md`: one memory interface, three operations, two backends — file when no control plane is present, API when one is; no schema fork (SPEC-004 semantics unchanged).
+- **Glossary write-back (AC15)** — `CONTEXT.md`: eleven Control plane terms crystallized (Control plane, Chief, Run, Host adapter, Node, Slot, Steer, Lifecycle graph, Node agent, Runner, Node capability), each with avoided aliases.
+- **Close-out (AC17)** — `docs/internal/control-plane/close-out.md`: phase 0 closed as a written decision set — every blocked item named with what each later phase inherits (phase-1 CDT-628 inputs include the journal build on the SQLite engine, the node agent, the forced token-refresh probe, and the Slot open question).
+- **Deliverable index (AC18)** — `docs/internal/control-plane/index.md`: § "CDT-632 — File map" pins the six deliverable paths with their decision-register headers; the CDT-627 discovery record is unchanged. `docs/README.md` links the phase-0 index and the ADR.
+
 ### v2.0.0-pre.1
 
 - **Control plane phase 0 discovery (CDT-627) — first SPEC-010 arc pre-release** — the Control plane arc (CDT-626) now ships as `2.0.0-pre.N` pre-releases: `stable` stays at v1.28.20, this release rides `master` (the `dev-team-edge` channel), and the final cut is `v2.0.0` when the arc completes. Not ready for stable consumption until the final release.

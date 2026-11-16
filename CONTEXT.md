@@ -50,6 +50,17 @@ agent output. Do not reintroduce avoided aliases.
 | Class verify | Advisor stage-2 ruling on a deterministic auth-secrets classifier hit; demotes false positives so the plan-scope council is not paid | LLM re-check, second scan |
 | Forward claim | Plan-scope claim describing scheduled, not-yet-written code; unfalsifiable against pre-implementation bytes | prospective claim, future claim |
 | Glossary carve-out | Lexical exemption: a keyword inside a hyphenated compound listed in CONTEXT.md Terms does not count as a classifier hit | keyword allowlist, exemption list |
+| Control plane | The container service that owns run state, the queue, and host sessions for one project (control plane Option C+, CDT-626) | dashboard, super orchestrator |
+| Chief | The single conversational point of contact that routes input and reports | supervisor, god bot, god session |
+| Run | One durable execution of a workflow for a ticket, with a position in the lifecycle graph | job, session |
+| Host adapter | The per-host driver that starts, resumes, steers, and observes a host session | connector |
+| Node | A machine that offers host and model capacity to the control plane; lifecycle graph vertices are lifecycle phases, never nodes | worker |
+| Slot | One unit of parallel-turn capacity on a node; one slot is one runner; a run waits in the queue for a free slot. Phase 0 open question: slot per runner or per model endpoint. Distinct from Spawn concurrency cap, which is per run | node capacity, throttling, rate limit |
+| Steer | A message delivered to a running session at its next step boundary | interrupt, nudge |
+| Lifecycle graph | The declarative graph of lifecycle phases and guarded transitions that a run moves through | workflow diagram, pipeline |
+| Node agent | The headless process on a node that starts, stops, reports on, and steers runners for the control plane | daemon, worker |
+| Runner | The process or container that hosts one agent session for a run; a native runner or a container runner | executor, sandbox |
+| Node capability | A named property that a node advertises, for example `xcode`; a run can require it. Distinct from the host capability matrix, which describes agent CLIs | label, tag |
 
 ## Decisions
 
@@ -68,3 +79,4 @@ agent output. Do not reintroduce avoided aliases.
 - 2026-10-22: CDT-582 Backlog sweep is a /backlog subcommand (active sibling of reconcile), a pure composition layer: never edits code, never runs /release, single executor /orchestrate with `--tier=light` as the nit floor; `/debug` stays defect-only.
 - 2026-10-22: CDT-582 Sweep journal invalidation boundary is the last release tag (not age); epic children are skipped — the epic owns their walk.
 - 2026-10-26: CDT-589 Step 6c gate demotion rides the Advisor seam (Class verify, trigger d) — no new agent role, no new Surface; every new layer fails closed; ship as one minor, default-on.
+- 2026-11-15: CDT-632 glossary write-back from control plane Option C+ (CDT-626): eleven confirmed terms. Steer is confirmed unchanged by six CDT-627 probes (Claude Code, Grok, omp — native and container). Slot keeps the phase 0 open question "slot per runner or per model endpoint".
