@@ -20,10 +20,11 @@ hermetic_init
 unset GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE GIT_COMMON_DIR 2>/dev/null || true
 export GIT_CEILING_DIRECTORIES="$HERMETIC_ROOT"
 
+FAILED_LABELS=""
 PASS=0
 FAIL=0
 pass() { PASS=$((PASS + 1)); printf '  PASS %s\n' "$1"; }
-fail() { FAIL=$((FAIL + 1)); printf '  FAIL %s — %s\n' "$1" "$2"; }
+fail() { FAIL=$((FAIL + 1)); printf '  FAIL %s — %s\n' "$1" "$2"; FAILED_LABELS="$FAILED_LABELS$1\n"; }
 
 assert_eq() {
   local name="$1" want="$2" got="$3"
@@ -259,4 +260,5 @@ rm -rf "$R"
 
 echo
 echo "Results: $PASS passed, $FAIL failed"
+if [ "$FAIL" -ne 0 ]; then printf 'FAILED CHECKS:\n%b' "$FAILED_LABELS"; fi
 [ "$FAIL" -eq 0 ]
