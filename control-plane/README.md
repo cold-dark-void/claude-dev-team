@@ -34,4 +34,10 @@ Build outputs (Go and container artifacts) are git-ignored at the repo root
 |------|---------|
 | `VERSION` | Service semantic version (starts `0.1.0`) |
 | `image-reference` | Placeholder container-image pin; the real G-02 request is CDT-628-C4's AC |
+| `go.mod`, `go.sum` | The Go module: the service implementation (CDT-643). Build it in the container, not on the host |
+| `journal/` | The append-only run journal: SQLite behind the narrow interface, `schema.sql`, replay, the lease table |
+| `run/` | The run state machine: lease and fencing token, named halt states, retry budgets, stall limits, the watchdog |
+| `reconcile/` | The on-start reconciler: the journal against worktrees, branches, and processes (AC5) |
+| `cmd/journalctl/` | The journal CLI — the plugin↔service boundary: one append, one read, exit codes 0/1/64 |
+| `killtest/` | The AC7 kill-test lane: SIGKILL at every phase boundary, in the G-02 container |
 | `README.md` | This boundary and ownership statement |

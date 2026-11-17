@@ -168,3 +168,26 @@ jobs:
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
       - run: bash skills/init-orchestration/check-hook-templates.sh
+
+  # CDT-643 — AC7: the kill test in CI. The service is SIGKILLed at every
+  # lifecycle phase boundary and the run must complete exactly once; this lane
+  # is the gate that falsifies docs/adr/0001-journal-engine.md § Consequences
+  # cost 1. It runs in the G-02-approved image, digest-pinned: golang
+  # 1.27-bookworm, row 3 of the CDT-627 approval
+  # (docs/internal/control-plane/node-agent-build-probe.md:22). The suite needs
+  # no container of its own — plain `go test ./...` passes natively too.
+  control-plane:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - name: Go build, vet, and test for control-plane in the G-02 image
+        env:
+          IMAGE: docker.io/library/golang:1.27-bookworm@sha256:4fa7c968ba93f1635670522dbb01a2c78150443e1385746924566079f36570ea
+        run: |
+          set -euo pipefail
+          docker pull "$IMAGE"
+          docker run --rm -v "$GITHUB_WORKSPACE:/src:ro" -w /src/control-plane \
+            -e GOCACHE=/tmp/gocache -e GOMODCACHE=/tmp/gomodcache \
+            -e GOFLAGS=-buildvcs=false \
+            "$IMAGE" sh -c 'go build ./... && go vet ./... && go test ./...'

@@ -1,0 +1,496 @@
+package journal
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+	"path/filepath"
+	"reflect"
+	"testing"
+)
+
+// seed builds a full lifecycle through the engine and returns the rows back, so
+// every replay test runs on real journal rows.
+func seed(t *testing.T, runID string) []Event {
+	t.Helper()
+	e, err := OpenPath(context.Background(), filepath.Join(t.TempDir(), "run.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = e.Close() })
+
+	add := func(kind Kind, payload any) {
+		t.Helper()
+		if _, _, err := e.AppendChecked(context.Background(), mustEvent(t, runID, kind, payload)); err != nil {
+			t.Fatalf("append %s: %v", kind, err)
+		}
+	}
+	addKey := func(kind Kind, payload any, key string) {
+		t.Helper()
+		ev := mustEvent(t, runID, kind, payload)
+		ev.IdempotencyKey = key
+		if _, _, err := e.AppendChecked(context.Background(), ev); err != nil {
+			t.Fatalf("append %s: %v", kind, err)
+		}
+	}
+
+	add(KindRunClaimed, ClaimPayload{Owner: "w1", Token: 1, Ticket: runID,
+		Workflow: "orchestrate", Model: "opus"})
+	add(KindRunStarted, StartPayload{StallLimitS: 270, Model: "opus"})
+	add(KindStintStarted, StintPayload{Stint: 1, Label: "wave 1"})
+	add(KindHeartbeat, HeartbeatPayload{Owner: "w1", Token: 1})
+
+	// A side effect that closed, and one that did not (the crash window).
+	intent := mustEvent(t, runID, KindSideEffect, Effect{Effect: "push",
+		Intent: json.RawMessage(`{"sha":"abc123"}`)})
+	intent.IdempotencyKey = runID + ":push:abc123"
+	if _, _, err := e.AppendChecked(context.Background(), intent); err != nil {
+		t.Fatalf("append intent: %v", err)
+	}
+	pushSeq := intent.Seq
+	outcome := mustEvent(t, runID, KindSideEffect, Effect{Effect: "push",
+		Outcome:   json.RawMessage(`{"pushed":true}`),
+		IntentSeq: pushSeq})
+	// AppendChecked fills nothing in: read the seq back from the journal.
+	rows, err := e.Events(context.Background(), runID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, r := range rows {
+		if r.IdempotencyKey == intent.IdempotencyKey {
+			outcome.Payload = mustJSON(t, Effect{Effect: "push",
+				Outcome: json.RawMessage(`{"pushed":true}`), IntentSeq: r.Seq})
+		}
+	}
+	if _, _, err := e.AppendChecked(context.Background(), outcome); err != nil {
+		t.Fatalf("append outcome: %v", err)
+	}
+	addKey(KindSideEffect, Effect{Effect: "pr",
+		Intent: json.RawMessage(`{"title":"ship"}`)}, runID+":pr:ship")
+
+	add(KindStintStarted, StintPayload{Stint: 2, Label: "wave 2"})
+	add(KindRepair, RepairPayload{Target: "branch feat/x",
+		Observation: "branch ahead of the journal", Action: "reset worktree to HEAD"})
+
+	// Two halts of the same reason, each resumed inside the budget.
+	add(KindRunHalted, HaltPayload{Reason: "stalled", RetryBudget: 2, RetryRemaining: 2})
+	add(KindRunResumed, ResumePayload{Reason: "stalled"})
+	add(KindRunHalted, HaltPayload{Reason: "stalled", RetryBudget: 2, RetryRemaining: 1})
+	add(KindRunResumed, ResumePayload{Reason: "stalled"})
+
+	// A takeover, then completion with a card reference.
+	add(KindLeaseAcquire, LeasePayload{Owner: "w2", Token: 2, Reason: "takeover"})
+	done := mustEvent(t, runID, KindRunCompleted, CompletePayload{
+		Result: json.RawMessage(`{"sha":"abc123"}`)})
+	done.Card = &CardRef{Path: ".claude/autopilot/" + runID + ".jsonl",
+		TS: "2026-11-16T00:00:00Z", RunID: runID}
+	if _, _, err := e.AppendChecked(context.Background(), done); err != nil {
+		t.Fatalf("append completed: %v", err)
+	}
+
+	events, err := e.Events(context.Background(), runID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(events) == 0 {
+		t.Fatal("seed wrote no rows")
+	}
+	return events
+}
+
+func mustEvent(t *testing.T, runID string, kind Kind, payload any) Event {
+	t.Helper()
+	ev, err := NewEvent(runID, kind, payload)
+	if err != nil {
+		t.Fatalf("NewEvent(%s): %v", kind, err)
+	}
+	return ev
+}
+
+func mustJSON(t *testing.T, v any) json.RawMessage {
+	t.Helper()
+	raw, err := json.Marshal(v)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return raw
+}
+
+// AC1: state is pure replay, and a mid-replay snapshot replays forward to the
+// same state as the full log.
+func TestReplayDeterminism(t *testing.T) {
+	events := seed(t, "CDT-643")
+
+	first, err := Replay(events)
+	if err != nil {
+		t.Fatalf("Replay: %v", err)
+	}
+	second, err := Replay(events)
+	if err != nil {
+		t.Fatalf("Replay (second): %v", err)
+	}
+	if !reflect.DeepEqual(first, second) {
+		t.Fatalf("two replays of one journal differ:\n%+v\n%+v", first, second)
+	}
+	if a, b := mustJSON(t, first), mustJSON(t, second); string(a) != string(b) {
+		t.Fatalf("state JSON differs:\n%s\n%s", a, b)
+	}
+
+	// Mutating the input order must not produce a state at all: replay is
+	// seq-ordered, and a log out of order is a corrupt journal.
+	reversed := append([]Event(nil), events...)
+	for i, j := 0, len(reversed)-1; i < j; i, j = i+1, j-1 {
+		reversed[i], reversed[j] = reversed[j], reversed[i]
+	}
+	if _, err := Replay(reversed); err == nil {
+		t.Fatal("Replay accepted a reversed log")
+	}
+
+	// Snapshot property: replay(prefix), then replay the rest forward, equals
+	// the full replay — at every split point.
+	for k := 0; k <= len(events); k++ {
+		base, err := Replay(events[:k])
+		if err != nil {
+			t.Fatalf("Replay(prefix %d): %v", k, err)
+		}
+		// base must not be modified by the continuation.
+		before := string(mustJSON(t, base))
+		got, err := ReplayFrom(base, events[k:])
+		if err != nil {
+			t.Fatalf("ReplayFrom(from %d): %v", k, err)
+		}
+		if after := string(mustJSON(t, base)); after != before {
+			t.Fatalf("ReplayFrom mutated the snapshot at split %d:\nbefore %s\nafter  %s", k, before, after)
+		}
+		if !reflect.DeepEqual(got, first) {
+			t.Fatalf("ReplayFrom from split %d != full replay:\n%+v", k, got)
+		}
+	}
+}
+
+// AC1, AC3, AC5, AC6 in one state: the projection is complete and total over
+// every kind the schema allows.
+func TestReplayProjectsEveryKind(t *testing.T) {
+	events := seed(t, "CDT-643")
+	st, err := Replay(events)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if st.RunID != "CDT-643" || st.Name() != "completed" || !st.IsTerminal() {
+		t.Fatalf("state = %+v name %s", st, st.Name())
+	}
+	if st.Owner != "w2" || st.Token != 2 {
+		t.Fatalf("owner/token = %q/%d, want w2/2", st.Owner, st.Token)
+	}
+	if st.Ticket != "CDT-643" || st.Workflow != "orchestrate" || st.Model != "opus" {
+		t.Fatalf("identity = %+v", st)
+	}
+	if st.Stint != 2 {
+		t.Errorf("stint = %d, want 2", st.Stint)
+	}
+	if st.StallLimitS != 270 {
+		t.Errorf("stall limit = %d, want 270", st.StallLimitS)
+	}
+	if len(st.Halts) != 2 || st.Halt != nil {
+		t.Errorf("halts = %+v, halt = %+v", st.Halts, st.Halt)
+	}
+	if len(st.Repairs) != 1 {
+		t.Errorf("repairs = %+v, want 1", st.Repairs)
+	}
+	if st.LeaseTakeovers != 1 {
+		t.Errorf("takeovers = %d, want 1", st.LeaseTakeovers)
+	}
+	if st.EventCount != int64(len(seed(t, "CDT-643"))) {
+		t.Errorf("event count = %d, want %d", st.EventCount, len(seed(t, "CDT-643")))
+	}
+	if st.Result == nil || string(st.Result) != `{"sha":"abc123"}` {
+		t.Errorf("result = %s", st.Result)
+	}
+
+	// The resolved effect and the pending effect (AC3 + AC5).
+	if len(st.Effects) != 2 {
+		t.Fatalf("effects = %+v, want 2", st.Effects)
+	}
+	if st.Effects[0].Pending() {
+		t.Errorf("the push effect must be resolved: %+v", st.Effects[0])
+	}
+	if st.Effects[0].OutcomeSeq == 0 || st.Effects[0].OutcomeTS == "" {
+		t.Errorf("push outcome not recorded: %+v", st.Effects[0])
+	}
+	pending := st.PendingEffects()
+	if len(pending) != 1 || pending[0].Effect != "pr" {
+		t.Fatalf("pending effects = %+v, want the open pr intent", pending)
+	}
+	if _, ok := st.EffectByKey("CDT-643:pr:ship"); !ok {
+		t.Error("EffectByKey missed the pr intent")
+	}
+
+	// The card reference rode through the round trip.
+	if st.Effects[1].Card != nil {
+		t.Error("a card reference appeared on an event that carried none")
+	}
+}
+
+func TestReplayRefusesIllegalJournals(t *testing.T) {
+	base := seed(t, "CDT-643")
+
+	cases := []struct {
+		name  string
+		event Event
+		want  error
+	}{
+		{"event after terminal", Event{
+			TS: "2026-11-16T00:00:00Z", RunID: "CDT-643", Kind: KindHeartbeat,
+			Payload: mustJSON(t, HeartbeatPayload{Owner: "w2", Token: 2}),
+		}, ErrTerminalState},
+		{"second completion", Event{
+			TS: "2026-11-16T00:00:00Z", RunID: "CDT-643", Kind: KindRunCompleted,
+			Payload: mustJSON(t, CompletePayload{}),
+		}, ErrTerminalState},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			events := append(append([]Event(nil), base...), tc.event)
+			_, err := Replay(events)
+			if !errors.Is(err, tc.want) {
+				t.Fatalf("Replay err = %v, want %v", err, tc.want)
+			}
+		})
+	}
+}
+
+func TestReplayStateChecks(t *testing.T) {
+	t.Run("unknown kind is refused by validation", func(t *testing.T) {
+		ev := Event{TS: "2026-11-16T00:00:00Z", RunID: "r", Kind: "made_up",
+			Payload: json.RawMessage(`{}`), Seq: 1}
+		if _, err := Replay([]Event{ev}); !errors.Is(err, ErrInvalid) {
+			t.Fatalf("err = %v, want ErrInvalid", err)
+		}
+	})
+
+	t.Run("two runs in one log is refused", func(t *testing.T) {
+		a := mustEvent(t, "A", KindRunClaimed, ClaimPayload{Owner: "w", Token: 1})
+		b := mustEvent(t, "B", KindRunStarted, StartPayload{StallLimitS: 60})
+		a.Seq, b.Seq = 1, 2
+		if _, err := Replay([]Event{a, b}); !errors.Is(err, ErrReplayInconsistent) {
+			t.Fatalf("err = %v, want ErrReplayInconsistent", err)
+		}
+	})
+
+	t.Run("out-of-order seq is refused", func(t *testing.T) {
+		a := mustEvent(t, "A", KindRunClaimed, ClaimPayload{Owner: "w", Token: 1})
+		b := mustEvent(t, "A", KindRunStarted, StartPayload{StallLimitS: 60})
+		a.Seq, b.Seq = 2, 1
+		if _, err := Replay([]Event{a, b}); !errors.Is(err, ErrReplayInconsistent) {
+			t.Fatalf("err = %v, want ErrReplayInconsistent", err)
+		}
+	})
+
+	t.Run("start from running is refused", func(t *testing.T) {
+		evs := []Event{
+			mustSeq(t, mustEvent(t, "A", KindRunClaimed, ClaimPayload{Owner: "w", Token: 1}), 1),
+			mustSeq(t, mustEvent(t, "A", KindRunStarted, StartPayload{StallLimitS: 60}), 2),
+			mustSeq(t, mustEvent(t, "A", KindRunStarted, StartPayload{StallLimitS: 60}), 3),
+		}
+		if _, err := Replay(evs); !errors.Is(err, ErrTransition) {
+			t.Fatalf("err = %v, want ErrTransition", err)
+		}
+	})
+
+	t.Run("stint numbers must be sequential", func(t *testing.T) {
+		evs := []Event{
+			mustSeq(t, mustEvent(t, "A", KindRunClaimed, ClaimPayload{Owner: "w", Token: 1}), 1),
+			mustSeq(t, mustEvent(t, "A", KindRunStarted, StartPayload{StallLimitS: 60}), 2),
+			mustSeq(t, mustEvent(t, "A", KindStintStarted, StintPayload{Stint: 3}), 3),
+		}
+		if _, err := Replay(evs); !errors.Is(err, ErrReplayInconsistent) {
+			t.Fatalf("err = %v, want ErrReplayInconsistent", err)
+		}
+	})
+
+	t.Run("heartbeat with a stale token is refused", func(t *testing.T) {
+		evs := []Event{
+			mustSeq(t, mustEvent(t, "A", KindRunClaimed, ClaimPayload{Owner: "w", Token: 2}), 1),
+			mustSeq(t, mustEvent(t, "A", KindRunStarted, StartPayload{StallLimitS: 60}), 2),
+			mustSeq(t, mustEvent(t, "A", KindHeartbeat, HeartbeatPayload{Owner: "w", Token: 1}), 3),
+		}
+		if _, err := Replay(evs); !errors.Is(err, ErrStaleToken) {
+			t.Fatalf("err = %v, want ErrStaleToken", err)
+		}
+	})
+
+	t.Run("unknown halt reason is refused", func(t *testing.T) {
+		evs := []Event{
+			mustSeq(t, mustEvent(t, "A", KindRunClaimed, ClaimPayload{Owner: "w", Token: 1}), 1),
+			mustSeq(t, mustEvent(t, "A", KindRunStarted, StartPayload{StallLimitS: 60}), 2),
+			mustSeq(t, mustEvent(t, "A", KindRunHalted,
+				HaltPayload{Reason: "exploded", RetryBudget: 1, RetryRemaining: 1}), 3),
+		}
+		if _, err := Replay(evs); !errors.Is(err, ErrReplayInconsistent) {
+			t.Fatalf("err = %v, want ErrReplayInconsistent", err)
+		}
+	})
+
+	t.Run("halt arithmetic is checked", func(t *testing.T) {
+		evs := []Event{
+			mustSeq(t, mustEvent(t, "A", KindRunClaimed, ClaimPayload{Owner: "w", Token: 1}), 1),
+			mustSeq(t, mustEvent(t, "A", KindRunStarted, StartPayload{StallLimitS: 60}), 2),
+			mustSeq(t, mustEvent(t, "A", KindRunHalted,
+				HaltPayload{Reason: "stalled", RetryBudget: 2, RetryRemaining: 1}), 3),
+		}
+		if _, err := Replay(evs); !errors.Is(err, ErrReplayInconsistent) {
+			t.Fatalf("err = %v, want ErrReplayInconsistent", err)
+		}
+	})
+
+	t.Run("an outcome for an unknown intent is refused", func(t *testing.T) {
+		evs := []Event{
+			mustSeq(t, mustEvent(t, "A", KindRunClaimed, ClaimPayload{Owner: "w", Token: 1}), 1),
+			mustSeq(t, mustEvent(t, "A", KindRunStarted, StartPayload{StallLimitS: 60}), 2),
+			mustSeq(t, mustEvent(t, "A", KindSideEffect, Effect{Effect: "push",
+				Outcome: json.RawMessage(`{}`), IntentSeq: 99}), 3),
+		}
+		if _, err := Replay(evs); !errors.Is(err, ErrReplayInconsistent) {
+			t.Fatalf("err = %v, want ErrReplayInconsistent", err)
+		}
+	})
+
+	t.Run("an intent row needs a key", func(t *testing.T) {
+		evs := []Event{
+			mustSeq(t, mustEvent(t, "A", KindRunClaimed, ClaimPayload{Owner: "w", Token: 1}), 1),
+			mustSeq(t, mustEvent(t, "A", KindRunStarted, StartPayload{StallLimitS: 60}), 2),
+			mustSeq(t, mustEvent(t, "A", KindSideEffect, Effect{Effect: "push"}), 3),
+		}
+		if _, err := Replay(evs); !errors.Is(err, ErrInvalid) {
+			t.Fatalf("err = %v, want ErrInvalid", err)
+		}
+	})
+}
+
+func mustSeq(t *testing.T, ev Event, seq int64) Event {
+	t.Helper()
+	ev.Seq = seq
+	return ev
+}
+
+// AC6: the retry budget stops a resume once it is spent.
+func TestReplayRetryBudget(t *testing.T) {
+	evs := []Event{
+		mustSeq(t, mustEvent(t, "A", KindRunClaimed, ClaimPayload{Owner: "w", Token: 1}), 1),
+		mustSeq(t, mustEvent(t, "A", KindRunStarted, StartPayload{StallLimitS: 60}), 2),
+	}
+	seq := int64(3)
+	halt := func(remaining int) Event {
+		ev := mustEvent(t, "A", KindRunHalted,
+			HaltPayload{Reason: "stalled", RetryBudget: 1, RetryRemaining: remaining})
+		ev.Seq = seq
+		seq++
+		return ev
+	}
+	resume := func() Event {
+		ev := mustEvent(t, "A", KindRunResumed, ResumePayload{Reason: "stalled"})
+		ev.Seq = seq
+		seq++
+		return ev
+	}
+
+	evs = append(evs, halt(1))
+	st, err := Replay(evs)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if st.Name() != "halted:stalled" {
+		t.Fatalf("state = %s, want halted:stalled", st.Name())
+	}
+	if st.Halt.Remaining != 1 || st.Halt.Budget != 1 {
+		t.Fatalf("halt = %+v, want budget 1 remaining 1", st.Halt)
+	}
+
+	evs = append(evs, resume())
+	if _, err := Replay(evs); err != nil {
+		t.Fatal(err)
+	}
+
+	// Second halt: budget spent (remaining 0) → the resume is refused.
+	evs = append(evs, halt(0))
+	st, err = Replay(evs)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if st.Name() != "halted:stalled" || st.Halt.Remaining != 0 {
+		t.Fatalf("state = %s halt %+v", st.Name(), st.Halt)
+	}
+	if _, err := Replay(append(evs, resume())); !errors.Is(err, ErrBudgetExhausted) {
+		t.Fatalf("resume after budget err = %v, want ErrBudgetExhausted", err)
+	}
+
+	// With the budget spent there is no resume left, so a third halt of the same
+	// reason cannot be reached: it is refused as an invalid transition.
+	if _, err := Replay(append(evs, halt(0))); !errors.Is(err, ErrTransition) {
+		t.Fatalf("halt with no resume behind it err = %v, want ErrTransition", err)
+	}
+}
+
+// The budget of a repeated halt reason decrements, and the journal refuses a
+// writer that reports the old number.
+func TestReplayHaltBudgetDecrements(t *testing.T) {
+	evs := []Event{
+		mustSeq(t, mustEvent(t, "A", KindRunClaimed, ClaimPayload{Owner: "w", Token: 1}), 1),
+		mustSeq(t, mustEvent(t, "A", KindRunStarted, StartPayload{StallLimitS: 60}), 2),
+		mustSeq(t, mustEvent(t, "A", KindRunHalted,
+			HaltPayload{Reason: "stalled", RetryBudget: 2, RetryRemaining: 2}), 3),
+		mustSeq(t, mustEvent(t, "A", KindRunResumed, ResumePayload{Reason: "stalled"}), 4),
+	}
+	stale := mustSeq(t, mustEvent(t, "A", KindRunHalted,
+		HaltPayload{Reason: "stalled", RetryBudget: 2, RetryRemaining: 2}), 5)
+	if _, err := Replay(append(append([]Event(nil), evs...), stale)); !errors.Is(err, ErrReplayInconsistent) {
+		t.Fatalf("second halt reporting the old budget err = %v, want ErrReplayInconsistent", err)
+	}
+
+	correct := mustSeq(t, mustEvent(t, "A", KindRunHalted,
+		HaltPayload{Reason: "stalled", RetryBudget: 2, RetryRemaining: 1}), 5)
+	st, err := Replay(append(append([]Event(nil), evs...), correct))
+	if err != nil {
+		t.Fatalf("second halt with the decremented budget: %v", err)
+	}
+	if st.Halt.Remaining != 1 || len(st.Halts) != 2 {
+		t.Fatalf("halt = %+v halts %+v, want remaining 1 after two halts", st.Halt, st.Halts)
+	}
+}
+
+// AC1: AppendChecked is the append-time form of the same rules, and it writes
+// nothing when it refuses.
+func TestAppendCheckedWritesNothingOnIllegalTransition(t *testing.T) {
+	e, err := OpenPath(context.Background(), filepath.Join(t.TempDir(), "run.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = e.Close() })
+	ctx := context.Background()
+
+	if _, _, err := e.AppendChecked(ctx,
+		mustEvent(t, "A", KindRunStarted, StartPayload{StallLimitS: 60})); err == nil {
+		t.Fatal("run_started with no claim was accepted")
+	}
+	rows, err := e.Events(ctx, "A")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(rows) != 0 {
+		t.Fatalf("refused append wrote %d rows", len(rows))
+	}
+
+	if _, _, err := e.AppendChecked(ctx,
+		mustEvent(t, "A", KindRunClaimed, ClaimPayload{Owner: "w", Token: 1})); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := e.AppendChecked(ctx,
+		mustEvent(t, "A", KindRunClaimed, ClaimPayload{Owner: "w", Token: 1})); !errors.Is(err, ErrStaleToken) {
+		t.Fatalf("re-claim with the same token err = %v, want ErrStaleToken", err)
+	}
+	rows, _ = e.Events(ctx, "A")
+	if len(rows) != 1 {
+		t.Fatalf("journal = %d rows, want 1", len(rows))
+	}
+}

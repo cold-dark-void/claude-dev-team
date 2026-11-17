@@ -34,6 +34,10 @@
 # Autopilot per-ticket decision cards (SPEC-033)
 .claude/autopilot/
 
+# Control-plane run journal (CDT-628-C2 / ADR 0001): run state is process
+# state — git-ignored, never committed, and never in memory.db.
+.claude/runs/
+
 # Advisor probe/finalize seam state (SPEC-039 / CDT-556-C4)
 .claude/advisor/
 
@@ -67,6 +71,7 @@ control-plane/*.test
 control-plane/*.out
 control-plane/vendor/
 control-plane/.gocache/
+control-plane/.gomodcache/
 control-plane/.docker/
 .wt-lock
 .worktrees/

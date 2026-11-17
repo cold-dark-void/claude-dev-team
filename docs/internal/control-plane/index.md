@@ -4,6 +4,8 @@ Status: complete. Phase 0 discovery is done; the five child files are filled. T-
 
 Status (CDT-632, added 2026-11-15): the phase-0 written decisions are also complete. § "CDT-632 — File map (written decisions)" pins the six deliverable paths. The CDT-627 sections in this file are unchanged.
 
+Status (CDT-643, added 2026-11-16): phase 1 (CDT-628) builds in this directory. § "CDT-643 — Run journal, state machine, CI kill test" pins the C2 deliverable paths and § "CDT-643" carries its canonical AC list. Every phase-0 section above is unchanged.
+
 ## Scope
 
 This ticket is Phase 0 discovery of the control plane Option C+ (CDT-626). It is docs-only. It probes hosts and Runner types. It records evidence in this directory. It ships no product code.
@@ -72,6 +74,35 @@ Status, Date, Sources, Phase effect, Residual items.
 AC15 is verify-only: the eleven glossary terms live in `CONTEXT.md`, committed at `6f81c22`. AC16 is
 absent by design (OQ-1). The reference-only CDT-627 files in the map above are inputs, not CDT-632
 deliverables.
+
+## CDT-643 — Run journal, state machine, CI kill test
+
+Added by CDT-643 (CDT-628 C2) on 2026-11-16. C1 (CDT-645) built the service directory; C2 puts run
+state inside it. This table pins the C2 deliverable paths. The canonical AC list for CDT-643 is
+§ "CDT-643" under § Acceptance criteria. The CDT-627 and CDT-632 sections above are unchanged.
+
+| File | Carries |
+|---|---|
+| `control-plane/journal/` | AC1–AC3. The append-only journal: one DDL home (`schema.sql`), the replay that is the state, the idempotency key, the card reference, and the narrow interface. |
+| `control-plane/run/` | AC4, AC6. The run state machine: the lease plus fencing token, the named halt states with a reason and a retry budget, the heartbeat and watchdog, and the derived stall limit (`budget.go`). |
+| `control-plane/reconcile/` | AC5. The reconciler on start: the journal against worktrees, branches, and processes, with each repair journaled. |
+| `control-plane/cmd/journalctl/` | AC2. The journal CLI: the two commands (append, read) the plugin calls. The plugin never opens the database itself; the boundary rule is single-homed in [ADR 0001](../../adr/0001-journal-engine.md) § "The narrow-interface boundary" and is cited here, not restated (C1 AC3). |
+| `control-plane/killtest/` | AC7. The CI kill test: the service is killed at every lifecycle phase boundary and the run completes exactly once. |
+| `$MROOT/.claude/runs/run.db` | AC2, AC8. The journal file. Git-ignored (`.gitignore:39`), never `memory.db`. `journal.Resolve` takes `$DEVTEAM_RUN_DB` outright, else this path, with `$MROOT` from `$DEVTEAM_MROOT` else the parent of `git rev-parse --git-common-dir` (`control-plane/journal/open.go:24`). |
+| [record-ownership.md](record-ownership.md) row 12 | AC8. The journal enters the ownership table: owner `control-plane-only`, conflict rule `single-writer-lease`. Rows 1-11 are untouched. |
+
+The Go module is `github.com/cold-dark-void/claude-dev-team/control-plane` (`control-plane/go.mod`).
+The service version stays in `control-plane/VERSION` (C1 AC2); C2 does not touch it.
+
+**Wall-clock basis (AC9).** CDT-610 — "BC6 wall-clock budget: exclude user wait, soft-pause ship
+step" — is the precondition of any wall-clock tuning. `run-budget.md` § "Open BC6 item" states the
+rule in those words: "Do not tune a per-model wall-clock before CDT-610 lands and is measured." No
+wall-clock number is tuned in phase 1, and the stall-limit knob reads `blocked: CDT-610`. The stall
+limit is derived, not chosen: the model's wall-clock cap divided by its iteration cap, from the
+SPEC-033 § AC3 M9 static defaults and § AC9 M9b tier rows
+(`control-plane/run/budget.go`, `BudgetRow.StallLimit`). The derivation introduces no new number, so
+this file states the rule and carries no numbers. The precedence chain (env > map > tier) stays
+owned by `run-budget.md` § Precedence.
 
 ## T-12 — Final review gate checklist (qa, 2026-11-15)
 
@@ -348,6 +379,37 @@ CDT-645 follows the same ruling: no `specs/` entry — the deliverable AC list b
 - **AC13.** Ships `2.0.0-pre.3` via `/release 2.0.0-pre.3` — explicit version (SPEC-010 arc scheme; maintainer ruling 2026-11-16). Never patch, minor, major, or `2.0.0`.
   - Verify: tag `v2.0.0-pre.3` exists; `plugin.json` carries `2.0.0-pre.3` bare; the CHANGELOG heading matches.
 
+
+CDT-643 follows the same ruling: no `specs/` entry — the deliverable AC list below is the spec. C2
+is the second child of the CDT-628 epic and builds on the C1 service directory (CDT-645,
+`v2.0.0-pre.3`). Its gate home is the CI kill test (AC7) plus the ownership row (AC8). C2 owns the
+journal path and DDL, which is the naming rule `record-ownership.md` reserves for the creating
+ticket, and it cites the ADR 0001 boundary rather than restating it (C1 AC3 — single-homing). No AC
+carries the `[process]` tag: each asserts file content (AC1–AC6, AC8, AC9) or gate/release content
+(AC7, AC10).
+
+### CDT-643
+
+- **AC1.** A Run is one durable execution of a workflow for a ticket, and the journal is the record of it. `control-plane/journal/` is append-only: INSERT is the only legal event write, enforced at three layers — no mutation call in the package, the statement guard, and the `events_no_update` / `events_no_delete` triggers (`control-plane/journal/schema.sql`). State is pure replay (`journal.Replay`): nothing stores it and `control-plane/run/` keeps none of its own, so replaying the same journal yields the same state.
+  - Verify: from `control-plane/`, `go test ./journal/ ./run/` exits 0, including the replay-determinism case (the same rows replay to an equal state) and the refused-mutation case (UPDATE and DELETE on `events` both abort).
+- **AC2.** The journal path and DDL are owned here and stay inside the ADR 0001 boundary. Path: `$MROOT/.claude/runs/run.db` (`journalRelPath`, `control-plane/journal/open.go:24`), git-ignored (`.gitignore:39`). `journal.Resolve` takes `$DEVTEAM_RUN_DB` as an outright override; `$DEVTEAM_MROOT` overrides only the `$MROOT` anchor. DDL: one home, `control-plane/journal/schema.sql`. Engine: SQLite behind a narrow interface; the boundary rule is single-homed in ADR 0001 § "The narrow-interface boundary", cited here and never restated (C1 AC3). The journal REFERENCES decision-cards — card path, `ts`, `run_id`, never a copy of a card field — and never changes the frozen SPEC-033 AC6/M13 schema: `schema_version` stays `1` and the journal adds no card key. `journal.Open` refuses a path that resolves to `memory.db`.
+  - Verify: `go test ./journal/` proves the default path, the `memory.db` refusal, the all-null-or-all-set card-reference rule, and that no statement outside the INSERT set mutates `events`; `git check-ignore -q .claude/runs/run.db` exits 0.
+- **AC3.** Side effects carry idempotency keys. `events.idempotency_key` and the partial unique index `idx_events_idem` (`control-plane/journal/schema.sql`) hold one key per external effect: push, PR, ticket creation, release. The intent row is appended before the effect runs (SPEC-040 AC11, intent-then-outcome), so a replay that finds the key does not repeat the effect.
+  - Verify: `go test ./journal/` proves `AppendIdempotent` on a used key returns that row's seq with `created=false` and writes nothing, and `go test ./run/` proves the machine takes no second effect on the replay path.
+- **AC4.** One owner per run through a lease with a fencing token. The `lease` table (`control-plane/journal/schema.sql:95`) is the single-writer record: one row per run, one `owner`, a strictly monotonic `token`, a heartbeat timestamp, and a stall limit. Every mutating `control-plane/run` call presents `(owner, token)` inside one `BEGIN IMMEDIATE` transaction. A token at or below the live one is refused with `journal.ErrStaleToken` and writes nothing; an unexpired lease refuses a second owner with `journal.ErrLeaseHeld`; a takeover raises the token.
+  - Verify: `go test ./run/` proves the stale token is refused with `ErrStaleToken` and appends no row, a live lease refuses a second owner, and a takeover raises the token.
+- **AC5.** The reconciler runs on start. `control-plane/reconcile/` compares the journal with worktrees, branches, and processes, repairs the difference, and appends one `repair` event per repair — `repair` is a member of the closed event-kind set. A repair never edits a past row. The failure path is the named halt `reconcile_failed`, with a retry budget of 3 passes (`control-plane/run/budget.go`, `RetryBudgets`).
+  - Verify: `go test ./reconcile/` seeds one divergence per compare (worktree, branch, process) and asserts one `repair` row for each; a failing pass lands on `halted:reconcile_failed` and spends one retry.
+- **AC6.** Heartbeat, watchdog, and named halts. `lease.last_heartbeat_ts` and `lease.stall_limit_s` drive the watchdog, and a run that misses its limit is `stalled`. The stall limit scales with model speed by derivation, not by a new number (AC9). The named halt states are `halted:<reason>` for `stalled`, `lease_lost`, `reconcile_failed`, `budget_exhausted`, and `operator_halt`; each carries its reason and its retry budget (`control-plane/run/budget.go`, `RetryBudgets`), and a spent budget ends the run at `failed`.
+  - Verify: `go test ./run/` proves an expired heartbeat yields `halted:stalled`, each resume spends one retry of that reason, and a spent budget yields `failed`.
+- **AC7.** The kill test runs in CI. `control-plane/killtest/` kills the service at every lifecycle phase boundary and asserts the run completes exactly once: one `run_completed`, no repeated side effect, and the same replayed state. This is the gate that falsifies ADR 0001 cost 1 (§ Consequences, "Paid — costs this decision accepts", item 1). The ADR names two tests (§ Context, "The kill test"): K1 `kill -9` mid-run then resume, priced here per boundary; K2 forced reboot also needs the node agent and the linger operator step (`native-runner.md`), so it stays the epic-level acceptance line (CDT-628 § Acceptance).
+  - Verify: the CI job runs `control-plane/killtest/` and exits 0; the kill list covers every phase boundary the state machine defines; each case ends with exactly one `run_completed` for that run.
+- **AC8.** The ownership spec is complete. `docs/internal/control-plane/record-ownership.md` names one owner for each of the eleven plugin records, and the journal enters that table as row 12: owner `control-plane-only`, conflict rule `single-writer-lease`, path `$MROOT/.claude/runs/run.db`. `journal_meta` records the same owner inside the file (`owner`, `engine` keys, `control-plane/journal/schema.sql:113-117`). The row-5 memory-owner re-test is carried here: it re-runs when CDT-629 lands, against the API front, not the store.
+  - Verify: the table carries 12 rows; rows 1-11 are byte-identical to the CDT-632 version; row 12's owner cell reads `control-plane-only` and its conflict-rule cell is in the closed set; § "Residual items" keeps the row-5 re-test open.
+- **AC9.** CDT-610 is named as the precondition of any wall-clock tuning. CDT-610 — "BC6 wall-clock budget: exclude user wait, soft-pause ship step" — is carried by `run-budget.md` § "Open BC6 item", which states the rule: "Do not tune a per-model wall-clock before CDT-610 lands and is measured." C2 repeats it for phase 1: no wall-clock number is tuned, and the stall-limit knob reads `blocked: CDT-610`. The stall limit is derived, not chosen — the wall-clock cap divided by the iteration cap (`control-plane/run/budget.go`, `BudgetRow.StallLimit`), from the SPEC-033 § AC3 M9 static defaults and § AC9 M9b tier rows. The `DEVTEAM_STALL_LIMIT` override is the top of the precedence chain `run-budget.md` § Precedence owns; it is a watchdog knob, not a SPEC-033 budget cap, so SPEC-033 N12 stays satisfied (no budget-cap flag, no seventh `parse-flags.sh` key, no `AUTOPILOT_*_CAP` write). Docs state the rule and carry no numbers.
+  - Verify: `grep -n 'CDT-610' control-plane/run/budget.go` hits the precondition note; `grep -n 'blocked: CDT-610'` hits this file; every wall-clock cell in `RunBudgetMap` equals the SPEC-033 cell it names as `Source`.
+- **AC10.** Ships `2.0.0-pre.N` via `/release` — explicit version (SPEC-010 arc scheme). Never patch, minor, major, or `2.0.0`. C2 is an epic child, so the release is the epic fold, where master moves (SPEC-033): N is fixed there, `stable` stays at the last 1.x final release while the arc is open, and the C2 commit itself touches no version pair.
+  - Verify: the tag and CHANGELOG heading carry `v2.0.0-pre.N` and `.claude-plugin/plugin.json` carries the bare form; `stable` is unchanged; `git diff --name-only` over C2 lists no `plugin.json` or `CHANGELOG.md` change.
 
 ## Ship gate (CDT-645)
 

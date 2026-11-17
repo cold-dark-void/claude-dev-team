@@ -1,18 +1,22 @@
-# Record ownership — the eleven plugin state records
+# Record ownership — the eleven plugin state records and the run journal
 
 Carries AC13. Scope: phase 0 of control plane Option C+ (CDT-626). This file assigns one writer,
 one conflict rule, and one owner to each plugin state record. It ships no behavior.
+
+CDT-643 (CDT-628 C2, 2026-11-16) carries AC8 of phase 1: it adds row 12, the run journal — the one
+record in this table owned by the control plane. Rows 1-11 keep the writer, path, owner, and rule
+the AC13 ruling gave them.
 
 ## Decision register
 
 | Field | Value |
 |---|---|
-| **Decision** | Every plugin state record has exactly one owner and one conflict rule drawn from a closed set of five: single-writer-lease, plugin-only, control-plane-only, append-only-merge, derived-rebuild. All eleven records are **plugin**-owned. The control plane owns no record in this table; it reads them through files and CLI calls only (ADR 0001 boundary). |
-| **Status** | Decided for phase 0 (2026-11-15). No record transfers to the control plane in phase 0. The table records paths and rules that exist today; nothing here is a new store. |
-| **Date** | 2026-11-15 |
-| **Sources** | `docs/internal/control-plane/index.md` § CDT-632 AC13; the kickoff plan § OQ-7 (eleven rows); SPEC-033 AC6/M13 + N4/N12/N14; SPEC-040 M20/M22 + AC11/AC16; SPEC-025 M6 + L10; SPEC-009 (Backlog posture, CDT-54/CDT-46-C8; Backlog root rule, CDT-351; § Backlog write integrity; the plans path); SPEC-004 + AGENTS.md § Persistent Memory Protocol; SPEC-013 (report path, `index.json`); SPEC-037 M11/M18 (CDT-228); SPEC-023 M1/M14; SPEC-036 M2/M3/M4/M6/M10; SPEC-016 § Path convention + § `ensure <slug>` semantics (`.wt-lock`); SPEC-018 M3f; SPEC-001 M7 (the NDJSON precedent SPEC-033 M13 mirrors); `docs/adr/0001-journal-engine.md` § Decision; `docs/internal/control-plane/container-runner.md` Fact 3; `.gitignore:5,6,9,10,12,14,17,32,35,41,58,59`. |
-| **Phase effect** | Phase 1 (CDT-628) adds the journal as a new record: it is **control plane**-owned, git-ignored, and never in `memory.db` (ADR 0001). Phase 2 (CDT-629) may add the memory API in front of row 5 without changing that row's owner. No phase-0 file changes a writer, a path, or a rule below. |
-| **Residual items** | Row 5 owner is re-tested when CDT-629 lands (the API front, not the store). The journal row is added to this table by CDT-628, which owns the path and DDL. Row 11 registry enumeration inside a container Runner is unprobed for omp and mini-swe. |
+| **Decision** | Every plugin state record has exactly one owner and one conflict rule drawn from a closed set of five: single-writer-lease, plugin-only, control-plane-only, append-only-merge, derived-rebuild. Phase-0 ruling: all eleven records are **plugin**-owned. The control plane owns no record in this table; it reads them through files and CLI calls only (ADR 0001 boundary). Phase 1 (CDT-643, 2026-11-16) adds row 12 — the run journal — as the one **control-plane-only** row. Rows 1-11 keep the owner, path, and rule the phase-0 ruling gave them. |
+| **Status** | Decided for phase 0 (2026-11-15). No record transfers to the control plane in phase 0. The table records paths and rules that exist today; nothing here is a new store. Amended for phase 1 (2026-11-16, CDT-643): row 12 exists; the store is real and git-ignored. |
+| **Date** | 2026-11-15 (phase 0); amended 2026-11-16 (CDT-643, row 12) |
+| **Sources** | `docs/internal/control-plane/index.md` § CDT-632 AC13; the kickoff plan § OQ-7 (eleven rows); SPEC-033 AC6/M13 + N4/N12/N14; SPEC-040 M20/M22 + AC11/AC16; SPEC-025 M6 + L10; SPEC-009 (Backlog posture, CDT-54/CDT-46-C8; Backlog root rule, CDT-351; § Backlog write integrity; the plans path); SPEC-004 + AGENTS.md § Persistent Memory Protocol; SPEC-013 (report path, `index.json`); SPEC-037 M11/M18 (CDT-228); SPEC-023 M1/M14; SPEC-036 M2/M3/M4/M6/M10; SPEC-016 § Path convention + § `ensure <slug>` semantics (`.wt-lock`); SPEC-018 M3f; SPEC-001 M7 (the NDJSON precedent SPEC-033 M13 mirrors); `docs/adr/0001-journal-engine.md` § Decision; `docs/internal/control-plane/container-runner.md` Fact 3; `.gitignore:5,6,9,10,12,14,17,32,35,41,58,59`. Row 12 adds: CDT-643 AC8; `control-plane/journal/open.go:24` (the path), `control-plane/journal/schema.sql:95` (`lease`), `control-plane/journal/schema.sql:113-117` (`journal_meta` owner and engine), `control-plane/run/lease.go` (the fencing check); `docs/adr/0001-journal-engine.md` § "The narrow-interface boundary"; `.gitignore:39`. |
+| **Phase effect** | Phase 1 (CDT-628) adds the journal as a new record: it is **control plane**-owned, git-ignored, and never in `memory.db` (ADR 0001). CDT-643 lands it as row 12. Phase 2 (CDT-629) may add the memory API in front of row 5 without changing that row's owner. No phase-0 file changes a writer, a path, or a rule below. |
+| **Residual items** | Row 5 owner is re-tested when CDT-629 lands (the API front, not the store) — CDT-643 AC8 carries that re-test. Closed 2026-11-16: the journal row entered this table as row 12 (CDT-643 owns the path and DDL). Row 11 registry enumeration inside a container Runner is unprobed for omp and mini-swe. |
 
 ## The closed conflict-rule set
 
@@ -22,13 +26,17 @@ A conflict-rule cell is one of these five tokens. No cell carries any other valu
 |---|---|---|
 | `single-writer-lease` | One writer at a time holds a lease; a second writer waits or fails. The record is read-modify-written. | `flock`, a `mkdir` lock with a TTL, a noclobber lock file, a SQLite write transaction, an advisory age-gated stamp. |
 | `plugin-only` | The plugin's own Surface is the only writer. No control-plane writer, no merge, no second path. Every write is a create or a full rewrite by that Surface. | The Surface that owns the file; plugin prose MUST NOT define a second writer (SPEC-002 D1 / M12 discipline). |
-| `control-plane-only` | The control plane is the only writer; the plugin reads. | Not used by any row in this table. Reserved for the phase-1 journal (ADR 0001) and later control-plane records. |
+| `control-plane-only` | The control plane is the only writer; the plugin reads. | Row 12 (the run journal, added by CDT-643): the SQLite write transaction plus the `lease` table. Reserved for later control-plane records. |
 | `append-only-merge` | Records are appended, never edited in place. Concurrent writers append and never merge, so no read-modify-write race exists. | JSONL append; append-newest-first + tmp+rename; create-only, no-overwrite. |
 | `derived-rebuild` | The record is a mirror that a sync tool rebuilds from its source. A lost or stale copy is repaired by re-running the sync, never by hand-merging. | The sync tool plus its cursor file. |
 
-## Ownership table (11 rows)
+## Ownership table (12 rows)
 
 Paths are `$MROOT`-anchored — `$MROOT` = the parent of `git rev-parse --git-common-dir` (SPEC-009), so every row except row 10 is shared across worktrees, not per-worktree. Row 10 is host-global and lives outside any repository. The `#` column is an index for cross-references in this file; it carries no rule.
+
+Rows 1-11 are the plugin records AC13 ruled in phase 0. Row 12 is the control plane's own record,
+added by CDT-643 under the AC8 naming rule: same `$MROOT` anchoring, git-ignored, and reached by the
+plugin through the journal CLI only.
 
 | # | Record | Exact path | Writer | Reader | Owner | Conflict rule |
 |---|---|---|---|---|---|---|
@@ -43,6 +51,7 @@ Paths are `$MROOT`-anchored — `$MROOT` = the parent of `git rev-parse --git-co
 | 9 | Release-train queue | `$MROOT/.claude/release-train/queue.json` (+ `train.lock`) | `skills/release-train/train-lib.sh` (in-directory temp + rename, never a cross-filesystem rename) | `/release-train` (order and version assignment, resume); `/release` per queue entry | plugin | single-writer-lease |
 | 10 | Transcript mirror | `~/.claude/transcript/<sid>/` — host-global, outside the repository, not per-project | The SPEC-036 recorder: the opt-in `hooks.Stop[]` / `SessionEnd` hook plus `skills/transcript-mirror/transcript-sync.sh`. Fail-open: the recorder always exits 0. | `/handoff` (SPEC-018 M3f reads `main.md`); `transcript-sync --check`; `/doctor` lag check | plugin | derived-rebuild |
 | 11 | Worktree registry | `$MROOT/.worktrees/<slug>/` + `$MROOT/.worktrees/<slug>/.wt-lock`; git's own entries at `$MROOT/.git/worktrees/<slug>/` | `git worktree add`/`remove`, invoked only by `skills/worktree-lib.sh` (`ensure`, `release`, `register`) as a subprocess | `/status worktree`; `skills/wrap-ticket/resolve-worktree.sh`; `/wrap-ticket` Step 6; `/epic` shared integration path | plugin | single-writer-lease |
+| 12 | Run journal | `$MROOT/.claude/runs/run.db` (git-ignored, `.gitignore:39`; the DDL home is `control-plane/journal/schema.sql`) | The control-plane service, one writer per open: `control-plane/journal` appends the event, `control-plane/run` writes the `lease` row in the same transaction, one owner per run through the lease | The control-plane service (replay is the state) and the plugin through the journal CLI (`control-plane/cmd/journalctl`) — files + CLI calls only, the ADR 0001 boundary | control-plane-only | single-writer-lease |
 
 ## Conflict-rule mechanics per row
 
@@ -57,6 +66,7 @@ Paths are `$MROOT`-anchored — `$MROOT` = the parent of `git rev-parse --git-co
 - **Row 9** — SPEC-023 M14: `train.lock` is acquired with noclobber and expires by `RELEASE_TRAIN_LOCK_TTL` (default 1800 s). A dead pid does not release it; the train releases on all exit paths.
 - **Row 10** — SPEC-036: the mirror is derived from the host's own session store. The M6 cursor line (`<identity>\t<source-path>\t<main-sha256>`) is the rebuild anchor, `transcript-sync` re-derives any lag, and the recorder fails open. A deleted sid dir is rebuilt by re-running the sync; nothing merges it by hand.
 - **Row 11** — SPEC-016 § `ensure <slug>` semantics: `.wt-lock` holds one line, `<epoch-seconds> <ISO-8601-UTC>`, and is advisory — the real holder is an agent conversation, so age is authoritative (`WT_LOCK_TTL_SECONDS`, default 21600 s), not the pid. A FRESH lock blocks a second `ensure`; `ensure` also adds `.wt-lock` to the shared `info/exclude` so no consumer worktree can stage it. Parallel `git worktree` operations are forbidden (SPEC-016).
+- **Row 12** — CDT-643 AC8 (2026-11-16). The owner is recorded in the file itself: `journal_meta` carries `owner` = `control-plane-only` and `engine` = `sqlite-behind-narrow-interface` (`control-plane/journal/schema.sql:113-117`). The lease record is the `lease` table (`control-plane/journal/schema.sql:95`): one row per run, one `owner`, and a strictly monotonic fencing `token`. `control-plane/run/lease.go` checks the token inside the same `BEGIN IMMEDIATE` transaction as the append and refuses a token at or below the live one with `journal.ErrStaleToken`, so a stale owner writes nothing. Each acquisition is journaled as `lease_acquired` with its reason (`claim`, `takeover`, `self`); a terminal state drops the row and its event is the journal's record of the release. The plugin never opens this database with SQL: it reads through the journal CLI (ADR 0001 § "The narrow-interface boundary"). `journal.Open` refuses a path that resolves to `memory.db`, so invariant 2 holds for run state too. The container Runner mounts the worktree at the same absolute path (`container-runner.md` Fact 3), so row 12 needs no path rewrite inside a container and the lease is the real guard.
 
 ## Invariants this table states (AC13)
 
@@ -66,14 +76,15 @@ Paths are `$MROOT`-anchored — `$MROOT` = the parent of `git rev-parse --git-co
 
 ## Owner ruling
 
-All eleven rows are plugin-owned. The control plane owns none of them in phase 0. It reads plugin
+Rows 1-11 — the eleven plugin records — are all plugin-owned. The control plane owns none of them
+in phase 0. It reads plugin
 records through files and CLI calls only, and it never becomes a second writer of a plugin record
 (ADR 0001 § Decision: the card writer and reader stay `append-card.sh` and `read-cards.sh`).
 
-The control plane owns its own records: the run journal (phase 1, CDT-628) and the memory API's
-server-side state behind row 5 (phase 2, CDT-629). Those records enter this table as
-`control-plane-only` rows when their paths exist. This table does not pre-name those paths — the
-tickets that create them own the naming.
+The control plane owns its own records: the run journal (row 12, landed by CDT-643) and the memory
+API's server-side state behind row 5 (phase 2, CDT-629). Those records enter this table as
+`control-plane-only` rows when their paths exist — row 12 entered when CDT-643 named the path and
+the DDL. This table does not pre-name those paths — the tickets that create them own the naming.
 
 ## Boundaries — no contradiction with SPEC-033 and SPEC-040
 
