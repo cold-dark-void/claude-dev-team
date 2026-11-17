@@ -115,7 +115,7 @@ Program / multi-ticket work, session tuning, and quality gates.
 | Command | When to use |
 |---------|-------------|
 | [`/epic`](docs/commands/epic.md) | Decompose an umbrella into sequenced children for `/kickoff` or `/orchestrate` |
-| [`/backlog`](docs/commands/backlog.md) | Manage backlog items (Linear-first dual-write when MCP is up); `sweep` purges + walks the open set |
+| [`/backlog`](docs/commands/backlog.md) | Manage backlog items (the local store is the source of truth; Linear is opt-in per project behind the `linear_sync` gate — `skills/backlog/linear-sync.md`); `sweep` purges + walks the open set |
 | [`/brainstorm`](docs/commands/brainstorm.md) | Socratic design refinement before planning (`--grill` for one-Q-at-a-time) |
 | [`/craft-loop`](docs/commands/craft-loop.md) | Design reviewed loop programs for the host `/loop`/`/goal` |
 | [`/release-train`](docs/commands/release-train.md) | Multi-branch release queue — register, freeze, land via `/release` |

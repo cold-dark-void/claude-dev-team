@@ -309,7 +309,9 @@ to `/kickoff` in this same session, offer to track it:
 > /kickoff right away)"
 
 If yes, follow `skills/backlog/SKILL.md` § **Programmatic write-back
-protocol**, **direct-write** convention, Linear-first mode, with:
+protocol**, **direct-write** convention, gate-routed (the local write is first;
+the Linear leg runs only when the project's `linear_sync` gate reads `on` —
+`skills/backlog/linear-sync.md`), with:
 
 - Title: the Problem Statement's first sentence (or a short imperative title
   derived from it)

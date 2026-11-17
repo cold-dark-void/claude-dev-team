@@ -26,7 +26,7 @@
 | Phase-done M22 materialize (AC9) | **S3g** §3g.2–3g.3 |
 | Proceed forms flag\|token; plan-only stop (M41) | **S3d** §3d.2–3d.5 |
 | Idempotent skip linked (OQ3) | **S3e** §3e.2 |
-| Programmatic Direct write Linear-first (M40) | **S3e** §3e.5; backlog § Programmatic write-back |
+| Programmatic Direct write, gate-routed (M40) | **S3e** §3e.5; backlog § Programmatic write-back; `skills/backlog/linear-sync.md` |
 | Hard walls no invoke engines/fix/re-S1–S3 invent | Invariants; **S3g**; **S4** |
 | S4 handoff args `handoff` / `--start-phase` | Arguments; S0; **S4** |
 | S4 load C3 plan + phaseable OQ3 (AC1 / M42) | **S4a** (loud fail 64; N13) |

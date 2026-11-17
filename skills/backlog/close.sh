@@ -1,10 +1,11 @@
 #!/usr/bin/env bash
-# close.sh — deterministic backlog item close + verify (subprocess-only, never source).
+# close.sh — deterministic backlog item close + verify + claim (subprocess-only, never source).
 #
 # Usage:
 #   close.sh <slug-or-title> [--ticket ID] [--sha SHA] [--note TEXT] [--root PATH]
 #            [--status COMPLETED|FIXED/CLOSED]
 #   close.sh verify <slug-or-title> [--root PATH]
+#   close.sh claim  <slug-or-title> [--owner NAME] [--root PATH]
 #
 # Edits local write-through under ROOT/.claude/backlog/ and ROOT/.claude/backlog.md
 # (never committed as product — process trackers stay on disk only).
@@ -13,14 +14,21 @@
 # Every linked worktree therefore reads and writes the one shared store; the
 # former show-toplevel default is withdrawn.
 # Does NOT commit — local write-through only; never stage process trackers.
+# Calls no network and no Linear MCP (CDT-646: the local store is the ticket
+# source of truth; Linear sync is opt-in through skills/backlog/linear-gate.sh).
+#
+# claim (CDT-646) is the offline ticket-claim verb: it flips `**Status**` to
+# `IN_PROGRESS`, stamps `*Claimed: <date>[ by <owner>]*`, and re-tags the index
+# row in place (the row stays under `## Pending`). A closed item cannot be
+# claimed (exit 1). Re-claim by the same owner is idempotent.
 #
 # close mode holds the shared backlog lock (skills/backlog/lock.sh,
 # <root>/.claude/backlog.lock/) for the whole read-decide-write, taken once
 # per process after the write-free early exits and before the first read a
-# write decision uses. `close.sh verify` takes no lock.
+# write decision uses. claim mode takes the same lock. `close.sh verify` takes no lock.
 #
 # Exit: 0 ok (incl. Linear-only skip when no local write-through), 1 not found /
-# verify fail / lock busy, 64 usage. Missing index/dir post-hygiene is calm
+# verify fail / claim of a closed item / lock busy, 64 usage. Missing index/dir post-hygiene is calm
 # exit 0 (CDT-63), not error-shaped.
 
 set -euo pipefail
@@ -36,6 +44,11 @@ die() {
 _TS="$SCRIPT_DIR/terminal-status.sh"
 is_closed_status() {
   bash "$_TS" is-closed "$1"
+}
+# IN_PROGRESS is an OPEN status (claim stamp); classified by the same shared
+# classifier so no caller keeps a second copy.
+is_claimed_status() {
+  bash "$_TS" is-claimed "$1"
 }
 
 [ -f "$SCRIPT_DIR/../lib/portable.sh" ] || die 1 "missing helper: $SCRIPT_DIR/../lib/portable.sh"
@@ -55,8 +68,10 @@ is_closed_status() {
 
 USAGE='Usage: close.sh <slug-or-title> [options]
        close.sh verify <slug-or-title> [--root PATH]
+       close.sh claim <slug-or-title> [--owner NAME] [--root PATH]
 Options: --ticket ID  --sha SHA  --note TEXT  --root PATH
-         --status COMPLETED|FIXED/CLOSED (default COMPLETED)'
+         --status COMPLETED|FIXED/CLOSED (default COMPLETED)
+         --owner NAME (claim only)'
 
 # valid_slug / require_valid_slug come from slug.sh (sourced above): one copy,
 # shared with defer.sh. Guard every path built from a slug; free-text QUERY
@@ -66,6 +81,9 @@ MODE="close"
 if [ "${1:-}" = "verify" ]; then
   MODE="verify"
   shift
+elif [ "${1:-}" = "claim" ]; then
+  MODE="claim"
+  shift
 fi
 
 QUERY=""
@@ -74,6 +92,7 @@ SHA=""
 NOTE=""
 ROOT=""
 STATUS=""
+OWNER=""
 
 while [ $# -gt 0 ]; do
   case "$1" in
@@ -82,6 +101,7 @@ while [ $# -gt 0 ]; do
     --note) NOTE="${2:-}"; shift 2 || die 64 "--note needs value" ;;
     --root) ROOT="${2:-}"; shift 2 || die 64 "--root needs value" ;;
     --status) STATUS="${2:-}"; shift 2 || die 64 "--status needs value" ;;
+    --owner) OWNER="${2:-}"; shift 2 || die 64 "--owner needs value" ;;
     -h|--help) printf '%s\n' "$USAGE"; exit 0 ;;
     -*) die 64 "unknown option: $1" ;;
     *)
@@ -106,6 +126,17 @@ reject_ctrl() {
 reject_ctrl "$TICKET" --ticket
 reject_ctrl "$SHA" --sha
 reject_ctrl "$NOTE" --note
+reject_ctrl "$OWNER" --owner
+
+if [ "$MODE" = "claim" ]; then
+  [ -z "$TICKET" ] && [ -z "$SHA" ] && [ -z "$NOTE" ] && [ -z "$STATUS" ] \
+    || die 64 "--ticket/--sha/--note/--status are close-only options"
+  if [ -n "$OWNER" ] && ! printf '%s' "$OWNER" | grep -qE '^[A-Za-z0-9._@/-]{1,40}$'; then
+    die 64 "invalid --owner '$OWNER' (expected [A-Za-z0-9._@/-]{1,40})"
+  fi
+elif [ -n "$OWNER" ]; then
+  die 64 "--owner is a claim-only option"
+fi
 
 if [ -z "$STATUS" ]; then
   STATUS="COMPLETED"
@@ -351,7 +382,7 @@ update_index() {
     # after ^ (i.e. [^]]) — [^\]] is parsed as "not backslash" + literal ], so
     # FIXED/CLOSED — ID and COMPLETED — ID tags never stripped (CDT-57 dogfood).
     line_new=$(printf '%s' "$found_line" \
-      | sed -E 's/[[:space:]]*\[(PENDING|COMPLETED[^]]*|FIXED\/CLOSED[^]]*)\]//g' \
+      | sed -E 's/[[:space:]]*\[(PENDING|IN_PROGRESS|COMPLETED[^]]*|FIXED\/CLOSED[^]]*)\]//g' \
       | sed -E 's/[[:space:]]+$//')
     found_line="${line_new} ${tag}"
   fi
@@ -403,6 +434,125 @@ skip_linear_only() {
   else
     printf 'No local backlog write-through — skip (Linear-only).\n'
   fi
+  exit 0
+}
+
+# ---- claim (CDT-646: the offline claim verb over the local store) -------------
+
+# claimed_status_line — the `**Status**` line claim writes.
+claimed_status_line() {
+  if [ -n "$OWNER" ]; then
+    printf '**Status**: IN_PROGRESS (%s)\n' "$OWNER"
+  else
+    printf '**Status**: IN_PROGRESS\n'
+  fi
+}
+
+claimed_footer() {
+  if [ -n "$OWNER" ]; then
+    printf '*Claimed: %s by %s*\n' "$(date +%Y-%m-%d)" "$OWNER"
+  else
+    printf '*Claimed: %s*\n' "$(date +%Y-%m-%d)"
+  fi
+}
+
+# owner_of_status_line <file> — the `(<owner>)` on the IN_PROGRESS line, if any.
+owner_of_status_line() {
+  grep -m1 -E '^\*\*Status\*\*:[[:space:]]*IN_PROGRESS[[:space:]]*\(' "$1" 2>/dev/null \
+    | sed -n 's/^.*(\([^)]*\)).*$/\1/p' || true
+}
+
+# update_item_claim <file> — Status → IN_PROGRESS, one *Claimed:* footer.
+update_item_claim() {
+  local file="$1"
+  atomic_write "$file" env BL_NS="$CLAIM_STATUS_LINE" BL_CL="$CLAIM_FOOTER" awk '
+    BEGIN { ns = ENVIRON["BL_NS"]; cl = ENVIRON["BL_CL"]; status_done = 0 }
+    /^\*\*Status\*\*:/ {
+      print ns
+      status_done = 1
+      next
+    }
+    { print }
+    END {
+      if (!status_done) print ns
+      print ""
+      print cl
+    }
+  ' "$file"
+}
+
+# update_index_claim <slug> — re-tag this slug's row in place. The row stays
+# under `## Pending` (claim is an open status); no row is invented when the
+# index has none, and a missing index is a calm no-op (SPEC-009: reconcile owns
+# row repair, close/claim never add rows).
+update_index_claim() {
+  local slug="$1"
+  local index="$ROOT/.claude/backlog.md"
+  require_valid_slug "$slug"
+  [ -f "$index" ] || return 0
+  atomic_write "$index" env BL_SLUG="$slug" awk '
+    BEGIN {
+      slug = ENVIRON["BL_SLUG"]; key = "](backlog/" slug ".md)"; done = 0
+    }
+    !done && index($0, key) {
+      line = $0
+      gsub(/[[:space:]]*\[(PENDING|IN_PROGRESS|DEFERRED|COMPLETED[^]]*|FIXED\/CLOSED[^]]*)\]/, "", line)
+      sub(/[[:space:]]+$/, "", line)
+      print line " [IN_PROGRESS]"
+      done = 1
+      next
+    }
+    { print }
+  ' "$index"
+}
+
+cmd_claim() {
+  resolve_root
+  local backlog_dir="$ROOT/.claude/backlog"
+  local index="$ROOT/.claude/backlog.md"
+  local slug file st prior_owner
+
+  if [ ! -d "$backlog_dir" ] && [ ! -f "$index" ]; then
+    skip_linear_only
+  fi
+  if [ ! -d "$backlog_dir" ]; then
+    die 1 "no backlog dir: $backlog_dir"
+  fi
+
+  backlog_lock_acquire "$ROOT" || exit $?
+
+  local slugs
+  if ! slugs=$(find_slugs "$QUERY"); then
+    if [ ! -f "$index" ]; then
+      skip_linear_only
+    fi
+    die 1 "no backlog item matching: $QUERY"
+  fi
+  slug=$(require_one_slug "$slugs")
+  require_valid_slug "$slug"
+  file="$backlog_dir/${slug}.md"
+
+  st=$(item_status_value "$file")
+  if is_closed_status "$st"; then
+    die 1 "cannot claim a closed item (status=${st:-unknown}): .claude/backlog/$slug.md"
+  fi
+  if is_claimed_status "$st"; then
+    prior_owner=$(owner_of_status_line "$file")
+    if [ -z "$OWNER" ] || [ "$OWNER" = "$prior_owner" ]; then
+      printf 'Already claimed: .claude/backlog/%s.md\n' "$slug"
+      print_linear_bridge "$file"
+      exit 0
+    fi
+  fi
+
+  CLAIM_STATUS_LINE=$(claimed_status_line)
+  CLAIM_FOOTER=$(claimed_footer)
+  update_item_claim "$file" || die 1 "failed to update item: $file"
+  update_index_claim "$slug" || die 1 "failed to update index: $index"
+
+  printf 'Claimed: .claude/backlog/%s.md\n' "$slug"
+  [ -n "$OWNER" ] && printf 'owner: %s\n' "$OWNER"
+  print_linear_bridge "$file"
   exit 0
 }
 
@@ -461,6 +611,8 @@ cmd_close() {
 
 if [ "$MODE" = "verify" ]; then
   cmd_verify
+elif [ "$MODE" = "claim" ]; then
+  cmd_claim
 else
   cmd_close
 fi

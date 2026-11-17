@@ -17,7 +17,23 @@ PDH=$( { [ -n "${CLAUDE_PLUGIN_ROOT:-}" ] && [ -f "$CLAUDE_PLUGIN_ROOT/skills/pl
 printf 'PDH=%s\n' "$PDH" >&2
 EPIC_LIB=$(bash "$PDH/skills/plugin-dir.sh" file skills/epic/epic-lib.sh)
 DAG_LIB=$(bash "$PDH/skills/plugin-dir.sh" file skills/orchestrate/dag-lib.sh)
+GATE=$(bash "$PDH/skills/plugin-dir.sh" file skills/backlog/linear-gate.sh)
+LINEAR_SYNC=$(bash "$GATE" status --root "$MROOT")   # off (default) | on
+printf 'linear_sync=%s\n' "$LINEAR_SYNC"
 ```
+
+**Tracker plane (CDT-646 — SPEC-009 § Linear sync is opt-in):** `LINEAR_SYNC` is
+read once here and carried for the run, like `PDH`.
+
+- `off` (default): the local store is the source of truth — `state.json`
+  (`epic-lib.sh`) plus the backlog items at `$MROOT/.claude/backlog/`. MUST NOT
+  issue any Linear MCP call in any mode: no project list/create, no child issue
+  create, no inventory scan, no `sync` read. The Linear sections of Modes A/B/E/F
+  are skipped, not failed; `linear_project_id` and every `linear_id` stay null.
+  Ticket writes use `skills/backlog/ticket.sh` (create / claim / close).
+- `on`: run them as written — local write first, Linear sync second
+  (`bash "$GATE" sync --root "$MROOT" -- <bridge>`).
+- Print the `linear_sync=<off|on>` line once, after this fence.
 
 ---
 

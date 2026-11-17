@@ -37,9 +37,11 @@ When `show` surfaces non-null `integration_path`, note the epic integration
 worktree (operator continuity — same path/branch as prior session; CDT-141-C6).
 Children share it (CDT-141-C3): B.4 handoff + `ensure-ticket-worktree`.
 
-**Stale-state tip (M15):** when Linear MCP is up and state has any child
+**Stale-state tip (M15):** only when the run's `LINEAR_SYNC` (run-start Step 0,
+CDT-646) reads `on`, and Linear MCP is up, and state has any child
 `linear_id` **or** any null `linear_id`, print one soft line (not a gate):
 `Tip: /epic sync <EPIC-ID> refreshes status/linear_id from Linear when state may be stale`
+Gate `off`: print nothing (there is no mirror to refresh).
 Do **not** auto-run sync on every resume (M9 no surprise mutations).
 
 **Resume seed (M13):** if `show` surfaces non-null `last_seed_path`, print
@@ -47,7 +49,8 @@ Do **not** auto-run sync on every resume (M9 no surprise mutations).
 next child (plus `show`/`waves`/`ready-set` rollup). Do **not** re-mine prior
 child transcripts.
 
-**Linear project on resume (M12 / AC8 / OQ4):**
+**Linear project on resume (M12 / AC8 / OQ4):** gate `off` (CDT-646) → no project
+list, create, or attach: zero Linear MCP calls on resume. Gate `on`:
 
 - If `linear_project_id` is **non-null** (`show` / state): do **not**
   `list_projects` / `save_project`; do **not** re-attach existing children

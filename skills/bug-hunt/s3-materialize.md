@@ -681,7 +681,11 @@ Resume examples:
 
 **Contract:** For each unlinked item in `BH_ACTIONABLE[]`, create a bh-quality
 backlog item via **only** `skills/backlog/SKILL.md` § **Programmatic write-back**
-— convention **2 Direct write**, **Linear-first** (default MCP mode; fail-open).
+— convention **2 Direct write**, gate-routed: the local write is first, and the
+Linear leg runs only when the project's `linear_sync` gate reads `on`
+(`skills/backlog/linear-gate.sh`; mirror legs
+`skills/backlog/linear-sync.md`). With the key `off` (the default) there is no
+Linear call and no fail-open notice.
 **MUST NOT** reimplement dual-write, index format, mkdir/printf/`add.sh`, or a
 second backlog SoT (AC5 / M40). **MUST NOT** invoke `/orchestrate` / `/epic` /
 fix.
@@ -692,6 +696,7 @@ fix.
 |-----------|---------|
 | `skills/backlog/SKILL.md` | § Programmatic write-back (non-interactive callers) |
 | Same skill | `add` Steps 1 / 2 / 2a (suffix-only) / 4 / 5 / 6 / 7 |
+| `skills/backlog/linear-sync.md` | The `linear_sync` gate and the mirror legs it gates |
 
 #### 3e.0 Preconditions
 
@@ -779,7 +784,7 @@ use base as slug
 `bh-` prefix is **optional-preferred** (stable hunt identity); bare kebab of
 id/description is also legal if caller omits prefix — still ≤~50 + suffix walk.
 
-#### 3e.5 Direct write loop (convention 2; Linear-first)
+#### 3e.5 Direct write loop (convention 2; local first, Linear behind the gate)
 
 ```
 BH_MAT_M = 0
@@ -803,10 +808,12 @@ for F in BH_ACTIONABLE[]:   # order preserved
 
   try:
     # Cite only: skills/backlog/SKILL.md § Programmatic write-back
-    # convention 2 Direct write; MCP mode = Linear-first (not --local-only)
+    # convention 2 Direct write; the local write is first and the Linear leg
+    # runs only when the project's linear_sync gate reads on
+    # (skills/backlog/linear-gate.sh; skills/backlog/linear-sync.md)
     result = programmatic_write_back(
       title, problem, goal, notes,
-      mcp_mode = linear_first
+      linear_mirror = (linear_sync_gate_status(MROOT) == "on")
     )
     # result: slug, linear_id | none, local paths written
     F.backlog_slug = result.slug

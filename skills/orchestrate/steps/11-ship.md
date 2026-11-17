@@ -214,6 +214,29 @@ failing gate / evidence.
 
 ### Linear lifecycle (status truth — master is Done)
 
+**Gate (CDT-646 — SPEC-009 § Linear sync is opt-in):** the tracker-plane value
+bound at Step 1 (`LINEAR_SYNC`) gates every Linear call in this file.
+
+```bash
+# Gate check (fresh shell; carry PDH from the stanza fence above).
+_gc=$(git rev-parse --git-common-dir 2>/dev/null) \
+  && MROOT=$(cd "$(dirname "$_gc")" && pwd) \
+  || MROOT=$(pwd)
+PDH="${PDH:-$( { [ -n "${CLAUDE_PLUGIN_ROOT:-}" ] && [ -f "$CLAUDE_PLUGIN_ROOT/skills/plugin-dir.sh" ] && printf '%s\n' "$CLAUDE_PLUGIN_ROOT"; } || { [ -f skills/plugin-dir.sh ] && [ -f agents/pm.md ] && grep -qF '"name": "dev-team"' .claude-plugin/plugin.json 2>/dev/null && pwd; } || { _pr='${CLAUDE_PLUGIN_ROOT}'; [ "${_pr#\$}" = "$_pr" ] && [ -f "$_pr/skills/plugin-dir.sh" ] && printf '%s\n' "$_pr"; } || { for _mp in "$HOME"/.claude/plugins/marketplaces/*/; do [ -f "${_mp}skills/plugin-dir.sh" ] && [ -f "${_mp}agents/pm.md" ] && grep -qF '"name": "dev-team"' "${_mp}.claude-plugin/plugin.json" 2>/dev/null && printf '%s\n' "${_mp%/}" && break; done; } || find ~/.claude/plugins/cache \( -path '*/dev-team/*/skills/plugin-dir.sh' -o -path '*/dev-team-edge/*/skills/plugin-dir.sh' \) 2>/dev/null | awk -F/ '{ver=""; for(i=1;i<=NF;i++) if(($i=="dev-team"||$i=="dev-team-edge")&&i<NF){ver=$(i+1);break}; if(ver=="") next; m=ver; gsub(/-pre\./,"~pre.",m); p=($0 ~ /\/cache\/cold-dark-void\/dev-team\//)?2:(($0 ~ /\/cache\/cold-dark-void\/dev-team-edge\//)?1:0); print m "\t" p "\t" $0}' | sort -t $'\t' -k1,1V -k2,2n -k3,3 | tail -1 | cut -f3 | xargs -r dirname | xargs -r dirname )}"
+GATE=$(bash "$PDH/skills/plugin-dir.sh" file skills/backlog/linear-gate.sh)
+LINEAR_SYNC=$(bash "$GATE" status --root "$MROOT")   # off (default) | on
+printf 'linear_sync=%s\n' "$LINEAR_SYNC"
+```
+
+- `off` (default): MUST NOT issue any Linear MCP call at ship — no In Progress,
+  In Review, Done, comment, or project write. Print exactly
+  `linear_sync=off — local tracker close only` once, and finish the ship on the
+  local store (the close-out below). Ship gates are unaffected: none of them
+  requires a Linear state.
+- `on`: apply the table below — local close first, Linear status second
+  (`bash "$GATE" sync --root "$MROOT" -- <bridge>`), with the same
+  master-land / ship-history preconditions.
+
 Linear issue status must match **where the code lives**, not “implementation
 finished in a worktree”:
 
@@ -246,7 +269,9 @@ root rule) via `--root "$MROOT"` — never a worktree toplevel. The backlog lock
 (`skills/backlog/lock.sh`) serializes this write against any concurrent
 `close.sh` or `/backlog reconcile`.
 
-**Linear** (`linear:<ID>` / source=linear) is **path-dependent** (see table above):
+**Linear** (`linear:<ID>` / source=linear) is **path-dependent** (see table
+above) and applies only when the Step 1 gate reads `linear_sync=on`; with the
+gate `off` skip the three bullets below and close the local tracker only:
 - **PR-stop / autopilot `pr` / release=end PR-only:** MCP → **In Review** + PR URL
   comment. **MUST NOT** Done.
 - **Master land** (interactive squash onto baseline, autopilot `merge` after
@@ -283,9 +308,11 @@ bash "$CLOSE" verify "<slug>" --root "$MROOT" || {
 - Close local write-through (item Status + index) on disk; **MUST NOT** stage or
   commit `.claude/backlog*` / `.claude/plans*` into the product delivery commit
   (process trackers never upstream — SPEC-009 / CDT-54).
-- For each `linear:<ID>` (or source=linear): apply **Linear lifecycle** for this
-  ship path (**In Review** on PR-stop; **Done** only after master land). Comment
-  with PR URL and/or SHA when known. Fail-open if MCP unavailable.
+- For each `linear:<ID>` (or source=linear), **only when `LINEAR_SYNC=on`**: apply
+  **Linear lifecycle** for this ship path (**In Review** on PR-stop; **Done** only
+  after master land). Comment with PR URL and/or SHA when known. Fail-open if MCP
+  unavailable. Gate `off`: no call, and the local close above is the whole
+  close-out.
 - Empty `closes:` (freeform): print `Tracking: none (freeform)` — do not block.
 - Non-empty closes that fail verify on local write-through: **block ship**.
 
@@ -320,8 +347,9 @@ EOF
 If `gh` is not available, fall back to `git push -u origin <branch>` and print the
 URL for manual PR creation.
 
-If Linear is available: set status to **In Review** (not Done), attach/link the
-PR, comment with PR URL. Covered by Tracking close-out PR-stop branch.
+When Linear is available **and `LINEAR_SYNC=on`**: set status to **In Review**
+(not Done), attach/link the PR, comment with PR URL. Covered by Tracking close-out
+PR-stop branch. Gate `off`: skip it (the branch push is the record).
 
 ### If squash merge requested (no PR):
 

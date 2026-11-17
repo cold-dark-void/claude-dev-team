@@ -57,8 +57,9 @@ report, severity floor, materialize path, or phase handoff.
 3. **Report → S3 Plan/Materialize** — write the report, filter to
    `confirmed ∧ severity ≥ floor`, write the findings plan (`-plan.md`), then —
    only after `--proceed` or a typed `proceed` — materialize **bh-quality**
-   backlog items via the backlog programmatic write-back (Linear-first,
-   fail-open) and link them back into the plan.
+   backlog items via the backlog programmatic write-back (local write first;
+   the Linear leg runs only when `linear_sync=on` —
+   `skills/backlog/linear-sync.md`) and link them back into the plan.
 4. **S4 Phase handoff (emit-only)** — band remaining findings by severity and
    write per-phase handoff templates (`handoff-phase-<n>`) plus a phase plan
    (`phase-plan`); print route hints. Never auto-advances between fix phases.

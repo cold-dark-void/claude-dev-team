@@ -79,3 +79,6 @@ control-plane/.gomodcache/
 control-plane/.docker/
 .wt-lock
 .worktrees/
+# Project config local layer: the linear_sync opt-in key (SPEC-009 / CDT-646).
+# Process state — never committed product delivery.
+.claude/dev-team/config.json

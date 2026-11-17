@@ -26,7 +26,7 @@ M8 materialize lock; M38–M41 stage-3 — CDT-138; M42–M48 stage-4 — CDT-13
 |-------|--------------|--------|
 | S1 Discover | `skills/council/SKILL.md` § Blind-review path + `commands/council.md` § Blind-review path (SPEC-013) | Nested `/council` user lock; second finder protocol |
 | S2 Refute | SPEC-013 investigator pattern — `skills/council/prompts/investigator.md` + existing `skills/council/flavors/*` | Tribunal Phases 3–5 per candidate; new flavors; `engine.sh` whole-hunt finalize |
-| S3 Materialize | `skills/backlog/SKILL.md` § **Programmatic write-back** (SPEC-009 dual-write; Linear-first fail-open) | Second dual-write / index / `add.sh` fork; auto-materialize without M8 proceed |
+| S3 Materialize | `skills/backlog/SKILL.md` § **Programmatic write-back** (SPEC-009; local write first, the Linear leg runs only when `linear_sync=on` — `skills/backlog/linear-sync.md`) | Second dual-write / index / `add.sh` fork; auto-materialize without M8 proceed |
 | S4 Handoff | templates `phase-plan.md` + `handoff-phase.md` (field contracts); M9 locks | Invoke `/orchestrate`/`/epic`; spawn fix ICs; edit product code; re-S1–S3 invent |
 
 Neighboring surfaces (when-to-use — SPEC-034 M26):

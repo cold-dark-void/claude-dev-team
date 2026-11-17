@@ -71,7 +71,10 @@ current stage**; do not read every stage file up front.
    stanza — prints `PDH=<root>` to stderr), then Step 0.4 (worktree/release
    flags) and Step 0.5 (autopilot enablement). Every later fence carries the
    root as `skills/lib/pdh-later-fence.sh` session state; re-run the Step 0 fence first
-   when the carried root is not held.
+   when the carried root is not held. Step 0 also binds `LINEAR_SYNC`
+   (`skills/backlog/linear-gate.sh`, CDT-646): `off` (default) = the local
+   `state.json` + backlog store are the source of truth and **every** mode issues
+   zero Linear MCP calls; `on` = local write first, Linear sync second.
 2. Resolve and read the mode file for the dispatch arm you are executing:
    `STEP=$(bash "$PDH/skills/plugin-dir.sh" file skills/epic/<stage>)`.
 

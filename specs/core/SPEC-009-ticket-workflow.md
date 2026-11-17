@@ -4,13 +4,19 @@
 **Category**: core
 **Created**: 2026-03-22
 
-**Covers**: `skills/kickoff/SKILL.md`, `skills/orchestrate/SKILL.md`, `skills/orchestrate/steps/00-resolve.md`, `skills/orchestrate/steps/02-scope.md` (auto-size, CDT-210), `skills/orchestrate/steps/{04-kickoff,05-questions,06-design,07-tasks,08-execute,09-review,10-qa,12-wrap}.md` (light path, CDT-207–209), `skills/orchestrate/steps/cross-cutting.md` (LOC change-discipline, CDT-223), `skills/orchestrate/ticket-class.sh` (classifier + Glossary carve-out, CDT-589-C1), `skills/orchestrate/ticket-class-test.sh` (per-AC receipts, CDT-595), `skills/orchestrate/steps/plan-contract.md` (CDT-589-C1 dual-home), `skills/autopilot/parse-flags.sh` (`/orchestrate --tier`, CDT-206; `--max-loc`, CDT-223), `skills/autopilot/loc-exclude.sh` (CDT-223), `skills/scaffold-project/SKILL.md` (`.gitattributes` seed, CDT-223), `skills/brainstorm/SKILL.md`, `commands/status.md` (`/status` + `/status standup`, CDT-46-C4), `skills/standup/SKILL.md` (internal skill-delegate backend for `/status standup`), `skills/wrap-ticket/SKILL.md`, `skills/backlog/SKILL.md`, `skills/backlog/{close,reconcile,lock}.sh` and `skills/lib/portable.sh` (§ Backlog write integrity, WP 1-04)
+**Covers**: `skills/kickoff/SKILL.md`, `skills/orchestrate/SKILL.md`, `skills/orchestrate/steps/00-resolve.md`, `skills/orchestrate/steps/02-scope.md` (auto-size, CDT-210), `skills/orchestrate/steps/{04-kickoff,05-questions,06-design,07-tasks,08-execute,09-review,10-qa,12-wrap}.md` (light path, CDT-207–209), `skills/orchestrate/steps/cross-cutting.md` (LOC change-discipline, CDT-223), `skills/orchestrate/ticket-class.sh` (classifier + Glossary carve-out, CDT-589-C1), `skills/orchestrate/ticket-class-test.sh` (per-AC receipts, CDT-595), `skills/orchestrate/steps/plan-contract.md` (CDT-589-C1 dual-home), `skills/autopilot/parse-flags.sh` (`/orchestrate --tier`, CDT-206; `--max-loc`, CDT-223), `skills/autopilot/loc-exclude.sh` (CDT-223), `skills/scaffold-project/SKILL.md` (`.gitattributes` seed, CDT-223), `skills/brainstorm/SKILL.md`, `commands/status.md` (`/status` + `/status standup`, CDT-46-C4), `skills/standup/SKILL.md` (internal skill-delegate backend for `/status standup`), `skills/wrap-ticket/SKILL.md`, `skills/backlog/SKILL.md`, `skills/backlog/{close,reconcile,lock}.sh` and `skills/lib/portable.sh` (§ Backlog write integrity, WP 1-04); `skills/backlog/ticket.sh`, `skills/backlog/linear-gate.sh`, `skills/backlog/add.sh`, `skills/backlog/terminal-status.sh`, and `skills/backlog/linear-sync.md` (§ Linear sync is opt-in + Offline ticket verbs, CDT-646); `skills/kickoff/SKILL.md` § Ticket source gate, `skills/orchestrate/steps/01-fetch.md` § Tracker-plane gate, `commands/status.md` § Tracker plane, `skills/standup/SKILL.md`, `skills/epic/run-start.md` Step 0 (§ Linear sync gate binding, CDT-646)
 
 ## Overview
 
 The main delivery pipeline from idea to shipped code. Covers Socratic design refinement (brainstorm), parallel PM + Tech Lead kickoff with spec-first planning, end-to-end orchestration with agent dispatch and review loops, status monitoring (standup), ticket wrap-up with learnings extraction, and backlog management for deferred work.
 
-**Backlog posture (CDT-54 / CDT-46-C8):** when the Linear MCP is available, backlog add/list/close are **Linear-first** (Linear preferred SoT for open work); local `.claude/backlog*` files are a **mandatory write-through cache** on every path (always dual-write when MCP up; local-only + one-line notice when MCP down). Process trackers under `.claude/` are never committed as product.
+**Backlog posture (CDT-54 / CDT-46-C8; inverted by CDT-646):** the local store —
+`.claude/backlog.md` plus `.claude/backlog/<slug>.md` at `$MROOT` — is the **source of truth**
+for ticket records. Linear is an **opt-in per-project mirror**, gated by
+`linear_sync` (§ Linear sync is opt-in). With the key `off` (the default) a Surface
+takes the local path and issues **no** Linear MCP call; with the key `on` every write
+lands local **first** and Linear **second**. A Surface never blocks on Linear. Process
+trackers under `.claude/` are never committed as product.
 
 ## MUST
 
@@ -223,15 +229,19 @@ When `[ "$ORCH_TIER" = "null" ]` (no `--tier`):
 - MUST generate slug from title: lowercase, hyphen-joined, stripped punctuation, max ~50 chars
 - MUST append -2, -3 etc. on slug collision
 - MUST use format: `.claude/backlog.md` (index) + `.claude/backlog/<slug>.md` (items) for local write-through
-- MUST track status: PENDING or COMPLETED
+- MUST track status: PENDING, IN_PROGRESS (claimed, CDT-646), DEFERRED, or a terminal status per § Backlog terminal status classification
+- MUST provide offline ticket verbs `create` / `claim` / `close` over the local store only — `skills/backlog/ticket.sh` (CDT-646): a ticket, an epic, and a child (item frontmatter `kind`, plus the SPEC-025 epic fields) are created, claimed, and closed with zero network and zero Linear MCP calls; each verb resolves the root with § Backlog root rule, prints the store path, and exits `0` ok / `1` verb failure / `64` usage. `claim` writes `**Status**: IN_PROGRESS` + a `*Claimed:*` footer and re-tags the index row in place (the row stays under `## Pending`); it is idempotent per owner and refuses a closed item (exit 1). `create` and `close` reuse the existing writers (`skills/backlog/add.sh`, `skills/backlog/close.sh`) — the verb CLI MUST NOT fork a second write path.
 - MUST include Problem, Goal, Notes sections in item files
 - MUST search case-insensitive for close target (slug or title)
 - MUST ask user to clarify if multiple matches on close
 - MUST provide a deterministic subprocess CLI `skills/backlog/close.sh` for close + verify (idempotent; no git commit inside the script)
 - **Backlog root rule (CDT-351).** `close.sh` (close + verify) and `reconcile.sh` MUST resolve the backlog root as `--root PATH` if set, else `$MROOT` — the parent of `git rev-parse --git-common-dir`, the same root `/backlog add` writes (SPEC-002 shared-root) — else `pwd` outside a git repository. Every linked worktree therefore reads and writes the one shared store. The former default (`git rev-parse --show-toplevel`) is withdrawn.
-- **Linear-first when MCP reachable (CDT-54).** `/backlog add` MUST create (or link) a Linear issue first when the Linear MCP is available, then **always** dual-write the local index + item with Linear id linkage. `/backlog list` MUST prefer Linear open issues as the preferred SoT for open work when MCP is up, presenting local files as write-through. `/backlog close` MUST mark the Linear issue terminal when MCP is up **and** always flip local item + index to COMPLETED.
-- **MCP-down fail-open.** When Linear MCP is absent or errors, add/list/close MUST degrade to local-only semantics, emit a single one-line notice, and MUST NOT block, retry-loop, or hard-fail the Surface.
-- **MUST NOT commit process trackers.** Skills/commands MUST NOT stage or commit `.claude/backlog*`, `.claude/plans*`, or other process state under `.claude/` as product delivery (v1.0 invariant: `.claude` process state never upstream). Local write-through remains on disk only.
+- **Local store is the source of truth; Linear sync is opt-in (CDT-646; supersedes the CDT-54 Linear-first rule).** Every ticket record lives in the local store, and every Surface writes it **first**. Linear is consulted and updated only when the project key `linear_sync` reads `on` (§ Linear sync is opt-in). With the key `off` — the default — a Surface MUST NOT issue any Linear MCP call: no create, no fetch, no list, no status write, no project lookup. A Surface MUST complete its whole job from the local store in that state, and MUST NOT print a Linear-unavailable notice for a call it never made.
+- **One reader of the key (MUST).** `skills/backlog/linear-gate.sh` is the only code that reads `linear_sync` (SPEC-002 D1). Surfaces bind it once per run (kickoff Step 1, orchestrate Step 1, epic Step 0, status) and print one `linear_sync=<off|on>` line. Resolution: `$LINEAR_SYNC` (one run) → `<root>/.claude/dev-team/config.json` (project) → `off`. An absent key, absent file, invalid JSON, a non-boolean token, or no `jq` resolves `off` — the offline path is the fail-closed path. `linear-gate.sh sync -- CMD` runs `CMD` only when the key is `on`; that seam is the only ordered Linear handoff.
+- **Ordering on the `on` path (MUST).** Every state transition — claim, close, epic child materialize, ship close-out — writes the local store **first** and the Linear mirror second. `create` is the one-write case: the Surface gathers the Linear id first and the single local write carries it as `linear_id`, so the item is never written twice for the linkage. A Linear failure never rolls back or blocks the local write; the Surface prints one line and continues (the CDT-54 fail-open posture, now on the sync leg only).
+- **Every reading Surface MUST keep working with Linear off (MUST).** `/kickoff`, `/orchestrate`, `/status`, and `/epic` each route its Linear call sites through the gate and each has a test receipt that proves the offline path: `skills/backlog/surfaces-gate-test.sh` (`AC4: <surface>-*`).
+- **MCP-down fail-open.** When Linear MCP is absent or errors **on the `on` path**, add/list/close MUST degrade to local-only semantics, emit a single one-line notice, and MUST NOT block, retry-loop, or hard-fail the Surface. With the key `off` there is no Linear leg: no notice, no retry, no failure — the local path is the designed path (CDT-646).
+- **MUST NOT commit process trackers.** Skills/commands MUST NOT stage or commit `.claude/backlog*`, `.claude/plans*`, `.claude/dev-team/config.json`, or other process state under `.claude/` as product delivery (v1.0 invariant: `.claude` process state never upstream). The ticket store, its index, and the `linear_sync` config remain on disk only.
 - **MUST inline self-contained content in Linear descriptions.** `/backlog add` MUST inline the actual problem/goal substance in the Linear description — never a bare pointer to a local-only file path (a worktree-relative path, `.claude/plans/**`, `.claude/backlog/**`). Linear is read by teammates and agents with no access to the authoring checkout's disk. A local path MAY be added as a supplementary cross-reference after the inlined substance, never as a substitute for it (origin: CDT-111 — a Linear issue was created pointing solely at a local `.claude/plans/**` file).
 - **MUST provide a non-interactive write-back path (contract home).** `skills/backlog/SKILL.md` § Programmatic write-back protocol is the contract home (SPEC-002 D1) for any skill that needs to write a backlog item without a user turn: content pre-supplied (skipping the interactive ask), dedup guard fixed to suffix (the abort branch is unavailable non-interactively), and MCP mode either Linear-first (default) or a caller-declared `--local-only`. Citing callers MUST NOT reimplement this logic independently. Known callers: `skills/brainstorm/SKILL.md` Step 4c, `skills/refactor/SKILL.md` § 2.2a.5 (`--local-only`, SPEC-031), `commands/retro.md` `--auto` mode (SPEC-012).
 
@@ -287,7 +297,64 @@ inline copy.
   construction, complementing the reconcile collapse step below (which repairs indexes that
   predate this guard).
 
-#### Backlog reconcile (`/backlog reconcile`)
+#### Linear sync is opt-in (CDT-646)
+
+Contract home for the tracker-inversion key. The local store owns ticket records;
+Linear is a per-project mirror you turn on.
+
+**The key.**
+
+| Field | Value |
+|---|---|
+| Key | `linear_sync` |
+| File | `$MROOT/.claude/dev-team/config.json` (JSON, sibling of `models.local.json`; git-ignored — process state, never committed) |
+| Accepted values | `true` / `false` (JSON), and the string spellings `on`, `off`, `1`, `0` |
+| Default | `off` — absent key, absent file, invalid JSON, unknown token, or no `jq` |
+| Per-run override | `$LINEAR_SYNC` (same token vocabulary), wins over the file |
+| Writer | `skills/backlog/linear-gate.sh set --root PATH on|off` — the only writer of the key; tmp+rename through `skills/lib/portable.sh atomic_write`, refuses a file that is not valid JSON |
+| Reader | `skills/backlog/linear-gate.sh` only — one reader for the whole plugin (SPEC-002 D1) |
+
+**The gate CLI** (subprocess-only, bash-only, never sourced, no network):
+
+| Invocation | Behavior | Exit |
+|---|---|---|
+| `linear-gate.sh status [--root PATH]` | prints `on` or `off` | 0 |
+| `linear-gate.sh enabled [--root PATH]` | predicate form | 0 on · 1 off |
+| `linear-gate.sh set --root PATH on\|off` | writes the key, prints `linear_sync=<v>: <config path>` | 0 · 1 write refused |
+| `linear-gate.sh sync [--root PATH] -- CMD …` | runs `CMD` **only** when `on`; prints one `linear-skip:` line and runs nothing when `off` | `CMD` rc · 0 on the skip · 64 unusable `CMD` |
+
+Root resolution matches § Backlog root rule: `--root`, else `$MROOT`, else `pwd` — one
+key per project, shared by every linked worktree.
+
+**Surface bindings.** Each reading Surface binds the value once per run and prints
+`linear_sync=<off|on>`:
+
+| Surface | Bind site | Off behavior |
+|---|---|---|
+| `/kickoff` | `skills/kickoff/SKILL.md` § Ticket source gate | intake reads the backlog store; zero Linear calls |
+| `/orchestrate` | `skills/orchestrate/steps/01-fetch.md` § Tracker-plane gate; `11-ship.md` § Linear lifecycle | intake order starts at Backlog; ship prints `linear_sync=off — local tracker close only` |
+| `/status` | `commands/status.md` § Tracker plane (+ `skills/standup/SKILL.md` Step 1) | open set from the store; no Linear call in any sub, gate `on` or `off` |
+| `/epic` | `skills/epic/run-start.md` Step 0 (+ Modes A/B/E/F) | `state.json` + backlog store only; `linear_project_id` and child `linear_id` stay null |
+
+**Claim stamp.** `close.sh claim` writes `**Status**: IN_PROGRESS[ (<owner>)]` and a
+`*Claimed: <date>[ by <owner>]*` footer, and re-tags the index row in place under
+`## Pending`. `IN_PROGRESS` is an **open** status: § Backlog terminal status
+classification keeps it non-terminal, so sweep, reconcile, and the open-set readers
+treat a claimed item as open. The matcher is `skills/backlog/terminal-status.sh
+is-claimed` — one copy.
+
+**Item frontmatter `kind`.** `kind: ticket|epic|child` is an optional item field
+written by `skills/backlog/add.sh` (`--kind`, plus the SPEC-025 epic fields
+`epic_parent` / `child_id` / `depends_on` / `estimate` / `agent`). An item with no
+frontmatter keeps its pre-CDT-646 shape. Close and reconcile preserve it.
+
+**Test seam.** `$LINEAR_SYNC_CMD` (space-separated argv) names a caller's Linear
+bridge. `skills/backlog/ticket.sh` appends the item's `--linear-id` when present and
+hands the command to the gate, so a test can prove both halves of the rule: the
+bridge never runs with the gate `off`, and with `on` it runs **after** the local
+write (`skills/backlog/ticket-test.sh` AC4/AC5).
+
+#### Linear reconcile (`/backlog reconcile`)
 
 The reconcile subcommand is an **idempotent** repair pass that brings the `.claude/backlog.md`
 index into agreement with the `.claude/backlog/<slug>.md` item files (and, when reachable, with
@@ -579,6 +646,7 @@ only other content is `set -u` and a subprocess entry point that calls
 
 | Date | Change |
 |------|--------|
+| 2026-11-17 | CDT-646: Tracker inversion. The local store is the ticket source of truth; Linear becomes an opt-in per-project mirror behind the `linear_sync` key (§ Linear sync is opt-in; one reader `skills/backlog/linear-gate.sh`; default `off` = zero Linear MCP calls, `on` = local write first, sync second). Offline ticket verbs `skills/backlog/ticket.sh` (create / claim / close) over the local store; `close.sh claim` + the open `IN_PROGRESS` status; item frontmatter `kind`. Reading Surfaces (`/kickoff`, `/orchestrate`, `/status`, `/epic`) bind the gate. Supersedes the CDT-54 Linear-first bullet. `### CDT-646` ACs. |
 | 2026-10-31 | CDT-589-C5: Step 6c BC1 mis-fire enforce clear (SPEC-039 M42) — opt-in `ADVISOR_ENFORCE` (human config, default off/absent, junk → off + one stderr line) clears a `bc1-mis-fire` `mis-fire` ruling at confidence ≥ 80 on this `plan-approve` halt: one auto/advisor card, no `task_blocked`, Step 7 proceeds; every other outcome fails closed to the halt; scope is the 6c BC1 halt only. 6c MUST bullet. |
 | 2026-10-31 | CDT-589-C3: Step 6c class-verify demotion (SPEC-039 trigger d) — at most one advisor probe per run on `ticket_class: auth-secrets` before any `/council` invoke; `not-auth-relevant` at confidence ≥ 80 prints the skip line (class-verify named) and skips the council; one demotion card (`gate: plan-approve`, proceed, advisor); fail-closed to the council otherwise, never BC8; advisor off byte-identical. 6c MUST + `06-design.md` § Step 6c class-verify. `### CDT-589-C3` ACs in SPEC-039. |
 | 2026-10-30 | CDT-589-C2: Classifier scan scope is ticket text only — title, body, ACs; "plan text" removed from every input list and the plan's own `ticket_class:` section excluded on re-scan. Same scope sentence in plan-contract § Ticket class, kickoff Step 6, `06-design.md` Step 6 + 6c, and the § classifier MUST. Scan-scope fixtures + `AC15` blocks in `ticket-class-test.sh` (behavior) and `router-static-test.sh` (prose, T35; harness count 35→38). Classifier CLI unchanged. `### CDT-589-C2` ACs. |
@@ -743,3 +811,49 @@ Format and rules: SPEC-033 M14(g) and M14(h). Each ticket that ships through M14
 - **AC3.** `lock-test.sh` contains no in-process `kill -INT $$` or `kill -TERM $$`. `lock.sh` INT/TERM trap bodies stay `backlog_lock_release; exit 130` and `exit 143`. The no-dir-left asserts stay. Deleting the rc or marker assert is not a fix.
   Verify: bash skills/backlog/lock-test.sh
 - **AC4.** [process] `bash tools/run-all-tests.sh --jobs 8` exits 0. `skills/backlog/lock-test.sh` is not a FAIL.
+
+### CDT-646
+
+- **AC1.** `skills/backlog/ticket.sh` creates, claims, and closes a **ticket**, an **epic**, and a
+  **child** over the local store only: no network client, no Linear MCP call, no committed file. Each
+  verb prints the store path and exits 0 (ok) / 1 (verb failure) / 64 (usage). The epic and child
+  records carry `kind: epic` / `kind: child` frontmatter, and the child carries `epic_parent`,
+  `child_id`, `depends_on`, `estimate`, `agent`. A plain ticket keeps the frontmatter-free item shape,
+  byte-identical to the pre-CDT-646 `add.sh` output.
+  Verify: bash skills/backlog/ticket-test.sh
+- **AC2.** `close.sh claim <slug-or-title> [--owner NAME]` writes `**Status**: IN_PROGRESS`, the
+  `*Claimed:*` footer, and an `[IN_PROGRESS]` index tag with the row left under `## Pending`; it is
+  idempotent for the same owner, stamps a new owner on re-claim, and exits 1 for a closed item.
+  `IN_PROGRESS` is open: `terminal-status.sh is-closed` returns 1 for it, so sweep, reconcile, and the
+  open-set readers keep the item, and `is-claimed` matches `IN_PROGRESS (owner)` and not `IN_PROGRESSX`.
+  Verify: bash skills/backlog/ticket-test.sh
+- **AC3.** `skills/backlog/linear-gate.sh` is the one reader of `linear_sync`: default `off` with no
+  config; `set` writes `.claude/dev-team/config.json` through `atomic_write` (path printed, sibling
+  keys kept, invalid JSON refused with exit 1); a linked worktree with no `--root` reads the shared
+  `$MROOT` config; `$LINEAR_SYNC` overrides the file; `junk`, `""`, an absent key, and invalid JSON all
+  read `off`; usage exits 64.
+  Verify: bash skills/backlog/linear-gate-test.sh
+- **AC4.** Linear ordering is provable: with the gate `off` the `$LINEAR_SYNC_CMD` bridge never runs
+  for any verb and each verb prints the one `linear-skip:` line; with the gate `on` the bridge runs
+  once per verb, after the local write it follows (the stub asserts the item file exists at call time),
+  and its exit code passes through.
+  Verify: bash skills/backlog/ticket-test.sh
+- **AC5.** Each reading Surface — `/kickoff`, `/orchestrate`, `/status`, `/epic` — carries the gate
+  binding and the offline rule in its own text, and completes a real operation offline in a fixture
+  project with no config file: kickoff intake writes and claims a ticket; orchestrate ship close-out
+  closes and `verify` passes; the `/status` open-set read returns the local open items (claimed item
+  included, closed item excluded) from `sweep.sh merge-open` with no `--linear-json`; `/epic` init +
+  add-child + `show` write and read `state.json` with `linear_project_id` and child `linear_id` null.
+  `/status` and its standup backend carry zero Linear MCP call sites.
+  Verify: bash skills/backlog/surfaces-gate-test.sh
+- **AC6.** The posture is written down in one place per reader: this spec (§ Linear sync is opt-in +
+  the Backlog MUST bullets), `skills/backlog/SKILL.md`, `docs/commands/backlog.md`, `AGENTS.md`
+  (§ What NOT To Do — process trackers), and `docs/internal/control-plane/record-ownership.md` row 4
+  (writer, owner, conflict rule for the plane-owned ticket records). The "never stage trackers into
+  delivery commits" rule stays in force in all five and names the config file beside the store.
+  Verify: bash skills/backlog/surfaces-gate-test.sh
+- **AC7.** [process] The pre-existing backlog suites stay green (`test.sh`, `reconcile-test.sh`,
+  `sweep-test.sh`, `lock-test.sh`, `fold-sweep-test.sh`, `add-lock-test.sh`),
+  `bash tools/run-all-tests.sh --jobs 8` exits 0, and `bash skills/release/test-bump-class.sh` is green.
+  No plugin version pair, manifest, `agents/`, or `control-plane/` file changes on this child; the epic
+  fold carries the version.

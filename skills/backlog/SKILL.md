@@ -1,31 +1,42 @@
 ---
 name: backlog
-description: Use when adding, closing, or listing backlog items, reconciling index drift, or sweeping the open backlog — Linear-first dual-write when MCP is up; local .claude/backlog/ is a mandatory write-through cache. Supports add, close, list, reconcile, sweep, and init.
+description: Use when adding, claiming, closing, or listing backlog items, reconciling index drift, or sweeping the open backlog — the local .claude/backlog/ store is the source of truth; Linear is an opt-in per-project mirror behind the linear_sync key. Supports add, claim, close, list, reconcile, sweep, and init.
 ---
 
 # Backlog Manager
 
-Linear-first backlog Surface (SPEC-009 / CDT-54). When the Linear MCP is
-reachable, Linear is the preferred source of truth for **open** work; local
-`.claude/backlog.md` + `.claude/backlog/<slug>.md` are a **mandatory write-through
-cache** on every path. When MCP is down: local-only + one-line notice (fail-open).
+Backlog Surface (SPEC-009). The local store (`.claude/backlog.md` +
+`.claude/backlog/<slug>.md` at `$MROOT`) is the **source of truth** for ticket
+records (CDT-646). Linear is an **opt-in per-project mirror** behind
+`linear_sync`: `off` (default) = local paths, zero Linear MCP calls; `on` = local
+write first, mirror second, and a mirror failure never rolls back the local
+write. Store, index, and the `linear_sync` config are process state: never staged
+or committed as product delivery (v1.0 invariant).
 
-Process trackers under `.claude/` are **never** staged or committed as product
-delivery (v1.0 invariant).
+## Tracker plane (CDT-646)
+
+`skills/backlog/linear-gate.sh` is the only reader of `linear_sync`; bind it once
+per run and print one `linear_sync=<off|on>` line. Gate CLI, verb CLI, and
+ordering rules: Read `skills/backlog/linear-sync.md` (SPEC-002 D1 copy).
 
 ## Commands
 
 | Invocation | What it does |
 |------------|-------------|
-| `/backlog add <title>` | Create Linear issue (if MCP up) + dual-write local |
-| `/backlog close <slug-or-title>` | Mark Linear terminal (if MCP up) + flip local COMPLETED |
-| `/backlog reconcile` | Repair index ↔ item files (+ Linear via `--linear-verdicts`) |
-| `/backlog list` | Prefer Linear open issues when MCP up; else local index |
+| `/backlog add <title>` | Write the local item (the record); Linear mirror when `on` |
+| `/backlog claim <slug-or-title>` | Stamp the item `IN_PROGRESS` + owner (local only) |
+| `/backlog close <slug-or-title>` | Flip local COMPLETED; Linear terminal when `on` |
+| `/backlog reconcile` | Repair index ↔ item files (`--linear-verdicts`, `on` only) |
+| `/backlog list` | The local index; Linear open issues as the mirror when `on` |
 | `/backlog sweep [flags]` | Purge pre-pass + serial walk of the open set; protocol in `sweep.md` |
 | `/backlog init` | Initialize local backlog structure (if not present) |
 | `/backlog` (no args) | Same as `list` |
 
----
+### Offline ticket verbs (CDT-646)
+
+`skills/backlog/ticket.sh create|claim|close` — the ticket CLI over the local
+store: zero network, zero Linear MCP calls, `store: <path>` per verb, exit
+0 / 1 / 64. Flags: `skills/backlog/linear-sync.md`.
 
 ## Instructions
 
@@ -37,29 +48,29 @@ _gc=$(git rev-parse --git-common-dir 2>/dev/null) \
   || BACKLOG_ROOT=$(pwd)
 ```
 
-Local write-through paths below are relative to `$BACKLOG_ROOT` for **index
+Local store paths below are relative to `$BACKLOG_ROOT` for **index
 discovery**, but close/reconcile CLIs resolve root as `--root` if set, else
 `$MROOT` (the parent of `git rev-parse --git-common-dir`; SPEC-009 § Backlog
 root rule), else `pwd` outside git — every linked worktree reads and writes
 the one shared store.
 
-### MCP posture (all subcommands)
+### Tracker-plane posture (all subcommands)
 
-| MCP state | Behavior |
-|-----------|----------|
-| **Up** | Linear-first: create/list/close on Linear, **always** dual-write local with `linear_id` linkage |
-| **Down / error** | Local-only; emit **one** line: `Linear unreachable — local backlog only.`; never block, retry-loop, or hard-fail |
+| Gate | Behavior |
+|---|---|
+| **`off` (default)** | Local path only: the store answers every subcommand. **Zero Linear MCP calls**, no Linear notice. |
+| **`on`, MCP up** | Local write first, Linear second (`linear_id` linkage). |
+| **`on`, MCP down** | Local write stands; **one** line `Linear unreachable — local backlog only.`; never block or hard-fail |
 
-Session owns Linear MCP calls. Bash engines (`close.sh`, `reconcile.sh`) are
-**bash-only** — they never call MCP. Session bridges Linear → scripts via
-`--linear-verdicts` (reconcile) or by reading `linear_id` from the item file
-(close).
+The session owns Linear MCP calls; the bash engines never call MCP — they take
+`--linear-verdicts` and read `linear_id`.
 
 ---
 
 ### Subcommand: `init`
 
-Create the **local write-through** structure if it doesn't already exist.
+Create the **local ticket store** if it doesn't already exist — the whole setup
+on the default (`linear_sync=off`) path.
 
 1. Create `.claude/backlog/` directory.
 2. If `.claude/backlog.md` does not exist, create it:
@@ -80,7 +91,8 @@ Replace `<PROJECT NAME>` with the basename of `$BACKLOG_ROOT`.
 
 ### Subcommand: `add <title>`
 
-Add a new backlog item. **Linear-first when MCP up; always dual-write local.**
+Add a new backlog item. **The local write is the record** (SPEC-009, CDT-646);
+the Linear mirror runs only when `linear_sync=on`.
 
 #### 1. Ensure structure exists
 
@@ -131,8 +143,8 @@ Ask the user one question:
 If they provide content, use it. If they press Enter/skip, use placeholder text.
 
 **Self-contained content (REQUIRED)** — whatever problem/goal text is gathered
-here becomes the Linear description verbatim (Step 4) and the local item's
-Problem/Goal (Step 5). It MUST stand alone: inline the actual substance, never
+here becomes the local item's Problem/Goal (Step 5), and the Linear description
+verbatim (Step 4) when the gate is `on`. It MUST stand alone: inline the actual substance, never
 a bare pointer to a local-only file path (a worktree-relative path,
 `.claude/plans/**`, `.claude/backlog/**`, or any path only this checkout has).
 Linear is read by teammates and agents with no access to this machine's disk.
@@ -141,23 +153,17 @@ inlined substance — never as a replacement for it. (Origin: CDT-111 — a
 Linear issue was created pointing solely at a local `.claude/plans/**` file,
 unreadable by anyone without that exact checkout.)
 
-#### 4. Linear-first create (when MCP reachable)
+#### 4. Linear mirror create (`linear_sync=on` only)
 
-If Linear MCP tools are available:
+Key `off` (default): **skip this step** — no Linear call, no notice, no
+`linear_id`; Step 5 is the whole create. Key `on`: create the Linear issue (title
++ the Step 3 text), capture the identifier, and pass it to Step 5 as
+`--linear-id` so the one local write carries the linkage. On MCP-down or create
+failure print exactly one line `Linear unreachable — local backlog only.` and
+write with no `linear_id`. Never block or retry-loop. Mechanics:
+`skills/backlog/linear-sync.md` § Mirror paths.
 
-1. Create a Linear issue (title = item title; description = problem + goal).
-2. Capture the returned identifier (e.g. `CDT-99` or UUID — prefer team issue key).
-3. Proceed to dual-write local with that id as `linear_id`.
-
-If Linear MCP is absent or any create call fails: print exactly one line
-
-```
-Linear unreachable — local backlog only.
-```
-
-and continue with local-only write-through (no `linear_id`). Never block or retry-loop.
-
-#### 5. Dual-write local item `.claude/backlog/<slug>.md`
+#### 5. Write the local item `.claude/backlog/<slug>.md` (the ticket record)
 
 The local read-modify-write takes the shared backlog lock. Run `add.sh` once. Do not Write the item file or the index row yourself, before or after it returns.
 
@@ -170,7 +176,11 @@ bash skills/backlog/add.sh --root "$BACKLOG_ROOT" \
   --linear-id "<LINEAR-ID>"
 ```
 
-Omit `--linear-id` when Step 4 did not return an id. `add.sh` writes the item and the one Pending index row under the lock. With `--linear-id` it writes the frontmatter and `linear:<ID>` on that row. Do not write either file again. Pass an existing Linear id the same way: `--linear-id <ID>`. The block below is the shape that call already wrote. It has no Implementation Notes, Affects, Effort, or Notes sections.
+Omit `--linear-id` when the gate is `off` or Step 4 did not return an id. `add.sh` writes the item and the one Pending index row under the lock. With `--linear-id` it writes the frontmatter and `linear:<ID>` on that row. Do not write either file again. Pass an existing Linear id the same way: `--linear-id <ID>`. The block below is the shape that call already wrote. It has no Implementation Notes, Affects, Effort, or Notes sections.
+
+For a ticket, epic, or epic child, add `--kind ticket|epic|child` (plus
+`--epic-parent`, `--child-id`, `--depends-on`, `--estimate`, `--agent`); a plain
+ticket writes no frontmatter. Prefer `skills/backlog/ticket.sh create`.
 
 ```markdown
 ---
@@ -196,7 +206,7 @@ linear_id: <LINEAR-ID>
 
 When there is no Linear id, that call omits the frontmatter block.
 
-#### 6. Dual-write local index `.claude/backlog.md`
+#### 6. Local index row in `.claude/backlog.md`
 
 `add.sh` already inserted one row under `## Pending`. Do not add a second row. The summary on that row is the title. With `--linear-id`, the row already ends in `linear:<ID>`:
 
@@ -209,12 +219,10 @@ When there is no Linear id, that call omits the frontmatter block.
 
 ```
 Added: .claude/backlog/<slug>.md
-Linear: <LINEAR-ID | none (local-only)>
+Linear: <LINEAR-ID (mirrored) | skipped (linear_sync=off) | none (unreachable)>
 ```
 
-**MUST NOT** `git add` / commit the write-through files as product.
-
----
+**MUST NOT** `git add` / commit the tracker files as product.
 
 ### Programmatic write-back (non-interactive callers)
 
@@ -236,8 +244,11 @@ unavailable here: there is no user turn to report a collision to and wait on.
 Walk `-2`, `-3`, … until both the item file and the index row are free, then
 continue with that slug. Never abort.
 
+**The gate comes first** — with `linear_sync=off` every caller takes the local
+path and Step 4 is skipped (see § Tracker plane). With the key `on`:
+
 **MCP mode is a caller-declared choice, not an availability fallback**:
-- **Linear-first (default)** — same as `add` Step 4: create in Linear when MCP
+- **Linear mirror (default)** — same as `add` Step 4: create in Linear when MCP
   is reachable, dual-write local with `linear_id`; on MCP-down/error, the same
   one-line fail-open notice and local-only continuation.
 - **`--local-only`** — skip Step 4 entirely regardless of MCP reachability;
@@ -254,16 +265,17 @@ rather than restating them:
 2. **Direct write** — perform Steps 1/2/2a/(4)/5/6/7 in-session, no user turn.
 
 Known citing callers: `skills/brainstorm/SKILL.md` Step 4c (convention 1 or
-2, Linear-first), `skills/refactor/SKILL.md` § 2.2a.5 (convention 2,
+2, mirror mode (`on` path)), `skills/refactor/SKILL.md` § 2.2a.5 (convention 2,
 `--local-only`), `commands/retro.md` `--auto` mode (convention 2,
-Linear-first), `skills/bug-hunt/SKILL.md` S3e (convention 2 Direct write,
-Linear-first; M8 proceed-gated).
+mirror mode (`on` path)), `skills/bug-hunt/SKILL.md` S3e (convention 2 Direct write,
+mirror mode (`on` path); M8 proceed-gated).
 
 ---
 
 ### Subcommand: `close <slug-or-title>`
 
-Mark a backlog item completed. **Linear terminal when MCP up + always local flip.**
+Mark a backlog item completed. **The local flip is the record.** Linear goes
+terminal only when `linear_sync=on`.
 
 **Trigger-(b) classifier before the disposition write (SPEC-039 M13.2;
 CDT-564).** When the advisor is enabled for the run (`ADVISOR_ON=true`, Step
@@ -276,7 +288,7 @@ outcome (BC7/BC8) MUST NOT apply the state change. The block below sits in
 the same fresh-shell fence as the CLI call (it needs the same PDH).
 
 Prefer the deterministic CLI (shared with `/orchestrate` ship and `/wrap-ticket`)
-for the **local** write-through:
+for the **local** write (the ticket record):
 
 ```bash
 # lint-ok: C3 — marketplace */ for-loop + -f guarded (SPEC-021 Q2 residual, CDT-82 PDH)
@@ -330,71 +342,57 @@ classifier `skills/backlog/terminal-status.sh` — single definition of truth
 (SPEC-009 / CDT-160). Closed when status is (case-insensitive, token-match
 not bare substring; trailing noise OK): `COMPLETED`, `DONE`,
 `FIXED/CLOSED` | `FIXED-CLOSED` | `FIXED CLOSED`, `CLOSED`,
-`CANCELLED` | `CANCELED`. Open: `PENDING`, `DEFERRED`, empty. Write path
+`CANCELLED` | `CANCELED`. Open: `PENDING`, `IN_PROGRESS`, `DEFERRED`, empty —
+a claimed item is open work with an owner (CDT-646), so `sweep`, `list`, and
+`reconcile` keep seeing it. Write path
 `--status` is unchanged: only `COMPLETED|FIXED/CLOSED` (do not invent new
 write values for close).
 
-#### Session Linear close (before or after local CLI)
+#### Session Linear close (`linear_sync=on` only — always second)
 
-1. Resolve the item (slug/title match). Read `linear_id` from YAML frontmatter
-   (or a `linear:<ID>` token on the index row / plan `closes:` entry).
-2. **If MCP up and a Linear id is known:** mark the Linear issue terminal
-   (`Done` / team equivalent). Fail-open with one line if MCP errors:
-   `Linear unreachable — local close only.`
-3. **Always** run `close.sh` for local item + index write-through.
-4. `close.sh verify` must pass for ship gates.
+Key `off`: the local close is the whole operation — no Linear step, no Linear
+line. Key `on`: `close.sh` first (the record), then read `linear_id`
+(frontmatter, index row, or plan `closes:`) and mark the Linear issue terminal,
+failing open with `Linear unreachable — local close only.` `close.sh verify` is
+the ship gate. Mechanics: `skills/backlog/linear-sync.md` § Mirror paths.
+
+#### Subcommand: `claim <slug-or-title>` (CDT-646, local only)
+
+`close.sh claim <slug-or-title> [--owner <name>] [--root <path>]` → status
+`IN_PROGRESS (<owner>)`, a `*Claimed:*` footer, index row re-tagged
+`[IN_PROGRESS]` in place under `## Pending` (open for `list`, `sweep`,
+`reconcile`). Shared lease; idempotent per owner; refuses a closed item (1); no
+Linear call. Mechanics: `skills/backlog/linear-sync.md`.
 
 #### Manual fallback (if CLI unavailable)
 
-##### 1. Find the item
+1. Find the row in `.claude/backlog.md` (case-insensitive slug/title substring);
+   on multiple matches, list them and ask the user to pick one.
+2. In `.claude/backlog/<slug>.md`, change `**Status**: PENDING` to
+   `**Status**: COMPLETED` and append `*Closed: <YYYY-MM-DD>*` (before the final
+   `---` if present). Preserve YAML frontmatter (`linear_id`, epic fields).
+3. In the index, move the row from `## Pending` to `## Completed` and re-tag
+   `[PENDING]` → `[COMPLETED]`.
+4. Confirm: `Closed: .claude/backlog/<slug>.md` plus
+   `Linear: <Done <ID> | skipped (no id) | unreachable (local only)>`.
 
-Search `.claude/backlog.md` for a line matching the slug or title (case-insensitive substring match). If multiple match, list them and ask user to pick one.
-
-##### 2. Update the item file
-
-In `.claude/backlog/<slug>.md`, change:
-```
-**Status**: PENDING
-```
-to:
-```
-**Status**: COMPLETED
-```
-
-And append at the bottom (before the final `---` line if present, or at end):
-```
-*Closed: <TODAY'S DATE YYYY-MM-DD>*
-```
-
-Preserve any YAML frontmatter (`linear_id`, epic fields) — do not strip it.
-
-##### 3. Update `.claude/backlog.md`
-
-Move the entry from `## Pending` to `## Completed`, changing `[PENDING]` → `[COMPLETED]`.
-
-##### 4. Confirm
-
-```
-Closed: .claude/backlog/<slug>.md
-Linear: <Done <ID> | skipped (no id) | unreachable (local only)>
-```
-
-**MUST NOT** stage/commit write-through as product.
+**MUST NOT** stage/commit tracker files as product.
 
 ---
 
 ### Subcommand: `reconcile`
 
 Idempotent repair pass that brings `.claude/backlog.md` (the index) into agreement with the
-`.claude/backlog/<slug>.md` item files — and, when the Linear MCP is reachable, with Linear's
-terminal issue states. It is a hygiene operation: it removes/prunes index rows and item files, but
+`.claude/backlog/<slug>.md` item files — and, on the `linear_sync=on` path when the Linear MCP is
+reachable, with Linear's terminal issue states. It is a hygiene operation: it removes/prunes index rows and item files, but
 **never invents new items**. See `specs/core/SPEC-009-ticket-workflow.md` §"Backlog reconcile".
 
-The local write-through is a **disposable cache**, not an archive — once an item is terminal
-(locally or in Linear), reconcile **deletes** its item file and drops its index row entirely.
-Linear (when linked) or git/commit history is the durable record for done work; nothing is ever
-retained on disk under a `## Completed` section (the header stays, for schema stability, but stays
-empty after a clean reconcile).
+The store is the source of truth for **open** ticket records; it is not an
+archive. Once an item is terminal (locally, or in the mirror when
+`linear_sync=on`) reconcile **deletes** its item file and drops its index row.
+The closed record lives in git history, the release notes, and Linear when the
+mirror is on. Nothing is retained on disk under a `## Completed` section (the
+header stays for schema stability, empty after a clean reconcile).
 
 Run the deterministic CLI (subprocess-only; does **not** git-commit — and MUST NOT stage):
 
@@ -440,37 +438,28 @@ It fails fast only when `<root>/.claude` is not writable, and exits 1 when its s
   a line. When it drops nothing, it does not rewrite the index; a second run
   reports no changes.
 
-#### Precedence — Linear is source of truth when reachable
+#### Precedence — the gate decides, then Linear ranks
 
-`reconcile.sh` is bash-only and **cannot call MCP tools**. The split (mirrors close.sh's subprocess
-contract):
+`reconcile.sh` is bash-only and **cannot call MCP tools** (mirrors close.sh's
+subprocess contract):
 
-1. **You (the interpreting Claude session) query Linear first**, if the Linear MCP is reachable.
-   For each index entry with a Linear counterpart (`linear_id` frontmatter or `linear:<ID>` on the
-   index row), resolve its issue state. Write a verdicts file mapping slug → terminal-state for the
-   entries Linear reports as `Done` / `Cancelled` / `Completed` (or the team's equivalent terminal
-   state), and pass it via `--linear-verdicts`. These verdicts **take precedence over local
-   item-file status** (Linear = SoT): the script prunes the item — deletes the file, drops the
-   index row — the same as a locally-terminal item.
-2. **Without the flag** (or for slugs absent from the verdicts file), reconcile falls back to pure
-   **local item-file status** per the LOCAL pass above.
-3. **MCP failure is best-effort** (SPEC-025 M5 posture): if the Linear MCP is absent,
-   unauthenticated, times out, or errors per-issue, **skip the `--linear-verdicts` flag entirely**,
-   emit a single one-line notice (e.g. `Linear unreachable — reconciling from local item files
-   only.`), and run the local fallback. Never block, retry-loop, or fail the pass on Linear
-   unavailability. A reconcile run always terminates with a consistent local index.
+0. **`linear_sync=off`: stop here.** Never query Linear, never pass
+   `--linear-verdicts` — the LOCAL pass above is the whole reconcile, with zero
+   Linear MCP calls.
+1. **`on`:** the session resolves each linked entry's Linear state
+   (`linear_id` frontmatter or `linear:<ID>` row token) and passes a verdicts file
+   via `--linear-verdicts`. A terminal verdict **takes precedence over local
+   item-file status** for this one prune decision.
+2. **`on`, no flag** (or a slug absent from it): pure **local item-file status**.
+3. **`on`, MCP failure** (SPEC-025 M5 posture): skip the flag, print one line
+   (`Linear unreachable — reconciling from local item files only.`), run the local
+   pass. Never block, retry-loop, or fail the pass.
 
-**Verdicts file format** (`--linear-verdicts`): either TSV lines `<slug>\t<state>`, or JSON — a
-flat object `{"<slug>":"<state>",...}` or an array of objects each with a `slug`/`id` and a
-`state`/`status` key. JSON is parsed with `jq` only, never a regular expression, and the result does
-not depend on key order; when `jq` is not on `PATH`, a JSON verdicts file is refused (exit 1, no
-writes) — a TSV file needs no `jq`. In an array object, `slug` wins over `id` and `state` wins over
-`status`; a key with a `null` value counts as absent. For JSON input, malformed JSON, another top-level type, a
-non-object array element, or a missing/non-string slug gives exit 1 with no file changes.
-A file whose first non-blank character is `{` or `[` is JSON; any other file is TSV.
-**A blank state is non-terminal** (CDT-267): a TSV line with an empty state, a bare slug line, or a
-JSON `""`/`null` state prunes nothing — the slug falls through to its local item-file status, so a
-locally open item stays open with no file written.
+**Verdicts file format** (`--linear-verdicts`): TSV `<slug>\t<state>`, JSON, `jq`
+rules, and the malformed-input exits are SPEC-009 § Backlog reconcile (the one
+copy). **A blank state is non-terminal** (CDT-267): an empty state, a bare slug
+line, or a JSON `""`/`null` prunes nothing — the slug falls through to its local
+item-file status.
 
 #### Idempotency & dry-run
 
@@ -489,62 +478,34 @@ rows for items since closed, and duplicates. It does not replace them.
 
 ### Subcommand: `list` (default)
 
-Display open work. **Prefer Linear open issues when MCP up.**
+Display open work from the local index (the record). Read Linear only when
+`linear_sync=on`.
 
-#### When Linear MCP is reachable
+#### `linear_sync=off` (default) — the local path
 
-1. Query Linear for open issues (team default filter — exclude terminal states).
-2. Present Linear open issues as the preferred SoT for open work.
-3. Cross-reference local write-through: for each local PENDING item, show linked
-   `linear_id` if present; note local-only rows (no `linear_id`) as write-through
-   orphans that may need migrate (out of scope for day-to-day list).
-4. Optionally summarize local COMPLETED count (do not dump the full completed list
-   unless zero pending).
-
-Example:
-
-```
-Backlog — myproject (Linear preferred)
-
-Open in Linear (2):
-  • CDT-12  Sort dropdown when queue view is on  [local: sort-dropdown-queue-view]
-  • CDT-15  Add dark mode support                [local: dark-mode]
-
-Local-only PENDING (no linear_id): 0
-Local COMPLETED (write-through): 3
-```
-
-#### When Linear MCP is down
-
-Emit one line:
-
-```
-Linear unreachable — local backlog only.
-```
-
-Then fall back to local index:
-
-1. Read `.claude/backlog.md`.
-2. If it doesn't exist, output: `No backlog found. Run /backlog init to create one.`
-3. Otherwise, print:
-   - All **Pending** items (with file links if terminal supports it)
-   - Count of **Completed** rows closed since the last `/backlog reconcile` (reconcile prunes
-     terminal rows rather than archiving them, so this count is 0 after a clean reconcile;
-     don't list them unless there are 0 pending)
-
-Example output:
+Read `.claude/backlog.md` and present its open rows (`PENDING`, `IN_PROGRESS`,
+`DEFERRED`): zero Linear MCP calls, no Linear notice. If the index is absent,
+output `No backlog found. Run /backlog init to create one.` Print the Pending
+items, then the Completed count (0 after a clean reconcile; list them only when
+nothing is pending). Shape — the MCP-down fallback below uses it too:
 
 ```
 Backlog — myproject
 
 Pending (2):
   • sort-dropdown-queue-view  Sort dropdown when queue view is on
-  • dark-mode                 Add dark mode support
+  • dark-mode                 Add dark mode support  [IN_PROGRESS: ic5]
 
-Completed: 2 items closed since the last reconcile (see .claude/backlog.md for details)
+Completed: 2 items closed since the last reconcile (see .claude/backlog.md)
 ```
 
----
+#### `linear_sync=on` — the mirror path
+
+MCP reachable: query Linear for open issues (exclude terminal states), present
+them cross-referenced with the local store, and note local rows with no
+`linear_id` as work the mirror does not carry. MCP down: one line
+`Linear unreachable — local backlog only.`, then the local path above. Mechanics:
+`skills/backlog/linear-sync.md` § Mirror paths.
 
 ### Subcommand: `sweep [flags]`
 
@@ -583,12 +544,13 @@ authoritative linkage lives on the item file frontmatter.
 
 ```markdown
 ---
-linear_id: <LINEAR-ID>   # optional; set when dual-written with Linear
+kind: child              # optional; ticket | epic | child (CDT-646)
+linear_id: <LINEAR-ID>   # optional; set only on the linear_sync=on path
 ---
 
 # <TITLE>
 
-**Status**: PENDING | COMPLETED | DONE | FIXED/CLOSED | FIXED-CLOSED | FIXED CLOSED | CLOSED | CANCELLED | CANCELED | DEFERRED
+**Status**: PENDING | IN_PROGRESS [(<owner>)] | DEFERRED | COMPLETED | DONE | FIXED/CLOSED | FIXED-CLOSED | FIXED CLOSED | CLOSED | CANCELLED | CANCELED
 
 ## Problem
 
@@ -617,6 +579,7 @@ Optional: any other relevant context. Items may also add ad-hoc sections as need
 ---
 
 *Added: YYYY-MM-DD*
+*Claimed: YYYY-MM-DD by <owner>*   ← only when claimed (`IN_PROGRESS`)
 *Closed: YYYY-MM-DD*   ← only when completed
 ```
 
@@ -626,28 +589,26 @@ Readable terminal statuses (close/reconcile classify via
 `CANCELLED` | `CANCELED`. Write path still emits only
 `COMPLETED` | `FIXED/CLOSED`.
 
-Epic children may carry additional frontmatter (`epic_parent`, `child_id`,
-`depends_on`, `estimate`, `agent`) per SPEC-025 — preserve those fields on close.
-
----
+Epic children may carry extra frontmatter (`kind: child`, `epic_parent`,
+`child_id`, `depends_on`, `estimate`, `agent`) per SPEC-025 + CDT-646; preserve
+it on close. `add.sh` / `ticket.sh create` write it; a plain ticket writes none.
 
 ## Commit / stage policy (v1.0 invariant)
 
 **MUST NOT** stage or commit process trackers as product delivery:
-
-- `.claude/backlog.md`, `.claude/backlog/**`
-- `.claude/plans.md`, `.claude/plans/**`
-- other process state under `.claude/` (except committed seed carve-outs per SPEC-024)
-
-Local write-through remains on disk only. Ship/wrap close local status + Linear
-Done best-effort; they **do not** fold tracker files into the product commit.
-
----
+`.claude/backlog.md`, `.claude/backlog/**` (the ticket records — row 4 of
+`docs/internal/control-plane/record-ownership.md`), `.claude/plans*`,
+`.claude/dev-team/config.json` (the `linear_sync` key — row 13), and other
+process state under `.claude/` (except committed seed carve-outs per SPEC-024).
+Source of truth changes nothing: the store stays on disk only, and ship/wrap
+never fold tracker files into the product commit.
 
 ## Error Handling
 
-- **Not in a git repo**: Proceed using `pwd` as project root; warn user.
-- **No title provided for add**: Ask: "What is the title for this backlog item?"
-- **No match for close**: List all pending items and ask user which to close.
-- **Backlog.md malformed**: Warn and offer to re-initialize (preserving existing item files).
-- **Linear MCP down**: one-line notice; continue local-only (fail-open).
+- **Not in a git repo**: proceed with `pwd` as root; warn the user.
+- **No title for add**: ask for one.
+- **No match for close**: list pending items and ask which one.
+- **Backlog.md malformed**: warn and offer to re-initialize (item files preserved).
+- **`linear_sync=off`**: nothing to degrade — the store is the record, and no
+  Linear call is made.
+- **Linear MCP down (key `on`)**: one-line notice; the local write stands.

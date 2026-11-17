@@ -20,6 +20,34 @@ Engines stay live (do not re-implement aggregation here):
 | Standup logic | `skills/standup/SKILL.md` (internal backend) |
 | Metrics rollup | `skills/metrics/rollup.sh` |
 | Worktree list | `skills/worktree-lib.sh status` |
+| Open-work set | `skills/backlog/sweep.sh merge-open` (local store, offline) |
+
+## Tracker plane (CDT-646)
+
+Every `/status` sub is a reader, and the tracker plane it reads is the local
+backlog store at `$MROOT/.claude/backlog/` (SPEC-009 § Linear sync is opt-in).
+`/status` MUST NOT issue a Linear MCP call in any sub, whatever the key says: it
+is display-only, and a Linear read is not its source of truth.
+
+```bash
+_gc=$(git rev-parse --git-common-dir 2>/dev/null) \
+  && MROOT=$(cd "$(dirname "$_gc")" && pwd) \
+  || MROOT=$(pwd)
+PDH="${PDH:-$( { [ -n "${CLAUDE_PLUGIN_ROOT:-}" ] && [ -f "$CLAUDE_PLUGIN_ROOT/skills/plugin-dir.sh" ] && printf '%s\n' "$CLAUDE_PLUGIN_ROOT"; } || { [ -f skills/plugin-dir.sh ] && [ -f agents/pm.md ] && grep -qF '"name": "dev-team"' .claude-plugin/plugin.json 2>/dev/null && pwd; } || { _pr='${CLAUDE_PLUGIN_ROOT}'; [ "${_pr#\$}" = "$_pr" ] && [ -f "$_pr/skills/plugin-dir.sh" ] && printf '%s\n' "$_pr"; } || { for _mp in "$HOME"/.claude/plugins/marketplaces/*/; do [ -f "${_mp}skills/plugin-dir.sh" ] && [ -f "${_mp}agents/pm.md" ] && grep -qF '"name": "dev-team"' "${_mp}.claude-plugin/plugin.json" 2>/dev/null && printf '%s\n' "${_mp%/}" && break; done; } || find ~/.claude/plugins/cache \( -path '*/dev-team/*/skills/plugin-dir.sh' -o -path '*/dev-team-edge/*/skills/plugin-dir.sh' \) 2>/dev/null | awk -F/ '{ver=""; for(i=1;i<=NF;i++) if(($i=="dev-team"||$i=="dev-team-edge")&&i<NF){ver=$(i+1);break}; if(ver=="") next; m=ver; gsub(/-pre\./,"~pre.",m); p=($0 ~ /\/cache\/cold-dark-void\/dev-team\//)?2:(($0 ~ /\/cache\/cold-dark-void\/dev-team-edge\//)?1:0); print m "\t" p "\t" $0}' | sort -t $'\t' -k1,1V -k2,2n -k3,3 | tail -1 | cut -f3 | xargs -r dirname | xargs -r dirname )}"
+GATE=$(bash "$PDH/skills/plugin-dir.sh" file skills/backlog/linear-gate.sh)
+LINEAR_SYNC=$(bash "$GATE" status --root "$MROOT")   # off (default) | on
+printf 'linear_sync=%s\n' "$LINEAR_SYNC"
+```
+
+- The open-work snapshot reads the store offline:
+  `bash "$PDH/skills/plugin-dir.sh" file skills/backlog/sweep.sh` with the
+  `merge-open` verb and **no** `--linear-json` (that is the Linear-down case: the
+  local open set only).
+- `off` (default): print the plane line `linear_sync=off — local store` and stop.
+- `on`: `linear_sync=on — local store (Linear is a mirror)`; a Linear section is
+  optional, additive, and never replaces the local numbers.
+- A missing config, invalid JSON, or a box with no jq reads `off`. Status output
+  is byte-stable offline: no sub blocks on a network call.
 
 ## Dispatch
 

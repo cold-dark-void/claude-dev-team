@@ -21,6 +21,13 @@ and stop (exit non-zero / return). Illegal with `--worktree` / `--release`
 
 ### F.1 Inventory (session-owned MCP)
 
+**Gate (CDT-646 — SPEC-009 § Linear sync is opt-in):** when the run's
+`LINEAR_SYNC` (bound at `run-start.md` Step 0) reads `off` — the default —
+`/epic sync` has nothing to pull: local `state.json` **is** the source of truth.
+Print exactly `linear_sync=off — local state is the source of truth; nothing to sync`
+and stop with **zero** `state.json` mutation and zero MCP calls. The rest of this
+mode applies only when the gate reads `on`.
+
 When Linear MCP is **down**: print M5 one-liner
 `Linear unavailable — continuing with local write-through only`, then stop with
 **zero** `state.json` mutation (sync has nothing to pull).

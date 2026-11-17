@@ -298,9 +298,21 @@ rule — do not invent a second string.
 ## What NOT to Do
 
 - Do not commit `.claude/settings.local.json` or `.claude/context/`
-- Do not commit process trackers (`.claude/backlog*`, `.claude/plans*`, or other
-  process state under `.claude/`) as product delivery — Linear preferred SoT when
-  MCP is up; local write-through always; never stage trackers into delivery commits
+- Do not commit process trackers as product delivery. The plane-owned ticket
+  records — `.claude/backlog.md` (index) + `.claude/backlog/<slug>.md` (items:
+  tickets, epics, children), all at `$MROOT` — the plans (`.claude/plans*`), the
+  sweep journal, and the `linear_sync` config (`.claude/dev-team/config.json`)
+  are all process state. Owner: **plugin**. Conflict rule (closed set):
+  **single-writer-lease** — see
+  `docs/internal/control-plane/record-ownership.md` row 4; the control plane owns
+  no ticket record there (row 12, the run journal, is its only owned record) and
+  reaches these files through the CLI only. The local store is the ticket source
+  of truth; Linear is an opt-in per-project mirror (`linear_sync`, SPEC-009), so
+  Linear is never a writer of these records. Create, claim, and close tickets
+  offline with `skills/backlog/ticket.sh`; a Linear sync runs second, and only
+  when the key is on. From any worktree, write to the one shared store at
+  `$MROOT` (SPEC-009 § Backlog root rule); the store stays on disk —
+  never stage trackers into delivery commits.
 - Do not modify plugin.json version without also updating CHANGELOG.md (use `/release`)
 - Do not add agents without updating the README agent roster table
 - Do not create new files unless clearly necessary

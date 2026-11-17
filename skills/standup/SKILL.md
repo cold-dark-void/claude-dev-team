@@ -45,6 +45,13 @@ bash block runs as a fresh shell, so Step 4 re-emits this stanza.
 
 ## Step 1: Read task state
 
+**Tracker plane (CDT-646 — SPEC-009 § Linear sync is opt-in):** the open-work set
+is the local store. Read backlog items from `$MROOT/.claude/backlog.md` +
+`$MROOT/.claude/backlog/` (the `skills/backlog/sweep.sh merge-open` verb with no
+`--linear-json` is the offline open set, `IN_PROGRESS` included). MUST NOT issue
+a Linear MCP call: standup is a read of local state, in every project, gate
+`on` or `off`.
+
 Read both views of task state and reconcile them:
 
 1. Call `TaskList` for the in-session view.

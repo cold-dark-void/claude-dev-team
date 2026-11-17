@@ -8,6 +8,11 @@
 4. Re-run PM∥TL for non-completed only (reuse **A.2** Model map fences; no ICs); re-merge; full-graph `check-cycle`.
 5. On approve: update/replace non-completed children in state + backlog; do not duplicate backlog for unchanged completed children.
 6. **Linear project (M12 / AC9):**
+   **Gate (CDT-646 — SPEC-009 § Linear sync is opt-in):** when the run's
+   `LINEAR_SYNC` (`run-start.md` Step 0) reads `off` — the default — skip steps
+   6 and 7 entirely: zero Linear MCP calls, `linear_project_id` and every new
+   child `linear_id` stay null, and the local re-decompose is the whole
+   operation.
    - If `linear_project_id` is **non-null**: **reuse** it — do not create/list a
      second project; id stays stable. Attach **only new/changed** children to
      that project on dual-write (no re-attach of unchanged/completed children).

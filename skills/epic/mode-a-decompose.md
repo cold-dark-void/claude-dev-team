@@ -197,12 +197,19 @@ bash "$EPIC_LIB" add-child "$EPIC_ID" \
   # optional: --linear-id "<LINEAR-ISSUE-ID>"
 ```
 
-#### Dual-write persistence (M4 — Linear preferred + local write-through)
+#### Dual-write persistence (M4 — local store is the source of truth)
 
-When Linear MCP is available, resolve Linear project (M12) and create/link each
-Linear issue first, then **always** write local write-through. When MCP is down,
-write local only. Process trackers under `.claude/` MUST NOT be committed
-(SPEC-025 M4 / SPEC-009).
+**Gate (CDT-646 — SPEC-009 § Linear sync is opt-in):** the sections in this mode
+that name Linear (M12 project, M5 child issues, M4.1 inventory) run only when
+the run's `LINEAR_SYNC` (bound at `run-start.md` Step 0) reads `on`. With the
+gate `off` — the default — skip all three, print
+`linear_sync=off — epic children are tracked locally only`, and leave
+`linear_project_id` and every child `linear_id` null. Zero Linear MCP calls.
+
+When `on` and Linear MCP is available, resolve Linear project (M12) and create/link
+each Linear issue, **always** after the local write (local first, sync second).
+When MCP is down, write local only. Process trackers under `.claude/` MUST NOT be
+committed (SPEC-025 M4 / SPEC-009).
 
 Per child, write `.claude/backlog/<slug>.md` with YAML frontmatter + body:
 
@@ -253,7 +260,8 @@ Ensure backlog structure exists (`/backlog init` if missing).
 
 #### Linear Project per epic (M12) — before/with child dual-write
 
-Session owns Linear MCP; `epic-lib.sh` never calls MCP (M12.9). After `init`,
+Gate `off` → skip this section (no project list, no create). Session owns Linear
+MCP; `epic-lib.sh` never calls MCP (M12.9). After `init`,
 before or with child issue dual-write:
 
 1. **MCP down** → print M5 notice (below); skip project; local path only (AC7).
