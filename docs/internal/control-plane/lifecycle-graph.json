@@ -1,0 +1,908 @@
+{
+  "graph": "control-plane-lifecycle",
+  "schema_version": "1",
+  "title": "Control plane lifecycle graph (CDT-642)",
+  "notes": "The declarative graph of lifecycle phases and guarded transitions a run moves through (CONTEXT.md:60). The data is the contract; control-plane/lifecycle loads and validates it, and the UI draws it later. This file carries no rendering. Run-state vertices are C2's run machine states (control-plane/run/doc.go:11); the guarded workflow phases are the /orchestrate ladder. Every blocking-condition guard cites specs/core/SPEC-033-autopilot-policy.md by line and never restates the condition (SPEC-033 M6, specs/core/SPEC-033-autopilot-policy.md:229).",
+  "vertices": [
+    {
+      "id": "claim",
+      "kind": "workflow-phase",
+      "label": "Claim",
+      "order": 1,
+      "terminal": false,
+      "defined_at": "control-plane/run/machine.go:134",
+      "source": "specs/core/SPEC-033-autopilot-policy.md:177",
+      "notes": "An owner takes the run under a fencing token, then the scope is confirmed."
+    },
+    {
+      "id": "plan",
+      "kind": "workflow-phase",
+      "label": "Plan",
+      "order": 2,
+      "terminal": false,
+      "defined_at": "specs/core/SPEC-033-autopilot-policy.md:132",
+      "source": "specs/core/SPEC-033-autopilot-policy.md:117",
+      "notes": "The plan is written and answered at the plan-approve gate."
+    },
+    {
+      "id": "implement",
+      "kind": "workflow-phase",
+      "label": "Implement",
+      "order": 3,
+      "terminal": false,
+      "defined_at": "specs/core/SPEC-033-autopilot-policy.md:295",
+      "source": "control-plane/run/machine.go:207",
+      "notes": "Stints run the work. One stint is one agent spawn (SPEC-033 M9)."
+    },
+    {
+      "id": "review",
+      "kind": "workflow-phase",
+      "label": "Review",
+      "order": 4,
+      "terminal": false,
+      "defined_at": "specs/core/SPEC-033-autopilot-policy.md:279",
+      "source": "control-plane/run/machine.go:223",
+      "notes": "Review rounds. A review deadloop maps to an M6 condition, not a new one."
+    },
+    {
+      "id": "qa",
+      "kind": "workflow-phase",
+      "label": "QA",
+      "order": 5,
+      "terminal": false,
+      "defined_at": "specs/core/SPEC-033-autopilot-policy.md:238",
+      "source": "specs/core/SPEC-033-autopilot-policy.md:159",
+      "notes": "QA runs and bounces. The ship gate reads the QA verdict."
+    },
+    {
+      "id": "ship",
+      "kind": "workflow-phase",
+      "label": "Ship",
+      "order": 6,
+      "terminal": false,
+      "defined_at": "specs/core/SPEC-033-autopilot-policy.md:145",
+      "source": "docs/internal/control-plane/record-ownership.md:43",
+      "notes": "The ship-choice gate is answered and the push or PR effect runs."
+    },
+    {
+      "id": "wrap",
+      "kind": "workflow-phase",
+      "label": "Wrap",
+      "order": 7,
+      "terminal": false,
+      "defined_at": "docs/internal/control-plane/record-ownership.md:48",
+      "source": "docs/adr/0001-journal-engine.md:93",
+      "notes": "Close-out: the plan and learnings are read, the run is closed."
+    },
+    {
+      "id": "claimed",
+      "kind": "run-state",
+      "label": "Claimed",
+      "order": 11,
+      "terminal": false,
+      "defined_at": "control-plane/journal/state.go:14",
+      "source": "control-plane/journal/event.go:16",
+      "notes": "An owner holds the lease. Replay derives it; nothing stores it."
+    },
+    {
+      "id": "running",
+      "kind": "run-state",
+      "label": "Running",
+      "order": 12,
+      "terminal": false,
+      "defined_at": "control-plane/journal/state.go:15",
+      "source": "control-plane/journal/event.go:18",
+      "notes": "Work is in flight: stints, heartbeats, side effects, repairs."
+    },
+    {
+      "id": "halted:stalled",
+      "kind": "run-state",
+      "label": "Halted: stalled",
+      "order": 13,
+      "terminal": false,
+      "defined_at": "control-plane/journal/state.go:24",
+      "source": "control-plane/run/machine.go:262",
+      "notes": "The watchdog passed the stall limit. The limit is derived, never tuned (CDT-610 gates tuning)."
+    },
+    {
+      "id": "halted:lease_lost",
+      "kind": "run-state",
+      "label": "Halted: lease lost",
+      "order": 14,
+      "terminal": false,
+      "defined_at": "control-plane/journal/state.go:25",
+      "source": "control-plane/journal/errors.go:39",
+      "notes": "The owner's fencing token stopped matching the lease."
+    },
+    {
+      "id": "halted:reconcile_failed",
+      "kind": "run-state",
+      "label": "Halted: reconcile failed",
+      "order": 15,
+      "terminal": false,
+      "defined_at": "control-plane/journal/state.go:26",
+      "source": "docs/internal/control-plane/index.md:401",
+      "notes": "The on-start reconciler could not repair the difference."
+    },
+    {
+      "id": "halted:budget_exhausted",
+      "kind": "run-state",
+      "label": "Halted: budget exhausted",
+      "order": 16,
+      "terminal": false,
+      "defined_at": "control-plane/journal/state.go:27",
+      "source": "control-plane/run/budget.go:121",
+      "notes": "The run budget ran out. Its guard is the run-budget condition in the guard table."
+    },
+    {
+      "id": "halted:operator_halt",
+      "kind": "run-state",
+      "label": "Halted: operator halt",
+      "order": 17,
+      "terminal": false,
+      "defined_at": "control-plane/journal/state.go:28",
+      "source": "specs/core/SPEC-033-autopilot-policy.md:270",
+      "notes": "A human stopped the run. This is the named state a gate halt lands on."
+    },
+    {
+      "id": "completed",
+      "kind": "run-state",
+      "label": "Completed",
+      "order": 18,
+      "terminal": true,
+      "defined_at": "control-plane/journal/state.go:17",
+      "source": "control-plane/journal/event.go:25",
+      "notes": "Terminal success. The run completes exactly once."
+    },
+    {
+      "id": "failed",
+      "kind": "run-state",
+      "label": "Failed",
+      "order": 19,
+      "terminal": true,
+      "defined_at": "control-plane/journal/state.go:18",
+      "source": "control-plane/journal/event.go:26",
+      "notes": "Terminal failure. A spent retry budget ends here."
+    }
+  ],
+  "edges": [
+    {
+      "id": "claim-plan",
+      "from": "claim",
+      "to": "plan",
+      "event": "run_claimed",
+      "kind": "gate",
+      "gate": "scope-confirm",
+      "label": "Scope is confirmed",
+      "guards": [
+        {
+          "bc": "BC1",
+          "label": "Genuine ambiguity",
+          "outcome": "halt",
+          "citation": "specs/core/SPEC-033-autopilot-policy.md:235"
+        },
+        {
+          "bc": "BC3",
+          "label": "Destructive or irreversible operation",
+          "outcome": "halt",
+          "citation": "specs/core/SPEC-033-autopilot-policy.md:243"
+        },
+        {
+          "bc": "BC5",
+          "label": "Complexity overflow",
+          "outcome": "reroute",
+          "citation": "specs/core/SPEC-033-autopilot-policy.md:251"
+        },
+        {
+          "bc": "BC6",
+          "label": "Run-budget breach",
+          "outcome": "halt",
+          "citation": "specs/core/SPEC-033-autopilot-policy.md:254"
+        },
+        {
+          "bc": "BC7",
+          "label": "Self-uncertainty",
+          "outcome": "halt",
+          "citation": "specs/core/SPEC-033-autopilot-policy.md:255"
+        },
+        {
+          "bc": "BC8",
+          "label": "Unverified external dependency",
+          "outcome": "halt",
+          "citation": "specs/core/SPEC-033-autopilot-policy.md:258"
+        }
+      ],
+      "defined_at": "specs/core/SPEC-033-autopilot-policy.md:123",
+      "source": "specs/core/SPEC-033-autopilot-policy.md:117",
+      "notes": "The edge fires on the gate answer. A halt writes a halt card and lands the run on a named halt state; a reroute decomposes to an epic. SPEC-033 owns both semantics; they are cited, not restated."
+    },
+    {
+      "id": "plan-implement",
+      "from": "plan",
+      "to": "implement",
+      "event": "run_started",
+      "kind": "gate",
+      "gate": "plan-approve",
+      "label": "Plan is approved",
+      "guards": [
+        {
+          "bc": "BC1",
+          "label": "Genuine ambiguity",
+          "outcome": "halt",
+          "citation": "specs/core/SPEC-033-autopilot-policy.md:235"
+        },
+        {
+          "bc": "BC3",
+          "label": "Destructive or irreversible operation",
+          "outcome": "halt",
+          "citation": "specs/core/SPEC-033-autopilot-policy.md:243"
+        },
+        {
+          "bc": "BC4",
+          "label": "Counted LOC or file-size breach",
+          "outcome": "halt",
+          "citation": "specs/core/SPEC-033-autopilot-policy.md:246"
+        },
+        {
+          "bc": "BC5",
+          "label": "Complexity overflow",
+          "outcome": "reroute",
+          "citation": "specs/core/SPEC-033-autopilot-policy.md:251"
+        },
+        {
+          "bc": "BC6",
+          "label": "Run-budget breach",
+          "outcome": "halt",
+          "citation": "specs/core/SPEC-033-autopilot-policy.md:254"
+        },
+        {
+          "bc": "BC7",
+          "label": "Self-uncertainty",
+          "outcome": "halt",
+          "citation": "specs/core/SPEC-033-autopilot-policy.md:255"
+        }
+      ],
+      "defined_at": "specs/core/SPEC-033-autopilot-policy.md:132",
+      "source": "specs/core/SPEC-033-autopilot-policy.md:117",
+      "notes": "BC4 fires only here (SPEC-033 M6.4). The run machine journals run_started with the watchdog limit on this edge."
+    },
+    {
+      "id": "implement-review",
+      "from": "implement",
+      "to": "review",
+      "event": "stint_started",
+      "kind": "transition",
+      "gate": "",
+      "label": "The work is up for review",
+      "guards": [
+        {
+          "bc": "BC1",
+          "label": "Stuck after two genuine attempts",
+          "outcome": "halt",
+          "citation": "specs/core/SPEC-033-autopilot-policy.md:235"
+        },
+        {
+          "bc": "BC5",
+          "label": "Scope creep that is an overflow",
+          "outcome": "reroute",
+          "citation": "specs/core/SPEC-033-autopilot-policy.md:251"
+        }
+      ],
+      "defined_at": "specs/core/SPEC-033-autopilot-policy.md:279",
+      "source": "control-plane/run/machine.go:207",
+      "notes": "An interactive pause with no human maps to an M6 condition (M8). The gate name stays empty: this edge has no gate of its own."
+    },
+    {
+      "id": "review-qa",
+      "from": "review",
+      "to": "qa",
+      "event": "",
+      "kind": "transition",
+      "gate": "",
+      "label": "The change is built and handed to QA",
+      "guards": [
+        {
+          "bc": "BC1",
+          "label": "Review deadloop past three rounds",
+          "outcome": "halt",
+          "citation": "specs/core/SPEC-033-autopilot-policy.md:235"
+        },
+        {
+          "bc": "BC2",
+          "label": "QA failure past three bounces",
+          "outcome": "halt",
+          "citation": "specs/core/SPEC-033-autopilot-policy.md:238"
+        }
+      ],
+      "defined_at": "specs/core/SPEC-033-autopilot-policy.md:238",
+      "notes": "The build step writes no journal row of its own; the journal records stints and side effects."
+    },
+    {
+      "id": "qa-ship",
+      "from": "qa",
+      "to": "ship",
+      "event": "",
+      "kind": "transition",
+      "gate": "",
+      "label": "QA passed and the ship gate opens",
+      "guards": [
+        {
+          "bc": "BC1",
+          "label": "Spec-alignment failure at step 10b",
+          "outcome": "halt",
+          "citation": "specs/core/SPEC-033-autopilot-policy.md:235"
+        },
+        {
+          "bc": "BC2",
+          "label": "QA did not reach PASS",
+          "outcome": "halt",
+          "citation": "specs/core/SPEC-033-autopilot-policy.md:238"
+        }
+      ],
+      "defined_at": "specs/core/SPEC-033-autopilot-policy.md:159",
+      "notes": "The first ship-choice checklist item: spec alignment and a QA PASS."
+    },
+    {
+      "id": "ship-wrap",
+      "from": "ship",
+      "to": "wrap",
+      "event": "side_effect",
+      "kind": "gate",
+      "gate": "ship-choice",
+      "label": "The ship choice is answered and the effect runs",
+      "guards": [
+        {
+          "bc": "BC3",
+          "label": "Ship action more irreversible than a PR",
+          "outcome": "halt",
+          "citation": "specs/core/SPEC-033-autopilot-policy.md:243"
+        },
+        {
+          "bc": "BC6",
+          "label": "Run-budget breach",
+          "outcome": "halt",
+          "citation": "specs/core/SPEC-033-autopilot-policy.md:254"
+        },
+        {
+          "bc": "BC7",
+          "label": "Self-uncertainty, council-derived confidence",
+          "outcome": "halt",
+          "citation": "specs/core/SPEC-033-autopilot-policy.md:255"
+        }
+      ],
+      "defined_at": "specs/core/SPEC-033-autopilot-policy.md:145",
+      "source": "specs/core/SPEC-033-autopilot-policy.md:565",
+      "notes": "The effect on this edge is the journaled push or PR: the intent row, then the outcome row (SPEC-040 AC11, specs/core/SPEC-040-backlog-sweep.md:269). BC7 takes its council source here and no ninth condition exists."
+    },
+    {
+      "id": "wrap-completed",
+      "from": "wrap",
+      "to": "completed",
+      "event": "run_completed",
+      "kind": "transition",
+      "gate": "",
+      "label": "The run closes",
+      "guards": [],
+      "defined_at": "control-plane/run/machine.go:446",
+      "source": "control-plane/journal/replay.go:400",
+      "notes": "The lease is released in the same transaction, so a completed run leaves no live owner."
+    },
+    {
+      "id": "claimed-running",
+      "from": "claimed",
+      "to": "running",
+      "event": "run_started",
+      "kind": "transition",
+      "gate": "",
+      "label": "Start",
+      "guards": [],
+      "defined_at": "control-plane/journal/replay.go:212",
+      "source": "control-plane/run/doc.go:11",
+      "notes": "The run machine's own ladder edge. The stall limit is journaled here."
+    },
+    {
+      "id": "claimed-lease",
+      "from": "claimed",
+      "to": "claimed",
+      "event": "lease_acquired",
+      "kind": "transition",
+      "gate": "",
+      "label": "Lease takeover raises the token",
+      "guards": [],
+      "defined_at": "control-plane/journal/replay.go:190",
+      "source": "control-plane/journal/errors.go:35",
+      "notes": "Ownership moves; the state does not."
+    },
+    {
+      "id": "running-heartbeat",
+      "from": "running",
+      "to": "running",
+      "event": "heartbeat",
+      "kind": "transition",
+      "gate": "",
+      "label": "Heartbeat",
+      "guards": [],
+      "defined_at": "control-plane/journal/replay.go:251",
+      "source": "control-plane/journal/event.go:20",
+      "notes": "Liveness inside the stall limit."
+    },
+    {
+      "id": "running-side-effect",
+      "from": "running",
+      "to": "running",
+      "event": "side_effect",
+      "kind": "transition",
+      "gate": "",
+      "label": "Intent, effect, outcome",
+      "guards": [],
+      "defined_at": "control-plane/journal/replay.go:268",
+      "source": "specs/core/SPEC-040-backlog-sweep.md:269",
+      "notes": "One idempotency key per external effect, so a replay does not repeat it."
+    },
+    {
+      "id": "running-repair",
+      "from": "running",
+      "to": "running",
+      "event": "repair",
+      "kind": "transition",
+      "gate": "",
+      "label": "One reconciler repair",
+      "guards": [],
+      "defined_at": "control-plane/journal/replay.go:381",
+      "source": "docs/internal/control-plane/index.md:401",
+      "notes": "Every repair is a row; a repair never edits a past row."
+    },
+    {
+      "id": "running-lease",
+      "from": "running",
+      "to": "running",
+      "event": "lease_acquired",
+      "kind": "transition",
+      "gate": "",
+      "label": "Lease takeover raises the token",
+      "guards": [],
+      "defined_at": "control-plane/journal/replay.go:190",
+      "source": "control-plane/journal/errors.go:39",
+      "notes": "A new owner drives the same run from the replayed position."
+    },
+    {
+      "id": "claimed-halted-stalled",
+      "from": "claimed",
+      "to": "halted:stalled",
+      "event": "run_halted",
+      "kind": "transition",
+      "gate": "",
+      "label": "Watchdog stall",
+      "guards": [],
+      "defined_at": "control-plane/journal/replay.go:319",
+      "source": "control-plane/run/machine.go:262",
+      "notes": "The halt carries its reason and its retry budget."
+    },
+    {
+      "id": "running-halted-stalled",
+      "from": "running",
+      "to": "halted:stalled",
+      "event": "run_halted",
+      "kind": "transition",
+      "gate": "",
+      "label": "Watchdog stall",
+      "guards": [],
+      "defined_at": "control-plane/journal/replay.go:319",
+      "source": "control-plane/run/machine.go:262",
+      "notes": "The watchdog re-checks liveness inside the halt transaction, so a live run spends no budget."
+    },
+    {
+      "id": "running-halted-lease_lost",
+      "from": "running",
+      "to": "halted:lease_lost",
+      "event": "run_halted",
+      "kind": "transition",
+      "gate": "",
+      "label": "Fencing token stopped matching",
+      "guards": [],
+      "defined_at": "control-plane/journal/replay.go:319",
+      "source": "control-plane/journal/errors.go:39",
+      "notes": "A stale owner's write is refused and writes nothing."
+    },
+    {
+      "id": "running-halted-reconcile_failed",
+      "from": "running",
+      "to": "halted:reconcile_failed",
+      "event": "run_halted",
+      "kind": "transition",
+      "gate": "",
+      "label": "Reconciler could not repair",
+      "guards": [],
+      "defined_at": "control-plane/journal/replay.go:319",
+      "source": "docs/internal/control-plane/index.md:401",
+      "notes": "Each pass spends one retry of this reason."
+    },
+    {
+      "id": "running-halted-budget_exhausted",
+      "from": "running",
+      "to": "halted:budget_exhausted",
+      "event": "run_halted",
+      "kind": "transition",
+      "gate": "",
+      "label": "Run budget ran out",
+      "guards": [
+        {
+          "bc": "BC6",
+          "label": "Run-budget breach",
+          "outcome": "halt",
+          "citation": "specs/core/SPEC-033-autopilot-policy.md:254"
+        }
+      ],
+      "defined_at": "control-plane/journal/replay.go:319",
+      "source": "specs/core/SPEC-033-autopilot-policy.md:295",
+      "notes": "This is the one halt state a SPEC-033 blocking condition names directly."
+    },
+    {
+      "id": "running-halted-operator_halt",
+      "from": "running",
+      "to": "halted:operator_halt",
+      "event": "run_halted",
+      "kind": "transition",
+      "gate": "",
+      "label": "A human stopped it",
+      "guards": [],
+      "defined_at": "control-plane/journal/replay.go:319",
+      "source": "specs/core/SPEC-033-autopilot-policy.md:270",
+      "notes": "A gate halt is written as a halt decision-card and lands here."
+    },
+    {
+      "id": "claimed-halted-operator_halt",
+      "from": "claimed",
+      "to": "halted:operator_halt",
+      "event": "run_halted",
+      "kind": "transition",
+      "gate": "",
+      "label": "A human stopped it before work started",
+      "guards": [],
+      "defined_at": "control-plane/journal/replay.go:319",
+      "source": "control-plane/run/machine.go:324",
+      "notes": "Halt is legal from claimed and from running."
+    },
+    {
+      "id": "halted-stalled-running",
+      "from": "halted:stalled",
+      "to": "running",
+      "event": "run_resumed",
+      "kind": "transition",
+      "gate": "",
+      "label": "Resume spends one retry",
+      "guards": [],
+      "defined_at": "control-plane/journal/replay.go:360",
+      "source": "control-plane/run/budget.go:121",
+      "notes": "The budget lives in the run package; the state carries what is left."
+    },
+    {
+      "id": "halted-lease_lost-running",
+      "from": "halted:lease_lost",
+      "to": "running",
+      "event": "run_resumed",
+      "kind": "transition",
+      "gate": "",
+      "label": "Resume spends one retry",
+      "guards": [],
+      "defined_at": "control-plane/journal/replay.go:360",
+      "source": "control-plane/run/budget.go:121",
+      "notes": "Resume names the reason it leaves; a mismatch is refused."
+    },
+    {
+      "id": "halted-reconcile_failed-running",
+      "from": "halted:reconcile_failed",
+      "to": "running",
+      "event": "run_resumed",
+      "kind": "transition",
+      "gate": "",
+      "label": "Resume spends one retry",
+      "guards": [],
+      "defined_at": "control-plane/journal/replay.go:360",
+      "source": "control-plane/run/budget.go:121",
+      "notes": "The reconciler takes the next pass."
+    },
+    {
+      "id": "halted-budget_exhausted-running",
+      "from": "halted:budget_exhausted",
+      "to": "running",
+      "event": "run_resumed",
+      "kind": "transition",
+      "gate": "",
+      "label": "Resume spends one retry",
+      "guards": [],
+      "defined_at": "control-plane/journal/replay.go:360",
+      "source": "control-plane/journal/errors.go:28",
+      "notes": "A spent budget refuses the resume; the caller fails the run."
+    },
+    {
+      "id": "halted-operator_halt-running",
+      "from": "halted:operator_halt",
+      "to": "running",
+      "event": "run_resumed",
+      "kind": "transition",
+      "gate": "",
+      "label": "The operator resumes it",
+      "guards": [],
+      "defined_at": "control-plane/journal/replay.go:360",
+      "source": "specs/core/SPEC-033-autopilot-policy.md:270",
+      "notes": "A human answer to a halt is recorded as a card (M7, decided_by user)."
+    },
+    {
+      "id": "claimed-failed",
+      "from": "claimed",
+      "to": "failed",
+      "event": "run_failed",
+      "kind": "transition",
+      "gate": "",
+      "label": "Fail",
+      "guards": [],
+      "defined_at": "control-plane/run/machine.go:473",
+      "source": "control-plane/journal/replay.go:415",
+      "notes": "Fail needs a reason and releases the lease."
+    },
+    {
+      "id": "running-failed",
+      "from": "running",
+      "to": "failed",
+      "event": "run_failed",
+      "kind": "transition",
+      "gate": "",
+      "label": "Fail",
+      "guards": [],
+      "defined_at": "control-plane/run/machine.go:473",
+      "source": "control-plane/run/doc.go:13",
+      "notes": "Fail is legal from claimed, running, and any halt state."
+    },
+    {
+      "id": "halted-stalled-failed",
+      "from": "halted:stalled",
+      "to": "failed",
+      "event": "run_failed",
+      "kind": "transition",
+      "gate": "",
+      "label": "Retry budget spent",
+      "guards": [],
+      "defined_at": "control-plane/run/machine.go:473",
+      "source": "control-plane/run/doc.go:13",
+      "notes": "The only way out of a spent halt."
+    },
+    {
+      "id": "halted-lease_lost-failed",
+      "from": "halted:lease_lost",
+      "to": "failed",
+      "event": "run_failed",
+      "kind": "transition",
+      "gate": "",
+      "label": "Retry budget spent",
+      "guards": [],
+      "defined_at": "control-plane/run/machine.go:473",
+      "source": "control-plane/run/doc.go:13",
+      "notes": "The only way out of a spent halt."
+    },
+    {
+      "id": "halted-reconcile_failed-failed",
+      "from": "halted:reconcile_failed",
+      "to": "failed",
+      "event": "run_failed",
+      "kind": "transition",
+      "gate": "",
+      "label": "Retry budget spent",
+      "guards": [],
+      "defined_at": "control-plane/run/machine.go:473",
+      "source": "control-plane/run/doc.go:13",
+      "notes": "Three failed passes end the run."
+    },
+    {
+      "id": "halted-budget_exhausted-failed",
+      "from": "halted:budget_exhausted",
+      "to": "failed",
+      "event": "run_failed",
+      "kind": "transition",
+      "gate": "",
+      "label": "Retry budget spent",
+      "guards": [],
+      "defined_at": "control-plane/run/machine.go:473",
+      "source": "control-plane/run/doc.go:13",
+      "notes": "The only way out of a spent halt."
+    },
+    {
+      "id": "halted-operator_halt-failed",
+      "from": "halted:operator_halt",
+      "to": "failed",
+      "event": "run_failed",
+      "kind": "transition",
+      "gate": "",
+      "label": "The operator closed it",
+      "guards": [],
+      "defined_at": "control-plane/run/machine.go:473",
+      "source": "control-plane/run/doc.go:13",
+      "notes": "A halt the operator will not resume."
+    }
+  ],
+  "kill_test_boundaries": [
+    {
+      "id": "claimed",
+      "phase": "claimed",
+      "after_event": "run_claimed",
+      "label": "Just after the claim row commits",
+      "order": 1,
+      "defined_at": "control-plane/killtest/driver.go:65",
+      "source": "control-plane/killtest/phases.go:16"
+    },
+    {
+      "id": "running",
+      "phase": "running",
+      "after_event": "run_started",
+      "label": "Just after the start row commits",
+      "order": 2,
+      "defined_at": "control-plane/killtest/driver.go:77",
+      "source": "control-plane/killtest/phases.go:17"
+    },
+    {
+      "id": "stint",
+      "phase": "running",
+      "after_event": "stint_started",
+      "label": "Just after the stint row commits",
+      "order": 3,
+      "defined_at": "control-plane/killtest/driver.go:88",
+      "source": "control-plane/killtest/phases.go:18"
+    },
+    {
+      "id": "heartbeat",
+      "phase": "running",
+      "after_event": "heartbeat",
+      "label": "Just after the heartbeat row commits",
+      "order": 4,
+      "defined_at": "control-plane/killtest/driver.go:94",
+      "source": "control-plane/killtest/phases.go:19"
+    },
+    {
+      "id": "intent",
+      "phase": "running",
+      "after_event": "side_effect",
+      "label": "Intent row committed, effect not yet performed",
+      "order": 5,
+      "defined_at": "control-plane/killtest/effects.go:127",
+      "source": "control-plane/killtest/phases.go:20"
+    },
+    {
+      "id": "effect",
+      "phase": "running",
+      "after_event": "",
+      "label": "Effect performed, outcome row not yet written",
+      "order": 6,
+      "defined_at": "control-plane/killtest/effects.go:147",
+      "source": "control-plane/killtest/phases.go:21",
+      "notes": "after_event is empty on purpose: this is the crash window with no journal row for the effect that ran."
+    },
+    {
+      "id": "outcome",
+      "phase": "running",
+      "after_event": "side_effect",
+      "label": "Just after the outcome row commits",
+      "order": 7,
+      "defined_at": "control-plane/killtest/effects.go:161",
+      "source": "control-plane/killtest/phases.go:22"
+    },
+    {
+      "id": "halted",
+      "phase": "halted:stalled",
+      "after_event": "run_halted",
+      "label": "Just after the named halt row commits",
+      "order": 8,
+      "defined_at": "control-plane/killtest/driver.go:120",
+      "source": "control-plane/killtest/phases.go:23"
+    },
+    {
+      "id": "resumed",
+      "phase": "running",
+      "after_event": "run_resumed",
+      "label": "Just after the resume row commits",
+      "order": 9,
+      "defined_at": "control-plane/killtest/driver.go:133",
+      "source": "control-plane/killtest/phases.go:24"
+    },
+    {
+      "id": "completed",
+      "phase": "completed",
+      "after_event": "run_completed",
+      "label": "Just after the completion row commits: the never-twice half",
+      "order": 10,
+      "defined_at": "control-plane/killtest/driver.go:147",
+      "source": "control-plane/killtest/phases.go:25"
+    }
+  ],
+  "checkpoints": [
+    {
+      "id": "claim",
+      "phase": "claim",
+      "boundary": "claimed",
+      "card_gate": "",
+      "label": "Claimed run: re-claim the lease at token+1",
+      "resume_action": "take-over-lease",
+      "defined_at": "control-plane/run/machine.go:134",
+      "source": "docs/internal/control-plane/index.md:315"
+    },
+    {
+      "id": "start",
+      "phase": "plan",
+      "boundary": "running",
+      "card_gate": "",
+      "label": "Started run: continue after the start row",
+      "resume_action": "replay-position",
+      "defined_at": "control-plane/journal/replay.go:212",
+      "source": "docs/internal/control-plane/index.md:315"
+    },
+    {
+      "id": "scope-confirm",
+      "phase": "claim",
+      "boundary": "",
+      "card_gate": "scope-confirm",
+      "label": "Scope gate answered: read the card, do not re-ask",
+      "resume_action": "read-card",
+      "defined_at": "specs/core/SPEC-033-autopilot-policy.md:117",
+      "source": "docs/internal/control-plane/record-ownership.md:43"
+    },
+    {
+      "id": "plan-approve",
+      "phase": "plan",
+      "boundary": "",
+      "card_gate": "plan-approve",
+      "label": "Plan gate answered: read the card, do not re-ask",
+      "resume_action": "read-card",
+      "defined_at": "specs/core/SPEC-033-autopilot-policy.md:117",
+      "source": "docs/internal/control-plane/record-ownership.md:43"
+    },
+    {
+      "id": "intent",
+      "phase": "ship",
+      "boundary": "intent",
+      "card_gate": "",
+      "label": "Intent journaled, effect not performed: perform it once",
+      "resume_action": "resolve-effect",
+      "defined_at": "control-plane/journal/replay.go:268",
+      "source": "specs/core/SPEC-040-backlog-sweep.md:269"
+    },
+    {
+      "id": "effect",
+      "phase": "ship",
+      "boundary": "effect",
+      "card_gate": "",
+      "label": "Effect performed, outcome missing: close it, do not repeat it",
+      "resume_action": "close-outcome",
+      "defined_at": "control-plane/killtest/effects.go:147",
+      "source": "control-plane/journal/replay.go:268"
+    },
+    {
+      "id": "ship-choice",
+      "phase": "ship",
+      "boundary": "",
+      "card_gate": "ship-choice",
+      "label": "Ship gate answered: read the card, do not re-ask",
+      "resume_action": "read-card",
+      "defined_at": "specs/core/SPEC-033-autopilot-policy.md:117",
+      "source": "specs/core/SPEC-033-autopilot-policy.md:565"
+    },
+    {
+      "id": "halt",
+      "phase": "running",
+      "boundary": "halted",
+      "card_gate": "",
+      "label": "Named halt state: spend one retry of that reason, or fail",
+      "resume_action": "resume-with-budget",
+      "defined_at": "control-plane/journal/state.go:124",
+      "source": "docs/internal/control-plane/index.md:403"
+    },
+    {
+      "id": "completed",
+      "phase": "wrap",
+      "boundary": "completed",
+      "card_gate": "",
+      "label": "Completed run: refuse the second completion",
+      "resume_action": "refuse-terminal",
+      "defined_at": "control-plane/run/machine.go:446",
+      "source": "docs/internal/control-plane/index.md:405"
+    }
+  ]
+}

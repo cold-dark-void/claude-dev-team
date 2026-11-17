@@ -12,6 +12,10 @@ import "time"
 // completion. PhaseCompleted is the "never twice" half of AC7: the kill lands
 // after the run_completed row, so recovery must detect completion from replay
 // and refuse the second completion.
+//
+// The lifecycle graph carries this list in machine-readable form and the sweep
+// iterates the graph (CDT-642 AC2, control-plane/lifecycle). The constants below
+// are the same list in Go, for the process boundary contract.
 const (
 	PhaseClaimed   = "claimed"
 	PhaseRunning   = "running"
@@ -25,8 +29,12 @@ const (
 	PhaseCompleted = "completed"
 )
 
-// PhaseBoundaries is the full kill set, in lifecycle order. The sweep test runs
-// one subtest per entry, each with its own journal file.
+// PhaseBoundaries is the full kill set, in lifecycle order. The machine-readable
+// copy of this list is the lifecycle graph
+// (docs/internal/control-plane/lifecycle-graph.json, § kill_test_boundaries), and
+// the sweep iterates that list (CDT-642 AC2); TestGraphBoundaryListIsTheMachineLadder
+// fails when the two disagree. This declaration stays the phase vocabulary: the
+// ids the helper validates CDT643_KILLTEST_KILL_AT against.
 var PhaseBoundaries = []string{
 	PhaseClaimed, PhaseRunning, PhaseStint, PhaseHeartbeat,
 	PhaseIntent, PhaseEffect, PhaseOutcome,

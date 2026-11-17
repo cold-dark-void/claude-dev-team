@@ -8,12 +8,14 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 	"syscall"
 	"testing"
 	"time"
 
 	"github.com/cold-dark-void/claude-dev-team/control-plane/journal"
+	"github.com/cold-dark-void/claude-dev-team/control-plane/lifecycle"
 	"github.com/cold-dark-void/claude-dev-team/control-plane/run"
 )
 
@@ -75,25 +77,26 @@ func isExecutable(p string) bool {
 // lifecycle phase boundary, restart it on the same journal, and the run
 // completes exactly once.
 //
-// Each subtest owns one journal file and one effect log. The victim is a real
-// process that SIGKILLs itself mid-flight with the journal open; the recovery is
-// a second real process on the same file. The assertions are on the journal and
-// on the external effect log — the two things an operator can audit — not on
-// any in-memory state.
+// The boundary list comes from the lifecycle graph, not from this file
+// (CDT-642 AC2). Each subtest owns one journal file and one effect log. The
+// victim is a real process that SIGKILLs itself mid-flight with the journal open;
+// the recovery is a second real process on the same file. The assertions are on
+// the journal and on the external effect log — the two things an operator can
+// audit — not on any in-memory state.
 func TestKillAtEveryPhaseBoundaryCompletesOnce(t *testing.T) {
-	for _, phase := range PhaseBoundaries {
-		phase := phase
-		t.Run(phase, func(t *testing.T) {
+	for _, b := range graphBoundaries(t) {
+		b := b
+		t.Run(b.ID, func(t *testing.T) {
 			c := newCase(t)
 
-			c.kill(t, "runner-a", phase)
+			c.kill(t, "runner-a", b.ID)
 			time.Sleep(TakeoverWait) // the dead owner's lease ages past its stall limit
 			rep := c.complete(t, "runner-b")
 
 			if rep.State != "completed" {
 				t.Fatalf("recovery state = %q, want completed", rep.State)
 			}
-			if phase == PhaseCompleted {
+			if b.ID == PhaseCompleted {
 				// The run was already finished. Recovery must say so, not
 				// complete it again.
 				if rep.SecondCompleteRefused == "" {
@@ -104,13 +107,99 @@ func TestKillAtEveryPhaseBoundaryCompletesOnce(t *testing.T) {
 						rep.SecondCompleteRefused)
 				}
 				t.Logf("exactly-once: killed at %s; recovery replayed %s and was refused: %s",
-					phase, rep.State, rep.SecondCompleteRefused)
+					b.ID, rep.State, rep.SecondCompleteRefused)
 			} else if rep.SecondCompleteRefused != "" {
 				t.Errorf("recovery attempted a second completion: %s", rep.SecondCompleteRefused)
 			}
 
-			c.assertExactlyOnce(t, phase)
+			c.assertExactlyOnce(t, b.ID)
 		})
+	}
+}
+
+// graphBoundaries is the kill boundary list, read from the lifecycle graph — the
+// single source of that list (CDT-642 AC2). A graph the harness cannot read fails
+// the suite: the sweep never falls back to a copy of the list of its own.
+func graphBoundaries(t *testing.T) []lifecycle.Boundary {
+	t.Helper()
+	g, err := lifecycle.LoadDefault()
+	if err != nil {
+		t.Fatalf("load the lifecycle graph: %v", err)
+	}
+	bs := g.BoundaryList()
+	if len(bs) == 0 {
+		t.Fatal("the lifecycle graph carries no kill_test_boundaries")
+	}
+	return bs
+}
+
+// ladderRow is one step of the run machine's own ladder: the boundary the harness
+// kills at, the journal row that commits just before it, and the state name the
+// run holds there. It is the Driver script read as a table.
+type ladderRow struct {
+	id    string
+	event string
+	state string
+}
+
+func machineLadder() []ladderRow {
+	sideEffect := string(journal.KindSideEffect)
+	running := string(journal.StatusRunning)
+	return []ladderRow{
+		{PhaseClaimed, string(journal.KindRunClaimed), string(journal.StatusClaimed)},
+		{PhaseRunning, string(journal.KindRunStarted), running},
+		{PhaseStint, string(journal.KindStintStarted), running},
+		{PhaseHeartbeat, string(journal.KindHeartbeat), running},
+		{PhaseIntent, sideEffect, running},
+		// PhaseEffect is the crash window: the effect ran and no journal row
+		// says so, so the boundary names no event.
+		{PhaseEffect, "", running},
+		{PhaseOutcome, sideEffect, running},
+		{PhaseHalted, string(journal.KindRunHalted),
+			string(journal.StatusHalted) + ":" + run.ReasonStalled},
+		{PhaseResumed, string(journal.KindRunResumed), running},
+		{PhaseCompleted, string(journal.KindRunCompleted), string(journal.StatusCompleted)},
+	}
+}
+
+// AC2 (CDT-642): the graph owns the boundary list, and the kill test fails when
+// the graph and the machine's ladder disagree — in ids, in order, in the row each
+// boundary follows, and in the state each boundary lands in.
+func TestGraphBoundaryListIsTheMachineLadder(t *testing.T) {
+	bs := graphBoundaries(t)
+	want := machineLadder()
+
+	if len(bs) != len(want) {
+		t.Fatalf("graph boundaries = %d, the machine ladder has %d", len(bs), len(want))
+	}
+	gotIDs := make([]string, 0, len(bs))
+	for i, b := range bs {
+		gotIDs = append(gotIDs, b.ID)
+		w := want[i]
+		if b.ID != w.id {
+			t.Errorf("boundary[%d].id = %q, want %q", i, b.ID, w.id)
+			continue
+		}
+		if b.Order != i+1 {
+			t.Errorf("boundary %q order = %d, want %d", b.ID, b.Order, i+1)
+		}
+		if b.AfterEvent != w.event {
+			t.Errorf("boundary %q after_event = %q, want %q (the row the Driver writes there)",
+				b.ID, b.AfterEvent, w.event)
+		}
+		if b.Phase != w.state {
+			t.Errorf("boundary %q phase = %q, want the machine state %q", b.ID, b.Phase, w.state)
+		}
+		if !IsPhase(b.ID) {
+			t.Errorf("boundary %q is not a boundary the harness can drive (killtest.IsPhase)", b.ID)
+		}
+		if b.AfterEvent != "" && !slices.Contains(journal.AllKinds, journal.Kind(b.AfterEvent)) {
+			t.Errorf("boundary %q after_event %q is not a journal event kind", b.ID, b.AfterEvent)
+		}
+	}
+	if !slices.Equal(gotIDs, PhaseBoundaries) {
+		t.Errorf("graph boundary ids = %v, the phase set the harness declares is %v",
+			gotIDs, PhaseBoundaries)
 	}
 }
 

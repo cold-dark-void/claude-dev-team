@@ -411,6 +411,93 @@ carries the `[process]` tag: each asserts file content (AC1–AC6, AC8, AC9) or 
 - **AC10.** Ships `2.0.0-pre.N` via `/release` — explicit version (SPEC-010 arc scheme). Never patch, minor, major, or `2.0.0`. C2 is an epic child, so the release is the epic fold, where master moves (SPEC-033): N is fixed there, `stable` stays at the last 1.x final release while the arc is open, and the C2 commit itself touches no version pair.
   - Verify: the tag and CHANGELOG heading carry `v2.0.0-pre.N` and `.claude-plugin/plugin.json` carries the bare form; `stable` is unchanged; `git diff --name-only` over C2 lists no `plugin.json` or `CHANGELOG.md` change.
 
+CDT-642 follows the same ruling: no `specs/` entry — the deliverable AC list below is the spec. C3 is
+the third child of the CDT-628 epic and builds on the C2 journal and run machine (CDT-643,
+`v2.0.0-pre.4`). The graph data is one committed file, `docs/internal/control-plane/lifecycle-graph.json`,
+and `control-plane/lifecycle/` is the only reader that validates it; the C3 gate home is that loader (AC1)
+plus the boundary-list agreement with the kill test (AC2). C3 owns no gate policy: SPEC-033 keeps it
+(AC6). No AC carries the `[process]` tag: each asserts file content (AC1–AC6) or release content (AC7).
+
+### CDT-642
+
+- **AC1.** The lifecycle graph is JSON, and load validates it. `docs/internal/control-plane/lifecycle-graph.json`
+  (`graph: control-plane-lifecycle`, `schema_version: 1`) carries four sections. `vertices`: the seven
+  `/orchestrate` workflow phases and the nine run states of the C2 machine. `edges`: the transitions between
+  vertices, each with the blocking conditions that guard it. `kill_test_boundaries`: the kill set.
+  `checkpoints`: the points a run resumes from. `control-plane/lifecycle` is the loader — `Load` (a path),
+  `LoadBytes`, `LoadDefault` (`$DEVTEAM_LIFECYCLE_GRAPH`, else the file at or above the working directory).
+  Decoding is strict: a syntax error, trailing data, a section of the wrong JSON type, or a key the contract
+  does not define fails with `ErrMalformedJSON`. Every failure is a typed `*lifecycle.GraphError` that names
+  the cause, the element, its id, and the field. The cause set is closed: the `Err*` vars in
+  `control-plane/lifecycle/load.go`.
+  - Verify: from `control-plane/`, `go test ./lifecycle/` exits 0; it loads the committed graph, and one case
+    per named cause mutates that graph and asserts `errors.Is(err, <cause>)` plus the element, id, and field
+    the error names.
+- **AC2.** The graph is the single source of the boundary list the kill test iterates and of the checkpoint
+  points. `lifecycle.BoundaryList()` returns § `kill_test_boundaries` in lifecycle order and
+  `lifecycle.Checkpoints()` returns § `checkpoints`; both return copies. The kill-test sweep iterates
+  `BoundaryList()` — the suite keeps no boundary list of its own, and a graph it cannot read fails the run.
+  `lifecycle.EdgeGuard(phase, event)` returns the one edge that leaves a phase on a journal event. A pair that
+  fans out to more than one target state names no single step: `run_halted` has one edge per halt reason, so
+  `EdgeGuard` returns an `*lifecycle.EdgeLookupError` (`ErrAmbiguousEdge`) that names the candidate edges, and
+  `lifecycle.Guards(phase, event)` returns the guards of every edge in the pair. Load is silent on such a
+  pair — the fan-out is legal graph data. The loader cross-checks the file against the code it describes, so it cannot drift: a run-state
+  vertex the machine cannot be in (`ErrUnknownState`), a `halted:<reason>` outside `journal.HaltReasons`
+  (`ErrUnknownHaltReason`), a machine state with no vertex (`ErrMissingState`), a terminal flag that
+  disagrees with the machine (`ErrBadTerminal`), a non-journal event kind (`ErrUnknownEvent`), and a phase
+  ladder with a gap (`ErrBrokenLadder`) each fail load.
+  - Verify: `go test ./lifecycle/ ./killtest/` exits 0; `TestGraphBoundaryListIsTheMachineLadder` proves the
+    graph list equals the phase set the harness declares in `control-plane/killtest/phases.go` — same ids,
+    same order, same journal row and run state per boundary — and the sweep subtests carry the graph ids.
+- **AC3.** The phase-event contract exists. `control-plane/spool/` appends NDJSON phase events to
+  `$MROOT/.claude/runs/spool/spool.ndjson` — git-ignored, with `$DEVTEAM_SPOOL` as the outright override and
+  `$DEVTEAM_MROOT` as the anchor, the `control-plane/journal/open.go` pattern. The record shape is fixed and
+  documented in `control-plane/spool/doc.go`: `ts` (the canonical journal timestamp), `run_id`, `phase`,
+  `kind` ∈ {`start`, `end`, `gate`, `halt`}, and optional `detail`. The same doc states the trust rule: the
+  path and the record arrive as argv, environment, or Go values; `detail` carries untrusted text and is
+  marshalled as data, never assembled into a command, a shell string, or SQL; a move of the spool into
+  SQLite follows `skills/lib/sqlq.sh` — fixed statement text, every value bound through `?`.
+  - Verify: `go test ./spool/` exits 0 with the exact line shape, the closed kind set, the default path, the
+    env override, and the untrusted-detail case; `git check-ignore -q .claude/runs/spool/spool.ndjson` exits
+    0; `grep -n 'sqlq.sh' control-plane/spool/doc.go` hits the rule.
+- **AC4.** Duplicate phase events are idempotent: a replay causes no second transition. `(run_id, phase,
+  kind)` is the spool key. `Spool.Append` checks the key first and writes nothing when the spool holds it,
+  refusing with the typed `spool.ErrDuplicate`. `Spool.Emit` is the replay path a workflow uses: it stamps
+  the clock and folds that error into `created=false` with a nil error, so a replay of a crashed run neither
+  fails nor records the event twice. The choice — typed error at `Append`, dedupe at `Emit` — is stated in
+  the package doc.
+  - Verify: `go test ./spool/` proves a second append of a used key returns `ErrDuplicate`, leaves the file
+    byte-identical, names the existing line, and that `Emit` on the same key returns `created=false` with a
+    nil error and one record on disk.
+- **AC5.** The graph JSON carries the data the UI draws, and this child renders nothing. Every vertex, edge,
+  boundary, and checkpoint carries `id`, `label`, `defined_at`, and `source` where the element copies a
+  policy cell, plus `order` where order matters, so CDT-652 can draw the graph and the board from this file
+  with no second model. The file carries no coordinate, colour, layout, style, or markup field, and
+  `control-plane/lifecycle` ships accessors only — `VertexByID`, `Phases`, `RunStates`, `BoundaryList`,
+  `Checkpoints`, `EdgeGuard`, `Guards` — and no drawing code.
+  - Verify: `go test ./lifecycle/` loads the committed graph and exercises the accessors; `grep -niE
+    'color|colour|svg|html|layout|style|css' docs/internal/control-plane/lifecycle-graph.json` finds no
+    rendering field.
+- **AC6.** SPEC-033 blocking conditions are cited, not restated, and SPEC-033 stays the gate policy. Every
+  guard carries `bc` ∈ BC1–BC8, an `outcome` ∈ {`halt`, `reroute`}, and a `citation` of the form
+  `specs/core/SPEC-033-autopilot-policy.md:<line>`; the loader refuses every other form (`ErrBadGuard`). A
+  guard label names the condition in a phrase; the halt and reroute semantics stay in SPEC-033 M6/M7 and are
+  cited, never copied (SPEC-033:229). C3 adds no gate, no gate flag, and no second policy: the three gate
+  names are the SPEC-033:117 set, and worktree-per-ticket (SPEC-016) and the release train (SPEC-023) are
+  untouched.
+  - Verify: `go test ./lifecycle/` refuses a guard whose citation is prose, cites another spec, or names a BC
+    outside BC1–BC8, and proves BC4 guards the plan edge only; `grep -c '"citation"'
+    docs/internal/control-plane/lifecycle-graph.json` equals the guard count and every citation matches the
+    SPEC-033 path form; `git diff --name-only` over C3 touches no `skills/`, `commands/`, `agents/`, or
+    `.claude-plugin/` path.
+- **AC7.** Ships `2.0.0-pre.N` via `/release` — explicit version (SPEC-010 arc scheme). Never patch, minor,
+  major, or `2.0.0`. C3 is an epic child, so the release is the epic fold, where master moves (SPEC-033); N
+  is fixed there, `stable` stays at the last 1.x final release while the arc is open, and the C3 commits
+  touch no version pair.
+  - Verify: the tag and the CHANGELOG heading carry `v2.0.0-pre.N` and `.claude-plugin/plugin.json` carries
+    the bare form; `stable` is unchanged; `git diff --name-only` over C3 lists no `plugin.json` or
+    `CHANGELOG.md` change.
+
 ## Ship gate (CDT-645)
 
 On the Grok nest at depth 1 the M14 ship-gate council defers to the parent walker (SPEC-033 M14(l)): the child run prints `needs-parent-M14 SHA=<head> branch=<branch>` at Step 11 Stage 2 and returns; the parent runs M14 at depth 0, then the Stage 3 end-state `/release 2.0.0-pre.3`.

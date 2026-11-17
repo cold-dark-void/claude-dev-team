@@ -37,6 +37,10 @@
 # Control-plane run journal (CDT-628-C2 / ADR 0001): run state is process
 # state — git-ignored, never committed, and never in memory.db.
 .claude/runs/
+# Phase-event spool (CDT-642): the NDJSON spool path is a contract
+# (control-plane/spool/spool.go, spoolRelPath). Named here as well as covered by
+# the .claude/runs/ line above.
+.claude/runs/spool/
 
 # Advisor probe/finalize seam state (SPEC-039 / CDT-556-C4)
 .claude/advisor/

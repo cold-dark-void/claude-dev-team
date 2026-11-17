@@ -11,7 +11,11 @@
 // The pieces:
 //
 //   - PhaseBoundaries and the CDT643_KILLTEST_* environment contract: the
-//     boundaries a kill may land at, and how the harness drives the victim.
+//     boundaries a kill may land at, and how the harness drives the victim. The
+//     boundary list the sweep iterates is the lifecycle graph's
+//     (docs/internal/control-plane/lifecycle-graph.json, read through
+//     control-plane/lifecycle — CDT-642 AC2), and the suite fails when that list
+//     and this ladder disagree.
 //   - Driver: the one lifecycle script (claim → start → stint → heartbeat →
 //     side effect → stall → halt → resume → side effect → complete). It
 //     derives its position from the journal replay, so the same script is
