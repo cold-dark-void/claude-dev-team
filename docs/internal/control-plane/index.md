@@ -6,6 +6,8 @@ Status (CDT-632, added 2026-11-15): the phase-0 written decisions are also compl
 
 Status (CDT-643, added 2026-11-16): phase 1 (CDT-628) builds in this directory. § "CDT-643 — Run journal, state machine, CI kill test" pins the C2 deliverable paths and § "CDT-643" carries its canonical AC list. Every phase-0 section above is unchanged.
 
+Status (CDT-644, added 2026-11-17): C4 lands the node agent. § "CDT-644 — Node agent" below pins the C4 deliverable paths and § "CDT-644" (under § Acceptance criteria) carries its canonical AC list. The phase-0, CDT-632, CDT-643, CDT-642, and CDT-646 sections are unchanged except where C4 appends (the C4 sections of `native-runner.md` and `node-agent-build-probe.md`, and the record-ownership table's row 14).
+
 ## Scope
 
 This ticket is Phase 0 discovery of the control plane Option C+ (CDT-626). It is docs-only. It probes hosts and Runner types. It records evidence in this directory. It ships no product code.
@@ -54,6 +56,23 @@ No container image is pulled without this approval. Probe commands and throwaway
 | [native-runner.md](native-runner.md) | AC-7 (native supervision + start mechanism), AC-9 native half (process-restart survival) |
 | [node-agent-build-probe.md](node-agent-build-probe.md) | AC-8 (Node agent Go build probe) |
 | [credentials.md](credentials.md) | AC-9 (credential plan synthesis — CDT-632 reads this file) |
+
+## CDT-644 — Node agent
+
+Added by CDT-644 (CDT-628 C4) on 2026-11-17. C4 puts the node agent inside the service directory:
+one Go binary per node, the native runner, the fail-closed runner selection. This table pins the C4
+deliverable paths. The canonical AC list is § "CDT-644" under § Acceptance criteria. The sections
+above are unchanged.
+
+| Deliverable | Path |
+|---|---|
+| The agent package | `control-plane/agent/` |
+| The node-agent binary | `control-plane/cmd/node-agent/` |
+| The build entry (three phase-0 targets) | `control-plane/build.sh`; artifacts in `control-plane/dist/` (git-ignored) |
+| The runner selection record | `$MROOT/.claude/dev-team/node.json` (record-ownership row 14; git-ignored) |
+| The CI kill lane, parameterised by runner type | `.github/workflows/smoke.yml` § `control-plane`; the helper's selection validation in `control-plane/killtest/helper` |
+| The supervision + operator-step record | `native-runner.md` § CDT-644 (the two operator steps are pending-operator) |
+| The build + image-approval record | `node-agent-build-probe.md` § "The C4 build" |
 
 ## CDT-632 — File map (written decisions)
 
@@ -411,6 +430,7 @@ carries the `[process]` tag: each asserts file content (AC1–AC6, AC8, AC9) or 
 - **AC10.** Ships `2.0.0-pre.N` via `/release` — explicit version (SPEC-010 arc scheme). Never patch, minor, major, or `2.0.0`. C2 is an epic child, so the release is the epic fold, where master moves (SPEC-033): N is fixed there, `stable` stays at the last 1.x final release while the arc is open, and the C2 commit itself touches no version pair.
   - Verify: the tag and CHANGELOG heading carry `v2.0.0-pre.N` and `.claude-plugin/plugin.json` carries the bare form; `stable` is unchanged; `git diff --name-only` over C2 lists no `plugin.json` or `CHANGELOG.md` change.
 
+
 CDT-642 follows the same ruling: no `specs/` entry — the deliverable AC list below is the spec. C3 is
 the third child of the CDT-628 epic and builds on the C2 journal and run machine (CDT-643,
 `v2.0.0-pre.4`). The graph data is one committed file, `docs/internal/control-plane/lifecycle-graph.json`,
@@ -498,6 +518,115 @@ plus the boundary-list agreement with the kill test (AC2). C3 owns no gate polic
     the bare form; `stable` is unchanged; `git diff --name-only` over C3 lists no `plugin.json` or
     `CHANGELOG.md` change.
 
+CDT-644 follows the same ruling: no `specs/` entry — the deliverable AC list below is the spec. C4 is
+the fourth child of the CDT-628 epic and builds on the C2 run machine (CDT-643, `v2.0.0-pre.4`) and
+the C3 lifecycle graph (CDT-642, `v2.0.0-pre.5`). Its gate home is the CI kill lane (AC8) plus the
+ownership row (AC3). No AC carries the `[process]` tag: each asserts file content (AC1–AC4, AC6–AC8)
+or gate content (AC9), or is an operator step (AC5, AC10 — recorded pending-operator, never
+executed inside the ticket). C4 ships no version pair: the release is the epic fold (the
+"Ships `2.0.0-pre.N`" bullet).
+
+### CDT-644
+
+- **AC1.** One Go binary per node; the control plane talks only to the node agent. `control-plane/cmd/node-agent`
+  carries the four-verb contract — `start`, `stop`, `status`, `steer` — and every state-changing verb
+  writes its journal intent before it acts and its outcome after (the SPEC-040 AC11 intent-then-outcome
+  pattern, through `run.Machine.Intent` / `run.Machine.Outcome`). `status` reads; on a running run it
+  journals its reading as an intent-then-outcome pair (the one state where a `side_effect` row is
+  replayable) and on any other state it is a pure read and says so (`"journaled": false`). No Docker
+  dependency exists in the contract, the code, or the build — the G-02 image only compiles and runs
+  the Go test suite.
+  - Verify: `bash control-plane/build.sh linux-amd64` exits 0 and the binary answers `node-agent
+    status-node` with its selection JSON; `go test ./agent/` proves the intent row lands before the
+    spawn, the stop, and the steer it names, and closes with its outcome.
+- **AC2.** The native runner is the first runner built and the default once selected. `control-plane/agent`
+  supervises native runner processes: one host-CLI process on the node's own OS per run slot, spawned
+  with its own logins (`credentials.md` § AC-9 native rows — Claude Code 2.1.325, the probed version,
+  reads its subscription token file in the CLI's normal mode; the `--bare` split — `--bare` reads only
+  `ANTHROPIC_API_KEY`/`apiKeyHelper` and never the OAuth/keychain file — is the caveat
+  `credentials.md` carries, and the agent never spawns `--bare`), tracked by PID, steered at step
+  boundaries through the control file `.claude/runs/agent/<run-id>.steer`, and stopped with SIGTERM
+  then SIGKILL after a grace. The agent reuses the C2 machine, never forks it: one lease per run with
+  the monotonic fencing token (owner `node-agent-<pid>`, so a restarted agent is a real takeover that
+  raises the token), heartbeats inside the journaled stall limit, and the state as the replay of the
+  journal. The CDT-626 reboot contract is the adoption policy: a restarting agent kills the dead
+  supervisor's recorded orphan and re-spawns as the next attempt.
+  - Verify: `go test ./agent/` — `TestSuperviseTakeoverAfterAgentDeathCompletesOnce` proves the
+    takeover raises the token and completes the run exactly once; `TestRecoveryPerformsThePendingSpawn`
+    proves a crash between the spawn intent and the spawn is performed once by the recovery;
+    `TestNativeRunnerStopIsTermThenKill` proves SIGTERM then SIGKILL after the grace;
+    `TestSuperviseSteerThenOperatorStop` proves the steer is delivered and the stop lands
+    `halted:operator_halt`.
+- **AC3.** Runner selection is a per-node setting, fail-closed. The record is
+  `$MROOT/.claude/dev-team/node.json`, key `runner` (record-ownership row 14: `control-plane-only`,
+  one reader), overridden by `$DEVTEAM_RUNNER` — the C7 single-reader pattern of
+  `skills/backlog/linear-gate.sh`: first hit wins, every unrecognised value resolves to no selection.
+  A node with no selection starts no run. The closed runner set is `native` — the first built and the
+  default once selected.
+  - Verify: `go test ./agent/` proves the resolution table (env, config, junk, invalid JSON, missing
+    file) and that a refused start writes no journal row;
+    `git check-ignore -q .claude/dev-team/node.json` exits 0.
+- **AC4.** The node agent runs under machine supervision, with restart-on-failure and journal capture
+  proven on the node. The proof is `native-runner.md` § probe 3 (2026-11-15): systemd spawned the
+  unit's command, tracked it by PID, restarted it on failure (`Restart=on-failure`, `RestartSec=2s`,
+  counter 6→7 in journald), and captured every attempt — the mechanics are independent of the binary
+  at `ExecStart`. C4 updates the unit record with the real binary's contract and leaves the install
+  (`/usr/local/bin/node-agent`) and enable as operator work.
+  - Verify: `native-runner.md` § probe 3 carries the verbatim `systemctl --user status` and
+    `journalctl --user` transcripts, and § "CDT-644 — the node agent is real" names the receipts.
+- **AC5.** Operator step B8: `loginctl enable-linger <user>` executed on the node, documented with
+  `loginctl show-user -p Linger` before and after as evidence. — **pending-operator**: the exact
+  commands and the evidence slots are recorded in `native-runner.md` § "Operator step B8", and the
+  step is not executed inside the ticket.
+  - Verify: `native-runner.md` § "Operator step B8 — linger (pending-operator)" carries the
+    before/after command pair and its evidence slots, marked pending-operator.
+- **AC6.** `credentials.md` is read in full, and the agent's credential posture is the CLI's own.
+  The native runner relies on the installed host CLIs and their logins — the per-host AC-9 native
+  rows (Claude Code 2.1.325, the probed version; Grok 1.0.77; omp 18.7.0), the `--bare` credential
+  split (`--bare` reads only `ANTHROPIC_API_KEY`/`apiKeyHelper`, never the OAuth/keychain file), and
+  the four residual gaps (§ "Gaps found": the container-half coverage note, the omp env-var names,
+  the Claude Code version drift, the bare-mode split). The agent never injects, mounts, or copies a
+  credential: the child inherits the agent's environment and reads its own files, and never spawns
+  `--bare`.
+  - Verify: `control-plane/agent/doc.go` cites `credentials.md` § AC-9 native rows; the C4 section of
+    `native-runner.md` names the `--bare` split and the four residual gaps.
+- **AC7.** The Go build image approval is recorded once, with evidence and a digest pin. The
+  maintainer approved `docker.io/library/golang:1.27-bookworm@sha256:4fa7c968ba93f1635670522dbb01a2c78150443e1385746924566079f36570ea`
+  for the build on 2026-11-17 — official Docker Library `golang`, active maintenance, root inside the
+  container but build outputs landing on the host-user-owned worktree mount. The phase-0 approval
+  covered the probe only; `node-agent-build-probe.md` § "The C4 build" carries the approval row.
+  - Verify: `node-agent-build-probe.md` § "The Go build image — approval record" carries the source
+    repo, the maintenance status, the root-vs-non-root row, and the digest pin.
+- **AC8.** Build artifacts exist for the three phase-0 targets — amd64 native, linux/arm64,
+  darwin/arm64. The build entry is `control-plane/build.sh`, inside the G-02-approved Go image,
+  digest-pinned, with GOCACHE/GOMODCACHE outside the mount and `CGO_ENABLED=0` static output. The
+  artifacts land in `control-plane/dist/` (git-ignored) and ship in no release.
+  - Verify: `bash control-plane/build.sh` exits 0; `file control-plane/dist/node-agent-*` names an
+    x86-64 ELF (statically linked), an ARM aarch64 ELF, and a Mach-O arm64 binary;
+    `git check-ignore -q control-plane/dist/node-agent-linux-amd64` exits 0.
+- **AC9.** The CI kill job is parameterised by runner type and passes with the native runner
+  selected. The C2 lane (the `control-plane` job in `.github/workflows/smoke.yml`) takes a
+  `runner_type` workflow-dispatch input, defaults to native, and reaches the killtest helper as
+  `$DEVTEAM_RUNNER` — the node agent's own C7 selection variable. The helper resolves the selection
+  through `agent.Load` and refuses an unknown runner fail-closed before any journal row is written;
+  the attempt report carries the resolved runner type.
+  - Verify: `go test ./killtest/` — `TestUnknownRunnerTypeIsRefusedFailClosed` proves an unknown
+    runner refuses with nothing written and `TestNativeRunnerSelectedRunsTheKillTest` proves the
+    lane passes with native selected; the workflow passes `-e DEVTEAM_RUNNER="$DEVTEAM_RUNNER"`
+    into the G-02 container.
+- **AC10.** The reboot acceptance test uses a real Windows reboot of the WSL host, not a service kill:
+  every in-flight run continues without a human, with the reboot command and resumed run ids as
+  evidence. — **pending-operator**: the protocol (start a run → `wsl.exe --shutdown` or a Windows-side
+  `shutdown /r /t 0` → prove the takeover in the journal with no human input) and the evidence slots
+  are recorded in `native-runner.md` § "Operator step — reboot acceptance test", and the step is not
+  executed inside the ticket. The code-level proof of the same contract is `go test ./agent/`
+  (AC2's takeover and recovery tests).
+  - Verify: `native-runner.md` § "Operator step — reboot acceptance test (pending-operator)" carries
+    the protocol and the evidence slots, marked pending-operator.
+- **AC11.** Ships `2.0.0-pre.N`; never patch, minor, major, or `2.0.0` — the release is the epic fold done
+  by the orchestrator later, so C4's commits touch no version pair
+  (`.claude-plugin/plugin.json` and `CHANGELOG.md` are untouched).
+  - Verify: `git diff --name-only ef1c2c4..HEAD` lists no `plugin.json` or `CHANGELOG.md` change.
 ### CDT-646
 
 - **AC1.** A ticket, an epic, and a child can be created, claimed, and closed from the plane with no network, and the local backlog is the source of truth. `skills/backlog/ticket.sh:116-125` is the verb CLI (`create` → `add.sh`, `claim` → `close.sh claim`, `close` → `close.sh` — one copy of each write path, no second writer); the epic and child fields ride the item frontmatter (`kind`, `epic_parent`, `child_id`, `depends_on`, `estimate`, `agent`). The store is `$MROOT/.claude/backlog.md` plus `$MROOT/.claude/backlog/<slug>.md` (`.gitignore:5,6`), and every verb writes it first (SPEC-009:239).

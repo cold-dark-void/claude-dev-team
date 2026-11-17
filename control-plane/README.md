@@ -38,6 +38,11 @@ Build outputs (Go and container artifacts) are git-ignored at the repo root
 | `journal/` | The append-only run journal: SQLite behind the narrow interface, `schema.sql`, replay, the lease table |
 | `run/` | The run state machine: lease and fencing token, named halt states, retry budgets, stall limits, the watchdog |
 | `reconcile/` | The on-start reconciler: the journal against worktrees, branches, and processes (AC5) |
+| `lifecycle/` | The lifecycle-graph loader (CDT-642) |
+| `spool/` | The phase-event spool (CDT-642) |
+| `agent/` | The node agent (CDT-644): the four-verb contract — start, stop, status, steer — and the native runner, a process on the node's own OS. No Docker in the contract, the code, or the build |
+| `cmd/node-agent/` | The node-agent binary, one per node |
 | `cmd/journalctl/` | The journal CLI — the plugin↔service boundary: one append, one read, exit codes 0/1/64 |
-| `killtest/` | The AC7 kill-test lane: SIGKILL at every phase boundary, in the G-02 container |
+| `killtest/` | The AC7 kill-test lane: SIGKILL at every phase boundary, in the G-02 container; parameterised by runner type since CDT-644 |
+| `build.sh` | The CDT-644 build entry: the three phase-0 targets in the G-02-approved Go image |
 | `README.md` | This boundary and ownership statement |

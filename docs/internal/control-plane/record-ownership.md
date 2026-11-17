@@ -1,4 +1,4 @@
-# Record ownership — the twelve plugin state records and the control plane's run journal
+# Record ownership — one owner and one conflict rule per state record
 
 Carries AC13. Scope: phase 0 of control plane Option C+ (CDT-626). This file assigns one writer,
 one conflict rule, and one owner to each plugin state record. It ships no behavior.
@@ -12,6 +12,10 @@ becomes the source of truth for ticket records, Linear becomes an opt-in per-pro
 the `linear_sync` key, and row 13 (the project config that holds that key) enters the table.
 Row 4's owner and conflict rule are re-tested and stay `plugin` / `single-writer-lease`; see its
 mechanics entry.
+
+CDT-644 (CDT-628 C4, 2026-11-17) adds row 14: the node agent's per-node runner selection
+(`.claude/dev-team/node.json`, key `runner`) — `control-plane-only` with the C7 single-reader
+pattern, fail-closed.
 
 ## Decision register
 
@@ -36,14 +40,15 @@ A conflict-rule cell is one of these five tokens. No cell carries any other valu
 | `append-only-merge` | Records are appended, never edited in place. Concurrent writers append and never merge, so no read-modify-write race exists. | JSONL append; append-newest-first + tmp+rename; create-only, no-overwrite. |
 | `derived-rebuild` | The record is a mirror that a sync tool rebuilds from its source. A lost or stale copy is repaired by re-running the sync, never by hand-merging. | The sync tool plus its cursor file. |
 
-## Ownership table (13 rows)
+## Ownership table (14 rows)
 
 Paths are `$MROOT`-anchored — `$MROOT` = the parent of `git rev-parse --git-common-dir` (SPEC-009), so every row except row 10 is shared across worktrees, not per-worktree. Row 10 is host-global and lives outside any repository. The `#` column is an index for cross-references in this file; it carries no rule.
 
 Rows 1-11 are the plugin records AC13 ruled in phase 0. Row 12 is the control plane's own record,
 added by CDT-643 under the AC8 naming rule: same `$MROOT` anchoring, git-ignored, and reached by the
 plugin through the journal CLI only. Row 13 is the project config that carries the `linear_sync` key,
-added by CDT-646 (tracker inversion).
+added by CDT-646 (tracker inversion). Row 14 is the node agent's per-node runner selection, added by
+CDT-644.
 
 | # | Record | Exact path | Writer | Reader | Owner | Conflict rule |
 |---|---|---|---|---|---|---|
@@ -60,6 +65,7 @@ added by CDT-646 (tracker inversion).
 | 11 | Worktree registry | `$MROOT/.worktrees/<slug>/` + `$MROOT/.worktrees/<slug>/.wt-lock`; git's own entries at `$MROOT/.git/worktrees/<slug>/` | `git worktree add`/`remove`, invoked only by `skills/worktree-lib.sh` (`ensure`, `release`, `register`) as a subprocess | `/status worktree`; `skills/wrap-ticket/resolve-worktree.sh`; `/wrap-ticket` Step 6; `/epic` shared integration path | plugin | single-writer-lease |
 | 12 | Run journal | `$MROOT/.claude/runs/run.db` (git-ignored, `.gitignore:39`; the DDL home is `control-plane/journal/schema.sql`) | The control-plane service, one writer per open: `control-plane/journal` appends the event, `control-plane/run` writes the `lease` row in the same transaction, one owner per run through the lease | The control-plane service (replay is the state) and the plugin through the journal CLI (`control-plane/cmd/journalctl`) — files + CLI calls only, the ADR 0001 boundary | control-plane-only | single-writer-lease |
 | 13 | Project config (`linear_sync`) | `$MROOT/.claude/dev-team/config.json` (git-ignored, `.gitignore` — the `linear_sync` opt-in key, SPEC-009 § Linear sync is opt-in) | `skills/backlog/linear-gate.sh set` only (tmp + rename through `skills/lib/portable.sh atomic_write`; it refuses a file that is not valid JSON) | `skills/backlog/linear-gate.sh` — the single reader; every Surface (`/kickoff`, `/orchestrate`, `/status`, `/epic`) and `ticket.sh` read the key through that helper, never the file | plugin | plugin-only |
+| 14 | Node agent config (`runner`) | `$MROOT/.claude/dev-team/node.json` (git-ignored, `.gitignore` — the per-node runner selection, CDT-644) | The node operator's provisioning step today — an out-of-band write, like the systemd user unit file; no verb writes it yet. No plugin Surface may write it | `control-plane/agent` — the single reader: `agent.Load` resolves the `runner` key (closed set; the native runner is the first built and the default once selected), overridden by `$DEVTEAM_RUNNER`, and every unrecognised value resolves to no selection, so a node with no selection starts no run (fail-closed) | control-plane-only | control-plane-only |
 
 ## Conflict-rule mechanics per row
 
@@ -100,12 +106,21 @@ added by CDT-646 (tracker inversion).
   `control_plane_url` (CDT-629, phase 2), and CDT-646 lands the `.gitignore` line that close-out
   § CDT-629 lists as a residual. When CDT-629 adds that key it brings its own writer and enters as
   its own row; this row's one-writer claim covers `linear_sync` only.
+- **Row 14** — CDT-644 (2026-11-17). One reader: `control-plane/agent` (`agent.Load`), the C7
+  pattern of row 13's reader — first hit wins (`$DEVTEAM_RUNNER` overrides the file's `runner` key),
+  one reader, and every unrecognised value resolves to no selection, so a node with no selection
+  starts no run (fail-closed). The closed runner set today is `native` — the first runner built and
+  the default once selected; no Docker dependency exists in the contract, the code, or the build.
+  The writer is the node operator's provisioning step, out-of-band like the systemd user unit file
+  it belongs with; the control plane ships no writer verb yet, and no plugin Surface reads or writes
+  the file. The record is node state, never committed (`.gitignore`), and shared across the
+  worktrees of one node through the `$MROOT` anchor.
 
 ## Invariants this table states (AC13)
 
 1. **`memory.db` lives at `$MROOT` and is shared across worktrees.** One database serves the main checkout and every `.worktrees/<slug>` tree (SPEC-004; AGENTS.md § Persistent Memory Protocol; row 5). Only `.claude/memory/<agent>/context.md` is per-worktree (SPEC-004: `context.md` is never migrated to SQLite).
 2. **Decision-cards are git-ignored and never in `memory.db`.** `.claude/autopilot/` is not committed (`.gitignore:35`), and SPEC-033 AC6/M13 states both halves of this rule for its own NDJSON ledger, mirroring SPEC-001 M7. Row 5 never carries card content: run state is not memory — it is not distilled, not embedded, and not read by a session-start load (ADR 0001 § Decision). The same rule holds for the sweeps journal (SPEC-040 M20, `.gitignore:9`), the ticket records (row 4, SPEC-009 § Backlog), the project config (row 13, `.gitignore`), and for every other row: no row in this table is committed product delivery.
-3. **The container Runner mounts the worktree at the same absolute path.** CDT-627 Fact 3 (`container-runner.md:58-68`) reproduced it for Claude Code and Grok: the host worktree appears inside the container at its own host path, and the mount must cover `$MROOT` as well, because `<wt>/.git` points at `$MROOT/.git/worktrees/<slug>`. Consequence for this table: rows 1-9, 11, and 13 need no path rewrite inside a container, and a container writer and a host writer contend on the *same* record, so the conflict rule of that row is the real guard.
+3. **The container Runner mounts the worktree at the same absolute path.** CDT-627 Fact 3 (`container-runner.md:58-68`) reproduced it for Claude Code and Grok: the host worktree appears inside the container at its own host path, and the mount must cover `$MROOT` as well, because `<wt>/.git` points at `$MROOT/.git/worktrees/<slug>`. Consequence for this table: rows 1-9, 11, and 13-14 need no path rewrite inside a container, and a container writer and a host writer contend on the *same* record, so the conflict rule of that row is the real guard.
 
 ## Owner ruling
 

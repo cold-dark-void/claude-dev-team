@@ -14,6 +14,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/cold-dark-void/claude-dev-team/control-plane/agent"
 	"github.com/cold-dark-void/claude-dev-team/control-plane/journal"
 	"github.com/cold-dark-void/claude-dev-team/control-plane/lifecycle"
 	"github.com/cold-dark-void/claude-dev-team/control-plane/run"
@@ -337,6 +338,47 @@ func TestStaleFencingTokenAfterTakeoverWritesNothing(t *testing.T) {
 // ReasonForTest is a halt reason from journal.HaltReasons, used to drive a
 // zombie write.
 const ReasonForTest = "operator_halt"
+
+// CDT-644 — the kill lane is parameterised by runner type. A lane that names
+// a runner the node agent does not know is refused fail-closed, before any
+// journal row is written.
+func TestUnknownRunnerTypeIsRefusedFailClosed(t *testing.T) {
+	t.Setenv("DEVTEAM_RUNNER", "container")
+	c := newCase(t)
+
+	cmd := c.command("runner-a", "", "")
+	out, err := cmd.CombinedOutput()
+	if err == nil {
+		t.Fatalf("helper with an unknown runner type exited cleanly:\n%s", out)
+	}
+	if !strings.Contains(string(out), "not one of") {
+		t.Errorf("refusal text:\n%s", out)
+	}
+	rows, err := c.openEngine(t).Events(context.Background(), RunID)
+	if err != nil || len(rows) != 0 {
+		t.Errorf("a refused lane wrote %d rows (err %v), want none", len(rows), err)
+	}
+}
+
+// CDT-644 — the lane passes with the native runner selected: the fail-closed
+// selection resolves, the report carries it, and the killed run still
+// completes exactly once.
+func TestNativeRunnerSelectedRunsTheKillTest(t *testing.T) {
+	t.Setenv("DEVTEAM_RUNNER", string(agent.RunnerNative))
+	c := newCase(t)
+
+	c.kill(t, "runner-a", PhaseRunning)
+	time.Sleep(TakeoverWait)
+	rep := c.complete(t, "runner-b")
+
+	if rep.RunnerType != string(agent.RunnerNative) {
+		t.Errorf("report runner type = %q, want %q", rep.RunnerType, agent.RunnerNative)
+	}
+	if rep.State != "completed" {
+		t.Fatalf("recovery state = %q, want completed", rep.State)
+	}
+	c.assertExactlyOnce(t, PhaseRunning)
+}
 
 // A run that is already completed cannot be claimed again: the recovery attempt
 // is refused, and the journal keeps its single completion.

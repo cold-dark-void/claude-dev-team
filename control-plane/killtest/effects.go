@@ -167,12 +167,14 @@ func RunEffect(ctx context.Context, m *run.Machine, owner string, token int64,
 // writes nothing, which is the point: the harness reads a report only from an
 // attempt that ran to completion.
 type Report struct {
-	Owner     string   `json:"owner"`
-	Token     int64    `json:"token"`
-	State     string   `json:"state"`
-	KilledAt  string   `json:"killed_at,omitempty"`
-	Performed []string `json:"performed,omitempty"`
-	Halts     []string `json:"halts,omitempty"`
+	Owner string `json:"owner"`
+	Token int64  `json:"token"`
+	State string `json:"state"`
+	// RunnerType is the runner the lane selected, when it named one (CDT-644).
+	RunnerType string   `json:"runner_type,omitempty"`
+	KilledAt   string   `json:"killed_at,omitempty"`
+	Performed  []string `json:"performed,omitempty"`
+	Halts      []string `json:"halts,omitempty"`
 	// Resumed lists the resume this attempt performed.
 	Resumed []string `json:"resumed,omitempty"`
 	// SecondCompleteRefused is the error text of the completion this attempt

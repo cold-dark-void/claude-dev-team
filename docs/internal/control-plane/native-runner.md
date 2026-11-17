@@ -217,6 +217,94 @@ The bare process also dies with its terminal/session (SIGHUP class), which the
 session-death probes in `host-capability-matrix.md` reproduce — the exact
 "reboot kills the work" failure CDT-626 exists to fix.
 
+## CDT-644 — the node agent is real (phase 1, C4)
+
+Everything above is the phase-0 record and is unchanged. C4 (CDT-628 C4,
+2026-11-17) lands the code both layers supervise:
+
+- **Layer 1 has receipts now.** `control-plane/agent/` is the node agent: one
+  Go binary (`control-plane/cmd/node-agent`) with the four-verb contract —
+  `start`, `stop`, `status`, `steer`. It supervises the native runner: one
+  process on the node's own OS per run slot (the configured host CLI, with its
+  own logins — `credentials.md` § AC-9 native rows), spawned and tracked by
+  PID, steered at step boundaries, and stopped with SIGTERM then SIGKILL after
+  a grace. It never talks to Docker, and no Docker dependency exists in the
+  contract, the code, or the build.
+- **The agent reuses the C2 machine.** The lease with its monotonic fencing
+  token, the heartbeats inside the journaled stall limit, and the state as the
+  replay of the journal are `control-plane/run`, never a fork. The lease owner
+  is `node-agent-<pid>`, so a restarted agent is a real takeover that raises
+  the token — a zombie of the dead agent writes nothing.
+- **The CDT-626 reboot contract, in code.** A restarting agent finds the dead
+  supervisor's recorded trail (the pidfile and the closed spawn intent), kills
+  the recorded orphan, and re-spawns as the next attempt: an in-flight run
+  continues without a human. The AC-level proof — a real Windows reboot of the
+  WSL host — stays the operator step below.
+- **The systemd unit text above stays evidence-only.** The unit on this node
+  still names `/usr/local/bin/node-agent`; installing the built binary there
+  (`install -Dm755 control-plane/dist/node-agent-linux-amd64
+  /usr/local/bin/node-agent` — root) and enabling the unit are operator work,
+  out of C4's footprint. The supervision mechanics themselves — start, state
+  tracking with a PID, restart-on-failure, dependency-ordered unit, journald
+  capture — are the probe-3 evidence above (2026-11-15) and are unchanged by
+  C4: the unit supervises whatever binary sits at `ExecStart`.
+
+- **The credential contract the runner inherits.** The native runner runs the
+  configured host CLI with its own logins and never injects a secret: in
+  `--bare` mode the CLI reads auth strictly from `ANTHROPIC_API_KEY` or
+  `apiKeyHelper` and never the subscription token file (`credentials.md` §
+  AC-9 native rows, the T-03 note). The four residual gaps of `credentials.md`
+  § "Gaps found" carry over unchanged into C4: (1) the container grid cells —
+  one approved image, no second-image/non-root/other-runtime probe, the token
+  refresh write untested (the named blocker), omp containerless unauthenticated;
+  (2) omp native env-var names uncaptured; (3) the Claude Code 2.1.322→2.1.325
+  version drift recorded as actual; (4) the `--bare` split itself, which AC-9
+  does not split rows by CLI mode. C4 changes none of them; the agent neither
+  reads nor writes any of these paths itself (AC-9 § AC-9 native rows).
+### Operator step B8 — linger (pending-operator)
+
+**Status: pending-operator. Do not execute inside the ticket.** The CDT-626
+reboot contract needs the user systemd manager to exist before login.
+
+Commands, in order, with the evidence slot each one fills:
+
+1. `loginctl show-user "$USER" -p Linger` — **before**. Evidence slot: the
+   `Linger=no` line (the phase-0 probe recorded `Linger=no` on 2026-11-15;
+   re-record at execution).
+2. `sudo loginctl enable-linger "$USER"` — the step itself. Evidence slot: the
+   command's exit status (`0`).
+3. `loginctl show-user "$USER" -p Linger` — **after**. Evidence slot: the
+   `Linger=yes` line. Before-and-after together are the evidence pair.
+
+### Operator step — reboot acceptance test (pending-operator)
+
+**Status: pending-operator. Do not execute inside the ticket.** The test uses
+a real reboot of the WSL host — not a service kill — because the AC is that
+the work survives the machine, not the process. Protocol, once the node agent
+is installed and enabled (the unit above) and at least one run is in flight:
+
+1. Start a run and record it: `node-agent start --run-id <RUN-ID> --ticket
+   <TICKET> --workflow orchestrate` — evidence slot: the run id and the
+   `run_claimed` / `run_started` rows in the journal (`journalctl read
+   --run-id <RUN-ID> --events`, the control-plane journal CLI).
+2. Reboot the Windows host from inside WSL:
+   `wsl.exe --shutdown` issued from Windows, or a Windows-side `shutdown /r
+   /t 0`. Evidence slot: the exact command used and its exit status.
+3. After the host comes back and the user session is up (linger enabled, step
+   B8): prove no human touched the run — evidence slots:
+   - `journalctl --user -u dev-team-node-agent --no-pager -n 50` — the agent's
+     restart on failure captured by journald.
+   - `journalctl read --run-id <RUN-ID> --state` — the resumed run state.
+   - The resumed run ids: every in-flight run id from step 1, carried to
+     `completed` or `running` again without operator action.
+4. The pass rule: every in-flight run from step 1 shows a `lease_acquired`
+   (takeover) row and an `agent.start` outcome row with a fresh PID after the
+   reboot, and no human input in between.
+
+Until this step executes, the code-level proof of the same contract is
+`go test ./agent/` — `TestSuperviseTakeoverAfterAgentDeathCompletesOnce` and
+`TestRecoveryPerformsThePendingSpawn` — in the CDT-644 branch.
+
 ## AC-9 (native half) — Native credential survival
 
 Per host, record whether the credential survives a process restart on the native Runner. Hosts needing an interactive browser login are flagged with the one-time operator step. T-03/T-04/T-05 own the per-host evidence rows; T-09 synthesizes them into `credentials.md`.

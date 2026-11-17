@@ -23,6 +23,12 @@ type Driver struct {
 	Model    string
 	Effects  *EffectLog
 
+	// RunnerType is the runner the lane selected, when it named one
+	// (CDT-644). The native runner is the first built and the default once a
+	// node selects a runner; the helper resolves the selection through the
+	// node agent's config loader and refuses an unknown one fail-closed.
+	RunnerType string
+
 	// KillAt names the phase boundary this attempt must die at. Empty means
 	// this attempt runs to completion.
 	KillAt string
@@ -33,7 +39,7 @@ type Driver struct {
 
 // Run drives the run to completion and returns the attempt report.
 func (d *Driver) Run(ctx context.Context) (Report, error) {
-	rep := Report{Owner: d.Owner, KilledAt: d.KillAt}
+	rep := Report{Owner: d.Owner, KilledAt: d.KillAt, RunnerType: d.RunnerType}
 	if d.Machine == nil || d.Effects == nil {
 		return rep, fmt.Errorf("%w: killtest: Driver needs a Machine and an EffectLog",
 			journal.ErrInvalid)

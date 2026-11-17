@@ -51,6 +51,9 @@
 .claude/dev-team/models.local.json*
 # Advisor suite lock sidecar for the Model map (skills/advisor/test*.sh)
 .claude/dev-team/.test-map.lock
+# Node agent per-node runner selection (CDT-644): node state, never committed;
+# one reader — control-plane/agent (record-ownership row 14).
+.claude/dev-team/node.json
 
 # Memory store binaries and database (auto-generated)
 

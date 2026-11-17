@@ -9,13 +9,21 @@
 // It is the same binary for both halves of the test. With no kill boundary it
 // is the recovery: the restart on the same journal that must drive the run to
 // exactly one completion.
+//
+// CDT-644 parameterises the lane by runner type: when the node-level
+// selection ($DEVTEAM_RUNNER, the agent's own C7 pattern) is set, the helper
+// resolves it through the node agent's config loader and refuses an unknown
+// runner fail-closed. The native runner is the first built and the default
+// once selected; no Docker dependency exists anywhere in the lane.
 package main
 
 import (
 	"context"
 	"fmt"
 	"os"
+	"strings"
 
+	"github.com/cold-dark-void/claude-dev-team/control-plane/agent"
 	"github.com/cold-dark-void/claude-dev-team/control-plane/journal"
 	"github.com/cold-dark-void/claude-dev-team/control-plane/killtest"
 	"github.com/cold-dark-void/claude-dev-team/control-plane/run"
@@ -46,6 +54,19 @@ func mainRun() error {
 		runID = killtest.RunID
 	}
 
+	// The lane is a node: when it names a runner, the selection must resolve
+	// fail-closed through the node agent's own loader (CDT-644).
+	runnerType := ""
+	if sel, err := agent.Load(nil); err != nil {
+		return err
+	} else if sel.Selected() {
+		runnerType = string(sel.Runner)
+	} else if os.Getenv(agent.EnvRunner) != "" {
+		return fmt.Errorf("%w: $%s=%q is not one of %s",
+			agent.ErrNoRunnerSelected, agent.EnvRunner, os.Getenv(agent.EnvRunner),
+			strings.Join(agent.RunnerTypeList(), ", "))
+	}
+
 	ctx := context.Background()
 	eng, err := journal.OpenPath(ctx, dbPath)
 	if err != nil {
@@ -55,14 +76,15 @@ func mainRun() error {
 
 	m := run.New(eng, runID)
 	d := &killtest.Driver{
-		Machine:  m,
-		Owner:    owner,
-		Ticket:   killtest.Ticket,
-		Workflow: killtest.Workflow,
-		Model:    killtest.Model,
-		Effects:  killtest.NewEffectLog(os.Getenv(killtest.EnvEffects)),
-		KillAt:   killAt,
-		Kill:     func(phase string) { selfKill(phase) },
+		Machine:    m,
+		Owner:      owner,
+		Ticket:     killtest.Ticket,
+		Workflow:   killtest.Workflow,
+		Model:      killtest.Model,
+		Effects:    killtest.NewEffectLog(os.Getenv(killtest.EnvEffects)),
+		KillAt:     killAt,
+		Kill:       func(phase string) { selfKill(phase) },
+		RunnerType: runnerType,
 	}
 
 	rep, err := d.Run(ctx)

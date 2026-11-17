@@ -5,6 +5,12 @@ on:
     branches: [master]
   pull_request:
     branches: [master]
+  workflow_dispatch:
+    inputs:
+      runner_type:
+        description: 'Runner type the kill lane selects (CDT-644; the native runner is the first built and the default once selected)'
+        required: false
+        default: native
 
 permissions:
   contents: read
@@ -176,6 +182,14 @@ jobs:
   # 1.27-bookworm, row 3 of the CDT-627 approval
   # (docs/internal/control-plane/node-agent-build-probe.md:22). The suite needs
   # no container of its own — plain `go test ./...` passes natively too.
+  #
+  # CDT-644 — the job is parameterised by runner type: the runner-type input
+  # (workflow_dispatch; native is the first built and the default once
+  # selected) reaches the helper as $DEVTEAM_RUNNER, the node agent's own C7
+  # selection variable. The helper resolves it through the node agent's config
+  # loader and refuses an unknown runner fail-closed. No Docker dependency
+  # exists in the contract, the code, or the build — the G-02 image only
+  # compiles and runs the Go test suite.
   control-plane:
     runs-on: ubuntu-latest
     timeout-minutes: 10
@@ -184,10 +198,11 @@ jobs:
       - name: Go build, vet, and test for control-plane in the G-02 image
         env:
           IMAGE: docker.io/library/golang:1.27-bookworm@sha256:4fa7c968ba93f1635670522dbb01a2c78150443e1385746924566079f36570ea
+          DEVTEAM_RUNNER: ${{ inputs.runner_type || 'native' }}
         run: |
           set -euo pipefail
           docker pull "$IMAGE"
           docker run --rm -v "$GITHUB_WORKSPACE:/src:ro" -w /src/control-plane \
             -e GOCACHE=/tmp/gocache -e GOMODCACHE=/tmp/gomodcache \
-            -e GOFLAGS=-buildvcs=false \
+            -e GOFLAGS=-buildvcs=false -e DEVTEAM_RUNNER="$DEVTEAM_RUNNER" \
             "$IMAGE" sh -c 'go build ./... && go vet ./... && go test ./...'
