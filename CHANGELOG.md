@@ -4,6 +4,11 @@ All notable changes to **claude-dev-team**, newest first.
 Authoritative version history. Prefer **`/release`** to add `### vX.Y.Z` headings.
 Pre-written headings (release-train M5c, orchestrate version-sync tasks) are kept
 via skip-if-present when `/release` is given an explicit version — do not invent a
+### v2.0.0-pre.8
+
+- **Run queue and slot accounting (CDT-649 C5)** — `control-plane/queue/`: the per-node slot ledger — `EffectGrant`/`EffectWait`/`EffectRelease` effects with two independent caps (per-node slots and the per-model budget read through the CDT-632 model-cap map layers), `Slots()` reporting counted runners, overflow shown as waiting, and the gated `run.Machine.IntentWhenKeyed` intent seam (`(seq, created, effect)` — key + intent built inside the transaction, `transition.after` hook) so kill-and-replay never grants twice. `ReleaseKey(runID, runner, releases)` counts releases at the call site — release→re-grant→release is two releases; the match-key survives full vendor slugs with no tier-token fallback for slugs. `run-budget.md` gains its § Amendment: the five CDT-610 inputs are resolved and ruled into the run-budget precedence and the slot ledger; SPEC-033 § 1604 cites the amendment.
+- **Ownership and AC records** — the CDT-649 AC section (seven ACs, Verify line each) in `docs/internal/control-plane/index.md` and the slot ruling in the glossary row.
+
 ### v2.0.0-pre.7
 
 - **The node agent is real (CDT-644 C4)** — `control-plane/agent/` + `control-plane/cmd/node-agent/`: one Go binary per node, the four-verb contract (`start`, `stop`, `status`, `steer`) with every state-changing verb journaling intent before it acts and outcome after, through the C2 machine (reused, not forked). The native runner: one host-CLI process per run slot, PID-tracked, SIGTERM then SIGKILL after a grace, steer delivered at step boundaries, heartbeats inside the journaled stall limit. The CDT-626 reboot contract in code — a restarting agent kills the dead supervisor's recorded live orphan and re-spawns as the next attempt; the owner is `node-agent-<pid>` so a takeover raises the monotonic fencing token. Stop/steer fail closed before the pidfile lands (`FindProcess` refuses pid ≤ 0). No Docker in the contract, the code, or the build.

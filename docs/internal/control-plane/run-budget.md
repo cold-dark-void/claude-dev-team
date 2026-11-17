@@ -10,8 +10,8 @@ Carries AC12. Scope: phase 0 discovery of the control plane Option C+ (CDT-626).
 | **Status** | Proposed, not implemented. Nothing in the plugin reads a per-model budget. SPEC-033 is the only budget policy in force. |
 | **Date** | 2026-11-15 |
 | **Sources** | `specs/core/SPEC-033-autopilot-policy.md` § AC3 (M9, M9a), § AC9 (M9b tier table, precedence, freeze, N12, N14), M6.6 (BC6); `specs/core/SPEC-037-per-agent-model-map.md` Overview, M8, M11, M12; `specs/core/SPEC-003-agent-role-system.md` § Tier table; `.claude/backlog.md:16` (CDT-610, verified PENDING 2026-11-15); `docs/internal/control-plane/index.md` § CDT-632 AC12. |
-| **Phase effect** | Phase 0: proposal only, env-only scaling. Phase 1 (CDT-628): the SPEC-033 amendment that makes a Model-map budget layer real (OQ-6). |
-| **Residual items** | Run-level aggregation rule for a model-keyed cap (open); the ceiling amendment; CDT-610 (BC6 wall-clock basis); CDT-603 (Model map slug validation) affects the table's match key; `haiku` has no mappable agent. |
+| **Phase effect** | Phase 0: proposal only, env-only scaling. Phase 1 (CDT-628): the SPEC-033 amendment that makes a Model-map budget layer real (OQ-6) — **landed by CDT-649** (§ Amendment). |
+| **Residual items** | CDT-610 (BC6 wall-clock basis) still gates any wall-clock tuning; CDT-603 (Model map slug validation) owns the write-time slug check the match key fails safe without; `haiku` has no mappable agent. The aggregation rule and the ceiling scope are resolved (§ Amendment). |
 
 ## Policy owner
 
@@ -22,7 +22,7 @@ SPEC-033 § AC3 (M9) owns the run budget: the two caps, their defaults, their en
 - You scale a run with the existing env overrides only: `AUTOPILOT_ITERATION_CAP` and `AUTOPILOT_WALLCLOCK_CAP` (SPEC-033 § AC3).
 - You pick the pair from the row of the table below that matches the model the run leans on. For a run that leans on the shipped default population, you export nothing — the static defaults already apply.
 - The operator is the writer. SPEC-033 N12 forbids the engine from writing those two variables to apply auto-tune, and forbids a budget-cap flag or a seventh `parse-flags.sh` key. This proposal adds neither.
-- SPEC-033 N14 forbids raising the auto-tune L ceiling above 40 / 4500 and forbids a `/setup` budget store. This proposal adds neither. That prohibition is the reason the map layer below is a proposal and not a feature (see § Deferral).
+- SPEC-033 N14 forbids raising the auto-tune L ceiling above 40 / 4500 and forbids a `/setup` budget store. This proposal adds neither. That prohibition still bounds the landed map layer: no model-keyed row exceeds the L ceiling and no `/setup` budget store exists (§ Amendment).
 - `AUTOPILOT_BUDGET_META` is the writer snapshot on decision cards (SPEC-033 § AC9, "Writer snapshot"). It is not an operator knob. Do not use it to set a budget.
 
 ## Resolution surface — the Model map
@@ -47,12 +47,12 @@ Facts that bound the table:
 **env > map > tier**, per cap, independently. SPEC-033 § AC9 sets the per-cap rule for the budget ("Mixed = one cap from env and one from auto-tune"); this proposal keeps that shape for a third source.
 
 1. **env** — `AUTOPILOT_ITERATION_CAP` / `AUTOPILOT_WALLCLOCK_CAP` when the variable is non-empty (SPEC-033 § AC3, § AC9).
-2. **map** — the row of the table below for the resolved model string. Phase 0: advisory only, nothing reads it. Phase 1 (CDT-628) implements it behind a SPEC-033 amendment.
+2. **map** — the row of the table below for the resolved model string. Phase 0: advisory only, nothing read it. Phase 1 (CDT-628) implemented it behind the SPEC-033 amendment CDT-649 landed (§ Amendment): `control-plane/queue/` reads it as the per-model-endpoint slot cap.
 3. **tier** — the **Tier default** row at the bottom of the table.
 
 **Fallback rule:** a resolved model string that is not exactly `opus`, `sonnet`, or `haiku` has no row. The run takes the **Tier default** row. An empty resolution is the same case: no map file, an empty value, absent `jq`, or an always-empty internal name (`distiller`, `project-init`) all resolve to Tier default (SPEC-037 M6, M8, Overview).
 
-In force today, layer 2 does not exist, so effective precedence is **env > tier**. That is the phase-0 position: propose env-only scaling, fork no policy.
+Phase 0's position was **env > tier** (layer 2 advisory only). CDT-649 landed the amendment, so layer 2 is in force for the slot ledger: effective precedence is **env > map > tier** (§ Amendment).
 
 ## Per-model proposal table
 
@@ -67,7 +67,7 @@ Every cap cell is a verbatim cell from SPEC-033: the § AC3 M9 static defaults, 
 
 `project-init` (`sonnet`, SPEC-003 § Tier table) is an always-empty internal (SPEC-037 M8), so it is not a map row. `sonnet` coverage above lists the mappable five.
 
-**The open cell in this table.** A Run spans several agents, so it spans several resolved models. SPEC-033 caps are per run (§ AC3, "Scope of a run"). Phase 0 does not decide the aggregation rule (max, mode, weighted, per-spint). Recorded as a phase-1 input for CDT-628 (§ Residual items). Until it is decided, the table is a per-tier reading aid for the env pair, not a runtime contract.
+**The open cell in this table.** A Run spans several agents, so it spans several resolved models. SPEC-033 caps are per run (§ AC3, "Scope of a run"). Phase 0 did not decide the aggregation rule (max, mode, weighted, per-spint); CDT-649 ruled it — a model-keyed cap binds per runner, not per Run (§ Amendment, input 4). The table stays a per-tier reading aid for the env pair; the runtime contract is the queue's slot ledger.
 
 ## M9b boundary
 
@@ -83,17 +83,17 @@ Every cap cell is a verbatim cell from SPEC-033: the § AC3 M9 static defaults, 
 
 Every wall-clock cell above is provisional while CDT-610 is open. It changes the basis of the wall-clock counter, which is the number this proposal scales. SPEC-033 § M9a already excludes human-approval wait from BC6 and defines the synthetic `run_start_epoch` on resume; CDT-610 generalises that to user wait and soft-pauses the ship step. Do not tune a per-model wall-clock before CDT-610 lands and is measured.
 
-## Deferral — the SPEC-033 amendment (phase 1: CDT-628)
+## Amendment — landed (CDT-649, phase 1)
 
-The map layer needs a SPEC-033 amendment. Phase 0 records it as a phase-1 input (OQ-6) and forks no policy. Pointer: **CDT-628** (phase 1). This ticket changes no spec.
+The map layer needs a SPEC-033 amendment. Phase 0 recorded it as a phase-1 input (OQ-6) and forked no policy. Pointer: **CDT-628** (phase 1). Phase 0 changed no spec. Phase 1 (CDT-649) landed the amendment: the dated row in `specs/core/SPEC-033-autopilot-policy.md` § Version History (2026-11-17) carries the ruling, and the AC9 precedence chain gains the map layer between env and the static default. The five inputs, resolved:
 
-Inputs the amendment must carry:
+1. **Precedence — landed.** The chain is **env > map > tier**, per cap, independently: the map row for the resolved model string is inserted between env and the static default (SPEC-033 § AC9; the AC9 numbered list carries the insert). Env still overrides everything; a frozen run keeps its frozen caps — the freeze is immutable mid-run; the map row applies where no freeze binds. The static M default stays the floor.
+2. **The ceiling amendment scope — ruled.** N14's two clauses stay in force: a model-keyed budget row may not exceed the L ceiling (40 / 4500), so no clause is raised, and there is no `/setup` budget store — the Model map (SPEC-037 M11) is the store the budget reads. Env MAY exceed the ceiling, as SPEC-033 § AC9 already allows.
+3. **N12 stays — ruled.** The engine never writes `AUTOPILOT_ITERATION_CAP` / `AUTOPILOT_WALLCLOCK_CAP` to apply a derived budget. The map layer is read-only: the reader is `control-plane/queue/` (the slot ledger), and the budget-check map read rides a later wiring child.
+4. **The per-Run aggregation rule — ruled.** A model-keyed cap binds per runner, not per Run: a multi-agent Run holds one slot per runner; each runner's slot is counted against the model cap of that runner's resolved model; the Run's own concurrency setting caps the total. No runner waits on another runner's model cap. The Run's BC6 budget stays a per-Run number and the decision-card schema is unchanged.
+5. **The match key — ruled.** The key is the resolved model string itself: a tier token (`opus`/`sonnet`/`haiku`, SPEC-037 M12) or a full vendor slug, compared byte-exact — never truncated, never prefix-matched, so a stale slug matches nothing rather than a family (the CDT-603 failure mode, applied to slots). An unnamed string takes the Tier default row (§ Precedence, "Fallback rule"). CDT-603 (validate slugs against the host spawn list) stays open and owns the write-time validation.
 
-1. **Precedence.** Insert a map source between env and the static default. Today: env > auto-tune > static M (SPEC-033 § AC9).
-2. **The ceiling amendment.** N14 forbids raising the auto-tune L ceiling above 40 / 4500 and forbids a `/setup` budget store. A model-keyed budget that exceeds L needs both clauses amended. This is the ceiling amendment; it is a phase-1 input, not a phase-0 change.
-3. **N12 stays.** The engine must never write the env caps to apply a derived budget.
-4. **The aggregation rule** for a model-keyed cap on a multi-agent Run (open question above).
-5. **The match key** must survive full vendor model slugs, not only the three tier tokens. CDT-603 ("Model map: validate slugs against the host spawn list", PENDING) is the related open item.
+Implementation: `control-plane/queue/` (the slot ledger — one slot is one runner, one process or one container; the two caps enforced independently; overflow waits and shows as waiting; a kill-and-replay never grants a slot twice). The wall-clock basis question is unchanged: CDT-610 still gates any wall-clock tuning (§ "Open BC6 item"), and no wall-clock number is tuned by this amendment.
 
 ## Verification (AC12)
 
@@ -101,7 +101,7 @@ Inputs the amendment must carry:
 cd docs/internal/control-plane
 grep -c 'SPEC-033 AC3\|§ AC3' run-budget.md          # AC3 cited as owner
 grep -n 'CDT-610' run-budget.md                       # BC6 item named by id
-grep -n 'CDT-628' run-budget.md                       # deferral pointer
+grep -n 'CDT-628' run-budget.md                       # amendment pointer
 grep -n 'env > map > tier' run-budget.md              # precedence
 grep -n 'Tier default' run-budget.md                  # fallback row + rule
 grep -c '^| `opus`\|^| `sonnet`\|^| `haiku`' run-budget.md                       # 3 shipped tiers

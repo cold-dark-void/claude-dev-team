@@ -55,7 +55,7 @@ agent output. Do not reintroduce avoided aliases.
 | Run | One durable execution of a workflow for a ticket, with a position in the lifecycle graph | job, session |
 | Host adapter | The per-host driver that starts, resumes, steers, and observes a host session | connector |
 | Node | A machine that offers host and model capacity to the control plane; lifecycle graph vertices are lifecycle phases, never nodes | worker |
-| Slot | One unit of parallel-turn capacity on a node; one slot is one runner; a run waits in the queue for a free slot. Phase 0 open question: slot per runner or per model endpoint. Distinct from Spawn concurrency cap, which is per run | node capacity, throttling, rate limit |
+| Slot | One unit of parallel-turn capacity on a node; one slot is one runner — one process or one container; the queue counts runners. A run waits in the queue for a free slot, and the queue shows the wait as waiting. Distinct from Spawn concurrency cap, which is per run | node capacity, throttling, rate limit |
 | Steer | A message delivered to a running session at its next step boundary | interrupt, nudge |
 | Lifecycle graph | The declarative graph of lifecycle phases and guarded transitions that a run moves through | workflow diagram, pipeline |
 | Node agent | The headless process on a node that starts, stops, reports on, and steers runners for the control plane | daemon, worker |
@@ -80,3 +80,4 @@ agent output. Do not reintroduce avoided aliases.
 - 2026-10-22: CDT-582 Sweep journal invalidation boundary is the last release tag (not age); epic children are skipped — the epic owns their walk.
 - 2026-10-26: CDT-589 Step 6c gate demotion rides the Advisor seam (Class verify, trigger d) — no new agent role, no new Surface; every new layer fails closed; ship as one minor, default-on.
 - 2026-11-15: CDT-632 glossary write-back from control plane Option C+ (CDT-626): eleven confirmed terms. Steer is confirmed unchanged by six CDT-627 probes (Claude Code, Grok, omp — native and container). Slot keeps the phase 0 open question "slot per runner or per model endpoint".
+- 2026-11-17: CDT-649 closes the Slot open question per the ruling: one slot is one runner — one process or one container; the queue counts runners, and the per-model-endpoint variant is ruled out as a slot. The per-model endpoint limit is a separate cap (`model_slots` in the Model map) the queue enforces beside the node concurrency setting; overflow waits and shows as waiting. The term "Slot" is not renamed.

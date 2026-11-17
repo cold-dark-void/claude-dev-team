@@ -8,6 +8,8 @@ Status (CDT-643, added 2026-11-16): phase 1 (CDT-628) builds in this directory. 
 
 Status (CDT-644, added 2026-11-17): C4 lands the node agent. § "CDT-644 — Node agent" below pins the C4 deliverable paths and § "CDT-644" (under § Acceptance criteria) carries its canonical AC list. The phase-0, CDT-632, CDT-643, CDT-642, and CDT-646 sections are unchanged except where C4 appends (the C4 sections of `native-runner.md` and `node-agent-build-probe.md`, and the record-ownership table's row 14).
 
+Status (CDT-649, added 2026-11-17): C5 lands the run queue and the SPEC-033 budget amendment. § "CDT-649 — Run queue" below pins the C5 deliverable paths and § "CDT-649" (under § Acceptance criteria) carries its canonical AC list. The phase-0, CDT-632, CDT-643, CDT-642, CDT-644, and CDT-646 sections are unchanged.
+
 ## Scope
 
 This ticket is Phase 0 discovery of the control plane Option C+ (CDT-626). It is docs-only. It probes hosts and Runner types. It records evidence in this directory. It ships no product code.
@@ -321,6 +323,25 @@ Also updated in this file: the Status line, from "scaffold" to "complete", point
 ### Release readiness
 
 **Verdict: PASS — ticket ready for release as the first arc pre-release `v2.0.0-pre.1`.** Per the SPEC-010 pre-release arc scheme (CDT-633, `skills/release/SKILL.md` § "Pre-release arc scheme"): the Control plane arc (CDT-626) ships as `2.0.0-pre.N` — `plugin.json` carries `2.0.0-pre.1` (no `v`), the git tag and the `CHANGELOG.md` heading carry `v2.0.0-pre.1`, `stable` stays at the last 1.x final release, and the pass rides `master` (the `dev-team-edge` channel). The docs-only ruling governs the diff content (six `.md` files, no product code); the arc scheme governs the version, so this is **not** a `1.28.x` patch bump off the current `1.28.20`. Pass the version explicitly to `/release 2.0.0-pre.1` — auto-detect and bump keywords never compute a pre version. Residual items for later tickets, none blocking: `loginctl enable-linger` (phase 1, machine change), the omp native env-var-name probe, the forced token-refresh probe (needs a sandbox credential), and the CDT-632 written decisions.
+
+## CDT-649 — Run queue
+
+Added by CDT-649 (CDT-628 C5) on 2026-11-17. C5 puts the run queue inside the service directory:
+the slot ledger journals grant, wait, and release through the C2 run machine — reused, never
+forked — and the SPEC-033 budget amendment lands with its five inputs resolved. This table pins
+the C5 deliverable paths. The canonical AC list is § "CDT-649" under § Acceptance criteria. The
+sections above are unchanged.
+
+| Deliverable | Path |
+|---|---|
+| The queue package (the slot ledger) | `control-plane/queue/` |
+| The gated intent seam the queue writes through | `control-plane/run/machine.go` (`run.Machine.IntentWhenKeyed`) |
+| The amendment record | `run-budget.md` § Amendment; `specs/core/SPEC-033-autopilot-policy.md` § Version History (the 2026-11-17 row) and the AC9 precedence insert |
+| The glossary amendment | `CONTEXT.md` § Terms, the Slot row (AC5) |
+
+CDT-649 follows the same ruling as CDT-642/643/644: no `specs/` entry — the deliverable AC list
+below is the spec. No AC carries the `[process]` tag: each asserts file content (AC1–AC6) or diff
+content (AC7).
 
 ## Acceptance criteria
 
@@ -641,6 +662,28 @@ executed inside the ticket). C4 ships no version pair: the release is the epic f
   - Verify: row 4's owner cell reads `plugin` and its conflict-rule cell reads `single-writer-lease`; row 13's cells read `plugin` and `plugin-only`; `bash skills/backlog/surfaces-gate-test.sh` exits 0 with `ownership-row-4-is-the-local-store` and `ownership-row-4-drops-linear-as-writer` green.
 - **AC6.** Ships `2.0.0-pre.N` via `/release` with the explicit version (SPEC-010 arc scheme). Never patch, minor, major, or `2.0.0`. C7 is an epic child, so the release is the epic fold, where master moves (SPEC-033): N is fixed there, `stable` stays at the last 1.x final release while the arc is open, and auto-detect and the bump keywords never compute a pre version.
   - Verify: at ship — the tag and the CHANGELOG heading carry `v2.0.0-pre.N`, `.claude-plugin/plugin.json` carries the bare form, and the heading matches the tag byte-for-byte; `stable` is unchanged; the C7 commit itself lists no `plugin.json` or `CHANGELOG.md` change.
+
+### CDT-649
+
+- **AC1.** Slot ruling implemented and recorded: one slot is one runner — one process or one container — and the queue counts runners. `control-plane/queue/` journals one `slot.grant` per runner through the C2 machine, and the ledger folds those intents into the count the caps read. The term "Slot" is not renamed.
+  - Verify: `go test ./queue/` — `TestSlotCountsRunners` proves one grant holds one slot and a release gives it back; `grep -n 'one slot is one runner' CONTEXT.md` hits the amended cell, unrenamed.
+- **AC2.** The per-model-endpoint limit is a separate cap the queue reads from the Model map; both caps are enforced independently; overflow waits and shows as waiting. The node cap is the existing concurrency setting; the model cap is the map's top-level `model_slots` object (key: the match key, value: an integer ≥ 1). Either cap alone makes the runner wait, and the pending `slot.wait` intent is the waiting state — `Slots()` is the status-surface read that shows it. Waiting is a queue-level status on a live runner, not a run state, so the lifecycle graph gains no vertex (CDT-642).
+  - Verify: `go test ./queue/` — `TestCapsAreIndependent` proves the node cap admits what the model cap refuses and one model's cap never binds another's; `TestOverflowWaitsAndShowsAsWaiting` proves the waiting row reaches the status surface; `git diff --name-only 448e86d..HEAD` lists no `lifecycle-graph.json` change.
+- **AC3.** The limit's sources are named: the existing concurrency setting and the Model map. The node cap reads `COUNCIL_CONCURRENCY` first, then the map's top-level `concurrency` key — local > repo > global, the `resolve-concurrency.sh` chain, never forked. The model cap reads `model_slots` from the same three layers. Unset everywhere means unbounded; an invalid stored value fails closed.
+  - Verify: `go test ./queue/` — `TestModelCapReadsTheMapLayers` proves the layer precedence, the env layer, and the fail-closed junk cases; `grep -n 'COUNCIL_CONCURRENCY\|model_slots' control-plane/queue/*.go` names both sources.
+- **AC4.** The SPEC-033 amendment lands with all five `run-budget.md` § Deferral inputs. `run-budget.md` § Amendment records the landed state, and the dated row in `specs/core/SPEC-033-autopilot-policy.md` § Version History (2026-11-17) carries the ruling; the AC9 precedence chain gains the map layer between env and the static default. The five inputs:
+  - (i) the map precedence insert between env and the static default — `env > map > tier`, per cap, independently;
+  - (ii) the ceiling amendment scope — N14's two clauses stay in force: a model-keyed row may not exceed the L ceiling (40 / 4500), and there is no `/setup` budget store — the Model map (SPEC-037 M11) is the store;
+  - (iii) N12 stays — the engine never writes the env caps; the map layer is read-only;
+  - (iv) the per-Run aggregation rule — a model-keyed cap binds per runner, not per Run: a multi-agent Run holds one slot per runner, each counted against the model cap of that runner's resolved model; the Run's own concurrency setting caps the total; no runner waits on another runner's model cap;
+  - (v) the match key — the resolved model string itself, tier token or full vendor slug, compared byte-exact, never truncated, never prefix-matched, so a stale slug matches nothing rather than a family (the CDT-603 failure mode, applied to slots); CDT-603 stays open and owns the write-time validation.
+  - Verify: the § Verification block at the bottom of `run-budget.md` passes (all seven receipts); `grep -n '2026-11-17' specs/core/SPEC-033-autopilot-policy.md` hits the amendment row; `grep -n 'CDT-649' docs/internal/control-plane/run-budget.md` hits the landed amendment.
+- **AC5.** The CONTEXT.md Slot cell is amended to close the open question per the ruling; the other ten terms, Steer included, stay verbatim.
+  - Verify: `git diff 448e86d..HEAD -- CONTEXT.md` touches the Slot row and one dated decision line only; the other ten term rows are byte-identical.
+- **AC6.** Slot grant, wait, and release are journaled; a kill-and-replay never grants a slot twice. Every verb is an intent-then-outcome pair through `run.Machine.IntentWhenKeyed` inside one fencing-token-checked transaction, and the accounting is the intent-based ledger fold — the transaction reads the state its own intent folded into, so a replay re-derives the grant it recorded and counts one slot, not two. A landed wait stays pending on purpose: its outcome lands granted true from a later grant, granted false and released true from a release.
+  - Verify: `go test ./queue/` — `TestKillAndReplayNeverGrantsTwice` proves exactly one grant intent after the replay and one held slot; `TestWaitResolvedByLaterGrant` and `TestReleaseClosesTheWaitGrantedFalse` prove both wait-close sides leave no pending effect.
+- **AC7.** Ships `2.0.0-pre.N`; never patch, minor, major, or `2.0.0`. The release is the epic fold done by the orchestrator later; the C5 commits touch no version pair (`.claude-plugin/plugin.json` and `CHANGELOG.md` are untouched).
+  - Verify: `git diff --name-only 448e86d..HEAD` lists no `plugin.json` or `CHANGELOG.md` change.
 
 ## Ship gate (CDT-645)
 

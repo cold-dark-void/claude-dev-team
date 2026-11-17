@@ -557,3 +557,104 @@ func marshal(v any) (json.RawMessage, error) {
 	}
 	return raw, nil
 }
+
+// IntentWhenKeyed records a side effect only after a decision callback
+// accepts it inside the write transaction (AC3; the SPEC-040 AC11
+// intent-then-outcome pattern). It exists for a gate that must consult
+// ledger state — its own run's replay and, through the transaction's Doer,
+// the whole journal — before an intent commits: the control-plane queue
+// reads the slot accounting with the ledger fold and appends the intent
+// only when decide answers true.
+//
+// The contract:
+//
+//   - seq == 0 && created == false: no intent was recorded. The gate
+//     refused (decide answered false before building a key), or the
+//     caller's own state already accounts for the decision.
+//   - seq != 0 && created == false: the intent was already recorded
+//     (replay). The caller re-derives the same decision from the recorded
+//     intent and the live state; an effect is never recorded twice.
+//   - seq != 0 && created == true: the intent was recorded now.
+//
+// build runs after the fencing check, inside the same BEGIN IMMEDIATE
+// transaction as the append. It reads the replayed state st and the
+// transaction's Doer d (a cross-run ledger read lands inside the same
+// write lock as the append), and returns the effect name, the idempotency
+// key, and the payload of the intent it wants recorded — or ok=false to
+// record nothing. Deriving the key inside the transaction is the point of
+// the keyed form: an attempt number that comes from the ledger cannot race
+// another writer the way a pre-read outside the transaction could, and
+// naming the effect there lets one gate decide between two intents — the
+// queue's grant either grants or waits, and the choice commits atomically
+// with the decision. An error from build rolls
+// the transaction back and writes nothing.
+//
+// after, when non-nil, runs after the append inside the same transaction —
+// the pattern the machine's own transitions use for the lease release. It
+// carries created: on a replay (created=false) the recorded rows already
+// carry the follow-up writes, so the hook skips them. The queue's grant
+// passes an after that closes the runner's open wait pair with its granted
+// outcome, so the wait never dangles pending: the close and the grant
+// commit together or not at all (AC6).
+func (m *Machine) IntentWhenKeyed(ctx context.Context, owner string, token int64,
+	build func(st *journal.State, d journal.Doer) (effect, key string, intent any, ok bool, err error),
+	after func(ctx context.Context, tx *journal.Tx, seq int64, created bool) error) (int64, bool, error) {
+	var (
+		seq     int64
+		created bool
+	)
+	err := m.eng.Transact(ctx, func(tx *journal.Tx) error {
+		st, err := m.replay(ctx, tx)
+		if err != nil {
+			return err
+		}
+		if st.IsTerminal() {
+			return fmt.Errorf("%w: run %s is %s", journal.ErrTerminalState, m.runID, st.Name())
+		}
+		if _, err := verifyLease(ctx, tx, m.runID, owner, token); err != nil {
+			return err
+		}
+		effect, key, intent, ok, err := build(st, tx)
+		if err != nil {
+			return err
+		}
+		if !ok {
+			seq, created = 0, false
+			return nil
+		}
+		if key == "" {
+			return fmt.Errorf("%w: a side effect needs an idempotency key", journal.ErrInvalid)
+		}
+		raw, err := marshal(intent)
+		if err != nil {
+			return err
+		}
+		ev, err := m.event(journal.KindSideEffect,
+			journal.Effect{Effect: effect, Intent: raw})
+		if err != nil {
+			return err
+		}
+		ev.IdempotencyKey = key
+		seq, created, err = tx.AppendChecked(ctx, ev)
+		if err != nil {
+			return err
+		}
+		if after == nil {
+			return nil
+		}
+		return after(ctx, tx, seq, created)
+	})
+	return seq, created, err
+}
+
+// EffectRole names the caller that owns a control-plane side-effect record.
+// The run machine itself journals no effect; the agents, the reconciler, and
+// the queue set the prefix on their own keys.
+const (
+	// RoleAgent is the node agent (control-plane/agent). Its keys live in
+	// control-plane/agent/agent.go.
+	RoleAgent = "agent"
+	// RoleQueue is the run queue (control-plane/queue, CDT-649). Its keys live
+	// in control-plane/queue/queue.go.
+	RoleQueue = "queue"
+)
