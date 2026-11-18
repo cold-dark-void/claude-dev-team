@@ -18,6 +18,8 @@ Status (CDT-650, added 2026-11-18): C9 lands the Chief — the single point of c
 
 Status (CDT-652, added 2026-11-18): C10 lands the web UI — one screen over the one API. § "CDT-652 — The web UI" below pins the C10 deliverable paths and § "CDT-652" (under § Acceptance criteria) carries its canonical AC list. The phase-0 and phase-1 sections above are unchanged: C10 adds no record to `record-ownership.md` (the page is static files embedded in the chiefd binary, not state) and no Surface is copied — every value the UI shows rides the C9 API.
 
+Status (CDT-651, added 2026-11-18): C11 closes phase 1. § "CDT-651 — Phase-1 close-out" below pins the phase-1 close-out path and § "CDT-651" (under § Acceptance criteria) carries its canonical AC list. The phase-0 and phase-1 sections above are unchanged: the close-out records the ten children as built and amends no decision — [close-out.md](close-out.md) stays at its `v2.0.0-pre.2` state.
+
 ## Scope
 
 This ticket is Phase 0 discovery of the control plane Option C+ (CDT-626). It is docs-only. It probes hosts and Runner types. It records evidence in this directory. It ships no product code.
@@ -452,6 +454,23 @@ HTML, CSS, and JavaScript — no node/npm build step) served by the same chiefd 
 loopback port as the API; the chat is the C9 corrections flow plus the route verbs; the board folds
 journal, queue, spool, and graph state; and the bind refuses any non-loopback address (remote access
 is CDT-630's phase-3 scope).
+
+## CDT-651 — Phase-1 close-out
+
+Added by CDT-651 (CDT-628 C11) on 2026-11-18. C11 closes phase 1 the way CDT-632 closed phase 0:
+as a written record, not a prose summary.
+
+| Deliverable | Path |
+|---|---|
+| The phase-1 close-out | [`phase-1-close-out.md`](phase-1-close-out.md) — the ten CDT-628 children as built (§ Deliverable set: one row per child with its implementation doc, its owner, and its blocked items), the AC10 ruling as built (the modernc.org/sqlite embedded driver behind the narrow `control-plane/journal` surface; the durable-execution engine recorded as the rejected option with its reason), the four CDT-627 residual inputs with phase-1 status and owning-child pointers, the CDT-629 inputs, and the SPEC-010 arc statement |
+
+The close-out decides nothing new: each row cites the child's own record — the child sections of
+this file, the appended sections of `container-runner.md`, `native-runner.md`, and `credentials.md`,
+the record-ownership rows (12, 14, 15, and row 4/13's mechanics), and the child AC lists under
+§ Acceptance criteria. It amends no decision: the one decision-state change of phase 1 — the Slot
+open question — was closed and recorded by its owning child C5 (CDT-649 AC5), so the external-copy
+rule of `close-out.md` § External copy record adds no dated line; the rule is honoured and stated
+there.
 
 ## Acceptance criteria
 
@@ -1081,6 +1100,63 @@ content (AC7).
   done by the orchestrator later, so C10's commits touch no version pair
   (`.claude-plugin/plugin.json` and `CHANGELOG.md` are untouched).
   - Verify: `git diff --name-only c85338b..HEAD` lists no `plugin.json` or `CHANGELOG.md` change.
+
+CDT-651 follows the same ruling: no `specs/` entry — the deliverable AC list below is the spec. C11
+is the eleventh and last child of the CDT-628 epic and closes the phase-1 record set; its gate home
+is the close-out's own verification block (`phase-1-close-out.md` § Verification) plus the AC-split
+gate reading this subsection. It decides nothing new and touches no code: every row cites the
+child record it verifies. No AC carries the `[process]` tag: each asserts file content (AC1–AC5)
+or release/history content (AC6, AC7).
+
+### CDT-651
+
+- **AC1.** Implementation documentation exists for each of the ten phase-1 deliverables (C1–C10),
+  at the paths this file pins, and `phase-1-close-out.md` § "Deliverable set" carries one row per
+  child naming the deliverable, its implementation doc, its owner (the record-ownership row, or the
+  no-record fact the child's AC list states), and its blocked items — every cell verifiable against
+  the record it names.
+  - Verify: `grep -c '^| [0-9]* |' docs/internal/control-plane/phase-1-close-out.md` counts 10 in
+    § "Deliverable set"; each named doc exists — the C1–C10 sections of this file,
+    `container-runner.md` § CDT-647, `native-runner.md` § CDT-644,
+    `credentials.md` § "Gap 2 — resolved", `control-plane/README.md`, and
+    `record-ownership.md` rows 12, 14, 15 and the row-4/row-13 mechanics.
+- **AC2.** The close-out restates the AC10 ruling as built: the journal engine is SQLite behind a
+  narrow interface — as built, the `modernc.org/sqlite` embedded driver behind
+  `control-plane/journal`'s narrow write/read surface, with the plugin reaching it only through the
+  `journalctl` CLI — and the durable-execution engine is recorded as the rejected option with its
+  reason (ADR 0001 § Rejected: R1's five mechanisms and R2's recorded concession).
+  - Verify: `grep -n 'modernc.org/sqlite' control-plane/go.mod` names the engine;
+    `grep -c 'REJECTED-WITH-MECHANISM' docs/adr/0001-journal-engine.md` is at least 2; the
+    close-out's § "The AC10 ruling as built" carries both.
+- **AC3.** The close-out carries the four CDT-627 residual phase-1 inputs with status and a pointer
+  to the child that owns each: B8 linger (pending-operator; C4 recorded the step in
+  `native-runner.md`), B7 the omp env-var-name probe (resolved on-box by C6), B6 the forced
+  token-refresh probe (still blocked on a sandbox credential; C8 keeps the conservative rule), and
+  the Slot open question as a status line only — closed by C5's ruling, which lives in C5.
+  - Verify: `grep -n 'B8\|B7\|B6\|Slot' docs/internal/control-plane/phase-1-close-out.md` hits all
+    four in § "Inputs handed forward" with their status cells and owner pointers.
+- **AC4.** The close-out lists the row-5 memory-owner re-test as a CDT-629 input with a pointer to
+  its owning AC — CDT-643 AC8 carried the re-test (against the API front, not the store, when
+  CDT-629 lands); no re-test happens in this child.
+  - Verify: `grep -n 'CDT-643 AC8' docs/internal/control-plane/phase-1-close-out.md` names the
+    owning AC; `record-ownership.md` § Residual items carries the same open re-test.
+- **AC5.** The external-copy rule of `close-out.md` § External copy record is honoured: this child
+  amends no decision — the phase-1 records extend the phase-0 decision set, and the one
+  decision-state change of phase 1 (the Slot open question) was closed and recorded by its owning
+  child C5 — so no dated line is appended to the close-out's external-copy table and no row is
+  edited.
+  - Verify: `git log --oneline -- docs/internal/control-plane/close-out.md | head -1` resolves to
+    the `v2.0.0-pre.2` commit; the close-out's § "Amendments and the external copy" states the rule
+    and the no-amendment finding.
+- **AC6.** The SPEC-010 arc stays open: phase 1 shipped `2.0.0-pre.N` cuts only (`v2.0.0-pre.3`
+  … `v2.0.0-pre.12`, one fold per child), cut no `2.0.0`, and `stable` stays at the last 1.x final
+  release (`v1.28.20`) — SPEC-010 § "Pre-release arc scheme" P1, cited, never forked.
+  - Verify: `git tag --list 'v2.0.0-pre*'` carries the arc tags and `git tag --list 'v2.0.0'` is
+    empty; `git rev-parse stable` resolves to the `v1.28.20` commit.
+- **AC7.** Ships `2.0.0-pre.N`; never patch, minor, major, or `2.0.0` — the release is the epic
+  fold done by the orchestrator later, so C11's commits touch no version pair
+  (`.claude-plugin/plugin.json` and `CHANGELOG.md` are untouched).
+  - Verify: `git diff --name-only e5e4783..HEAD` lists no `plugin.json` or `CHANGELOG.md` change.
 
 ## Ship gate (CDT-645)
 

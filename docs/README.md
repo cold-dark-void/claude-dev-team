@@ -34,6 +34,7 @@ when one exists; skills-backed Surfaces without a page still appear here.
 | [omp host notes](internal/omp-host.md) | oh-my-pi hosts — `enabledProviders`, agent-name dedup, roster overlap (CDT-549) |
 | [Control plane phase 0 index](internal/control-plane/index.md) | CDT-627 discovery + CDT-632 written decisions — host matrix, credentials, the six decision deliverables, canonical AC list |
 | [ADR 0001 — journal engine](adr/0001-journal-engine.md) | SQLite behind a narrow interface; durable-execution engine rejected (CDT-632 AC10) |
+| [Control plane phase-1 close-out](internal/control-plane/phase-1-close-out.md) | CDT-651 — the ten CDT-628 children as built: owners, blocked items, the AC10 ruling as built, the carried inputs (CDT-627 residuals + CDT-629) |
 
 **What's new / upgrade path:** [CHANGELOG](../CHANGELOG.md) (newest first) · [Migrate to v1.0.0](runbooks/migrate-to-v1.md) · [Setup → Upgrading](setup.md#upgrading-the-plugin-existing-projects).
 
