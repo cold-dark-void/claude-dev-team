@@ -1,7 +1,10 @@
 // Command chiefd serves the Chief (CDT-650, CDT-628 C9): the single point of
 // contact of control plane Option C+ (CDT-626). Its one interface is the
 // HTTP API the web UI consumes (control-plane/chief.Handler) — there is no
-// CLI verb and no second interface.
+// CLI verb and no second interface. Since CDT-652 (C10) the same process
+// serves the web UI's static page on the same loopback port; the page gains
+// no endpoint of its own, and the bind is loopback-only (remote access is
+// CDT-630's phase-3 scope).
 //
 // The chief serves one project's journal ($DEVTEAM_RUN_DB, else
 // $MROOT/.claude/runs/run.db), routes work to the plugin's existing Surfaces
@@ -15,6 +18,7 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"os"
 	"os/signal"
@@ -34,7 +38,7 @@ const (
 	exitUsage   = 64
 )
 
-const usage = `chiefd — the Chief of the control plane: one API, no second interface.
+const usage = `chiefd — the Chief of the control plane: one API, one web UI, no second interface.
 
 Usage:
   chiefd [--addr ADDR] [--db PATH]
@@ -47,9 +51,14 @@ The API (the only interface; the web UI consumes it):
   GET  /v1/checks                     the per-run integrity reading
   GET  /v1/standup                    the stand-up report
   GET  /v1/halts                      named halts, reason + retry budget
+  GET  /v1/graph                      the C3 lifecycle graph
+
+The web UI (CDT-652) rides the same port: http://127.0.0.1:8090/ serves the
+board and the chat with the Chief. The bind is loopback-only — a
+non-loopback address is refused (remote access is CDT-630's phase-3 scope).
 
 Flags:
-  --addr ADDR    the listen address (default 127.0.0.1:8090)
+  --addr ADDR    the loopback listen address (default 127.0.0.1:8090)
   --db PATH      the journal file (default $DEVTEAM_RUN_DB)
 
 Routing starts runs through the node agent's four-verb contract (the C6 host
@@ -58,6 +67,29 @@ resolves the model through the Model map (skills/model-map/resolve-model.sh;
 an empty resolution is the Tier default — no flag exists for the model).
 `
 
+// errNotLoopback refuses a listen address that leaves the loopback
+// interface: the web UI is loopback-only (CDT-652) — no exposed port, no
+// access layer; remote access is CDT-630's phase-3 scope.
+var errNotLoopback = errors.New("chiefd: the listen address must be loopback (127.0.0.1, ::1, or localhost)")
+
+// loopbackOnly checks a listen address before the server binds it (AC6):
+// the host must name a loopback interface. A bare port (":8090") binds
+// every interface, so it is refused too.
+func loopbackOnly(addr string) error {
+	host, _, err := net.SplitHostPort(addr)
+	if err != nil {
+		return fmt.Errorf("%w: %s is not host:port", errNotLoopback, addr)
+	}
+	if host == "localhost" {
+		return nil
+	}
+	ip := net.ParseIP(host)
+	if ip == nil || !ip.IsLoopback() {
+		return fmt.Errorf("%w: %s", errNotLoopback, addr)
+	}
+	return nil
+}
+
 func main() {
 	os.Exit(run(os.Args[1:], os.Stdout, os.Stderr))
 }
@@ -65,7 +97,7 @@ func main() {
 func run(args []string, stdout, stderr io.Writer) int {
 	fs := flag.NewFlagSet("chiefd", flag.ContinueOnError)
 	fs.SetOutput(stderr)
-	addr := fs.String("addr", "127.0.0.1:8090", "listen address of the API")
+	addr := fs.String("addr", "127.0.0.1:8090", "loopback listen address of the API and the web UI")
 	db := fs.String("db", "", "journal file (default $DEVTEAM_RUN_DB)")
 	if err := fs.Parse(args); err != nil {
 		return exitUsage
@@ -73,6 +105,10 @@ func run(args []string, stdout, stderr io.Writer) int {
 	if fs.NArg() > 0 {
 		fmt.Fprintf(stderr, "chiefd: unexpected argument %q\n", fs.Arg(0))
 		fmt.Fprint(stderr, usage)
+		return exitUsage
+	}
+	if err := loopbackOnly(*addr); err != nil {
+		fmt.Fprintf(stderr, "%v\n", err)
 		return exitUsage
 	}
 
@@ -104,11 +140,11 @@ func run(args []string, stdout, stderr io.Writer) int {
 	defer stop()
 	go ch.Watch(ctx, chief.DefaultWatchInterval)
 
-	srv := &http.Server{Addr: *addr, Handler: ch.Handler()}
+	srv := &http.Server{Addr: *addr, Handler: withUI(ch.Handler())}
 	errc := make(chan error, 1)
 	go func() { errc <- srv.ListenAndServe() }()
 
-	fmt.Fprintf(stdout, "chief: serving the API on http://%s (journal %s)\n", *addr, path)
+	fmt.Fprintf(stdout, "chief: serving the API and the web UI on http://%s (journal %s)\n", *addr, path)
 	select {
 	case err := <-errc:
 		if err != nil && !errors.Is(err, http.ErrServerClosed) {

@@ -1,0 +1,106 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Chief — control plane</title>
+<link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+<header>
+  <h1>Chief</h1>
+  <span id="conn" class="muted">connecting…</span>
+  <span class="muted">loopback only — no remote access</span>
+</header>
+<main>
+  <section id="board">
+    <h2>Run board</h2>
+    <table id="runs">
+      <thead>
+        <tr>
+          <th>Run</th><th>State</th><th>Phase</th><th>Halt</th>
+          <th>Budget</th><th>Queue</th><th>Node</th><th>Runner</th>
+          <th>Workflow</th><th>Model</th>
+        </tr>
+      </thead>
+      <tbody></tbody>
+    </table>
+
+    <div class="panels">
+      <div class="panel">
+        <h3>Halts</h3>
+        <ul id="halts"></ul>
+      </div>
+      <div class="panel">
+        <h3>Queue</h3>
+        <ul id="queue"></ul>
+      </div>
+      <div class="panel">
+        <h3>Checks</h3>
+        <ul id="checks"></ul>
+      </div>
+    </div>
+  </section>
+
+  <section id="chat">
+    <h2>Chat with the Chief</h2>
+    <ol id="thread" class="thread"></ol>
+    <form id="route-form">
+      <h3>Route work</h3>
+      <div class="row">
+        <label>Kind
+          <select id="route-kind">
+            <option value="defect">defect — /debug</option>
+            <option value="idea">idea — /brainstorm</option>
+            <option value="epic">epic — child tickets</option>
+          </select>
+        </label>
+        <label>Host
+          <select id="route-host">
+            <option value="claude-code">claude-code</option>
+            <option value="grok">grok</option>
+            <option value="omp">omp</option>
+          </select>
+        </label>
+        <label>Agent <span class="muted">(optional)</span>
+          <input id="route-agent" type="text" placeholder="ic5">
+        </label>
+      </div>
+      <label>Title <input id="route-title" type="text" required></label>
+      <label>Premise <textarea id="route-text" rows="3" required></textarea></label>
+      <div id="children-box" hidden>
+        <label>Children <span class="muted">(one per line: Title | premise)</span>
+          <textarea id="route-children" rows="3"></textarea>
+        </label>
+      </div>
+      <button type="submit">Route</button>
+    </form>
+    <form id="correction-form">
+      <h3>Correction</h3>
+      <div class="row">
+        <label>Run
+          <select id="correction-run"></select>
+        </label>
+        <label class="grow">Message <input id="correction-message" type="text" required></label>
+      </div>
+      <button type="submit">Send at the next step boundary</button>
+    </form>
+  </section>
+
+  <section id="graph">
+    <h2>Lifecycle</h2>
+    <div class="row">
+      <label>Mark the position of
+        <select id="graph-run"></select>
+      </label>
+      <span id="graph-legend" class="muted">outline = the run's state · fill = the run's phase</span>
+    </div>
+    <svg id="lifecycle" role="img" aria-label="Control plane lifecycle graph"></svg>
+  </section>
+</main>
+<footer>
+  <span class="muted">One surface over the Chief's API — no terminal tab, no second interface.</span>
+</footer>
+<script src="/static/app.js"></script>
+</body>
+</html>

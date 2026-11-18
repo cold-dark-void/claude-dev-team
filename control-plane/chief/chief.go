@@ -13,7 +13,9 @@ import (
 	"github.com/cold-dark-void/claude-dev-team/control-plane/agent"
 	"github.com/cold-dark-void/claude-dev-team/control-plane/hostadapter"
 	"github.com/cold-dark-void/claude-dev-team/control-plane/journal"
+	"github.com/cold-dark-void/claude-dev-team/control-plane/lifecycle"
 	"github.com/cold-dark-void/claude-dev-team/control-plane/queue"
+	"github.com/cold-dark-void/claude-dev-team/control-plane/spool"
 )
 
 // Surface is one existing plugin Surface the Chief routes to. The Chief
@@ -97,6 +99,21 @@ type Chief struct {
 	models  ModelResolver
 	phone   Phone
 
+	// phaseEvents is the C3 phase-event read the board's current-phase
+	// fold rides (control-plane/spool). Nil is the default spool read.
+	phaseEvents func(ctx context.Context, runID string) ([]spool.Record, error)
+
+	// runnerOnce and runner resolve the node's runner selection once, so
+	// every board row names the same runner.
+	runnerOnce sync.Once
+	runner     string
+
+	// graphOnce, graphVal, and graphErr load the committed C3 lifecycle
+	// graph once — the graph the board draws, never a second copy of it.
+	graphOnce sync.Once
+	graphVal  *lifecycle.Graph
+	graphErr  error
+
 	mu   sync.Mutex
 	runs map[string]*runRecord
 
@@ -168,6 +185,13 @@ func WithPhone(p Phone) Option { return func(c *Chief) { c.phone = p } }
 
 // WithSID pins the Intercom session id of the operator channel.
 func WithSID(sid string) Option { return func(c *Chief) { c.SID = sid } }
+
+// WithPhaseEvents replaces the C3 phase-event read the board's
+// current-phase fold rides. The default reads the default spool
+// (control-plane/spool). Tests inject a fixture.
+func WithPhaseEvents(read func(ctx context.Context, runID string) ([]spool.Record, error)) Option {
+	return func(c *Chief) { c.phaseEvents = read }
+}
 
 // New returns a chief over one journal, its C5 queue, and the C6 host
 // adapter built on one node agent.
@@ -511,6 +535,19 @@ type RunStatus struct {
 	// Slot is the runner's queue state — held, waiting, or released (the
 	// C5 vocabulary); empty when the run holds no slot.
 	Slot string `json:"slot,omitempty"`
+	// Phase is the run's current phase (the board's AC): the lifecycle
+	// vertex the run's latest C3 phase event names. Empty when the spool
+	// carries no phase event for the run — the fold fails closed, and the
+	// state field still says where the machine is.
+	Phase string `json:"phase,omitempty"`
+	// QueuePosition is the run's waiting runner's position in the queue:
+	// 1-based among the waiting slots, in ledger order. 0 means the run
+	// holds no waiting runner (a held or released slot queues no one).
+	QueuePosition int `json:"queue_position,omitempty"`
+	// RunnerType is the node's runner selection (the C4 closed set) — the
+	// runner every run on this node rides. Empty when the node has no
+	// selection.
+	RunnerType string `json:"runner_type,omitempty"`
 }
 
 // HaltReport is one named halt: its reason and its remaining retry budget
@@ -575,7 +612,10 @@ func (c *Chief) status(ctx context.Context, runID string, slots []queue.Slot) (R
 	rs := RunStatus{
 		RunID: runID, State: st.Name(), Ticket: st.Ticket, Workflow: st.Workflow,
 		Model: st.Model, Owner: st.Owner, Stint: st.Stint, LastHeartbeatTS: st.HeartbeatTS,
-		Slot: slotState(slots, runID),
+		Slot:          slotState(slots, runID),
+		Phase:         c.currentPhase(ctx, runID),
+		QueuePosition: queuePosition(slots, runID),
+		RunnerType:    c.runnerType(),
 	}
 	if st.Halt != nil {
 		rs.Halt = &HaltReport{
@@ -696,6 +736,17 @@ func (c *Chief) Standup(ctx context.Context) (*Standup, error) {
 // states.
 func isTerminalState(state string) bool {
 	return state == string(journal.StatusCompleted) || state == string(journal.StatusFailed)
+}
+
+// Graph serves the C3 lifecycle graph (the board's AC): the committed
+// graph file, loaded once through control-plane/lifecycle — the only
+// reader that validates it. The answer is the graph data itself, never a
+// second copy of it and never a rendering of it.
+func (c *Chief) Graph() (*lifecycle.Graph, error) {
+	c.graphOnce.Do(func() {
+		c.graphVal, c.graphErr = lifecycle.LoadDefault()
+	})
+	return c.graphVal, c.graphErr
 }
 
 // Halts reports every named halt in the journal (AC5): the reason and the

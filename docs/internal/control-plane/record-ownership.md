@@ -22,6 +22,11 @@ CDT-650 (CDT-628 C9, 2026-11-18) adds row 15: the Chief's phone-channel page rec
 the Chief's halt pages at-least-once across a restart; the page itself travels through the plugin's
 own Intercom CLI (SPEC-038), which stays the only writer of the Intercom spool.
 
+CDT-652 (CDT-628 C10, 2026-11-18) adds no row: the web UI is a small set of static files embedded in
+the chiefd binary and served on the Chief's loopback port — delivery, not state. The UI reads the
+existing records through the Chief's API and writes nothing outside them: the chat is the C9
+corrections flow plus the route verbs, and the board folds journal, queue, spool, and graph state.
+
 ## Decision register
 
 | Field | Value |

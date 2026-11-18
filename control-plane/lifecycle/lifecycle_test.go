@@ -715,3 +715,26 @@ func mustSetSection(t *testing.T, section string, value any) []byte {
 	}
 	return raw
 }
+
+// AC3 (CDT-652): the board's graph rides the committed graph file — the
+// default loader resolves docs/internal/control-plane/lifecycle-graph.json
+// at the checkout, not a copy. The receipt is the resolved path itself.
+func TestLoadDefaultResolvesTheCommittedGraphFile(t *testing.T) {
+	g, err := LoadDefault()
+	if err != nil {
+		t.Fatalf("LoadDefault: %v", err)
+	}
+	if g.Graph != GraphName {
+		t.Fatalf("loaded graph = %q, want %q", g.Graph, GraphName)
+	}
+	path, err := Resolve()
+	if err != nil {
+		t.Fatalf("Resolve: %v", err)
+	}
+	if want := "docs/internal/control-plane/lifecycle-graph.json"; filepath.Base(path) != filepath.Base(want) {
+		t.Errorf("resolved graph = %q, want the committed %q", path, want)
+	}
+	if _, err := os.Stat(path); err != nil {
+		t.Errorf("committed graph file: %v", err)
+	}
+}

@@ -46,7 +46,7 @@ Build outputs (Go and container artifacts) are git-ignored at the repo root
 | `chief/` | The Chief (CDT-650): the single point of contact — routes work to the existing Surfaces and reports from journal and queue state. Its one interface is the HTTP API the web UI consumes |
 | `cmd/node-agent/` | The node-agent binary, one per node |
 | `cmd/journalctl/` | The journal CLI — the plugin↔service boundary: one append, one read, exit codes 0/1/64 |
-| `cmd/chiefd/` | The Chief's host process: it serves `chief.Handler` — the API the web UI consumes — and runs the halt watch that pages the operator through the Intercom |
+| `cmd/chiefd/` | The Chief's host process: it serves `chief.Handler` — the API the web UI consumes — and, since CDT-652, the web UI's static page on the same loopback port; it also runs the halt watch that pages the operator through the Intercom |
 | `killtest/` | The AC7 kill-test lane: SIGKILL at every phase boundary, in the G-02 container; parameterised by runner type since CDT-644 |
 | `build.sh` | The CDT-644 build entry: the three phase-0 targets in the G-02-approved Go image |
 | `README.md` | This boundary and ownership statement |
@@ -67,3 +67,29 @@ start command — lives in
 in `$MROOT/.claude/dev-team/node.json`, or `$DEVTEAM_RUNNER=container` for
 one invocation. Native stays the default: a node whose selection is `native`
 (or absent) runs exactly the C4 native runner.
+
+## The web UI (CDT-652)
+
+One screen replaces the per-session terminal tab: the run board, the chat
+with the Chief, and the lifecycle graph, all over the one API
+(`chief.Handler`). The page is a small set of static files embedded in the
+chiefd binary (`go:embed`; no build step) and served by the same process on
+the same loopback port as the API — the page gains no endpoint of its own,
+and every value it shows rides the `/v1` endpoints.
+
+Start it on a dev-team checkout (the Chief's seams exec the plugin's own
+CLIs from `$MROOT`). Build chiefd inside the G-02-approved Go image — the
+machine's build and runtime surface — then run the binary:
+
+```bash
+docker run --rm --init -v "$PWD":/src -w /src/control-plane \
+  -e GOCACHE=/tmp/gocache -e GOMODCACHE=/tmp/gomodcache \
+  docker.io/library/golang:1.27-bookworm@sha256:4fa7c968ba93f1635670522dbb01a2c78150443e1385746924566079f36570ea \
+  go build -o ./dist/chiefd ./cmd/chiefd
+./dist/chiefd   # binds 127.0.0.1:8090 by default
+```
+
+Open <http://127.0.0.1:8090/> in a browser on the same machine. The bind is
+loopback-only: chiefd refuses any non-loopback address with a typed error,
+and there is no TLS, tunnel, or access layer — remote access is CDT-630's
+phase-3 scope.

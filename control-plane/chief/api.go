@@ -26,6 +26,7 @@ import (
 //	GET  /v1/checks                      the per-run integrity reading (AC2)
 //	GET  /v1/standup                     the stand-up report (AC2)
 //	GET  /v1/halts                       named halts, reason + retry budget (AC5)
+//	GET  /v1/graph                       the C3 lifecycle graph (AC3)
 func (c *Chief) Handler() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("POST /v1/route", c.apiRoute)
@@ -36,6 +37,7 @@ func (c *Chief) Handler() http.Handler {
 	mux.HandleFunc("GET /v1/checks", c.apiChecks)
 	mux.HandleFunc("GET /v1/standup", c.apiStandup)
 	mux.HandleFunc("GET /v1/halts", c.apiHalts)
+	mux.HandleFunc("GET /v1/graph", c.apiGraph)
 	return mux
 }
 
@@ -129,6 +131,20 @@ func (c *Chief) apiHalts(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"halts": halts})
+}
+
+// apiGraph serves GET /v1/graph: the C3 lifecycle graph the board draws —
+// the validated graph data of control-plane/lifecycle, from the committed
+// file, never a second copy and never a rendering. The run's current
+// position rides the run rows (the state field names the run-state vertex);
+// the board marks it on the drawing.
+func (c *Chief) apiGraph(w http.ResponseWriter, r *http.Request) {
+	g, err := c.Graph()
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, g)
 }
 
 // decodeBody reads one JSON request body. An empty body is an empty object,

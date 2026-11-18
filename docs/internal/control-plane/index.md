@@ -16,6 +16,8 @@ Status (CDT-647, added 2026-11-17): C8 lands the container runner. § "CDT-647 �
 
 Status (CDT-650, added 2026-11-18): C9 lands the Chief — the single point of contact that routes work to the existing Surfaces and reports from run state. § "CDT-650 — The Chief" below pins the C9 deliverable paths and § "CDT-650" (under § Acceptance criteria) carries its canonical AC list. The phase-0, CDT-632, CDT-643, CDT-642, CDT-644, CDT-646, CDT-649, CDT-648, and CDT-647 sections are unchanged except where C9 appends (`record-ownership.md` row 15, the phone-channel page record).
 
+Status (CDT-652, added 2026-11-18): C10 lands the web UI — one screen over the one API. § "CDT-652 — The web UI" below pins the C10 deliverable paths and § "CDT-652" (under § Acceptance criteria) carries its canonical AC list. The phase-0 and phase-1 sections above are unchanged: C10 adds no record to `record-ownership.md` (the page is static files embedded in the chiefd binary, not state) and no Surface is copied — every value the UI shows rides the C9 API.
+
 ## Scope
 
 This ticket is Phase 0 discovery of the control plane Option C+ (CDT-626). It is docs-only. It probes hosts and Runner types. It records evidence in this directory. It ships no product code.
@@ -429,6 +431,27 @@ The Chief adds no second copy of any Surface and no new store of run state:
   line before the page, one outcome line after, keyed by the halt row's seq.
 - **One interface (AC6)**: the HTTP API of `chief.Handler` is the whole surface — there is no CLI
   verb and no second interface. The web UI (C10) consumes the same endpoints.
+
+## CDT-652 — The web UI
+
+Added by CDT-652 (CDT-628 C10) on 2026-11-18. C10 puts the one screen inside the service directory:
+chat with the Chief plus a run board over the same API the C9 Chief serves — the per-session terminal
+tab is replaced, and no endpoint exists for the UI alone.
+
+| Deliverable | Path |
+|---|---|
+| The web UI — the static page the chiefd process serves (embedded; no build step) | `control-plane/cmd/chiefd/web/` + `control-plane/cmd/chiefd/web.go` |
+| The board's report fields (state, current phase, halt reason, retry budget, queue position, node, runner type) | `control-plane/chief/chief.go` (`RunStatus`), `control-plane/chief/board.go` |
+| The lifecycle-graph endpoint the drawing rides | `control-plane/chief/api.go` (`GET /v1/graph`) over `control-plane/lifecycle` |
+| The loopback-only bind guard | `control-plane/cmd/chiefd/main.go` (`loopbackOnly`) |
+| The per-Surface standalone checks | `control-plane/chief/board_test.go` (`TestSurfacesStillWorkStandaloneInTheTerminal`) |
+| The started-steered-closed proof over the UI's endpoints | `control-plane/chief/e2e_test.go` (`TestABoardRunIsStartedSteeredAndClosedFromTheUI`) |
+
+The UI adds no record and no second copy of any Surface: the page is `go:embed` static files (plain
+HTML, CSS, and JavaScript — no node/npm build step) served by the same chiefd process on the same
+loopback port as the API; the chat is the C9 corrections flow plus the route verbs; the board folds
+journal, queue, spool, and graph state; and the bind refuses any non-loopback address (remote access
+is CDT-630's phase-3 scope).
 
 ## Acceptance criteria
 
@@ -989,6 +1012,75 @@ ownership row (AC5's record). No AC carries the `[process]` tag: each asserts fi
   fold done by the orchestrator later, so C9's commits touch no version pair
   (`.claude-plugin/plugin.json` and `CHANGELOG.md` are untouched).
   - Verify: `git diff --name-only 76d22ba..HEAD` lists no `plugin.json` or `CHANGELOG.md` change.
+
+CDT-652 follows the same ruling: no `specs/` entry — the deliverable AC list below is the spec. C10 is
+the tenth child of the CDT-628 epic and builds on the C3 lifecycle graph and its phase-event spool
+(CDT-642), the C5 queue (CDT-649), and the C9 Chief (CDT-650). Its gate home is the test suite of
+`control-plane/chief/` and `control-plane/cmd/chiefd/`, the loopback bind guard, and the per-Surface
+standalone checks. No AC carries the `[process]` tag: each asserts file content (AC1–AC6) or release
+content (AC7).
+
+### CDT-652
+
+- **AC1.** The web UI is one screen over the one API: chat with the Chief plus a run board, both riding
+  `chief.Handler`'s endpoints — there is no endpoint for the UI alone. The UI is a small set of static
+  files embedded in `control-plane/cmd/chiefd` (`go:embed`; no build step, no external toolchain) and
+  served by the same process on the same loopback port as the API; every value it shows and every
+  action it takes rides the `/v1` endpoints — the chat is the C9 corrections flow plus the route verbs,
+  and the board is runs/queue/checks/halts. The static page is delivery, not data: the API
+  surface of `control-plane/chief/api.go` is unchanged except for `GET /v1/graph`, which reports the C3
+  lifecycle graph (AC3), and the board fields the run rows gained (AC2) — all of them report
+  journal/queue/spool/graph state.
+  - Verify: `go test ./cmd/chiefd/` — `TestTheUIRidesTheAPISPort` proves the page and its assets serve
+    on the API's port and unknown paths answer through the API; `go test ./chief/` —
+    `TestAPIIsTheWholeSurface` proves the endpoints serve the route, the correction, and the reports;
+    `grep -n 'mux.Handle' control-plane/cmd/chiefd/web.go` shows only the page and its two assets.
+- **AC2.** The board shows, per run: state, current phase, halt reason, retry budget, queue position,
+  node, and runner type — every field from state, never prose. State, halt reason, and retry budget
+  are the replayed rows (`control-plane/journal`, the C2 halt row); the current phase is the lifecycle
+  vertex the run's latest C3 phase event names (`control-plane/spool`, the CDT-642 phase-event
+  contract — an empty spool folds to an empty phase, never a guess); the queue position ranks a
+  waiting runner among the C5 slot ledger's waiting slots (1-based, ledger order; a held slot queues
+  no one); the node is the replayed owner — the node agent that holds the run; the runner type is the
+  node's selection through the C4 loader (`agent.Load`, the node config's single reader — empty when
+  the node has none).
+  - Verify: `go test ./chief/` — `TestBoardCarriesStatePhaseHaltBudgetQueueNodeAndRunner` proves all
+    seven fields over the API, including the empty-phase fold and the waiting rank.
+- **AC3.** The C3 lifecycle graph is drawn from the graph JSON, with the run's current position marked.
+  `GET /v1/graph` serves the committed graph (`docs/internal/control-plane/lifecycle-graph.json`)
+  through `control-plane/lifecycle` — the loader validates it once and the API serves the validated
+  data, never a second copy. The page draws the vertices and edges from that JSON (layout computed in
+  the page from the `order` fields; the file carries no coordinate, colour, or style field), and marks
+  the run's current position: the run-state vertex the run's `state` names, outlined, and the run's
+  phase vertex (AC2), filled.
+  - Verify: `go test ./chief/` — `TestGraphEndpointServesTheLifecycleJSON` proves the endpoint serves
+    the committed graph's identity and vertex set; `go test ./cmd/chiefd/` — `TestTheUIRidesTheAPISPort`
+    proves the page rides the same port.
+- **AC4.** A routine run is started, steered, and closed from the UI with no terminal tab. The proof
+  rides the C6 steer E2E seam: the route starts the run, the correction reaches the running session at
+  its next step boundary, and the run closes to its terminal state — every step over the HTTP
+  endpoints the UI drives, never a Go call into the Chief and never a second path.
+  - Verify: `go test ./chief/` — `TestABoardRunIsStartedSteeredAndClosedFromTheUI` proves the
+    route → steer → close routine end-to-end over the API.
+- **AC5.** Every existing Surface still works standalone in a terminal — one check per Surface, after
+  this child lands. The check is hermetic per Surface: the defect route still names `commands/debug.md`,
+  the idea route still names `skills/brainstorm/SKILL.md`, and the epic route still names
+  `commands/epic.md` — each file exists at the checkout and still carries its own Surface frontmatter
+  (it is a terminal command/skill on its own), and the Chief's closed route set names those files, so
+  the UI added no copy of any Surface and no endpoint of its own.
+  - Verify: `go test ./chief/` — `TestSurfacesStillWorkStandaloneInTheTerminal` runs one subtest per
+    Surface (defect, idea, epic).
+- **AC6.** Loopback only: no exposed port and no access layer — remote access is CDT-630's phase-3
+  scope. chiefd binds 127.0.0.1 by default and refuses a non-loopback listen address with a typed
+  error (`errNotLoopback`) before anything binds; there is no TLS, tunnel, or access-layer code.
+  - Verify: `go test ./cmd/chiefd/` — `TestNonLoopbackBindIsRefused` proves the typed refusal for
+    `0.0.0.0`, a bare port, a LAN address, a name that does not resolve to loopback, and a malformed
+    address, and accepts `127.0.0.1`, `localhost`, and `[::1]`; `TestRunRefusesANonLoopbackAddr` proves
+    the exit.
+- **AC7.** Ships `2.0.0-pre.N`; never patch, minor, major, or `2.0.0` — the release is the epic fold
+  done by the orchestrator later, so C10's commits touch no version pair
+  (`.claude-plugin/plugin.json` and `CHANGELOG.md` are untouched).
+  - Verify: `git diff --name-only c85338b..HEAD` lists no `plugin.json` or `CHANGELOG.md` change.
 
 ## Ship gate (CDT-645)
 
