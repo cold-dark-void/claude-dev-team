@@ -1,12 +1,21 @@
 // Package agent is the node agent of control plane Option C+ (CDT-626; CDT-628
 // C4, CDT-644): one Go binary — control-plane/cmd/node-agent — with the
 // four-verb contract start, stop, status, and steer. The control plane talks
-// only to the node agent. The agent never talks to Docker, and no Docker
-// dependency exists in this package, in the CLI, or in the build: the
-// G-02-approved Go image builds the binary, it never runs it as a runner
-// (docs/internal/control-plane/node-agent-build-probe.md § "Approved image").
+// only to the node agent.
 //
-// # The native runner
+// # Docker, and only the node agent
+//
+// The node agent is the only component that talks to Docker, and only
+// through the container runner of CDT-647: the agent execs the Docker CLI —
+// it never opens the socket itself — and the session container never sees
+// the socket, never gains a Docker group, and never runs privileged or in a
+// host namespace (agent.guardSessionArgv enforces that on every invocation).
+// The contract carries no Docker dependency for the native runner, and the
+// G-02-approved Go image builds the binary and runs its tests without
+// Docker (docs/internal/control-plane/node-agent-build-probe.md §
+// "Approved image").
+//
+// # The two runners
 //
 // The native runner is the first runner built and the default once selected:
 // an agent session is a process on the node's own OS, using the installed host
@@ -14,7 +23,22 @@
 // per-host AC-9 grid; the CLI's own credential paths, never an injected
 // secret). The agent spawns one host-CLI process per run slot, tracks its PID,
 // steers it (a control message delivered at the next step boundary), and stops
-// it (SIGTERM, then SIGKILL after a grace). Runner selection is a per-node
+// it (SIGTERM, then SIGKILL after a grace).
+//
+// The container runner (CDT-647) implements the same contract over one
+// container per run: the run's worktree bind-mounted at its host path
+// (container-runner.md Fact 3), the host CLI binary mounted read-only
+// (Fact 4), and the host's session state mounted read-write, so resume and a
+// token refresh survive a container death over the mounted paths (Fact 2 —
+// the B6 conservative rule for the unprobed forced-refresh case). Steer rides
+// the Docker client's stdin pipe unchanged; stop is `docker stop -t`, the
+// same TERM-then-KILL contract at the container boundary; and the adoption
+// policy probes and stops the orphan by container name, because a container
+// outlives the client process that created it. The session image is
+// digest-pinned (agent.SessionImage) and carries the probe facts of
+// container-runner.md.
+//
+// Runner selection is a per-node
 // setting — the runner key of $MROOT/.claude/dev-team/node.json, overridden by
 // $DEVTEAM_RUNNER (record-ownership row 14), the
 // skills/backlog/linear-gate.sh C7 pattern: first hit wins, one reader, and

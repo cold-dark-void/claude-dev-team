@@ -22,9 +22,11 @@ func TestResolveRunnerSelection(t *testing.T) {
 		wantCmd string
 	}{
 		{"env selects native", "native", "", true, RunnerNative, SourceEnv, ""},
+		{"env selects container (CDT-647)", "container", "", true, RunnerContainer, SourceEnv, ""},
 		{"env junk resolves to no selection (the C7 ruling)", "nativ", "", true, "", SourceEnv, ""},
 		{"env none resolves to no selection", "none", "", true, "", SourceEnv, ""},
 		{"config selects native", "", `{"runner":"native","command":"claude"}`, false, RunnerNative, SourceNodeConf, "claude"},
+		{"config selects container", "", `{"runner":"container","command":"claude"}`, false, RunnerContainer, SourceNodeConf, "claude"},
 		{"config junk resolves to no selection", "", `{"runner":"docker"}`, false, "", SourceNone, ""},
 		{"config invalid JSON resolves to no selection", "", `{oops`, false, "", SourceNone, ""},
 		{"config unknown key resolves to no selection", "", `{"runner":"native","extra":1}`, false, "", SourceNone, ""},
@@ -67,7 +69,8 @@ func TestResolveRunnerSelection(t *testing.T) {
 }
 
 // AC: the closed selection set. The native runner is the first built and the
-// default once selected; no other name is a runner yet.
+// default once selected; the container runner (CDT-647) rides the same
+// fail-closed resolution; no other name is a runner.
 func TestKnownRunnersAreClosedAndNativeFirst(t *testing.T) {
 	if len(KnownRunners) == 0 || KnownRunners[0] != RunnerNative {
 		t.Fatalf("KnownRunners = %v, want native first", KnownRunners)
@@ -76,6 +79,9 @@ func TestKnownRunnersAreClosedAndNativeFirst(t *testing.T) {
 		if !ValidRunner(r) {
 			t.Errorf("known runner %q is not valid", r)
 		}
+	}
+	if !ValidRunner(RunnerContainer) {
+		t.Errorf("the container runner %q is not in the closed set", RunnerContainer)
 	}
 	if ValidRunner("docker") {
 		t.Error(`"docker" validated as a runner; the contract never names one`)

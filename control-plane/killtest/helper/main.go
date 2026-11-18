@@ -14,7 +14,9 @@
 // selection ($DEVTEAM_RUNNER, the agent's own C7 pattern) is set, the helper
 // resolves it through the node agent's config loader and refuses an unknown
 // runner fail-closed. The native runner is the first built and the default
-// once selected; no Docker dependency exists anywhere in the lane.
+// once selected; CDT-647 adds the container runner to the closed set. No
+// Docker dependency exists anywhere in the lane: it drives the run machine
+// directly and spawns no session container.
 package main
 
 import (

@@ -27,6 +27,10 @@ type Spec struct {
 	Env []string
 	// Dir is the working directory, empty meaning inherit.
 	Dir string
+	// Name is the per-run session name the container runner names its
+	// container after; the native runner ignores it. Empty means the
+	// container runner refuses the start.
+	Name string
 }
 
 // Process is one runner process the agent supervises. The native runner
@@ -109,8 +113,8 @@ func (n Native) Start(spec Spec) (Process, error) {
 	// the moment the child's own process exits.
 	_ = outW.Close()
 	_ = errW.Close()
-	go n.drain(outR, n.sink(n.Stdout, os.Stdout))
-	go n.drain(errR, n.sink(n.Stderr, os.Stderr))
+	go drain(outR, sink(n.Stdout, os.Stdout))
+	go drain(errR, sink(n.Stderr, os.Stderr))
 
 	p := &nativeProcess{cmd: cmd, stdin: stdin, done: make(chan error, 1)}
 	go func() {
@@ -123,14 +127,14 @@ func (n Native) Start(spec Spec) (Process, error) {
 }
 
 // drain copies one output stream until every writer of it is gone.
-func (Native) drain(r *os.File, w io.Writer) {
+func drain(r *os.File, w io.Writer) {
 	_, _ = io.Copy(w, r)
 	_ = r.Close()
 }
 
 // sink resolves a configured writer, nil meaning the agent's own stream: the
 // runner session's output is the run's output.
-func (Native) sink(w, fallback io.Writer) io.Writer {
+func sink(w, fallback io.Writer) io.Writer {
 	if w == nil {
 		return fallback
 	}

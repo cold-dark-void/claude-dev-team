@@ -40,9 +40,26 @@ Build outputs (Go and container artifacts) are git-ignored at the repo root
 | `reconcile/` | The on-start reconciler: the journal against worktrees, branches, and processes (AC5) |
 | `lifecycle/` | The lifecycle-graph loader (CDT-642) |
 | `spool/` | The phase-event spool (CDT-642) |
-| `agent/` | The node agent (CDT-644): the four-verb contract — start, stop, status, steer — and the native runner, a process on the node's own OS. No Docker in the contract, the code, or the build |
+| `agent/` | The node agent (CDT-644): the four-verb contract — start, stop, status, steer — with two runners: the native runner (a process on the node's own OS, CDT-644) and the container runner (one container per run, CDT-647). The agent is the only holder of the Docker socket, and only through the container runner |
 | `cmd/node-agent/` | The node-agent binary, one per node |
 | `cmd/journalctl/` | The journal CLI — the plugin↔service boundary: one append, one read, exit codes 0/1/64 |
 | `killtest/` | The AC7 kill-test lane: SIGKILL at every phase boundary, in the G-02 container; parameterised by runner type since CDT-644 |
 | `build.sh` | The CDT-644 build entry: the three phase-0 targets in the G-02-approved Go image |
 | `README.md` | This boundary and ownership statement |
+
+## Selecting the container runner (a containers-only node)
+
+A node whose owner keeps the containers-only rule runs every phase-1 session
+in a container with no plugin-side change. The canonical operator recipe —
+the one-time host-CLI login, the Docker CLI on the agent's PATH, and the
+start command — lives in
+[`docs/internal/control-plane/container-runner.md`](../docs/internal/control-plane/container-runner.md)
+§ "Operator recipe — a containers-only node". The essential selection:
+
+```json
+{ "runner": "container", "command": "claude" }
+```
+
+in `$MROOT/.claude/dev-team/node.json`, or `$DEVTEAM_RUNNER=container` for
+one invocation. Native stays the default: a node whose selection is `native`
+(or absent) runs exactly the C4 native runner.

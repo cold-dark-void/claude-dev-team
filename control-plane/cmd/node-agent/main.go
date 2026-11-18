@@ -1,6 +1,8 @@
 // Command node-agent is the node agent of control plane Option C+ (CDT-626;
 // CDT-644): one binary, four verbs — start, stop, status, steer. The control
-// plane talks only to this agent; the agent never talks to Docker.
+// plane talks only to this agent. The agent is the only holder of the Docker
+// socket, and only through the container runner of CDT-647: it execs the
+// Docker CLI and never hands the socket to a session container.
 //
 // Every state-changing verb writes its journal intent before it acts and its
 // outcome after (the SPEC-040 AC11 intent-then-outcome pattern). The run
@@ -66,7 +68,11 @@ Runner selection (fail-closed):
   1. the runner key of $MROOT/.claude/dev-team/node.json
   2. $DEVTEAM_RUNNER — the per-invocation override
   3. no selection: start refuses, no run begins
-The native runner is the first built and the default once selected.
+The closed set is native and container (CDT-647); native is the first built
+and the default once selected. A container node needs the Docker CLI on the
+agent's PATH and a host CLI whose container probe facts exist
+(docs/internal/control-plane/container-runner.md); the session container
+never sees the Docker socket.
 
 Exit codes:
   0   success

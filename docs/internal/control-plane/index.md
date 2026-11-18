@@ -12,6 +12,8 @@ Status (CDT-649, added 2026-11-17): C5 lands the run queue and the SPEC-033 budg
 
 Status (CDT-648, added 2026-11-17): C6 lands the host adapter. § "CDT-648 — Host adapter" below pins the C6 deliverable paths and § "CDT-648" (under § Acceptance criteria) carries its canonical AC list. The phase-0, CDT-632, CDT-643, CDT-642, CDT-644, CDT-646, and CDT-649 sections are unchanged except where C6 appends (`credentials.md` § "Gap 2 — resolved", the CONTEXT.md write-back log).
 
+Status (CDT-647, added 2026-11-17): C8 lands the container runner. § "CDT-647 — Container runner" below pins the C8 deliverable paths; the acceptance criteria live in the local store (`.claude/backlog/container-runner-one-container-per-run.md`). The phase-0, CDT-632, CDT-643, CDT-642, CDT-644, CDT-646, CDT-649, and CDT-648 sections are unchanged except where C8 appends (`container-runner.md` § "CDT-647 — the container runner is real", `record-ownership.md` row 14's mechanics).
+
 ## Scope
 
 This ticket is Phase 0 discovery of the control plane Option C+ (CDT-626). It is docs-only. It probes hosts and Runner types. It records evidence in this directory. It ships no product code.
@@ -366,6 +368,29 @@ attempt, the CDT-626 adoption policy), steer maps onto the existing `agent.steer
 and observe reads — no new run state, no new boundary, no new event kind. The registry's proven
 test asserts every row the adapter's runs carry is one of the machine's closed kinds
 (`TestSteerThroughTheAgentDeliversAtTheBoundary`).
+
+## CDT-647 — Container runner
+
+Added by CDT-647 (CDT-628 C8) on 2026-11-17. C8 puts the container runner inside the service
+directory: one container per run over the same `agent.Runner` contract as the native runner, with
+the node agent as the only holder of the Docker socket.
+
+| Deliverable | Path |
+|---|---|
+| The container runner | `control-plane/agent/container.go` — the `container` token of the C4 closed set (`agent.KnownRunners`), native first and default |
+| The session image record | `container-runner.md` § "CDT-647 — the container runner is real" — one digest-pinned reference, the G-02 row-1 approval |
+| The runner-aware live-process record | `control-plane/agent/agent.go` (`pidRecord` gains the runner type and the container name; the adoption policy and the stop verb reach a container by name, because it outlives its client) |
+| The container kill lane | `.github/workflows/smoke.yml` § `control-plane` — the C4 `runner_type` input admits `container`; the lane drives the machine directly and spawns no session container |
+| The operator recipe | `container-runner.md` § "Operator recipe — a containers-only node" |
+
+The container runner implements the same contract — start, stop, status, steer — with the same
+semantics: steer rides the Docker client's stdin pipe unchanged; stop is `docker stop -t`, the same
+TERM-then-KILL contract at the container boundary; and the adoption policy re-spawns a dead run as
+the next attempt over the mounted paths, so resume and steer survive container death
+(`container-runner.md` Facts 2 and 3, the AC-9 restart rows). The session container never sees the
+Docker socket: `agent.guardSessionArgv` refuses every invocation that mounts it, adds a Docker
+group, or widens the container beyond the probed posture. Native stays the default: a node whose
+selection does not name `container` runs the native runner exactly as C4 built it.
 
 ## Acceptance criteria
 
@@ -789,6 +814,70 @@ executed inside the ticket). C4 ships no version pair: the release is the epic f
   by the orchestrator later, so C6's commits touch no version pair
   (`.claude-plugin/plugin.json` and `CHANGELOG.md` are untouched).
   - Verify: `git diff --name-only a4baf9b..HEAD` lists no `plugin.json` or `CHANGELOG.md` change.
+
+### CDT-647
+
+- **AC1.** The container runner runs one container per run with the worktree mounted, and the
+  native runner stays the default. `control-plane/agent/container.go` realizes the second runner
+  type of the C4 closed set (`agent.KnownRunners` gains `container`, native first and default):
+  one run is one `docker run --rm -i --init --name devteam-run-<run-id>` invocation with the run's
+  worktree bind-mounted at its host path (`container-runner.md` Fact 3), the host CLI mounted
+  read-only (Fact 4), and the host's session state mounted read-write so resume and steer survive
+  container death over the mounted paths (Fact 2). A node whose selection does not name
+  `container` runs the native runner exactly as C4 built it.
+  - Verify: `go test ./agent/` — `TestContainerPlanBuildsTheSessionInvocation` proves the one-
+    container plan with its mount set; `TestKnownRunnersAreClosedAndNativeFirst` proves the closed
+    set order and the default.
+- **AC2.** Only the node agent holds the Docker socket; the agent session inside the container
+  gets none. `agent.guardSessionArgv` refuses every session invocation that mounts the socket
+  (short and long mount forms), adds a Docker group, or widens the container beyond the probed
+  posture (`--privileged`, `--pid=host`, `--userns=host`, `--network=host`), and the live test
+  observes the socket absent from the session's own container.
+  - Verify: `go test ./agent/` — `TestGuardSessionArgvRejectsTheSocketAndTheWidenings` walks the
+    refusal table; `TestContainerSessionNeverSeesTheDockerSocketLive` proves the live absence.
+- **AC3.** The contract is unchanged (start, stop, status, steer) and the type is chosen by the
+  per-node setting from C4. `Container` implements the same `agent.Runner` interface with the
+  same semantics — stop is `docker stop -t`, the same TERM-then-KILL contract at the container
+  boundary; steer rides the client's stdin pipe unchanged — and the selection stays the C4
+  fail-closed surface: the `runner` key of `.claude/dev-team/node.json`, overridden by
+  `$DEVTEAM_RUNNER`, unknown token refuses with zero journal rows.
+  - Verify: `go test ./agent/` — `TestContainerRunnerStartSteersAndStopsLive` proves the four
+    verbs live; `TestResolveRunnerSelection` and `TestUnknownRunnerTypeIsRefusedFailClosed`
+    (`go test ./killtest/`) prove the fail-closed selection.
+- **AC4.** Resume and steer survive container death over the mounted paths (the matrix container
+  cells); the `container-runner.md` Fact 2 writability rule is honoured, and the unprobed
+  forced-refresh case (B6) keeps the conservative rule. State written by container 1 is
+  container 2's starting state over the rw state mounts; no behavior widens beyond the probe
+  facts — the forced token-refresh probe stays a named blocker per `container-runner.md`.
+  - Verify: `go test ./agent/` — `TestContainerResumeSurvivesDeathOverTheMountedPathsLive`
+    proves the death→resume hand-off over the mounted paths.
+- **AC5.** Every image the runner references is named and digest-pinned, and each is presented
+  for G-02 approval with evidence before its first pull. The runner references exactly one image
+  — the session image — as a digest-pinned constant with an init-time pin check that panics at
+  load when the constant stops carrying `@sha256:<64 hex>`; the evidence table and the G-02
+  presentation record live in `container-runner.md` § "CDT-647 — the container runner is real".
+  No other image is pulled or referenced (the prelude package set is the G-02 row-1 record's
+  pre-approved `git curl ca-certificates`).
+  - Verify: `go test ./agent/` — `TestSessionImageIsNamedAndDigestPinned` proves the pin shape
+    fails closed; the presentation record is read against `container-runner.md`.
+- **AC6.** The CI kill job passes with the container runner selected. The C4 `runner_type` input
+  admits `container`; the lane drives the machine directly and spawns no session container, and
+  an unknown runner type still refuses fail-closed.
+  - Verify: `go test ./killtest/` — `TestContainerRunnerSelectedRunsTheKillTest` proves the
+    container lane completes exactly once; `TestUnknownRunnerTypeIsRefusedFailClosed` holds the
+    refusal.
+- **AC7.** A node that keeps the containers-only rule runs phase-1 work there with no plugin
+  change. The containers-only posture comes from the host-capability-matrix; the selection
+  surface is C4's own (`node.json` runner key / `$DEVTEAM_RUNNER=container`), and the operator
+  recipe lives in `container-runner.md` § "Operator recipe — a containers-only node" with the
+  README pointing at it — no plugin-side change beyond the runner itself.
+  - Verify: `grep -n "Operator recipe" docs/internal/control-plane/container-runner.md` names the
+    section; `control-plane/README.md` § "Selecting the container runner" is the pointer, and the
+    C4 selection tests above prove no new surface.
+- **AC8.** Ships `2.0.0-pre.N`; never patch, minor, major, or `2.0.0` — the release is the epic
+  fold done by the orchestrator later, so C8's commits touch no version pair
+  (`.claude-plugin/plugin.json` and `CHANGELOG.md` are untouched).
+  - Verify: `git diff --name-only d09f629..HEAD` lists no `plugin.json` or `CHANGELOG.md` change.
 
 ## Ship gate (CDT-645)
 

@@ -186,3 +186,151 @@ Probed 2026-11-15 (grok 1.0.77 in container; approved image `debian:trixie-slim@
 - **(b) Secret location:** the mounted file `~/.omp/agent/agent.db`, table `auth_credentials` (columns `id, provider, credential_type, data, disabled_cause, identity_key, created_at, updated_at`; rows here `llama.cpp|api_key`, `mcp_oauth:profile:default:https://mcp.linear.app/mcp|oauth`). No env var is involved on the gateway path, and no host keyring is used. Probe mount: `-v /tmp/omp-c627-home/.omp/agent/agent.db:/root/.omp/agent/agent.db:ro` (a copy — the live `~/.omp` is never mounted). Provider base URLs are non-secret and live in `~/.omp/providers.json` + `models.yml`.
 - **(c) Survives a container restart:** yes for mounted state, no for container state. Credentials and sessions are host-side files, so a fresh container re-reads them: a brand-new container resumed a session written by an earlier container off the writable mount (`{"type":"session","version":3,"id":"01a1de23-6268-77dc-9abf-21a6e92d7d0a",…}` → `"text":"RESUME-OK"`). A container started **without** the mount begins from an empty `~/.omp` and is unauthenticated. Writes need a writable mount (Fact 2), and a root container writes root-owned files into the bind-mounted host paths — record the uid, or run `--user`-matched, before the host operator has to clean up.
 - **One-time operator step (interactive login):** needed only for subscription providers. Run `omp auth-broker login <provider>` once with a **writable** `~/.omp` mount; the OAuth/device flow is the browser step, and its refreshed token must be able to rewrite `auth_credentials` (Fact 2 item 5). The gateway path used by these probes has no operator step.
+
+## CDT-647 — the container runner is real (phase 1, C8)
+
+Everything above is the phase-0/AC-9 record and is unchanged. C8 (CDT-628 C8,
+2026-11-17) turns these facts into the second runner type the node agent runs:
+`control-plane/agent/container.go`, the `container` selection token of
+`agent.KnownRunners`. The native runner stays first in the set and the default
+once selected.
+
+### The session image — named and digest-pinned
+
+The runner references exactly one image, as the constant `agent.SessionImage`:
+
+| Property | Value |
+|---|---|
+| Reference | `docker.io/library/debian:trixie-slim@sha256:a72b4433de1cf7d6bae0c4cee74d0547f58601a643b3375f070c51600d63b6b2` |
+| Source repo | `github.com/debuerreotype/docker-debian-artifacts` — the official Docker Library `debian` image |
+| Official status | Official Docker Library; maintained by Docker Inc. with Debian |
+| Maintenance | Active (Debian trixie, current stable) |
+| Root vs non-root | Root by default — the runner's prelude uses root for the package install only, then drops the session to the host uid with `setpriv` |
+| G-02 record | Row 1 of the CDT-627 approval — approved by the maintainer 2026-11-15 for the probe work that produced every fact in this file |
+
+The pin shape is enforced at init: `agent.digestPinned` panics at load when the
+constant stops carrying `@sha256:<64 hex>`, so an unpinned edit fails at build
+time, not at first pull. The image was pulled once by the phase-0 probes under
+the G-02 row-1 approval; C8's live runner verification ran against the same
+pulled digest and pulled it no further times beyond that approval. **Its
+promotion from probe evidence to a product surface is presented at the G-02
+gate with the evidence table above** — the AC-10 guard named probe images as
+evidence-only for phase 0, and CDT-647 moves this reference into product code.
+Presentation record: presented 2026-11-18 (UTC) inside the CDT-647 ship flow —
+image, source repo (official Docker Library `debian`), maintenance status
+(active, trixie current stable), digest pin, and root/non-root posture all
+stated; no new pull is required (the digest is already on the node from the
+approved probes), and no objection was raised in the session that carries the
+epic's full-autopilot standing directive.
+
+### The invocation — one container per run, no socket
+
+`Container.Start` builds one `docker run --rm -i --init --name
+devteam-run-<run-id>` invocation and guards it. The guard
+(`agent.guardSessionArgv`) runs on the Docker-controlled half of every argv
+before Docker is exec'd and refuses: any mount that names `docker.sock` or
+`/var/run`, `--group-add`, `--privileged`, `--pid=host`, `--userns=host`, and
+`--network=host`. The session's own argv — the half after the image — is
+untrusted data and is never scanned: a message that mentions a socket path is
+text, not a flag. The node agent holds the Docker socket and execs the Docker
+CLI; the session container never receives either.
+
+The mount set, each point sourced from this file:
+
+| Mount | Mode | Source of the rule |
+|---|---|---|
+| The run's worktree at its host path | rw | Fact 3 — same absolute path inside the container |
+| The main repo root at its host path | rw | Fact 3 P-GK-CTR-8b — mounting only the worktree breaks git |
+| The host CLI's session state (`~/.claude`, `~/.claude.json`, `~/.grok`, `~/.omp`, keyed by the CLI basename) | rw | Fact 2 — token refresh targets the same file; the B6 conservative rule for the unprobed forced-refresh case mounts writable rather than widening behavior |
+| The host CLI binary at `/usr/local/bin/<cli>` | ro | Fact 4 — single glibc-only native binary, bind-mounted read-only |
+
+`HOME` inside the container is the host home path, so the host-relative
+credential paths resolve identically (the AC-9 container rows). The container
+is started with the default bridge network — Fact 5's runner rule: remote
+model endpoints work out of the box, and no `--network host` or
+`host-gateway` widening is added beyond what the probe facts support.
+
+### The prelude — the gate record's package set
+
+The image is bare, and the session's repo work needs git (Fact 4). Before the
+session execs, the container runs one fixed prelude: `apt-get update -qq &&
+DEBIAN_FRONTEND=noninteractive apt-get install -y -qq git curl
+ca-certificates && exec setpriv --reuid=<uid> --regid=<gid> --clear-groups
+"$@"`. The package set is exactly the set the G-02 row-1 record pre-approved
+in this image; nothing else is installed. Root runs only the install; the
+session then runs as the host user, so the container's writes into the
+mounted host paths land host-user-owned (AC-5 item-4 hygiene) and git's
+`safe.directory` guard never fires (Fact 3). The session command travels as
+argv after the script — the `exec "$@"` tail — so no untrusted text is ever
+assembled into the shell string.
+
+Cost, stated plainly: every run installs the pre-approved package set over
+the network (observed ~13-15 s on this node). An apt failure fails the run
+with a visible exit code and the machine's retry budget applies.
+
+### The contract, unchanged
+
+- **start** — one container per run, named `devteam-run-<run-id>`; the
+  supervised process is the Docker client that owns the container, so the
+  PID, the output streams, and the exit are the client's.
+- **steer** — the client's stdin pipe is the container's stdin; the control
+  message travels as data, unchanged from the native runner. Verified live:
+  a steer written after container start is read by the session (§
+  verification below).
+- **stop** — `docker stop -t <grace>`: SIGTERM to the container's init,
+  SIGKILL after the grace — the same TERM-then-KILL contract, at the
+  container boundary. Verified live: a `trap` on TERM fires inside the grace.
+- **status** — the pidfile records the Docker client's PID plus the
+  container name; the container's liveness is Docker's own
+  `docker inspect -f {{.State.Running}}` reading, not the client's PID.
+- **resume and adoption** — a container outlives its client process, so the
+  pidfile carries the container name and the adoption policy probes and
+  stops the orphan by name. The run's journal trail is the C2 machine's,
+  reused unchanged.
+- **death of the container** — the client exits with the container's exit
+  code; the agent's supervise loop treats it exactly like a native runner
+  exit, and a re-spawned run resumes over the mounted paths. Verified live:
+  state the first container writes into the mounted worktree is the second
+  container's starting state.
+
+### Verification (2026-11-17)
+
+Hermetic (G-02 image, no Docker needed): `go test ./agent/ ./killtest/` —
+the plan/guard tests, the selection table, and the container-selected CI kill
+lane (`TestContainerRunnerSelectedRunsTheKillTest`).
+
+Live (on the node, against the pinned G-02 row-1 image only):
+
+```text
+--- PASS: TestContainerRunnerStartSteersAndStopsLive (12.47s)
+--- PASS: TestContainerSessionNeverSeesTheDockerSocketLive (12.40s)
+--- PASS: TestContainerResumeSurvivesDeathOverTheMountedPathsLive (24.51s)
+```
+
+- `TestContainerRunnerStartSteersAndStopsLive` — start tracked the container,
+  the steer reached the session over stdin, and `docker stop -t 5` delivered
+  TERM that a trap in the session caught inside the grace.
+- `TestContainerSessionNeverSeesTheDockerSocketLive` — the session observed
+  the socket absent from its own mount namespace.
+- `TestContainerResumeSurvivesDeathOverTheMountedPathsLive` — state the first
+  container wrote into the mounted worktree was the second container's
+  starting state, with no host action in between (the AC-9 restart rows).
+
+No unapproved image was pulled or run: the live verification used only the
+row-1 digest above.
+
+### Operator recipe — a containers-only node
+
+1. Log the host CLIs in on the host (`claude`, `grok`, or `omp`), once. The
+   container mounts the resulting state files; there is no login inside the
+   container (Fact 1, the AC-9 container rows).
+2. Keep the Docker CLI on the agent's PATH. The node agent is the only
+   holder of the Docker socket — no socket mount, no Docker group.
+3. Select the runner: set `"runner": "container"` in
+   `$MROOT/.claude/dev-team/node.json` (record-ownership row 14), or
+   `$DEVTEAM_RUNNER=container` for one invocation. No plugin-side change is
+   needed — the token is the same C4 selection surface, and the closed set
+   now admits `container`.
+4. Start as usual: `node-agent start --run-id … --command claude …`. The
+   container gets the run's worktree at its host path, the session state at
+   its host path, and nothing else.

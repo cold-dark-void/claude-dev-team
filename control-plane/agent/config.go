@@ -27,8 +27,15 @@ type RunnerType string
 // node's own OS, using the installed host CLIs and their logins.
 const RunnerNative RunnerType = "native"
 
-// KnownRunners is the closed selection set, in selection order.
-var KnownRunners = []RunnerType{RunnerNative}
+// RunnerContainer is the container runner: the agent session is one
+// container per run, with the run's worktree bind-mounted at its host path.
+// The node agent holds the Docker socket — the only component that does —
+// and the session container never sees it (control-plane/agent/container.go).
+const RunnerContainer RunnerType = "container"
+
+// KnownRunners is the closed selection set, in selection order. The native
+// runner stays first and remains the default once a selection exists.
+var KnownRunners = []RunnerType{RunnerNative, RunnerContainer}
 
 // ValidRunner reports whether t names a runner the node can run.
 func ValidRunner(t RunnerType) bool {

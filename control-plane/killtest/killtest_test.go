@@ -343,7 +343,7 @@ const ReasonForTest = "operator_halt"
 // a runner the node agent does not know is refused fail-closed, before any
 // journal row is written.
 func TestUnknownRunnerTypeIsRefusedFailClosed(t *testing.T) {
-	t.Setenv("DEVTEAM_RUNNER", "container")
+	t.Setenv("DEVTEAM_RUNNER", "docker")
 	c := newCase(t)
 
 	cmd := c.command("runner-a", "", "")
@@ -373,6 +373,28 @@ func TestNativeRunnerSelectedRunsTheKillTest(t *testing.T) {
 
 	if rep.RunnerType != string(agent.RunnerNative) {
 		t.Errorf("report runner type = %q, want %q", rep.RunnerType, agent.RunnerNative)
+	}
+	if rep.State != "completed" {
+		t.Fatalf("recovery state = %q, want completed", rep.State)
+	}
+	c.assertExactlyOnce(t, PhaseRunning)
+}
+
+// CDT-647 — the lane passes with the container runner selected: the
+// selection resolves through the same fail-closed loader, the report carries
+// it, and the killed run still completes exactly once. The lane drives the
+// machine directly and spawns no session container, so it needs no Docker —
+// the container lane is reproducible in CI without docker-in-docker.
+func TestContainerRunnerSelectedRunsTheKillTest(t *testing.T) {
+	t.Setenv("DEVTEAM_RUNNER", string(agent.RunnerContainer))
+	c := newCase(t)
+
+	c.kill(t, "runner-a", PhaseRunning)
+	time.Sleep(TakeoverWait)
+	rep := c.complete(t, "runner-b")
+
+	if rep.RunnerType != string(agent.RunnerContainer) {
+		t.Errorf("report runner type = %q, want %q", rep.RunnerType, agent.RunnerContainer)
 	}
 	if rep.State != "completed" {
 		t.Fatalf("recovery state = %q, want completed", rep.State)

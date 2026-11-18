@@ -187,9 +187,13 @@ jobs:
   # (workflow_dispatch; native is the first built and the default once
   # selected) reaches the helper as $DEVTEAM_RUNNER, the node agent's own C7
   # selection variable. The helper resolves it through the node agent's config
-  # loader and refuses an unknown runner fail-closed. No Docker dependency
-  # exists in the contract, the code, or the build — the G-02 image only
-  # compiles and runs the Go test suite.
+  # loader and refuses an unknown runner fail-closed.
+  #
+  # CDT-647 — the lane accepts the container runner too. The lane drives the
+  # run machine directly and spawns no session container, so the container
+  # variant needs no Docker: the G-02 image compiles and tests the runner
+  # code, and the runner's live container work stays on a real node (the
+  # node agent is the only holder of the Docker socket).
   control-plane:
     runs-on: ubuntu-latest
     timeout-minutes: 10

@@ -99,6 +99,8 @@ func New() (*Agent, error) {
 	switch cfg.Runner {
 	case RunnerNative:
 		r = Native{}
+	case RunnerContainer:
+		r = Container{}
 	default:
 		return nil, fmt.Errorf("%w: %q is not one of %s", ErrNoRunnerSelected,
 			cfg.Runner, strings.Join(RunnerTypeList(), ", "))
@@ -162,9 +164,25 @@ func (a *Agent) Supervise(ctx context.Context, eng *journal.Engine, req StartReq
 	}
 	// A dead supervisor's recorded runner that is still alive is an orphan
 	// (the adoption policy's kill): the takeover stops it before the
-	// re-spawn, so the run never carries two live runners.
+	// re-spawn, so the run never carries two live runners. A container run
+	// is probed by container name: the container outlives the client process
+	// the pidfile recorded, so the PID probe alone would miss it.
 	orphanPID := 0
-	if pidRec.RunnerPID > 0 && probePID(pidRec.RunnerPID) == processAlive {
+	orphanContainer := ""
+	if pidRec.Container != "" {
+		cs, ok := a.Runner.(containerStopper)
+		if !ok {
+			return fmt.Errorf("%w: run %s recorded container %q but this node does not select the container runner",
+				ErrNoRunnerSelected, req.RunID, pidRec.Container)
+		}
+		live, err := cs.ContainerRunning(pidRec.Container)
+		if err != nil {
+			return err
+		}
+		if live {
+			orphanContainer = pidRec.Container
+		}
+	} else if pidRec.RunnerPID > 0 && probePID(pidRec.RunnerPID) == processAlive {
 		orphanPID = pidRec.RunnerPID
 	}
 
@@ -193,8 +211,8 @@ func (a *Agent) Supervise(ctx context.Context, eng *journal.Engine, req StartReq
 		}
 	}
 
-	if orphanPID > 0 {
-		if err := a.killOrphan(ctx, m, token, req.RunID, orphanPID); err != nil {
+	if orphanPID > 0 || orphanContainer != "" {
+		if err := a.killOrphan(ctx, m, token, req.RunID, orphanPID, orphanContainer); err != nil {
 			return err
 		}
 	}
@@ -209,34 +227,68 @@ func (a *Agent) Supervise(ctx context.Context, eng *journal.Engine, req StartReq
 // killOrphan stops the live runner a dead supervisor recorded, journaled
 // intent-then-outcome under the fresh token, before the takeover re-spawns
 // (the adoption policy). It runs after the claim, so the trail carries the
-// new owner's token.
+// new owner's token. A native orphan is named by pid; a container orphan by
+// its container name.
 func (a *Agent) killOrphan(ctx context.Context, m *run.Machine, token int64,
-	runID string, pid int) error {
-	p, err := FindProcess(pid)
-	switch {
-	case err == nil:
-	case errors.Is(err, ErrNotRunning):
-		// The orphan died between the probe and the kill: nothing to stop.
-		return nil
-	default:
-		return err
+	runID string, pid int, container string) error {
+	var (
+		p        Process
+		target   any
+		stopErr  error
+	)
+	if container != "" {
+		cs, ok := a.Runner.(containerStopper)
+		if !ok {
+			return fmt.Errorf("%w: run %s recorded container %q but this node does not select the container runner",
+				ErrNoRunnerSelected, runID, container)
+		}
+		target = map[string]any{"container": container}
+		live, err := cs.ContainerRunning(container)
+		if err != nil {
+			return err
+		}
+		if !live {
+			// The orphan died between the probe and the kill: nothing to stop.
+			return nil
+		}
+	} else {
+		var err error
+		p, err = FindProcess(pid)
+		switch {
+		case err == nil:
+		case errors.Is(err, ErrNotRunning):
+			// The orphan died between the probe and the kill: nothing to stop.
+			return nil
+		default:
+			return err
+		}
+		target = map[string]any{"pid": pid}
 	}
 	st, err := m.State(ctx)
 	if err != nil {
 		return err
 	}
 	key := fmt.Sprintf("agent:kill:%s#%d", runID, countEffects(st, EffectKill)+1)
-	seq, _, err := m.Intent(ctx, a.owner(), token, key, EffectKill,
-		map[string]any{"pid": pid})
+	seq, _, err := m.Intent(ctx, a.owner(), token, key, EffectKill, target)
 	if err != nil {
 		return err
 	}
-	err = p.Stop(DefaultGrace)
-	outcome := map[string]any{"pid": pid, "stopped": err == nil}
+	if container != "" {
+		cs := a.Runner.(containerStopper)
+		stopErr = cs.StopContainer(container, DefaultGrace)
+	} else {
+		stopErr = p.Stop(DefaultGrace)
+	}
+	outcome := map[string]any{"stopped": stopErr == nil}
+	if container != "" {
+		outcome["container"] = container
+	} else {
+		outcome["pid"] = pid
+	}
 	if _, oerr := m.Outcome(ctx, a.owner(), token, seq, EffectKill, outcome); oerr != nil {
 		return oerr
 	}
-	return err
+	return stopErr
 }
 
 // claim takes the lease for the run: a fresh claim, a self-claim after a
@@ -287,11 +339,20 @@ func (a *Agent) spawn(ctx context.Context, m *run.Machine, token int64,
 		}
 	}
 
-	proc, err := a.Runner.Start(Spec{Command: command, Args: args, Env: extraEnv})
+	proc, err := a.Runner.Start(Spec{Command: command, Args: args, Env: extraEnv,
+		Name: containerName(runID)})
 	if err != nil {
 		return nil, err
 	}
-	if err := writePIDFile(runID, proc.PID(), os.Getpid()); err != nil {
+	rec := pidRecord{RunnerPID: proc.PID(), SupervisorPID: os.Getpid(),
+		StartedTS: time.Now().Unix()}
+	if a.Runner != nil {
+		rec.RunnerType = a.Runner.Name()
+	}
+	if rec.RunnerType == RunnerContainer {
+		rec.Container = containerName(runID)
+	}
+	if err := writePIDRecord(runID, rec); err != nil {
 		_ = proc.Stop(0)
 		return nil, err
 	}
@@ -495,9 +556,24 @@ func (a *Agent) Stop(ctx context.Context, eng *journal.Engine, runID string, gra
 		// signalled, and nothing that implies a signal is journaled.
 		return fmt.Errorf("%w: %s has no recorded runner pid yet", ErrNotRunning, runID)
 	}
-	p, err := FindProcess(rec.RunnerPID)
-	if err != nil {
-		return err
+	stopIntent := map[string]any{"grace_s": int64(grace / time.Second), "pid": rec.RunnerPID}
+	var stop func() error
+	if rec.Container != "" {
+		// A container run is stopped by name: the container outlives its
+		// client process, so the recorded pid reaches only the client.
+		cs, ok := a.Runner.(containerStopper)
+		if !ok {
+			return fmt.Errorf("%w: run %s recorded container %q but this node does not select the container runner",
+				ErrNoRunnerSelected, runID, rec.Container)
+		}
+		stopIntent["container"] = rec.Container
+		stop = func() error { return cs.StopContainer(rec.Container, grace) }
+	} else {
+		p, err := FindProcess(rec.RunnerPID)
+		if err != nil {
+			return err
+		}
+		stop = func() error { _ = p.Stop(grace); return nil }
 	}
 
 	// Journal first: the stop is recorded before the process is signalled, so
@@ -506,12 +582,15 @@ func (a *Agent) Stop(ctx context.Context, eng *journal.Engine, runID string, gra
 	// present the recorded owner and token: the identity the live lease
 	// carries, which the run machine fences on.
 	seq, _, err := m.Intent(ctx, st.Owner, st.Token, fmt.Sprintf("agent:stop:%s#1", runID),
-		EffectStop, map[string]any{"grace_s": int64(grace / time.Second), "pid": rec.RunnerPID})
+		EffectStop, stopIntent)
 	if err != nil {
 		return err
 	}
-	_ = p.Stop(grace)
+	_ = stop()
 	outcome := map[string]any{"stopped": true}
+	if rec.Container != "" {
+		outcome["container"] = rec.Container
+	}
 	if _, err := m.Outcome(ctx, st.Owner, st.Token, seq, EffectStop, outcome); err != nil {
 		return err
 	}
@@ -599,9 +678,12 @@ type StatusReport struct {
 
 	// PID is the live runner process recorded for the run, and PIDState its
 	// liveness (alive, dead, or unknown), from the record-ownership reality
-	// probe (control-plane/reconcile/reality.go § ProcessState).
-	PID      int    `json:"pid,omitempty"`
-	PIDState string `json:"pid_state,omitempty"`
+	// probe (control-plane/reconcile/reality.go § ProcessState). On a
+	// container run the pid is the Docker client's; Container carries the
+	// session container's name and PIDState its liveness.
+	PID       int    `json:"pid,omitempty"`
+	PIDState  string `json:"pid_state,omitempty"`
+	Container string `json:"container,omitempty"`
 
 	// Journaled reports whether this reading was itself recorded in the
 	// journal: true only on a running run, the one state where a side_effect
@@ -649,6 +731,25 @@ func (a *Agent) Status(ctx context.Context, eng *journal.Engine, runID string) (
 	if rec, err := readPIDFile(runID); err == nil && rec.RunnerPID > 0 {
 		rep.PID = rec.RunnerPID
 		rep.PIDState = probePID(rec.RunnerPID)
+		if rec.Container != "" {
+			// A container outlives its client process; Docker's own liveness
+			// reading is the state that matters. A node whose selection
+			// reverted to native cannot read it — fail closed like Stop and
+			// Supervise instead of reporting the client process's state.
+			cs, ok := a.Runner.(containerStopper)
+			if !ok {
+				return StatusReport{}, fmt.Errorf("%w: run %s recorded container %q but this node does not select the container runner",
+					ErrNoRunnerSelected, runID, rec.Container)
+			}
+			rep.Container = rec.Container
+			if live, err := cs.ContainerRunning(rec.Container); err == nil {
+				if live {
+					rep.PIDState = processAlive
+				} else {
+					rep.PIDState = processDead
+				}
+			}
+		}
 	}
 	if st.Status == journal.StatusRunning {
 		n := countEffects(st, EffectStatus) + 1
@@ -689,11 +790,16 @@ func (a *Agent) resolveCommand(req StartRequest) (string, []string, error) {
 }
 
 // pidRecord is the live-process record of one run: the runner process and the
-// agent supervising it.
+// agent supervising it. RunnerType and Container record which runner owns
+// the run — a container outlives its client process, so the adoption policy
+// and the stop verb need the container name to reach it. Records written
+// before CDT-647 carry neither field and read as native runs.
 type pidRecord struct {
-	RunnerPID     int   `json:"runner_pid"`
-	SupervisorPID int   `json:"supervisor_pid"`
-	StartedTS     int64 `json:"started_unix"`
+	RunnerPID     int        `json:"runner_pid"`
+	SupervisorPID int        `json:"supervisor_pid"`
+	StartedTS     int64      `json:"started_unix"`
+	RunnerType    RunnerType `json:"runner_type,omitempty"`
+	Container     string     `json:"container,omitempty"`
 }
 
 // live reports whether the recorded supervisor is alive. A dead supervisor's
@@ -765,15 +871,14 @@ type steerLine struct {
 	Message string `json:"message"`
 }
 
-// writePIDFile records the runner and the supervisor of a run. The write is
-// tmp + rename, so a reader never sees a partial record.
-func writePIDFile(runID string, runnerPID, supervisorPID int) error {
+// writePIDRecord records the runner and the supervisor of a run. The write
+// is tmp + rename, so a reader never sees a partial record.
+func writePIDRecord(runID string, rec pidRecord) error {
 	path := pidPath(runID)
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return fmt.Errorf("agent: create %s: %w", filepath.Dir(path), err)
 	}
-	raw, err := json.Marshal(pidRecord{RunnerPID: runnerPID, SupervisorPID: supervisorPID,
-		StartedTS: time.Now().Unix()})
+	raw, err := json.Marshal(rec)
 	if err != nil {
 		return fmt.Errorf("agent: pid record: %w", err)
 	}
@@ -790,6 +895,13 @@ func writePIDFile(runID string, runnerPID, supervisorPID int) error {
 		return fmt.Errorf("agent: pidfile close: %w", err)
 	}
 	return os.Rename(tmp.Name(), path)
+}
+
+// writePIDFile records a plain pid pair — the shape the tests and the
+// pre-CDT-647 records carry.
+func writePIDFile(runID string, runnerPID, supervisorPID int) error {
+	return writePIDRecord(runID, pidRecord{RunnerPID: runnerPID,
+		SupervisorPID: supervisorPID, StartedTS: time.Now().Unix()})
 }
 
 // readPIDFile reads the live-process record of a run. A missing record is a

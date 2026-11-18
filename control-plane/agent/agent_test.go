@@ -498,6 +498,40 @@ func TestStatusReadsAndJournals(t *testing.T) {
 	<-done
 }
 
+// AC: a node whose selection reverted to native cannot read a run whose
+// pidfile records a container run — the container outlives its client
+// process and only the container runner can probe it. Status fails closed
+// like Stop and Supervise instead of reporting the client pid's state.
+func TestStatusOfAContainerRunOnANativeNodeFailsClosed(t *testing.T) {
+	eng := newEngine(t)
+	runID := "CDT-647"
+	ctx := context.Background()
+
+	// A running run whose supervisor recorded a container run.
+	m := run.New(eng, runID)
+	m.Getenv = func(string) string { return stallLimit }
+	token, err := m.Claim(ctx, deadOwner, "CDT-647", "orchestrate", "sonnet")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := m.Start(ctx, deadOwner, token, "sonnet"); err != nil {
+		t.Fatal(err)
+	}
+	if err := writePIDRecord(runID, pidRecord{
+		RunnerPID: os.Getpid(), SupervisorPID: os.Getpid(),
+		StartedTS: time.Now().Unix(), RunnerType: RunnerContainer,
+		Container: containerName(runID),
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	a := nativeAgent()
+	_, err = a.Status(ctx, eng, runID)
+	if !errors.Is(err, ErrNoRunnerSelected) {
+		t.Fatalf("status err = %v, want ErrNoRunnerSelected", err)
+	}
+}
+
 // AC: one supervisor per run. A live supervisor and a live lease refuse a
 // second start; a record whose supervisor is dead is a stale handover, not a
 // live run.

@@ -109,9 +109,12 @@ CDT-644.
 - **Row 14** — CDT-644 (2026-11-17). One reader: `control-plane/agent` (`agent.Load`), the C7
   pattern of row 13's reader — first hit wins (`$DEVTEAM_RUNNER` overrides the file's `runner` key),
   one reader, and every unrecognised value resolves to no selection, so a node with no selection
-  starts no run (fail-closed). The closed runner set today is `native` — the first runner built and
-  the default once selected; no Docker dependency exists in the contract, the code, or the build.
-  The writer is the node operator's provisioning step, out-of-band like the systemd user unit file
+  starts no run (fail-closed). The closed runner set is `native` first — the first runner built and
+  the default once selected — and, since CDT-647 (2026-11-17), `container`: one container per run
+  whose image reference is digest-pinned (`control-plane/agent/container.go`, `agent.SessionImage`).
+  The node agent holds the Docker socket and is the only component that does; the session container
+  never receives it (`agent.guardSessionArgv`). The writer is the node operator's provisioning step,
+  out-of-band like the systemd user unit file
   it belongs with; the control plane ships no writer verb yet, and no plugin Surface reads or writes
   the file. The record is node state, never committed (`.gitignore`), and shared across the
   worktrees of one node through the `$MROOT` anchor.

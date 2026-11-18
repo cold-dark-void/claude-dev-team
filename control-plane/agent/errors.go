@@ -40,4 +40,29 @@ var (
 	// gone or gone quiet. The intent row is recorded; the recovery agent
 	// resolves it.
 	ErrSteerLost = errors.New("agent: run heartbeat is past its stall limit")
+
+	// ErrNoContainerName refuses a container-runner start whose spec carries
+	// no per-run container name. One container per run is named after its
+	// run, so a session that cannot be named cannot be stopped or adopted.
+	ErrNoContainerName = errors.New("agent: container start needs a container name")
+
+	// ErrNoDocker refuses a container-runner start on a node whose Docker CLI
+	// cannot be found. The node agent holds the socket; without its CLI it
+	// holds nothing and starts nothing.
+	ErrNoDocker = errors.New("agent: docker CLI not found")
+
+	// ErrSocketLeak refuses an invocation that would hand the Docker socket
+	// to the session container, or widen it with privileged or host-
+	// namespace access. The node agent is the only holder of the socket.
+	ErrSocketLeak = errors.New("agent: session container must not reach the Docker socket")
+
+	// ErrUnknownSessionHost refuses a container-runner start whose host CLI
+	// carries no container probe facts — no per-host state-mount row exists
+	// for it (hostStateDirs; the matrix § AC-1 container cells).
+	ErrUnknownSessionHost = errors.New("agent: host CLI has no container state-mount row")
+
+	// ErrHostStateMissing refuses a container-runner start whose host CLI's
+	// session state is absent on the node: the one-time operator login has
+	// not happened, and a container started without it is unauthenticated.
+	ErrHostStateMissing = errors.New("agent: host CLI session state is missing on this node")
 )
