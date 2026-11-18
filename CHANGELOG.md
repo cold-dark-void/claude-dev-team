@@ -4,6 +4,10 @@ All notable changes to **claude-dev-team**, newest first.
 Authoritative version history. Prefer **`/release`** to add `### vX.Y.Z` headings.
 Pre-written headings (release-train M5c, orchestrate version-sync tasks) are kept
 via skip-if-present when `/release` is given an explicit version — do not invent a
+### v2.0.0
+
+- **The Control plane phase-1 seal (CDT-628)** — the final cut retires the pre-release arc: eleven children shipped as `v2.0.0-pre.3`…`v2.0.0-pre.13` — the service carve-out, the run journal + state machine + CI kill test, the lifecycle graph, the node agent, the run queue, the host adapter (Claude Code, Grok, omp), the tracker inversion, the container runner, the Chief, the web UI, and the phase-1 close-out. Every child landed as one folded commit through its M14 ship-gate council and the 13 release gates; the full detail lives in the per-child `### v2.0.0-pre.N` sections below. `stable` fast-forwards from `v1.28.20` to this commit; plain `X.Y.Z` releases resume from here.
+
 ### v2.0.0-pre.13
 
 - **Phase-1 close-out (CDT-651 C11)** — `docs/internal/control-plane/phase-1-close-out.md`: the ten deliverables C1–C10 as built (doc path, owner, blocked items per row), the AC10 ruling restated as built (modernc.org/sqlite v1.62.0 behind `control-plane/journal`'s narrow Doer; the durable-execution engine rejected with its ADR 0001 R1/R2 reasons), the four CDT-627 residual inputs carried forward with status and owning-child pointers (B8 pending-operator → C4; B7 resolved 2026-11-17 → C6; B6 blocked on a sandbox credential → C8/CDT-631; the Slot question closed by C5's ruling), the row-5 memory-owner re-test handed to CDT-629 (owning AC CDT-643 AC8 — no re-test in this child), and no amended decision: close-out.md untouched, the external-copy rule honoured. The SPEC-010 arc stays open — twelve `v2.0.0-pre.N` cuts, no `v2.0.0`, stable at v1.28.20.
