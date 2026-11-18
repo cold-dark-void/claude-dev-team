@@ -376,6 +376,8 @@ Verdict: the automatic workspace-memory-index injection did not occur in-contain
 
 Host CLI: `omp --version` → `omp/18.7.0` at `/usr/sbin/omp`. Probe date: 2026-11-15. Matches the plan lock (omp 18.7.0) — no version drift.
 
+Version drift flag (2026-11-17, CDT-648 B7): the plan locks omp 18.7.0; the node's installed build is now **`omp v18.22.0`** (`omp --version`; binary `/usr/sbin/omp`, replaced 2026-11-17 01:30 — `~/.omp/natives/` carries only `18.22.0`, the 18.7.0 binary is gone). The 18.7.0-probed rows below stand as dated evidence (2026-11-15); the CDT-648 B7 env-var-name probe ran on the installed 18.22.0 build (`credentials.md` § "Gap 2 — resolved: the omp provider env-var names (B7)").
+
 Drift flag vs `docs/runbooks/omp.md` (CDT-550, 2026-10-13): the runbook's blocker **B1** ("omp tool-calling dead in print mode — zero tool_call events") no longer holds for the current model set. With `spark-tf/glm5.3-flash-320b-a18b-8x512k-exl3-kv8-dflash2-tp2` over the `openai-completions` shim, real tool calls executed in print and RPC mode (bash tool call, `task` subagent spawn — probes below). B1 was backend-specific (local ollama + the `openai-responses` shim), not an omp host limit. Second drift: a bare `omp -p` with no `--model` resolved to `ollama/laya:latest`, which fails with `400 "laya:latest" does not support chat` — pin `--model` explicitly for probes and adapter runs.
 
 | Capability | Native | Container | Notes |

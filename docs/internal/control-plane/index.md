@@ -10,6 +10,8 @@ Status (CDT-644, added 2026-11-17): C4 lands the node agent. § "CDT-644 — Nod
 
 Status (CDT-649, added 2026-11-17): C5 lands the run queue and the SPEC-033 budget amendment. § "CDT-649 — Run queue" below pins the C5 deliverable paths and § "CDT-649" (under § Acceptance criteria) carries its canonical AC list. The phase-0, CDT-632, CDT-643, CDT-642, CDT-644, and CDT-646 sections are unchanged.
 
+Status (CDT-648, added 2026-11-17): C6 lands the host adapter. § "CDT-648 — Host adapter" below pins the C6 deliverable paths and § "CDT-648" (under § Acceptance criteria) carries its canonical AC list. The phase-0, CDT-632, CDT-643, CDT-642, CDT-644, CDT-646, and CDT-649 sections are unchanged except where C6 appends (`credentials.md` § "Gap 2 — resolved", the CONTEXT.md write-back log).
+
 ## Scope
 
 This ticket is Phase 0 discovery of the control plane Option C+ (CDT-626). It is docs-only. It probes hosts and Runner types. It records evidence in this directory. It ships no product code.
@@ -342,6 +344,28 @@ sections above are unchanged.
 CDT-649 follows the same ruling as CDT-642/643/644: no `specs/` entry — the deliverable AC list
 below is the spec. No AC carries the `[process]` tag: each asserts file content (AC1–AC6) or diff
 content (AC7).
+
+## CDT-648 — Host adapter
+
+Added by CDT-648 (CDT-628 C6) on 2026-11-17. C6 puts the host adapter inside the service directory:
+
+| Deliverable | Path |
+|---|---|
+| The host adapter (the matrix registry, the four verbs, the refusal path, the B7 proven-name table) | `control-plane/hostadapter/` |
+| The launch/environment seam the adapter rides | `control-plane/agent/runner.go` (`Spec.Env`), `control-plane/agent/agent.go` (`StartRequest.Env`) |
+| The B7 probe record and the gap-2 resolution | `credentials.md` § "Gap 2 — resolved: the omp provider env-var names (B7)" |
+| The glossary write-back (Steer unchanged, six-probe citation) | `CONTEXT.md` § Decisions (the 2026-11-17 CDT-648 row) |
+
+CDT-648 follows the same ruling as CDT-642/643/644/649: no `specs/` entry — the deliverable AC list
+below is the spec. No AC carries the `[process]` tag: each asserts file content (AC1–AC6) or diff
+content (AC7).
+
+The adapter adds no lifecycle-graph change: resume maps onto the machine's existing `run_resumed`
+verb (the node agent's recovery resumes a halted:stalled run and re-spawns the runner as the next
+attempt, the CDT-626 adoption policy), steer maps onto the existing `agent.steer` side-effect rows,
+and observe reads — no new run state, no new boundary, no new event kind. The registry's proven
+test asserts every row the adapter's runs carry is one of the machine's closed kinds
+(`TestSteerThroughTheAgentDeliversAtTheBoundary`).
 
 ## Acceptance criteria
 
@@ -684,6 +708,87 @@ executed inside the ticket). C4 ships no version pair: the release is the epic f
   - Verify: `go test ./queue/` — `TestKillAndReplayNeverGrantsTwice` proves exactly one grant intent after the replay and one held slot; `TestWaitResolvedByLaterGrant` and `TestReleaseClosesTheWaitGrantedFalse` prove both wait-close sides leave no pending effect.
 - **AC7.** Ships `2.0.0-pre.N`; never patch, minor, major, or `2.0.0`. The release is the epic fold done by the orchestrator later; the C5 commits touch no version pair (`.claude-plugin/plugin.json` and `CHANGELOG.md` are untouched).
   - Verify: `git diff --name-only 448e86d..HEAD` lists no `plugin.json` or `CHANGELOG.md` change.
+
+### CDT-648
+
+- **AC1.** The adapter implements start, resume, steer, and observe for Claude Code and Grok, and
+  calls the node agent only — never a host CLI directly. `control-plane/hostadapter` realizes every
+  host action through the node agent's four-verb contract: start hands the host's launch argv to the
+  agent's start verb (the agent spawns one host-CLI process per run slot, tracks the PID, and
+  supervises); steer encodes the correction into the host's control-message frame and hands it to
+  the agent's steer verb; observe surfaces the agent's status reading plus the session id; stop is
+  the agent's stop verb, unchanged. omp rides the same four verbs through its matrix row (AC4).
+  No adapter code execs `claude`, `grok`, or `omp`, and no Docker dependency exists anywhere.
+  - Verify: `go test ./hostadapter/` — the NodeAgent seam (`TestSteerThroughTheAgentDeliversAtTheBoundary`)
+    drives a real run end-to-end through the agent's supervision loop, and the argv/frame assertions
+    (`TestResumeFollowsTheNamedPathPerHost`, `TestSteerEncodesTheHostFrame`) hold without any test
+    exec'ing a host CLI.
+- **AC2.** Resume follows the matrix AC-4 named path per host (a headless invocation — CLI flags
+  plus session-id source — distinct from the steerable launch, review B1), and the session id is
+  captured at start. Claude Code: `claude -p --resume <session-id>`, the id from the stream-json
+  `system/init` event (P-CC-A). Grok: `grok -p --output-format json --resume <SESSION_ID_OR_TITLE>`
+  (the `grok agent stdio` transport accepts no resume flags), with `--continue` (newest session in
+  the cwd) and `--fork-session` (resume into a new session id) on the same headless route, the id
+  from the headless `--output-format json` result's `sessionId` field (P-GK-CTR-2). omp:
+  `omp -p --mode json -r <id>` (id prefix, session path, or picker) or `--continue` (one spelling,
+  review B2), the id from the `{"type":"session","id":…}` frame (P-OMP-C-A). The capture rides the
+  agent's runner output during the start verb; a resume by id without the captured id refuses
+  (named `ErrNoSessionID`), a variant a host's matrix row does not name refuses with the cell
+  verdict, and a request setting both Continue and Fork refuses (named `ErrResumeAmbiguous`).
+  - Verify: `go test ./hostadapter/` — `TestResumeFollowsTheNamedPathPerHost` proves the flag per
+    host and the two Grok companions; `TestSessionIDCapturedAtStartPerHost` proves the id source
+    per host and that a later frame never overwrites the captured id.
+- **AC3.** Steer delivers a correction at the next step boundary and never interrupts a turn. The
+  adapter encodes the frame — Claude Code's stream-json user message (P-CC-C), Grok's ACP
+  `session/prompt` (P-GK native + P-GK-CTR-3c), omp's RPC `{"type":"steer"}` (P-OMP-C-C) — and the
+  node agent's steer verb delivers it at the boundary; the untrusted message travels as JSON data,
+  never as a command line. The glossary Steer term is written unchanged (CONTEXT.md § Terms), and
+  the dated write-back log gains the CDT-648 entry citing the six reproduced probes.
+  - Verify: `go test ./hostadapter/` — `TestSteerThroughTheAgentDeliversAtTheBoundary` proves the
+    frame is delivered at the agent's step boundary and the run completes;
+    `TestSteerMessageTravelsAsData` proves quotes, backslashes, and newlines survive as data;
+    `grep -n '| Steer |' CONTEXT.md` shows the term row verbatim.
+- **AC4.** The omp path follows its matrix row (omp 18.7.0), and the matrix is the source for resume
+  and steer behaviour per host. The registry (`control-plane/hostadapter/matrix.go`) encodes the
+  three adapter routes — resume, headless streaming, steer — as host × capability cells carrying the
+  index verdicts with their citations, and every adapter route is gated by its cell first.
+  Deviation recorded: the CDT-648 B7 probe ran on the omp build installed on the node on 2026-11-17
+  (v18.22.0 — the matrix-locked 18.7.0 binary was replaced and is gone); the matrix's 18.7.0-probed
+  rows stand as dated evidence (2026-11-15), the drift is flagged in the matrix's omp section
+  ("Version drift flag (2026-11-17, CDT-648 B7)"), and the resume/steer encodings cite those rows
+  and their probes. Review B1 rides this AC: the Grok resume invocation is the headless route the
+  matrix AC-4 names (`grok -p --output-format json --resume <id>`), not the steerable `grok agent
+  stdio` launch, which accepts no resume flags.
+  - Verify: `go test ./hostadapter/` — `TestMatrixCellsGateEveryRoute` walks all twelve cells and
+    holds each against the matrix verdict and citation; `TestResumeFollowsTheNamedPathPerHost`
+    proves the headless resume invocation per host and that no resume argv carries the steerable
+    `agent stdio` tokens.
+- **AC5.** (B7: the on-box env-var-name probe.) An on-box probe proves which provider env-var name omp reads per provider, the
+  adapter injects only a proven name, and an unproven name fails closed. The probe ran headless
+  omp against each provider with a dummy, non-routing value in exactly one candidate variable and
+  recorded the provider-side auth failure naming the bad key; `credentials.md` § "Gap 2 — resolved"
+  carries the method and the verbatim evidence. The adapter's proven-name table (`credentials.go`)
+  carries the five proven names plus the negative result (llama.cpp reads no env var — its key
+  lives in the auth store), and injection of anything else refuses with
+  `ErrCredentialNameUnproven` before any journal row is written. No real secret value is printed
+  anywhere; the probe used dummy values only. Deviation recorded: the probe ran on the omp build
+  installed on the node on 2026-11-17 (18.22.0 — the matrix-locked 18.7.0 binary was replaced);
+  see the deviation note in the B7 record.
+  - Verify: `go test ./hostadapter/` — `TestCredentialInjectionIsGatedByProvenNames` proves the
+    env entry per proven provider and the fail-closed cases; `TestProvenNameTableMatchesTheB7Probe`
+    proves the table carries exactly the B7 result.
+- **AC6.** An unsupported combination returns the matrix cell verdict as a refusal, not a silent
+  no-op. mini-swe: no resume, no steer — every mini-swe route refuses with the cell verdict and the
+  vendor-primary doc citation (`Refusal`, carrying `ErrUnsupportedCapability`), an unknown host
+  refuses with `ErrUnknownHost`, and a refused route never reaches the node agent, so no journal
+  row is written.
+  - Verify: `go test ./hostadapter/` — the unsupported rows of
+    `TestMatrixCellsGateEveryRoute` assert the refusal carries the host × capability cell, its
+    verdict, and its citation, and that the seam recorded zero calls.
+- **AC7.** Ships `2.0.0-pre.N`; never patch, minor, major, or `2.0.0` — the release is the epic fold done
+  by the orchestrator later, so C6's commits touch no version pair
+  (`.claude-plugin/plugin.json` and `CHANGELOG.md` are untouched).
+  - Verify: `git diff --name-only a4baf9b..HEAD` lists no `plugin.json` or `CHANGELOG.md` change.
 
 ## Ship gate (CDT-645)
 

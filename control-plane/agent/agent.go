@@ -117,6 +117,12 @@ type StartRequest struct {
 	// with neither, start refuses.
 	Command string
 	Args    []string
+	// Env carries extra environment entries for the runner process, on top
+	// of the agent's own environment the child inherits. The host adapter
+	// is the only writer of these entries (the CDT-648 B7 proven-name rule:
+	// only a proven credential name reaches a run); the agent itself injects
+	// nothing.
+	Env []string
 }
 
 // Supervise drives one run to its end and journals every step of it
@@ -193,7 +199,7 @@ func (a *Agent) Supervise(ctx context.Context, eng *journal.Engine, req StartReq
 		}
 	}
 
-	proc, err := a.spawn(ctx, m, token, req.RunID, command, args)
+	proc, err := a.spawn(ctx, m, token, req.RunID, command, args, req.Env)
 	if err != nil {
 		return err
 	}
@@ -259,7 +265,7 @@ func (a *Agent) claim(ctx context.Context, m *run.Machine, req StartRequest) (in
 // pending effect instead of repeating it (the C2 kill-test rule: the
 // recovery completes the work, it does not duplicate it).
 func (a *Agent) spawn(ctx context.Context, m *run.Machine, token int64,
-	runID, command string, args []string) (Process, error) {
+	runID, command string, args, extraEnv []string) (Process, error) {
 	st, err := m.State(ctx)
 	if err != nil {
 		return nil, err
@@ -281,7 +287,7 @@ func (a *Agent) spawn(ctx context.Context, m *run.Machine, token int64,
 		}
 	}
 
-	proc, err := a.Runner.Start(Spec{Command: command, Args: args})
+	proc, err := a.Runner.Start(Spec{Command: command, Args: args, Env: extraEnv})
 	if err != nil {
 		return nil, err
 	}
@@ -913,10 +919,12 @@ func FindProcess(pid int) (Process, error) {
 // agent.
 type orphanProcess struct{ pid int }
 
-func (p *orphanProcess) PID() int              { return p.pid }
-func (p *orphanProcess) Done() <-chan error    { return nil }
-func (p *orphanProcess) Wait() error           { return nil }
-func (p *orphanProcess) Steer(string) error    { return fmt.Errorf("%w: pid %d was not spawned here", ErrNotRunning, p.pid) }
+func (p *orphanProcess) PID() int           { return p.pid }
+func (p *orphanProcess) Done() <-chan error { return nil }
+func (p *orphanProcess) Wait() error        { return nil }
+func (p *orphanProcess) Steer(string) error {
+	return fmt.Errorf("%w: pid %d was not spawned here", ErrNotRunning, p.pid)
+}
 func (p *orphanProcess) Signal(sig syscall.Signal) error {
 	proc, err := os.FindProcess(p.pid)
 	if err != nil {

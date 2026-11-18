@@ -19,6 +19,12 @@ type Spec struct {
 	Command string
 	// Args are the argv entries after the command.
 	Args []string
+	// Env carries extra environment entries for the child, on top of the
+	// agent's own environment the child inherits. The caller owns the
+	// entries — the host adapter's proven-name table is the only writer —
+	// and the runner carries them as given, never assembling them into a
+	// shell string. Empty means inherit only.
+	Env []string
 	// Dir is the working directory, empty meaning inherit.
 	Dir string
 }
@@ -80,6 +86,9 @@ func (n Native) Start(spec Spec) (Process, error) {
 	}
 	cmd := exec.Command(spec.Command, spec.Args...)
 	cmd.Dir = spec.Dir
+	if len(spec.Env) > 0 {
+		cmd.Env = append(os.Environ(), spec.Env...)
+	}
 	stdin, err := cmd.StdinPipe()
 	if err != nil {
 		return nil, fmt.Errorf("agent: stdin pipe: %w", err)

@@ -133,6 +133,60 @@ No probe was run for mini-swe on either Runner type; the documentation-only stat
 Recorded here for T-12 review; none is a bare `unknown`, and no row above was invented beyond the cited evidence:
 
 1. **Container half of the grid is filled for Claude Code, Grok, and omp; mini-swe stays documentation-only** — G-02 approved row 1 (one digest-pinned image, `container-runner.md:5`), so the AC-9 container cells no longer wait on the gate. Residual container-side gaps: (i) no container credential probe exists for a second image, a non-root container user, or a container-environment class other than Docker; (ii) the token-refresh write is untested for Claude Code and Grok — a forced refresh would rotate the operator's live credential, so it is a named blocker, and both (b) rows carry the conservative writable-mount rule instead (`container-runner.md:34-37`, `:39-43`); (iii) omp's (c) verdict covers mounted state only — a container started without the mount is unauthenticated, and a root container writes root-owned files into the bind-mounted host paths (`container-runner.md:187`); (iv) mini-swe has no probe on either Runner type.
-2. **omp native (b): provider env-var names not captured.** AC-9(b) asks for the secret location including "env var name"; the T-05 evidence records the store (`~/.omp/agent/agent.db`, table `auth_credentials`), the `--api-key` flag, and the help-text statement "defaults to env vars" — but does not name the per-provider env vars themselves. Follow-up probe needed on the omp side before the Host adapter relies on env-var credential injection.
+2. **omp native (b): provider env-var names not captured.** AC-9(b) asks for the secret location including "env var name"; the T-05 evidence records the store (`~/.omp/agent/agent.db`, table `auth_credentials`), the `--api-key` flag, and the help-text statement "defaults to env vars" — but does not name the per-provider env vars themselves. Follow-up probe needed on the omp side before the Host adapter relies on env-var credential injection. — **Resolved 2026-11-17 (CDT-648 B7)**: see § "Gap 2 — resolved: the omp provider env-var names (B7)" below.
 3. **Claude Code version drift** — plan locks 2.1.322, installed 2.1.325. Recorded as actual throughout (consistent with `host-capability-matrix.md`); no credential-relevant difference observed, but T-12 should confirm the drift is accepted.
 4. **Claude Code bare-mode credential split** — the native runner's `--bare` mode reads only `ANTHROPIC_API_KEY` / `apiKeyHelper` and never the subscription token file (T-03 note). AC-9 does not split rows by CLI mode; this file carries the caveat so CDT-632's cloud-auth AC sees both postures.
+
+## Gap 2 — resolved: the omp provider env-var names (B7)
+
+CDT-648 AC5 (the CDT-627 close-out's "omp env-var-name probe" residual, executed as B7). The
+question: which env-var NAME does omp actually READ per provider — not which names merely exist in
+the binary (the T-05 `strings -a` probe listed candidates only). Probed 2026-11-17.
+
+**Version drift note (recorded as a deviation):** the matrix locks omp 18.7.0; the node's installed
+build is now **omp v18.22.0** (`omp --version`; binary `/usr/sbin/omp`, replaced 2026-11-17 01:30 —
+`~/.omp/natives/` carries only `18.22.0`). The probe ran on the installed
+18.22.0 build; the 18.7.0 binary is gone, so the per-name result could not be cross-checked against
+the locked version. The names below are what the on-box omp demonstrably reads today; the Host
+adapter's proven-name table carries them, and an unproven name fails closed.
+
+**Method (behavioral, per provider).** Each run is a headless omp against one provider with an
+empty, isolated auth store — `HOME=$(mktemp -d)`, so no stored credential from
+`~/.omp/agent/agent.db` can stand in and no real secret is in play. Two runs per provider:
+
+- **Control:** no candidate variable set. omp answers locally without touching the network:
+  `error: No API key found for <provider>.` — observed verbatim for `openai`, `anthropic`, `xai`,
+  `groq`, and `google`.
+- **Probe:** exactly one candidate variable set to a dummy, non-routing value
+  (`sk-dummy-b7-probe-not-a-secret`). If omp reads that variable, the request reaches the provider
+  and the provider answers with an auth failure naming the bad key — which proves the read. If omp
+  still answers with the local missing-key error, the variable is not read.
+
+Probe shape (one line per provider, no script file):
+
+```
+HOME=$(mktemp -d) NAME_API_KEY=sk-dummy-b7-probe-not-a-secret timeout 60 \
+  /usr/sbin/omp -p --max-time 40 --no-session --model <provider>/<model> 'Reply OK'
+```
+
+**Results (verbatim evidence; dummy values only — no real secret printed):**
+
+| Provider (omp) | Proven env-var name | Probe observation | Control |
+|---|---|---|---|
+| `openai` (`openai/gpt-5.2`) | `OPENAI_API_KEY` | `401 Incorrect API key provided: sk-dummy******************cret. You can find your API key at https://platform.openai.com/account/api-keys. (type=invalid_request_error param=invalid_api_key)` — the dummy value reached OpenAI | `error: No API key found for openai.` |
+| `anthropic` (`anthropic/claude-sonnet-4-5`) | `ANTHROPIC_API_KEY` | `401 {"type":"error","error":{"type":"authentication_error","message":"invalid x-api-key"},"request_id":"req_…"}` — the dummy value reached Anthropic | `error: No API key found for anthropic.` |
+| `xai` (`xai/grok-4`) | `XAI_API_KEY` | `400 Incorrect API key provided. You can obtain an API key from https://console.x.ai. (type=invalid-argument)` — the dummy value reached xAI | `error: No API key found for xai.` |
+| `google` (`google/gemini-2.5-pro`) | `GEMINI_API_KEY` | `Google API error (400): API key not valid. Please pass a valid API key.` — the dummy value reached Google; the rival candidate `GOOGLE_API_KEY` set instead answered the local missing-key error, so the name is `GEMINI_API_KEY`, not `GOOGLE_API_KEY` | `error: No API key found for google.` |
+| `groq` (`groq/llama-3.3-70b-versatile`) | `GROQ_API_KEY` | `401 Invalid API Key (type=invalid_request_error param=invalid_api_key)` — the dummy value reached Groq | `error: No API key found for groq.` |
+| `llama.cpp` | **none — negative result** | With no env var set, omp still reached the local endpoint and failed on the model, not the key (`400 "pplx-decider-flash:4b" does not support chat`); setting `LLAMA_CPP_API_KEY` changed nothing. The resolution path confirms it: the llama.cpp provider reads its key from the auth store (`this.authStorage.keys.source("llama.cpp")` in the bundled source) and the only `LLAMA_CPP_*` env var omp carries is `LLAMA_CPP_BASE_URL`, the endpoint override. The T-05 `LLAMA_CPP_API_KEY` string is the store row's credential naming, not an env read | `400 "pplx-decider-flash:4b" does not support chat` with and without the variable |
+
+**Cross-provider negative control:** `XAI_API_KEY` set with an `anthropic/claude-sonnet-4-5` model →
+`error: No API key found for anthropic.` — the map is per provider; one provider's variable never
+stands in for another's, and there is no global fallback.
+
+**Adapter rule implemented (CDT-648 AC5):** `control-plane/hostadapter/credentials.go` carries the
+proven-name table above. Injection resolves against the table; an unproven name — including
+`llama.cpp`, whose credentials live in the store — fails closed with
+`ErrCredentialNameUnproven` before any journal row is written. No fallback chain, no guess.
+Injection values travel as environment entries for the runner process only: never argv, never a
+shell string, never a journal row, never a log line.
