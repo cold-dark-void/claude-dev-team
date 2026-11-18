@@ -41,8 +41,12 @@ Build outputs (Go and container artifacts) are git-ignored at the repo root
 | `lifecycle/` | The lifecycle-graph loader (CDT-642) |
 | `spool/` | The phase-event spool (CDT-642) |
 | `agent/` | The node agent (CDT-644): the four-verb contract — start, stop, status, steer — with two runners: the native runner (a process on the node's own OS, CDT-644) and the container runner (one container per run, CDT-647). The agent is the only holder of the Docker socket, and only through the container runner |
+| `hostadapter/` | The host adapter (CDT-648): the per-host driver over the node agent's four verbs — start, resume, steer, observe — gated by the capability matrix |
+| `queue/` | The run queue (CDT-649): the slot ledger — one slot is one runner, the node and per-model caps enforced independently, the accounting folded from the journal |
+| `chief/` | The Chief (CDT-650): the single point of contact — routes work to the existing Surfaces and reports from journal and queue state. Its one interface is the HTTP API the web UI consumes |
 | `cmd/node-agent/` | The node-agent binary, one per node |
 | `cmd/journalctl/` | The journal CLI — the plugin↔service boundary: one append, one read, exit codes 0/1/64 |
+| `cmd/chiefd/` | The Chief's host process: it serves `chief.Handler` — the API the web UI consumes — and runs the halt watch that pages the operator through the Intercom |
 | `killtest/` | The AC7 kill-test lane: SIGKILL at every phase boundary, in the G-02 container; parameterised by runner type since CDT-644 |
 | `build.sh` | The CDT-644 build entry: the three phase-0 targets in the G-02-approved Go image |
 | `README.md` | This boundary and ownership statement |

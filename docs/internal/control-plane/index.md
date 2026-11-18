@@ -14,6 +14,8 @@ Status (CDT-648, added 2026-11-17): C6 lands the host adapter. § "CDT-648 — H
 
 Status (CDT-647, added 2026-11-17): C8 lands the container runner. § "CDT-647 — Container runner" below pins the C8 deliverable paths; the acceptance criteria live in the local store (`.claude/backlog/container-runner-one-container-per-run.md`). The phase-0, CDT-632, CDT-643, CDT-642, CDT-644, CDT-646, CDT-649, and CDT-648 sections are unchanged except where C8 appends (`container-runner.md` § "CDT-647 — the container runner is real", `record-ownership.md` row 14's mechanics).
 
+Status (CDT-650, added 2026-11-18): C9 lands the Chief — the single point of contact that routes work to the existing Surfaces and reports from run state. § "CDT-650 — The Chief" below pins the C9 deliverable paths and § "CDT-650" (under § Acceptance criteria) carries its canonical AC list. The phase-0, CDT-632, CDT-643, CDT-642, CDT-644, CDT-646, CDT-649, CDT-648, and CDT-647 sections are unchanged except where C9 appends (`record-ownership.md` row 15, the phone-channel page record).
+
 ## Scope
 
 This ticket is Phase 0 discovery of the control plane Option C+ (CDT-626). It is docs-only. It probes hosts and Runner types. It records evidence in this directory. It ships no product code.
@@ -391,6 +393,42 @@ the next attempt over the mounted paths, so resume and steer survive container d
 Docker socket: `agent.guardSessionArgv` refuses every invocation that mounts it, adds a Docker
 group, or widens the container beyond the probed posture. Native stays the default: a node whose
 selection does not name `container` runs the native runner exactly as C4 built it.
+
+## CDT-650 — The Chief
+
+Added by CDT-650 (CDT-628 C9) on 2026-11-18. C9 puts the single point of contact inside the service
+directory: one place to send work and to ask what is happening, over the one API the web UI
+consumes.
+
+| Deliverable | Path |
+|---|---|
+| The Chief (the routes, the reports, the halts, the model seam) | `control-plane/chief/` |
+| The one API surface the web UI (C10) consumes | `control-plane/chief/api.go` (`chief.Handler`) — served by `control-plane/cmd/chiefd/` |
+| The ticket route's writer — the plugin's own verbs, cited, unchanged | `skills/backlog/ticket.sh` (the C7 CLI over the local backlog store) |
+| The model seam — the plugin's own resolver, cited, unchanged | `skills/model-map/resolve-model.sh` (SPEC-037); an empty resolution is the Tier default (`control-plane/run/budget.go`), and no flag exists |
+| The phone channel for halts — the plugin's own Intercom CLI, cited, unchanged | `skills/intercom/intercom.sh` (SPEC-038); the page record is `$MROOT/.claude/runs/chief/notified.jsonl` |
+| The page record's ownership row | `record-ownership.md` row 15 |
+
+The Chief adds no second copy of any Surface and no new store of run state:
+
+- **Routing (AC1)** names the Surface in the run's `workflow` field — `/debug` for a defect,
+  `/brainstorm` for an idea, `/epic` for an epic — writes the ticket record the Surface reads
+  through the plugin's own ticket verbs, and starts the run through the C6 host adapter and the
+  node agent's four-verb contract. An epic route ends at the child-ticket records; each child gets
+  its own run when the operator routes it.
+- **Reports (AC2)** fold journal and queue state only: run status is the replayed state
+  (`control-plane/journal`), the checks reading is the run's pending effects, repairs, and
+  watchdog reading, the queue view is the C5 slot ledger (`control-plane/queue`), and the stand-up
+  report composes the three. No report generates prose.
+- **Corrections (AC4)** ride the C6 steer path unchanged: the host adapter encodes the host's
+  control-message frame and hands it to the node agent's steer verb, which delivers it at the next
+  step boundary — never mid-turn (the six probes; `CONTEXT.md` § Steer).
+- **Halts (AC5)** are the C2 named halt states: the report carries the reason and the remaining
+  retry budget (`control-plane/run/budget.go`), and the watch pages the operator through the
+  Intercom (SPEC-038). The page record keeps the page at-least-once across a restart: one intent
+  line before the page, one outcome line after, keyed by the halt row's seq.
+- **One interface (AC6)**: the HTTP API of `chief.Handler` is the whole surface — there is no CLI
+  verb and no second interface. The web UI (C10) consumes the same endpoints.
 
 ## Acceptance criteria
 
@@ -878,6 +916,79 @@ executed inside the ticket). C4 ships no version pair: the release is the epic f
   fold done by the orchestrator later, so C8's commits touch no version pair
   (`.claude-plugin/plugin.json` and `CHANGELOG.md` are untouched).
   - Verify: `git diff --name-only d09f629..HEAD` lists no `plugin.json` or `CHANGELOG.md` change.
+
+CDT-650 follows the same ruling: no `specs/` entry — the deliverable AC list below is the spec. C9
+is the ninth child of the CDT-628 epic and builds on the C2 run machine and journal (CDT-643), the
+C5 queue (CDT-649), the C6 steer path (CDT-648), and the C8 container runner (CDT-647). Its gate
+home is the test suite of `control-plane/chief/` plus the one-interface guard (AC6) and the
+ownership row (AC5's record). No AC carries the `[process]` tag: each asserts file content
+(AC1–AC6) or release content (AC7).
+
+### CDT-650
+
+- **AC1.** The Chief routes work to the existing Surfaces and reimplements none of them. A defect
+  routes to `/debug`, an idea to `/brainstorm` and then a ticket, and an epic to child tickets:
+  `control-plane/chief` names the Surface in the run's `workflow` field (`commands/debug.md`,
+  `skills/brainstorm/SKILL.md`, `commands/epic.md` — real plugin files), writes the ticket record
+  the Surface reads through the plugin's own ticket verbs (`skills/backlog/ticket.sh` — the C7 CLI
+  over the local backlog store, never a second writer of row 4), and starts the run through the C6
+  host adapter and the node agent's four-verb contract. An epic route ends at the child-ticket
+  records; no debug, brainstorm, or epic logic is reimplemented in Go.
+  - Verify: `go test ./chief/` — `TestRouteDefectNamesTheSurfaceAndStartsTheRun`,
+    `TestRouteIdeaAndEpicUseTheTicketVerbs`, and `TestRouteRefusalsAreTyped` prove the three
+    routes, the plugin-verb ticket leg, and the typed refusals;
+    `TestTicketCLIRunsTheRealVerbs` proves the ticket leg is the plugin's own script writing the
+    store at `$MROOT`.
+- **AC2.** The Chief reports on request — run status, checks, stand-up — and every answer comes
+  from journal and queue state, never prose. Run status is the replayed state
+  (`control-plane/journal`); the checks reading is the run's pending effects, repairs, and
+  watchdog reading; the queue view is the C5 slot ledger (`control-plane/queue.Slots`); the
+  stand-up report composes active and finished runs, halts, and slots. The API serves them at
+  `GET /v1/runs`, `GET /v1/runs/{run}`, `GET /v1/checks`, `GET /v1/queue`, and `GET /v1/standup`.
+  - Verify: `go test ./chief/` — `TestReportsFoldJournalAndQueueState` proves the three reports
+    fold the seeded journal and queue rows; `TestAPIIsTheWholeSurface` and
+    `TestAPIQueueAnswersFromTheLedger` prove the API serves them from the same state.
+- **AC3.** The model of a routed run is selectable through the Model map
+  (`skills/model-map/resolve-model.sh`, SPEC-037); an empty resolution — no layer, an empty value,
+  an unnamed agent — is the Tier default (`control-plane/run/budget.go`, `run.TierDefault`); no
+  new flag exists. The agent token rides the route request, never a command line, and the
+  resolved model and its source ride the route response and the run's own claim row.
+  - Verify: `go test ./chief/` — `TestModelMapResolution` proves the map hit, the empty
+    resolution, the unnamed agent, and the real-script fallback;
+    `TestRouteModelResolvesEmptyToTheTierDefault` proves the route lands on the Tier default.
+- **AC4.** A correction sent through the Chief reaches the running session at its next step
+  boundary and does not interrupt a turn — the C6 steer path end-to-end: the host adapter encodes
+  the host's control-message frame and hands it to the node agent's steer verb, whose delivery is
+  the step-boundary mechanic; the message travels as data, never as a command line. A chief
+  restarted between the start and the correction derives the host from the run's recorded start
+  argv (`agent.start`), so the route survives the restart.
+  - Verify: `go test ./chief/` — `TestCorrectionRidesTheSteerPathEndToEnd` proves the live run,
+    the delivered frame at the step boundary, and that every journal row the run carries is one of
+    the machine's closed kinds; `TestCorrectDerivesHostFromTheStartRecord` proves the
+    restart-derivation.
+- **AC5.** A named halt is reported with its reason and its remaining retry budget, and reaches
+  the operator through the Intercom as the phone channel for halts. The report is the C2 halt row
+  (`control-plane/run/budget.go` — reason, retry budget, remaining) served at `GET /v1/halts`; the
+  page is one outbox record through the plugin's own intercom CLI (`skills/intercom/intercom.sh`,
+  SPEC-038 — never a second channel). The page record `$MROOT/.claude/runs/chief/notified.jsonl`
+  carries one intent line before the page and one outcome line after, keyed by the halt row's seq,
+  so a restart never pages a halt twice and a crash between the intent and the page re-pages once.
+  - Verify: `go test ./chief/` — `TestHaltPageCarriesReasonAndBudget` proves the page names the
+    reason and the budget; `TestRestartNeverPagesTwice` and
+    `TestCrashBeforeThePageRepPagesOnce` prove the at-least-once record;
+    `TestIntercomPageExecsTheSendVerb` proves the page rides the intercom CLI's own send verb.
+- **AC6.** The Chief is reachable only over the API the web UI uses; there is no second interface.
+  `chief.Handler` (`control-plane/chief/api.go`), served by `control-plane/cmd/chiefd`, is the
+  whole surface — the route, the correction, and the reports over one set of endpoints — and no
+  CLI verb, no shell entry point, and no second copy of any verb exists. The web UI (C10)
+  consumes these endpoints and gains no endpoint of its own.
+  - Verify: `go test ./chief/` — `TestAPIIsTheWholeSurface` proves the endpoints serve the route,
+    the correction, and the reports; `grep -n 'os.Args\|flag.Arg' control-plane/chief/*.go` hits
+    no verb dispatch outside `cmd/chiefd`'s flag parsing.
+- **AC7.** Ships `2.0.0-pre.N`; never patch, minor, major, or `2.0.0` — the release is the epic
+  fold done by the orchestrator later, so C9's commits touch no version pair
+  (`.claude-plugin/plugin.json` and `CHANGELOG.md` are untouched).
+  - Verify: `git diff --name-only 76d22ba..HEAD` lists no `plugin.json` or `CHANGELOG.md` change.
 
 ## Ship gate (CDT-645)
 

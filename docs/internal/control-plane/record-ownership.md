@@ -17,13 +17,18 @@ CDT-644 (CDT-628 C4, 2026-11-17) adds row 14: the node agent's per-node runner s
 (`.claude/dev-team/node.json`, key `runner`) — `control-plane-only` with the C7 single-reader
 pattern, fail-closed.
 
+CDT-650 (CDT-628 C9, 2026-11-18) adds row 15: the Chief's phone-channel page record
+(`.claude/runs/chief/notified.jsonl`) — `control-plane-only`, `append-only-merge`. The record keeps
+the Chief's halt pages at-least-once across a restart; the page itself travels through the plugin's
+own Intercom CLI (SPEC-038), which stays the only writer of the Intercom spool.
+
 ## Decision register
 
 | Field | Value |
 |---|---|
 | **Decision** | Every plugin state record has exactly one owner and one conflict rule drawn from a closed set of five: single-writer-lease, plugin-only, control-plane-only, append-only-merge, derived-rebuild. Phase-0 ruling: all eleven records are **plugin**-owned. The control plane owns no record in this table; it reads them through files and CLI calls only (ADR 0001 boundary). Phase 1 (CDT-643, 2026-11-16) adds row 12 — the run journal — as the one **control-plane-only** row. Rows 1-11 keep the owner, path, and rule the phase-0 ruling gave them. Phase 1 (CDT-646, 2026-11-17) amends row 4's posture — the backlog store is the source of truth for ticket records and Linear is an opt-in mirror — and adds row 13, the project config, as **plugin** / `plugin-only`. The control plane owns no ticket record. |
-| **Status** | Decided for phase 0 (2026-11-15). No record transfers to the control plane in phase 0. The table records paths and rules that exist today; nothing here is a new store. Amended for phase 1 (2026-11-16, CDT-643): row 12 exists; the store is real and git-ignored. Amended again (2026-11-17, CDT-646): row 4 is the source of truth for ticket records; row 13 exists, is git-ignored, and has one reader. |
-| **Date** | 2026-11-15 (phase 0); amended 2026-11-16 (CDT-643, row 12); amended 2026-11-17 (CDT-646, rows 4 and 13) |
+| **Status** | Decided for phase 0 (2026-11-15). No record transfers to the control plane in phase 0. The table records paths and rules that exist today; nothing here is a new store. Amended for phase 1 (2026-11-16, CDT-643): row 12 exists; the store is real and git-ignored. Amended again (2026-11-17, CDT-646): row 4 is the source of truth for ticket records; row 13 exists, is git-ignored, and has one reader. Amended again (2026-11-17, CDT-644): row 14 exists. Amended again (2026-11-18, CDT-650): row 15 exists — the Chief's page record under the run-state tree. |
+| **Date** | 2026-11-15 (phase 0); amended 2026-11-16 (CDT-643, row 12); amended 2026-11-17 (CDT-646, rows 4 and 13); amended 2026-11-17 (CDT-644, row 14); amended 2026-11-18 (CDT-650, row 15) |
 | **Sources** | `docs/internal/control-plane/index.md` § CDT-632 AC13; the kickoff plan § OQ-7 (eleven rows); SPEC-033 AC6/M13 + N4/N12/N14; SPEC-040 M20/M22 + AC11/AC16; SPEC-025 M6 + L10; SPEC-009 (Backlog posture, CDT-54/CDT-46-C8; Backlog root rule, CDT-351; § Backlog write integrity; the plans path); SPEC-004 + AGENTS.md § Persistent Memory Protocol; SPEC-013 (report path, `index.json`); SPEC-037 M11/M18 (CDT-228); SPEC-023 M1/M14; SPEC-036 M2/M3/M4/M6/M10; SPEC-016 § Path convention + § `ensure <slug>` semantics (`.wt-lock`); SPEC-018 M3f; SPEC-001 M7 (the NDJSON precedent SPEC-033 M13 mirrors); `docs/adr/0001-journal-engine.md` § Decision; `docs/internal/control-plane/container-runner.md` Fact 3; `.gitignore:5,6,9,10,12,14,17,32,35,41,58,59`. Row 12 adds: CDT-643 AC8; `control-plane/journal/open.go:24` (the path), `control-plane/journal/schema.sql:95` (`lease`), `control-plane/journal/schema.sql:113-117` (`journal_meta` owner and engine), `control-plane/run/lease.go` (the fencing check); `docs/adr/0001-journal-engine.md` § "The narrow-interface boundary"; `.gitignore:39`. Rows 4 and 13 add: CDT-646; SPEC-009 § Linear sync is opt-in and § Backlog; `skills/backlog/linear-gate.sh` (the one reader of `linear_sync`); `skills/backlog/ticket.sh`, `add.sh`, `close.sh` (the ticket verbs); the `.claude/dev-team/config.json` entry in `.gitignore`. |
 | **Phase effect** | Phase 1 (CDT-628) adds the journal as a new record: it is **control plane**-owned, git-ignored, and never in `memory.db` (ADR 0001). CDT-643 lands it as row 12. Phase 2 (CDT-629) may add the memory API in front of row 5 without changing that row's owner. No phase-0 file changes a writer, a path, or a rule below. |
 | **Residual items** | Row 5 owner is re-tested when CDT-629 lands (the API front, not the store) — CDT-643 AC8 carries that re-test. Closed 2026-11-16: the journal row entered this table as row 12 (CDT-643 owns the path and DDL). Row 11 registry enumeration inside a container Runner is unprobed for omp and mini-swe. Closed 2026-11-17: the ticket record plane was re-tested (CDT-646) — row 4 stays `plugin` with `single-writer-lease`, and no ticket record is `control-plane-only`. A control-plane writer for the ticket store, if CDT-629+ ever adds one, re-opens this row. |
@@ -40,7 +45,7 @@ A conflict-rule cell is one of these five tokens. No cell carries any other valu
 | `append-only-merge` | Records are appended, never edited in place. Concurrent writers append and never merge, so no read-modify-write race exists. | JSONL append; append-newest-first + tmp+rename; create-only, no-overwrite. |
 | `derived-rebuild` | The record is a mirror that a sync tool rebuilds from its source. A lost or stale copy is repaired by re-running the sync, never by hand-merging. | The sync tool plus its cursor file. |
 
-## Ownership table (14 rows)
+## Ownership table (15 rows)
 
 Paths are `$MROOT`-anchored — `$MROOT` = the parent of `git rev-parse --git-common-dir` (SPEC-009), so every row except row 10 is shared across worktrees, not per-worktree. Row 10 is host-global and lives outside any repository. The `#` column is an index for cross-references in this file; it carries no rule.
 
@@ -48,7 +53,7 @@ Rows 1-11 are the plugin records AC13 ruled in phase 0. Row 12 is the control pl
 added by CDT-643 under the AC8 naming rule: same `$MROOT` anchoring, git-ignored, and reached by the
 plugin through the journal CLI only. Row 13 is the project config that carries the `linear_sync` key,
 added by CDT-646 (tracker inversion). Row 14 is the node agent's per-node runner selection, added by
-CDT-644.
+CDT-644. Row 15 is the Chief's phone-channel page record, added by CDT-650.
 
 | # | Record | Exact path | Writer | Reader | Owner | Conflict rule |
 |---|---|---|---|---|---|---|
@@ -66,6 +71,7 @@ CDT-644.
 | 12 | Run journal | `$MROOT/.claude/runs/run.db` (git-ignored, `.gitignore:39`; the DDL home is `control-plane/journal/schema.sql`) | The control-plane service, one writer per open: `control-plane/journal` appends the event, `control-plane/run` writes the `lease` row in the same transaction, one owner per run through the lease | The control-plane service (replay is the state) and the plugin through the journal CLI (`control-plane/cmd/journalctl`) — files + CLI calls only, the ADR 0001 boundary | control-plane-only | single-writer-lease |
 | 13 | Project config (`linear_sync`) | `$MROOT/.claude/dev-team/config.json` (git-ignored, `.gitignore` — the `linear_sync` opt-in key, SPEC-009 § Linear sync is opt-in) | `skills/backlog/linear-gate.sh set` only (tmp + rename through `skills/lib/portable.sh atomic_write`; it refuses a file that is not valid JSON) | `skills/backlog/linear-gate.sh` — the single reader; every Surface (`/kickoff`, `/orchestrate`, `/status`, `/epic`) and `ticket.sh` read the key through that helper, never the file | plugin | plugin-only |
 | 14 | Node agent config (`runner`) | `$MROOT/.claude/dev-team/node.json` (git-ignored, `.gitignore` — the per-node runner selection, CDT-644) | The node operator's provisioning step today — an out-of-band write, like the systemd user unit file; no verb writes it yet. No plugin Surface may write it | `control-plane/agent` — the single reader: `agent.Load` resolves the `runner` key (closed set; the native runner is the first built and the default once selected), overridden by `$DEVTEAM_RUNNER`, and every unrecognised value resolves to no selection, so a node with no selection starts no run (fail-closed) | control-plane-only | control-plane-only |
+| 15 | Chief page record (halts → Intercom) | `$MROOT/.claude/runs/chief/notified.jsonl` (git-ignored, under the `.claude/runs/` block — the Chief's phone-channel record, CDT-650) | `control-plane/chief` — one append per page intent and outcome, keyed by the halt row's seq (`control-plane/chief/halts.go`) | `control-plane/chief` — the re-scan dedupe: a halt whose intent line exists is answered, so a restarted Chief never pages twice | control-plane-only | append-only-merge |
 
 ## Conflict-rule mechanics per row
 
@@ -118,6 +124,17 @@ CDT-644.
   it belongs with; the control plane ships no writer verb yet, and no plugin Surface reads or writes
   the file. The record is node state, never committed (`.gitignore`), and shared across the
   worktrees of one node through the `$MROOT` anchor.
+- **Row 15** — CDT-650 (2026-11-18). The Chief's record of what it paged, not the page itself: the
+  page travels through the plugin's own Intercom CLI (`skills/intercom/intercom.sh` `send`,
+  SPEC-038 — the CLI stays the only writer of the Intercom spool, which is box-level state and
+  never inside the repo). One append-only line per intent and per outcome, keyed by the halt row's
+  seq (`control-plane/chief/halts.go`): an intent line exists before the page, an outcome line
+  closes it after. Appends never edit, so no read-modify-write race exists — the rule is
+  `append-only-merge`. A re-scan skips a halt whose intent line exists (a restart never pages
+  twice) and re-pages a pending one once (a crash between the intent and the page must not lose the
+  page). The record lives under the git-ignored `.claude/runs/` tree (`.gitignore:39`), next to the
+  journal, and carries no halt prose: the reason and the retry budget are the C2 halt row's own
+  fields, restated by the page, never re-derived.
 
 ## Invariants this table states (AC13)
 
@@ -142,7 +159,10 @@ backlog index and item files (row 4) — are the source of truth, and the plugin
 (`skills/backlog/ticket.sh` over `add.sh` and `close.sh`) stay the only writers. Linear is a
 downstream mirror behind `linear_sync`, so it never holds this row at all. Row 13, the project
 config that carries that key, is `plugin` / `plugin-only` with one reader
-(`skills/backlog/linear-gate.sh`). Row 12 stays the table's only `control-plane-only` row.
+(`skills/backlog/linear-gate.sh`). Row 12 stays the run-state record of this ruling; the table's
+other `control-plane-only` rows — row 14 (the node agent's per-node runner selection, CDT-644) and
+row 15 (the Chief's page record, CDT-650) — were added by their own tickets, never by the tracker
+plane.
 
 ## Boundaries — no contradiction with SPEC-033 and SPEC-040
 
