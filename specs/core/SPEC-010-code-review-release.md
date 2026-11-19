@@ -35,6 +35,7 @@ Quality gates and shipping. The review-and-commit skill delegates to the adversa
 
 ### Release
 - MUST update the version pair per SPEC-002: CHANGELOG.md changelog heading and plugin.json version — never skip either
+- MUST carry a manual-copy fallback for classifier refusals (CDT-608): when a Step 3 version-pair edit (`CHANGELOG.md` or `.claude-plugin/plugin.json`) is refused by the host auto-mode classifier despite the scoped allows seeded by `/setup orchestration` (SPEC-005), the step prints the documented fallback — write the content to a scratch file under `"${TMPDIR:-/tmp}/"` via Bash, then `cp`/`mv` it into place — completes the release, and records the refusal in the release output. The fallback MUST NOT direct a runtime write to `.claude/settings.local.json`, and MUST NOT retry the refused edit more than once before falling back
 - MUST NOT reintroduce or require a `marketplace.json` `plugins[].version` field (channels pin via git refs)
 - MUST verify version strings are semantically identical across the version pair before committing
 - MUST NOT proceed if no commits exist since last tag ("Nothing to release"). When no tag is reachable from `HEAD` (tagless or shallow clone), the release is a first release: use the full history, never an empty range
@@ -336,10 +337,17 @@ Format and rules: SPEC-033 M14(g) and M14(h). Each ticket that ships through M14
 - **AC12.** [process] Full release test suite (`skills/release/test.sh`) and docs-drift test suite pass in CI on the PR.
 - **AC13.** [process] Review confirms the maintainer can run `/release` for a pre-release by following SKILL.md alone, without improvisation.
 
+### CDT-608
+
+- **AC1.** `skills/release/SKILL.md` Step 3 carries the manual-copy fallback block for classifier refusals: it names both version-pair files (`CHANGELOG.md`, `.claude-plugin/plugin.json`), writes the refused content to a scratch file under `"${TMPDIR:-/tmp}/"` (never a bare `/tmp/…` writable path) and moves it into place with `cp`/`mv`, retries the refused `Edit`/`Write` at most once before falling back, and never instructs a runtime write to `.claude/settings.local.json`. The block states the scoped-allow seeding comes from `/setup orchestration` (SPEC-005) and that a probe refusal there uses this same fallback.
+  Verify: bash skills/release/test.sh
+- **AC2.** [process] `bash tools/run-all-tests.sh` exits 0 and every `/release` gate passes with the fallback text in place.
+
 ## Version History
 
 | Date | Change |
 |------|--------|
+| 2026-11-19 | CDT-608: `/release` Step 3 gains the documented manual-copy fallback for host-classifier refusals of version-pair edits — one retry, then scratch file under `"${TMPDIR:-/tmp}/"` + `cp`/`mv`; never a runtime `.claude/settings.local.json` write. Pairs with the `/setup orchestration` scoped-allow seeding and live self-edit probe (SPEC-005 `### CDT-608`). `### CDT-608` ACs. |
 | 2026-11-16 | CDT-628-C1 service-directory carve-out: S7 gains the service-only-release rule — the staged `control-plane/` paths ride `--intended` exactly like product paths; the S2/S4 exact-strings predicate is unchanged, so an undeclared service path still fails and no directory/glob membership is added. Test cases land in `skills/release/test.sh` (service path passes when declared, fails when not). |
 | 2026-11-12 | CDT-633: pre-release arc scheme (control plane Option C+ / CDT-626) — new P1–P10; `is_release_tag` admits `v2.0.0-pre.N`; `lead-summary.sh` accepts pre suffixes; `gen-supported-versions.sh` strips `-pre.N`; core-shape classification kept (no new class string); SECURITY gate fails closed on the pre series. Open question on pre-release support resolved. `### CDT-633` ACs 1–13. |
 | 2026-10-10 | CDT-534: Step 4.13 pointer runs `bash tools/run-all-tests.sh --jobs 8`; contract SPEC-030 R1–R17, R36–R38. |

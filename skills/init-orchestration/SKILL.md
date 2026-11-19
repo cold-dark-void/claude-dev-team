@@ -464,7 +464,10 @@ Using the `allowedDomains` list from Step 2, write the settings file.
       "Glob",
       "Grep",
       "Agent",
-      "Task"
+      "Task",
+      "Edit(/CHANGELOG.md)",
+      "Edit(/.claude-plugin/plugin.json)",
+      "Edit(/.claude/hooks/**)"
     ],
     "defaultMode": "auto"
   }
@@ -485,6 +488,22 @@ Using the `allowedDomains` list from Step 2, write the settings file.
 > hard-denies non-allow tools (MCP silent-deny — CDT-74); do not re-ship it as
 > default without re-proving Linear-first.
 
+> **Plugin self-edit allow set (CDT-608 / SPEC-005).** The last three allow
+> entries above are the self-edit set: they let a release run edit its own
+> version pair and its own hooks without a host-classifier refusal.
+> - Keep `Edit(/CHANGELOG.md)` and `Edit(/.claude-plugin/plugin.json)` **only**
+>   when the target repo carries both plugin markers — `plugin.json` and
+>   `marketplace.json` under `.claude-plugin/` at the settings root. In a
+>   non-plugin repo, drop both from the template before you write.
+> - Keep `Edit(/.claude/hooks/**)` unconditionally — hook self-edits (for example
+>   `/tdd-gate on`) happen in every consumer.
+> - These are `Edit`-scoped rules. A static `Write(<path>)` rule with a path
+>   specifier does not match (Claude Code permissions: `Edit` rules cover `Write`),
+>   so never add a `Write(...)` path rule to this set.
+> - A static scoped `Edit` allow is **expected, not proven**, to short-circuit the
+>   host auto-mode classifier. The probe in **Live self-edit probe** below is the
+>   arbiter.
+
 **If `settings.json` already exists** — read it, then merge in the missing keys:
 - Add `"env": { "CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS": "1" }` if `env` key is absent
 - If `env` key exists but lacks `CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS`, add it to the existing `env` object
@@ -494,8 +513,33 @@ Using the `allowedDomains` list from Step 2, write the settings file.
 - `PreCompact`/`PostCompact`/`SessionStart` require a Claude Code version that supports those hook events; on older versions the entries are inert (graceful absence — SPEC-018 M18)
 - `PostToolUseFailure`/`PermissionDenied`/`StopFailure` wire the shared friction ledger handler (SPEC-012 M1/M5); on older CC versions that lack an event the entry is inert (graceful absence). All three point at the same `friction-capture.sh`.
 - Add `sandbox` block if absent (`enabled: true`, `autoAllowBashIfSandboxed: true`, `excludedCommands: ["docker", "docker-compose"]`, `network.allowedDomains` from Step 2). If `sandbox` exists: ensure `enabled` is `true` and `autoAllowBashIfSandboxed` is `true`; merge new domains into existing `allowedDomains` (no duplicates); preserve any existing `filesystem` overrides. Signing options apply as merge-after via `signing-sandbox.sh` (do not add `~/.gnupg` to the greenfield template)
-- Ensure `permissions.allow` contains **every** entry from the greenfield template allow list above (matrix set: `Bash(*)`, `Read`, `Write`, `Edit`, `Glob`, `Grep`, `Agent`, `Task`) — add any missing entries; preserve any other existing allow entries. Ensure `permissions.defaultMode` matches the **managed orchestration defaultMode** from the greenfield template block above (read that template value, then write it — currently `"auto"` Cell D / CDT-75; do not hard-code a second diverging copy). Add or update as needed (including flipping a prior `bypassPermissions` / `dontAsk` / other mode to the managed value)
+- Ensure `permissions.allow` contains **every** entry from the greenfield template allow list above (matrix set: `Bash(*)`, `Read`, `Write`, `Edit`, `Glob`, `Grep`, `Agent`, `Task`) **and** the plugin self-edit allow set (`Edit(/CHANGELOG.md)`, `Edit(/.claude-plugin/plugin.json)`, `Edit(/.claude/hooks/**)` — CDT-608) — add any missing entries; preserve any other existing allow entries. Ensure `permissions.defaultMode` matches the **managed orchestration defaultMode** from the greenfield template block above (read that template value, then write it — currently `"auto"` Cell D / CDT-75; do not hard-code a second diverging copy). Add or update as needed (including flipping a prior `bypassPermissions` / `dontAsk` / other mode to the managed value)
 - **Force-overwrite disclosure (SPEC-005 / CDT-51 AC5):** when a re-run **changes** an existing managed value (especially `permissions.defaultMode`, `sandbox.enabled`, `sandbox.autoAllowBashIfSandboxed`), you **MUST** print old value, new value, and restore key/path **before** writing. Forced + silent = FAIL. Use the helper below (or print the same labeled block). Adding a missing key is not a force-overwrite (no disclosure required).
+- **Plugin self-edit allow set (CDT-608 / SPEC-005 AC B).** Append the three `Edit`-scoped entries from the greenfield template that are missing, one at a time, and stop when nothing is missing:
+  - `Edit(/CHANGELOG.md)` and `Edit(/.claude-plugin/plugin.json)` — seed **only** when the target repo carries the plugin markers: both `plugin.json` and `marketplace.json` under `.claude-plugin/` at the settings root. Skip both when either marker is absent.
+  - `Edit(/.claude/hooks/**)` — seed unconditionally.
+  - Never seed a `Write(<path>)` rule for these targets (path-specifier `Write` rules do not match), and never merge into `.claude/settings.local.json` — that file is **never-managed** by this skill; read it if you like, write nothing to it.
+  - The append is idempotent: a re-run that finds every entry adds nothing and rewrites nothing. Dedup on the exact entry string.
+```bash
+# Merge the self-edit set into .claude/settings.json (idempotent; jq only).
+SETTINGS=".claude/settings.json"
+if [ ! -f "$SETTINGS" ]; then
+  printf '%s\n' '{}' > "$SETTINGS" || { echo "setup: cannot create $SETTINGS" >&2; exit 1; }
+fi
+if [ -f .claude-plugin/plugin.json ] && [ -f .claude-plugin/marketplace.json ]; then
+  SE_ENTRIES='["Edit(/CHANGELOG.md)","Edit(/.claude-plugin/plugin.json)","Edit(/.claude/hooks/**)"]'
+else
+  SE_ENTRIES='["Edit(/.claude/hooks/**)"]'
+fi
+# jq writes the tmp file and mv's only on success, so a jq failure leaves
+# settings.json intact.
+jq --argjson want "$SE_ENTRIES" '
+  (.permissions.allow // []) as $have
+  | ($want - $have) as $add
+  | .permissions.allow = (if ($add | length) == 0 then $have else $have + $add end)
+' "$SETTINGS" > "${SETTINGS}.tmp" && mv "${SETTINGS}.tmp" "$SETTINGS" \
+  && echo "permissions.allow: self-edit set present in $SETTINGS"
+```
 - Write the merged result back as valid JSON
 
 #### `PreToolUse` array append rule (SPEC-031)
@@ -622,6 +666,77 @@ done
 ```
 
 Disclosure block labels are fixed (`key:`, `old:`, `new:`, `restore:`) so re-runs never silently clobber. The `restore:` line is either a backup path under `.claude/settings.force-*.json` or the exact setting key plus previous value.
+
+#### Live self-edit probe (CDT-608)
+
+Run this **after** the settings merge above, once per seeded self-edit scope whose
+target exists on disk. Probe only seeded scopes: in a repo without the plugin markers
+the version-file scopes are not seeded, so the loop skips `CHANGELOG.md` and
+`.claude-plugin/plugin.json` and probes the hooks scope alone. A static scoped `Edit`
+allow rule is **expected, not proven**, to short-circuit the host auto-mode classifier
+— this probe is the arbiter, so verify the mechanism now instead of discovering it
+mid-`/release`.
+
+| Seeded rule | Probe target |
+|-------------|--------------|
+| `Edit(/CHANGELOG.md)` | `CHANGELOG.md` (repo root) |
+| `Edit(/.claude-plugin/plugin.json)` | `.claude-plugin/plugin.json` |
+| `Edit(/.claude/hooks/**)` | `.claude/hooks/self-edit-probe.txt` (scratch, created below) |
+
+**1. Create the hooks scratch target and print the hash of every target:**
+
+```bash
+# Fresh shell (skill-lint C1). Targets stay inside the repo — the probe must
+# exercise the seeded scope, not a /tmp path.
+SE_HOOKS_TARGET=".claude/hooks/self-edit-probe.txt"
+mkdir -p .claude/hooks
+printf 'self-edit probe\n' > "$SE_HOOKS_TARGET" \
+  || { echo "probe: cannot create $SE_HOOKS_TARGET" >&2; exit 1; }
+# Seeded scopes only — same marker condition as the merge fence above. The
+# version-file targets are absent from the list in a non-plugin repo.
+SE_TARGETS=("$SE_HOOKS_TARGET")
+if [ -f .claude-plugin/plugin.json ] && [ -f .claude-plugin/marketplace.json ]; then
+  SE_TARGETS=("CHANGELOG.md" ".claude-plugin/plugin.json" "$SE_HOOKS_TARGET")
+fi
+se_hash() { openssl dgst -sha256 "$1" | awk '{print $NF}'; }
+for se_target in "${SE_TARGETS[@]}"; do
+  if [ -f "$se_target" ]; then
+    printf 'probe-before: %s %s\n' "$se_target" "$(se_hash "$se_target")"
+  fi
+done
+```
+
+**2. For each `probe-before:` line, `Read` the file and `Write` it back
+byte-identical** — same bytes, same final newline, no reformat, no added trailing
+newline.
+
+**3. Re-hash and compare:**
+
+```bash
+# Fresh shell (skill-lint C1)
+SE_HOOKS_TARGET=".claude/hooks/self-edit-probe.txt"
+SE_TARGETS=("$SE_HOOKS_TARGET")
+if [ -f .claude-plugin/plugin.json ] && [ -f .claude-plugin/marketplace.json ]; then
+  SE_TARGETS=("CHANGELOG.md" ".claude-plugin/plugin.json" "$SE_HOOKS_TARGET")
+fi
+se_hash() { openssl dgst -sha256 "$1" | awk '{print $NF}'; }
+for se_target in "${SE_TARGETS[@]}"; do
+  if [ -f "$se_target" ]; then
+    printf 'probe-after: %s %s\n' "$se_target" "$(se_hash "$se_target")"
+  fi
+done
+rm -f "$SE_HOOKS_TARGET"
+```
+
+A matching before/after hash is a pass: print `self-edit probe: pass (<path>)`.
+
+**On a refusal, a permission prompt, or a changed hash:** print
+`self-edit probe: unverified (<path>)`, then read the manual-copy fallback from
+`skills/release/SKILL.md` (Step 3e) and print that block **verbatim** — it is the
+operative path for the version pair, and the same block a probe refusal hands off to.
+Mark the scope unverified in the Step 9 summary. The probe is **non-fatal**: never fail
+`/setup orchestration` over it, never widen permissions, and never write
+`.claude/settings.local.json` to make it pass.
 
 ---
 
@@ -2293,6 +2408,7 @@ Updated:
   📄 .claude/settings.json   — sandbox + auto (Cell D) + matrix allow (Bash(*)+Read/Write/Edit/Glob/Grep/Agent/Task) + PreToolUse + PostToolUse + Stop + TaskCompleted + PreCompact + PostCompact + SessionStart + PostToolUseFailure + PermissionDenied + StopFailure hooks
       Sandbox: enabled, autoAllowBash, network: [list of configured domains]
       Signing: [skipped | allowWrite ~/.gnupg | excludedCommands git | local gpgsign false]
+      Self-edit probe (CDT-608): [pass (<path>) per scope | unverified (<path>) — /release manual-copy fallback printed | skipped (no target on disk)]
   📄 .claude/hooks/task-completed.sh — quality-gate hook (customize for your project)
   📄 .claude/hooks/stop-review.sh   — self-review gate (one-shot warning on uncommitted changes)
   📄 .claude/hooks/memory-capture.sh — auto memory (logs Write/Edit to tier-0)

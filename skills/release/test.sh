@@ -792,6 +792,64 @@ for needle in 'control plane Option C+ (CDT-626)' \
 done
 
 # ---------------------------------------------------------------------------
+# S16 (CDT-608 AC1): Step 3 carries the manual-copy fallback for classifier
+# refusals — both version-pair files named, TMPDIR scratch + cp, single retry,
+# the /setup orchestration (SPEC-005) provenance, and the settings.local.json
+# backstop. Prose gate: SPEC-010 AC1 owns the behaviour.
+# ---------------------------------------------------------------------------
+step3_body_from() { # step3_body_from <file>
+  awk '/^## Step 3:/ {grab=1; print; next}
+       /^## / {if (grab) exit}
+       grab {print}' "$1"
+}
+
+check_step3_fallback() { # check_step3_fallback <file> — 0 when the 3e block is complete
+  local body rc=0 needle
+  body=$(step3_body_from "$1")
+  [ -n "$body" ] || return 1
+  printf '%s\n' "$body" | grep -qF '### 3e. Classifier-refusal fallback' || rc=1
+  for needle in 'CHANGELOG.md' '.claude-plugin/plugin.json' \
+                '"${TMPDIR:-/tmp}/"' 'cp "$SCRATCH" "$TARGET"' \
+                'exactly once' 'No second retry' \
+                '.claude/settings.local.json' '/setup orchestration' 'SPEC-005' \
+                'probe'; do
+    printf '%s\n' "$body" | grep -qF -- "$needle" || rc=1
+  done
+  return "$rc"
+}
+
+if check_step3_fallback "$SKILL"; then
+  pass "S16: Step 3 carries the manual-copy fallback (3e)"
+else
+  fail "S16: Step 3 missing a complete 3e fallback block — SPEC-010 AC1"
+fi
+STEP3_BODY=$(step3_body_from "$SKILL")
+for needle in 'version-pair edit: classifier fallback used' 'Step 4'; do
+  if printf '%s\n' "$STEP3_BODY" | grep -qF -- "$needle"; then
+    pass "S16: 3e holds: $needle"
+  else
+    fail "S16: 3e missing: $needle — SPEC-010 AC1"
+  fi
+done
+if printf '%s\n' "$STEP3_BODY" | grep -Eq 'chmod|settings\.local\.json.*write'; then
+  fail "S16: 3e carries an out-of-contract permission/edit instruction"
+else
+  pass "S16: 3e instructs no permission write"
+fi
+
+TMP608=$(mktemp -d "${TMPDIR:-/tmp}/release-test-608.XXXXXX")
+trap 'rm -rf "$TMP608"; hermetic_cleanup' EXIT
+NO_3E="$TMP608/SKILL-no-3e.md"
+awk '/^### 3e\. Classifier-refusal fallback/ {skip=1}
+     /^## Step 4:/ {skip=0}
+     skip {next} {print}' "$SKILL" > "$NO_3E"
+if check_step3_fallback "$NO_3E"; then
+  fail "S16: bite check — copy without the 3e block should FAIL but passed"
+else
+  pass "S16: bite check — copy without the 3e block reports FAIL"
+fi
+
+# ---------------------------------------------------------------------------
 echo
 echo "PASS=$PASS FAIL=$FAIL"
 if [ "$FAIL" -ne 0 ]; then
