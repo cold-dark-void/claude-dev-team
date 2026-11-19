@@ -227,9 +227,25 @@ bundle. This phase is implemented in the council pipeline (driven by
 not shape-gated; the reviewer prompt is `prompts/cross-reviewer.md`).
 
 **Spawn contract:**
-- **Spawn concurrency cap (CDT-573):** when `plan.concurrency` is set, append
-  the contract line in `skills/council/spawn-contract.md` once, after the fleet
-  instruction. Unset: emit no line; this fence is unchanged.
+- **Spawn concurrency cap (CDT-573 + CDT-594):** this fence is
+  wave-plan-enforced. When `plan.concurrency` is set, append the contract line
+  in `skills/council/spawn-contract.md` once, after the fleet instruction, and
+  run the wave off `plan.waves[]` (`wave == "phase2.5"`) by § Wave-plan
+  iteration in that file: one message per batch, ascending `batch`, every
+  return awaited before the next batch. The plan owns the boundaries — this
+  fence counts nothing, slices nothing, and re-resolves no cap layer. Each
+  slot is claim-keyed (`claim_index` / `claim_id`), so it maps to that claim
+  group's cross-reviewer; batches never merge across claim groups any more than
+  across waves. This fence calls no emitter: the Phase 1.5 call
+  (`commands/council.md` § Phase 1.5, wave-plan emission) emits `phase2.5`
+  together with `phase2`. Two plan gaps are expected and stay prose-governed by
+  that same contract line — a claim group the Phase 3 specialist pushes over the
+  ≥3-bundle bar contributes cross-reviewers the mechanical emitter never
+  carried (spawn them after the last batch, cap in force, invent no batching of
+  your own), and a bypassed group (fewer than 3 bundles collected, or every
+  ranking rejected) drops its intended slots: that is the documented bypass,
+  not a dropped spawn, and finalize counts Phase 2 only. Unset: no `waves` key,
+  emit no line; this fence is unchanged.
 - Spawn `subagent_type: "dev-team:council-scribe"` (tool-less) with the P2
   literal pin `model: sonnet` — SPEC-042 M2: no resolver call, no map key,
   never an omitted `model`. Do not spawn `finder`, `ic4`, or `ic5`.

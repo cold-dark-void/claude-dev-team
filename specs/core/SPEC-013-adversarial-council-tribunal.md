@@ -69,7 +69,10 @@ Overflow queues in later batches; nothing is dropped.
 - Enumerated waves: council Phase 2, Phase 2.5, Phase 3 specialist, Phase 4
   pair, Phase 5 judge parts; `--blind` path; `/review-and-commit`
   investigators; `/bug-hunt` S1/S2; `/debug ticket` refuters; `/orchestrate`
-  council gates only (not the IC DAG).
+  council gates only (not the IC DAG). Under `waves[]` (CDT-594) each site
+  carries one of two enforcement tiers: wave-plan-enforced (the Phase 2 and
+  Phase 2.5 fences, and the two gated council sites) or prose-enforced (the six
+  sites that block names).
 - `/kickoff` Step 2 finder fan-out is OUT of this ticket (not in the ticket IN
   list; fast-follow if it bites).
 - `skills/council/external-reviewer.sh` (`--external`) is OUT of the cap: it
@@ -99,6 +102,87 @@ Overflow queues in later batches; nothing is dropped.
 - `--concurrency` mode on `resolve-model.sh` MUST stay isolated from the
   named-roster model/effort path: a fail-closed 64 MUST NEVER abort
   `resolve-model.sh <agent>`.
+
+**waves[] — the mechanical wave plan** *(CDT-594)*. A cap that lives only in a
+prompt sentence is not a cap: the M14 C1 run pre-fired all 28 Phase 2 spawns
+against a cap of 4. `waves[]` moves the batch structure from prose into the plan,
+where the engine owns it.
+
+- MUST carry the partition as `plan.waves[]`: an array of wave objects
+  `{ wave, batch, spawns[] }`. `wave` is one of `phase2`, `phase2.5`, `phase3`,
+  `phase4`, `blind`. `batch` is a 1-based contiguous index inside its wave.
+  `spawns` is the non-empty slot list of that batch.
+- MUST keep every slot an index tuple, never a prompt:
+  `{ slot, claim_index, claim_id, flavor, agent, model_pin_source }`. `slot` is
+  the 0-based index inside its wave. `claim_index` and `claim_id` are `null` for
+  a wave that is not claim-keyed (`phase4`, `blind`). `model_pin_source` is a
+  SPEC-042 rule name (`map`, `tier-default`, `p2-literal`), never a resolved
+  model string. A slot MUST NOT hold claim text, prompt text, or artifact bytes.
+- MUST partition by contiguous slices of the wave's ordered slot list. Cap X
+  gives `ceil(W/X)` batches; every batch holds exactly X slots except the last,
+  which MAY be partial; `W ≤ X` gives one batch. Slot order is claim-major, then
+  `plan.flavors` order. The slice rule equals `chunkedParallel` in
+  `skills/lib/chunked-parallel.js`, so the Task and Workflow partitions agree.
+- MUST stay deterministic: the same plan and the same claim list emit
+  byte-identical `waves[]`. The emitters run no LLM, read no clock, and add no
+  ordering the plan does not already carry.
+- MUST emit at preflight every wave whose slot set is knowable without LLM
+  output: `phase2` when the claim set is known (an M14 split `plan.claims[]`, a
+  single pasted claim, or `--from-retro`), `phase4` (2 slots) when Phase 4 runs,
+  and `phase3` (one specialist slot, `agent: null` — the classifier names the
+  agent at runtime) when Phase 3 runs.
+- MUST name the waves that need Phase 1 in `plan.waves_pending`: the array of
+  wave names whose slot set is not yet knowable (`phase2` and `phase2.5` for the
+  transcript-slice, plan, and diff scopes). A fence for a pending wave MUST call
+  the emitter before it spawns. It MUST NOT invent a batching of its own.
+- MUST expose one post-Phase-1 emitter:
+  `engine.sh waves --plan-file <p> --claims-file <c>`. It reads the cap from
+  `plan.concurrency` only, reads the claim records from the JSON-array file (a
+  path argument, never inline text), emits the `phase2` and `phase2.5` waves,
+  merges them into the plan file (tmp + rename), prints the wave objects on
+  stdout, and drops each emitted name from `plan.waves_pending`.
+- MUST derive the `phase2.5` wave from the same inputs: one cross-reviewer slot
+  per investigator bundle in a claim group of ≥ 3 bundles; a group below 3
+  contributes no slots.
+- MUST expose the blind wave on the same emitter:
+  `engine.sh waves --blind --teams N --lenses L1,L2,...`. The blind path never
+  runs preflight, so this form resolves its own cap through
+  `skills/model-map/resolve-concurrency.sh` — the one merge helper — and emits
+  the `N + M` reviewer slots as one wave.
+- MUST fail closed with exit 64 and zero writes on: a missing or unreadable plan
+  file, a plan with no `concurrency`, a missing or unreadable claims file, a
+  claims file that is not a JSON array, and an empty claims array.
+- MUST enforce the plan mechanically at three sites: the Phase 2 investigator
+  fence, the Phase 2.5 cross-reviewer fence, and the two gated council sites
+  (SPEC-033 M14 ship gate, orchestrated task gate). Each iterates its wave in
+  batch order: spawn exactly the slots of batch *k* in one message, await every
+  return, then run batch *k*+1. Each MUST NOT count, slice, or enumerate the
+  fleet itself, and MUST NOT re-resolve the cap.
+- MUST name the six prose-enforced sites, which keep the CDT-573 contract line
+  and read no `waves[]`: the Phase 3 classifier + specialist wave, the Phase 4
+  pair, the Phase 5 judge-parts wave, the `--blind` teams + lenses wave,
+  `/bug-hunt` S1/S2, and the `/debug ticket` refuter wave. Emission is wider than
+  enforcement: an emitted wave is authoritative for a site only once that site
+  reads it. Follow-up:
+  `.claude/backlog/wave-plan-enforcement-for-the-six-prose-enforced-s.md`.
+- MUST count Phase 2 at finalize. Compare, per claim group, the intended
+  investigator slot count from `plan.waves[]` against the bundles that carry that
+  claim. A shortfall with `verification_mode: full` exits 7 and names the claim
+  ids on stderr. A shortfall the caller declares through
+  `--verification-mode self-verified` (CDV-199) proceeds and writes an Audit
+  Trail line starting `phase2-wave-shortfall:`. A plan with no `phase2` wave is
+  not checked. No other wave is counted.
+- MUST print the plan under `--why`: `why_detail.waves` holds
+  `{ wave, batches, spawns }` per wave, and the `--why` summary prints the wave
+  and batch counts.
+- MUST NOT add a report frontmatter key. `concurrency:` (CDT-573) stays the only
+  cap key in the templates.
+- MUST degrade on a host with no batch-synchronous fan-out primitive: run the
+  batches one after another in plan order. Sequential batches keep blindness — a
+  batch never reads sibling-batch output — and never set
+  `verification_mode: self-verified`. There is no host-ceiling API: a host that
+  runs fewer than X in flight is compliant, and a plan's X is a ceiling, never a
+  floor. `docs/host-tool-map.md` carries the per-host note.
 
 ### Engine Architecture
 - MUST implement core logic as a skill at `skills/council/` (NOT duplicated inline in commands)
@@ -397,6 +481,7 @@ claim scope (see Council tiering consequences above).
 
 ### Phase 2 — Parallel Investigation
 - MUST spawn investigators in parallel, one task per claim (up to the claim budget). When a Spawn concurrency cap X is set, this wave uses batch-synchronous batches of ≤ X (Spawn concurrency cap); unset stays one wave
+- **Wave-plan enforcement (CDT-594).** With a cap set, this fence is wave-plan-enforced: it takes its batches from `plan.waves[]` entries with `wave == "phase2"`, and calls `engine.sh waves` first when `plan.waves_pending` names `phase2`. It runs the batches in `batch` order — spawn exactly the slots of batch k in one message, await every return, then batch k+1. The fence MUST NOT count, slice, or enumerate the fleet, and MUST NOT re-resolve the cap. Blindness holds: a batch never reads sibling-batch output. The CDT-573 contract line is the degrade path for a host with no batch-synchronous fan-out primitive (Spawn concurrency cap → waves[])
 - MUST pass each investigator the raw artifacts (files, logs, diffs, plan text) required for the claim — MUST NOT pass the model's prior narrative or prior verdicts
 - MUST forbid investigators from any write operation (read-only tool allowlist: Read, Grep, Glob, Bash for read commands, MCP query tools)
 - MUST require each investigator to return an **evidence bundle** containing: tool_use_id, raw tool output blob, file:line citation, reproducible command
@@ -488,6 +573,7 @@ this skip was previously implementation-only in `engine.sh` preflight and
 - **Verify evidence (WP 1-15).** For a claim with a `verify` command, the judge prompt MUST: treat a verify bundle with a non-zero exit, a skip or a timeout as evidence against the claim (the verdict MUST NOT be `VERIFIED` or `PARTIALLY_VERIFIED`); keep the confidence below 80 when no bundle holds the verify run; and not accept a passing run alone as enough (the verdict also needs the finder recipe's own evidence — the AC quote, the Verify output and the token greps). These rules change the evidence the judge weighs. They do not change SPEC-033 M14(b).
 - **Finder recipe caps (WP 1-16).** For a claim with a `verify` command, the judge prompt MUST keep the confidence at 79 or lower when no bundle quotes the AC bullet at the claim's source locator, when a token of class backtick span, `path:N`, `Case N` or `AC X` named in that quote has no bundle — other than the Step 1 quote bundle itself — with a line that holds it, or when a bundle holds a `...`, `[...]` or `…` line. A numbered sub-clause named in the quote is advisory evidence only and carries no cap, because no oracle can check a finder-chosen key phrase. That no-cap rule covers the token caps above only; the run-output evidence bar still applies to a sub-clause where a run exists. The WP 1-15 rules above stay unchanged. These caps can only lower a confidence. They do not change SPEC-033 M14(b).
 - **Judge bundle cap (2026-10-12).** One judge invocation carries the whole rendered bundle block. When that block exceeds 64,000 bytes, the engine MUST split it into claim-atomic parts and spawn the judge once per part; each part carries only its own claims, bundles, and brief lines, and the verdict/finding and `struck_lines` arrays are concatenated in part order. A `raw_blob` MUST never be cut mid-bundle; a claim whose own bundles exceed the cap gets its own oversized part; a failed part degrades the whole judge (the spawn-failure path). The cap is a fixed constant — no env var, no flag. The judge keeps the empty tool allowlist on every part (a tool-less judge cannot read bundle files; the file-channel variant is structurally unsupported). This changes only the delivery of large bundle sets, not the strike rule or SPEC-033 M14(b). Judge-part spawns are one enumerated wave of the Spawn concurrency cap (CDT-573)
+- **Wave-plan enforcement (CDT-594).** With a cap set, this fence is wave-plan-enforced from `plan.waves[]` entries with `wave == "phase2.5"`, emitted by the same `engine.sh waves` call as Phase 2 (Spawn concurrency cap → waves[]): batch k spawns in one message, every return lands, then batch k+1. A group the emitter skipped (below 3 bundles) has no slots and is bypassed as above. The fence MUST NOT count, slice, or enumerate its reviewers, and MUST NOT re-resolve the cap
 - **Run-output evidence bar (CDT-537, 2026-10-12).** For a claim with a `verify` command, the investigator bundles MUST quote actual run output — the command, its exit code, and the relevant output lines — for each AC sub-clause of the claim's quote where a run exists. A source assert (a test-file line stating the expected behavior) is a source citation, not run output, and does not satisfy the bar by itself. The judge prompt MUST score confidence on exhibited run output and MUST keep the confidence at 79 or lower when an AC sub-clause is evidenced only by source asserts and no bundle quotes actual run output for it. A strike on an AC sub-clause is a bite-coverage strike: it is recorded in `struck_lines` with the AC id — the existing route to a follow-up ticket. These rules can only lower a confidence. They do not change SPEC-033 M14(b).
 - **Forward claim (CDT-589-C4; plan-scope only).** Two layers, both required:
   - **Judge (primary).** `skills/council/prompts/judge.md` and `agents/council-judge.md` MUST agree: a refutation of a `[forward]`-prefixed claim whose sole basis is pre-implementation bytes is inadmissible; the verdict for that claim comes from plan-internal evidence (spec, task graph, AC coverage). A refutation grounded in existing state of a file the plan's task graph does not schedule remains admissible at the judge. The WP 1-15 VERIFY EVIDENCE first-four bullets (byte-identical to `38bc739`) and the M14 VERIFY caps block MUST stay intact.
@@ -499,6 +585,7 @@ this skip was previously implementation-only in `engine.sh` preflight and
 - **Claim labels (WP 1-15).** Each `verdict[]` heading MUST read `### Claim <id>: <claim text>`, and each Extracted Claims item MUST show the claim id and the claim text. Finalize takes the id and the text from, in this order: the verdict's own `claim_id`; the claim in `plan.claims[]` (or else the evidence claim list) whose text equals the verdict's `claim`; the one claim of a single-claim run (`plan.resolved_claim` for `from-retro`, else `plan.scope_arg`). A verdict that matches none is labeled `unmatched`, never `?`. Labels change the report body only: the sidecar `unstruck_verdicts` stays a plain copy of the judge verdicts. **Forward claim (CDT-589-C4):** the text-equality fallback MUST treat `[forward] ` as optional on either side (strip the prefix, then compare). `claim_id`-first matching is unchanged. When the matched claim carries the prefix, the heading MUST show it. `planClaimLine` MUST accept prefixed claim text (strip the prefix before the line search). Every discarded Forward claim refutation MUST appear in the Audit Trail; `finalize-meta.json` `struck_count` and struck lines MUST reflect the guard.
 - MUST branch the report template on output shape: `verdict[]` presets emit a verdict summary by taxonomy (session/plan/claim scopes); `finding[]` presets emit a findings summary by severity (diff scope)
 - MUST print a summary to stdout with verdict counts by taxonomy (or finding counts by severity for `finding[]`-shape presets) and a path to the full report
+- **Phase-2 wave count check (CDT-594).** When the plan carries a `phase2` wave, finalize compares, per claim group, the intended investigator slot count with the bundles that carry that claim. A shortfall with `verification_mode: full` exits 7 and names the claim ids on stderr; a shortfall the caller declares through `--verification-mode self-verified` (CDV-199) proceeds and writes an Audit Trail line starting `phase2-wave-shortfall:`. An equal count writes no line. A plan with no `phase2` wave is not checked, and no wave other than Phase 2 is counted. The check reads the plan only: it adds no report frontmatter key
 - MUST resolve the project root with the worktree-aware formula: `_gc=$(git rev-parse --git-common-dir 2>/dev/null) && MROOT=$(cd "$(dirname "$_gc")" && pwd) || MROOT=$(pwd)`
 - **Report no-overwrite (WP 1-14).** The engine MUST NOT overwrite an existing report or its `.finalize-meta.json` sidecar. This applies to every scope that resolves its path through `cmd_report_path` (claim, session, diff, plan and from-retro; unbound and task-bound):
   - **Candidates.** The base candidate is `<YYYY-MM-DD>-<slug>[--<task_id>].md`. The next candidates are `…-2.md`, `…-3.md`, and so on up to `…-99.md`. The `-<N>` suffix comes directly before `.md`, after the task suffix. A candidate is free if and only if the report file and its sidecar are both absent.
@@ -808,6 +895,18 @@ Deterministic, engine-side, never LLM-live. The fixture matrix is `skills/counci
 6. Untagged plan-scope `{{RAW_ARTIFACTS}}` render is byte-identical to today; tagged plan-scope render is that value plus the addendum file; `investigator.md` does not contain the addendum.
 7. `planClaimLine` and finalize text-equality accept prefixed claim text. Report headings show `[forward] `.
 
+### Test 28 — waves[] mechanical cap (CDT-594)
+
+Deterministic, engine-side, never LLM-live. `skills/council/test-waves.sh` owns the emitter, slot, partition, blind-form, and finalize count cases. `skills/council/test-concurrency.sh` owns the plan-key presence, the unset byte-identity, the fence iteration text, the single-carrier rule, the prose-enforced set, and the host-portability notes. `skills/council/test-parity-fixtures.sh` owns Task-vs-Workflow partition parity.
+
+1. Unset cap: no `waves` key, plan byte-identical to the CDT-573 shape. Cap 2 on a 5-slot wave: 3 objects of sizes 2, 2, 1.
+2. Slot audit: every slot is `{slot, claim_index, claim_id, flavor, agent, model_pin_source}`; no slot value holds claim or prompt text; `model_pin_source` is a rule name, never a model string.
+3. Preflight coverage: M14 14 claims × 2 flavors at cap 4 → 7 batches of 4 in `claim_id` order; single-claim scope → `ceil(flavors/X)` batches; Phase 4 → one 2-slot wave, and X=1 → two batches of 1; skipped phase → no wave object; Phase 1-dependent scope → `waves_pending` names `phase2` and `phase2.5`.
+4. Emitter: same plan + claims → byte-identical stdout; plan file gains `waves` and loses the emitted `waves_pending` names; the seven fail-closed inputs exit 64 with the plan byte-unchanged.
+5. Blind form: `--teams 3 --lenses security,contributor,spec` is a 6-slot wave — two batches (4, 2) at cap 4, three batches of 2 at cap 2, one batch when X ≥ 6 — with the cap resolved through `resolve-concurrency.sh` only.
+6. Finalize count check: intended 4, bundles 3, `full` → exit 7 naming the claim ids; the same shortfall with `--verification-mode self-verified` → report written plus an Audit Trail line starting `phase2-wave-shortfall:`; intended 4, bundles 4 → no line; a plan with no `phase2` wave → no check.
+7. Parity: the emitted `phase2` partition equals the `chunkedParallel` partition at unbounded and at cap 2; `workflow.js` keeps the chunk helper and gains no `waves[]` consumer.
+
 ---
 
 ## Validation
@@ -848,6 +947,7 @@ Deterministic, engine-side, never LLM-live. The fixture matrix is `skills/counci
 - M14 per-AC split (WP 1-14): `m14-ac-split.sh`; `plan.claims[]` consumed verbatim on both paths; exit 8 fail-closed; non-M14 plan unchanged; Tests 24–25
 - Spawn concurrency cap (CDT-573): opt-in `--concurrency N` / `COUNCIL_CONCURRENCY` / Model map `concurrency`; unbounded default; batch-synchronous waves; queueing is not CDV-199; report FM `concurrency:`; Test 26
 - Forward claim (CDT-589-C4): plan-scope `[forward] ` prefix; RAW_ARTIFACTS addendum; judge rule + finalize guard; Test 27
+- waves[] mechanical cap (CDT-594): `plan.waves[]` + `plan.waves_pending` on the plan; `engine.sh waves` post-Phase-1 and blind emitters; wave-plan enforcement at the Phase 2 / Phase 2.5 fences and the two gated council sites; six prose-enforced sites named with a follow-up record; Phase-2-only finalize count check; no new report frontmatter key; Test 28
 
 ---
 
@@ -904,12 +1004,49 @@ Format and rules: SPEC-033 M14(g) and M14(h).
 - **AC10.** This spec states the Forward claim rule under Phase 1, Phase 2, Phase 2.5, Phase 5, Phase 6, and Scope Exclusions. Mechanical prefix keying is intentional: a missed tag is old behavior (fail-closed); no one builds a bash classifier. SPEC-033 points at the Step 6c halt list's post-finalize timing. CONTEXT.md write-back of the term is an epic-level obligation, not this ticket's diff.
   Verify: bash skills/council/test-plan-locator.sh
 
+### CDT-594
+
+- **AC1.** When the Spawn concurrency cap is set, `engine.sh preflight` emits `plan.waves[]`: an array of wave objects `{wave, batch, spawns[]}` with `wave ∈ phase2 | phase2.5 | phase3 | phase4 | blind`, `batch` a 1-based contiguous index inside its wave, and `spawns` a non-empty slot list. An unset cap emits no `waves` key, and the plan stays byte-identical to the CDT-573 shape.
+  Verify: bash skills/council/test-concurrency.sh
+- **AC2.** A slot is an index tuple and nothing else: `{slot, claim_index, claim_id, flavor, agent, model_pin_source}`. `slot` is the 0-based index inside its wave. `claim_index` and `claim_id` are `null` on `phase4` and `blind` slots. `model_pin_source ∈ map | tier-default | p2-literal` is a SPEC-042 rule name, never a resolved model string. No slot carries claim text, prompt text, or artifact bytes.
+  Verify: bash skills/council/test-waves.sh
+- **AC3.** Partition: a wave of W slots at cap X emits `ceil(W/X)` objects; every batch holds exactly X slots except the last, which MAY be partial; `W ≤ X` emits one object; batches are contiguous slices of the slot list in claim-major, then `plan.flavors`, order, and the slot total equals the intended spawn count. The emitters are deterministic: the same plan file plus the same claims file emit byte-identical `waves[]`, with no LLM call and no clock read.
+  Verify: bash skills/council/test-waves.sh
+- **AC4.** Preflight emits every wave it can know without an LLM: `phase2` when the claim set is known (non-empty M14 `plan.claims[]`, a single pasted claim, or `--from-retro`), `phase4` with exactly 2 slots when Phase 4 runs, and `phase3` with one specialist slot at `agent: null` when Phase 3 runs. A skipped phase emits no wave object for it.
+  Verify: bash skills/council/test-waves.sh
+- **AC5.** A scope whose claims come from Phase 1 (transcript-slice, plan, diff) carries `plan.waves_pending: ["phase2","phase2.5"]` and no slot for those waves at preflight. A fence for a pending wave calls the emitter before it spawns and invents no batching of its own.
+  Verify: bash skills/council/test-waves.sh
+- **AC6.** `engine.sh waves --plan-file <p> --claims-file <c>` reads the cap from `plan.concurrency` only, reads claim records from the JSON-array path argument, emits `phase2` (claims × `plan.flavors`) and `phase2.5`, merges them into the plan file through tmp + rename, prints the wave objects on stdout, and drops each emitted name from `plan.waves_pending`. It resolves no cap layer of its own.
+  Verify: bash skills/council/test-waves.sh
+- **AC7.** The emitter fails closed with exit 64, stderr, and a byte-unchanged plan file on: a missing plan file, an unreadable plan file, a plan with no `concurrency`, a missing claims file, an unreadable claims file, a claims file that is not a JSON array, and an empty claims array.
+  Verify: bash skills/council/test-waves.sh
+- **AC8.** The `phase2.5` wave comes from the same inputs: a claim group of ≥ 3 investigator bundles contributes one cross-reviewer slot per bundle, a group below 3 contributes none, and the wave total is the sum over qualifying groups.
+  Verify: bash skills/council/test-waves.sh
+- **AC9.** `engine.sh waves --blind --teams N --lenses L1,L2,...` emits the `N + M` reviewer slots (`U1..UN`, `L-<lens>`) as one wave, taking its cap from `skills/model-map/resolve-concurrency.sh` — the one merge helper — and preflight stays off the blind path.
+  Verify: bash skills/council/test-waves.sh
+- **AC10.** An M14 split plan of 14 claims × 2 flavors at cap 4 emits 7 `phase2` objects of exactly 4 slots each, in `plan.claims[]` order, with `claim_id` set on every slot. That is the C1 incident fixture (28 Phase 2 spawns pre-fired against cap 4).
+  Verify: bash skills/council/test-waves.sh
+- **AC11.** The Phase 2 investigator fence and the Phase 2.5 cross-reviewer fence iterate their wave in batch order: spawn exactly the slots of batch k in one message, await every return, then run batch k+1. Neither fence counts, slices, or enumerates the fleet itself, and neither re-resolves the cap. A batch never reads sibling-batch output.
+  Verify: bash skills/council/test-concurrency.sh
+- **AC12.** The two gated council sites — `skills/autopilot/ship-gate-council.md` and `skills/orchestrate/steps/08-execute.md` — state wave-plan enforcement for the council run each drives, keep the `--concurrency` pass-through byte-unchanged, and re-derive nothing. The `Spawn @<agent>` IC DAG fence carries no cap flag, no batching instruction, and no contract line.
+  Verify: bash skills/orchestrate/router-static-test.sh
+- **AC13.** One carrier: every site reads the partition from `plan.waves[]` and the cap from `plan.concurrency`. No site re-reads `--concurrency`, `COUNCIL_CONCURRENCY`, or a Model map layer. The CDT-573 contract line keeps its single copy in `skills/council/spawn-contract.md` and stays grep-identical at every fence.
+  Verify: bash skills/council/test-concurrency.sh
+- **AC14.** The six prose-enforced sites are named here, keep the contract line, and read no `waves[]`: the Phase 3 classifier + specialist wave, the Phase 4 pair, the Phase 5 judge-parts wave, the `--blind` teams + lenses wave, `/bug-hunt` S1/S2, and the `/debug ticket` refuter wave. `skills/council/spawn-contract.md` § Scope states the enforcement tier of every site and names the follow-up record `wave-plan-enforcement-for-the-six-prose-enforced-s`.
+  Verify: bash skills/council/test-concurrency.sh
+- **AC15.** [process] The Workflow path keeps `chunkedParallel` in `skills/council/workflow.js` and gains no `waves[]` consumer. Task/Workflow partition parity is asserted transitively, not by one fixture over the emitted `phase2` plan. `skills/council/test-waves.sh` pins the `waves_partition` slice rule in `skills/council/engine-waves.sh` and pins that `workflow.js` reads no `waves[]`. `skills/lib/chunked-parallel-test.sh` pins the `ceil(W/n)` rule in the shared helper. `skills/council/test-parity-fixtures.sh` asserts, at unbounded and at cap 2, that the partition the JS path observes equals the Task-contract model at all three `parallel()` sites.
+- **AC16.** [process] QA MUST NOT hard-FAIL a wave-plan-enforced Task-path run on an observed in-flight spawn count. The gate evidence is the emitted `waves[]`, the batch-synchronous fence text, and the static suites named in this subsection.
+- **AC17.** [process] The suites named on the `Verify:` lines in this subsection, plus the repo suite runner, run green on the branch, and the new suite is discovered by the runner rather than quarantined.
+- **AC18.** Finalize runs the Phase-2-only count check: with a `phase2` wave present it compares, per claim group, the intended investigator slot count against the bundles that carry that claim. A shortfall with `verification_mode: full` exits 7 and names the claim ids on stderr. A shortfall the caller declares through `--verification-mode self-verified` proceeds and writes an Audit Trail line starting `phase2-wave-shortfall:`. An equal count writes no line. A plan with no `phase2` wave is not checked, and no wave other than Phase 2 is counted. The report templates gain no frontmatter key.
+  Verify: bash skills/council/test-waves.sh
+
 ---
 
 ## Version History
 
 | Date | Change |
 |------|--------|
+| 2026-11-19 | CDT-594: **Spawn concurrency cap** moves from a prompt contract to data. `plan.waves[]` (wave objects `{wave, batch, spawns[]}`; index-tuple slots `{slot, claim_index, claim_id, flavor, agent, model_pin_source}`, never prompt text) carries the batch partition; contiguous-slice arithmetic matches `chunked-parallel.js`. Preflight emits every LLM-free wave (M14 `plan.claims[]`, single claim, `--from-retro`, the Phase 4 pair, the Phase 3 specialist stub) and names the Phase-1-dependent waves in `plan.waves_pending`; the new `engine.sh waves --plan-file --claims-file` emitter fills `phase2` + `phase2.5` after Phase 1 (exit 64 fail-closed, plan merge through tmp + rename, deterministic) and the `--blind` form resolves through `resolve-concurrency.sh`. Wave-plan enforcement lands on the Phase 2 and Phase 2.5 fences and the two gated council sites; the six remaining sites are recorded as prose-enforced with the follow-up record `wave-plan-enforcement-for-the-six-prose-enforced-s`. Finalize gains the Phase-2-only count check (exit 7 on an undeclared shortfall, Audit Trail `phase2-wave-shortfall:` on a declared one). Unset cap: no `waves` key, byte-identical plan and fences. No new report frontmatter key; the CDT-573 contract line survives as the host degrade path (no host-ceiling API exists). Test 28. `### CDT-594` ACs. Status stays ACTIVE. |
 | 2026-11-18 | CDT-641 (SPEC-042): **Council-on-Workflow execution path** gains the model-pin invariant. Every `agent()` entry the five `safeAgent` sites produce carries an explicit `model` — map-resolve for `dev-team:finder` / `dev-team:council-judge` with the SPEC-003 § Tier-default alias on an empty or failed resolve, literal `sonnet` for the tool-less `dev-team:council-scribe` — and the Workflow-path value equals the Task-path value for the same role and run, so strict parity now covers the model each role is spawned on. A model-attributed failure retries once with the sibling alias and never omits `model`; § Spawn-failure degradation (CDV-199) is unchanged. `workflow.js` stays `effort`-free (SPEC-037 F1) and MUST NOT fork a second Model map fence. Status stays ACTIVE. |
 | 2026-10-27 | CDT-589-C4: **Forward claim** (plan-scope only). Phase 1 extractor may prefix `[forward] ` on claims that assert work the plan's task graph schedules (no schema field; substring HARD RULE exempts only that prefix; tagging is LLM judgment; missed tag = old behavior = fail-closed; no bash classifier). Phase 2 engine appends `forward-claim-addendum.txt` to per-claim `{{RAW_ARTIFACTS}}` when the prefix is present — `investigator.md` and flavor files stay byte-unchanged. Prefix survives Phase 2.5/4/5. Phase 5 judge rule + `engine-finalize.sh` guard: `scope==plan` + prefix + `CONTRADICTED`/`FABRICATED` → rewrite `UNVERIFIED` ≤79, Audit Trail line `forward-claim-guard:`. Guard does not re-derive task-graph membership. Scope exclusion: diff-mode, Step 8/9 task gate, M14 ship-gate, transcript-slice, `--from-retro`, `--blind`. Test 27. `### CDT-589-C4` ACs. CONTEXT.md write-back is epic-level, not this diff. Status stays ACTIVE. |
 | 2026-10-22 | CDT-574-C3: **Spawn concurrency cap** — new MUST on the env layer. When `--concurrency N` wins, an ambient `COUNCIL_CONCURRENCY` is still validated: a set, non-empty, non-cap value exits 64 with a stderr warning that names the variable (Option B; SPEC-039 M37 precedent for `ADVISOR_MODEL`). An empty-string env stays unset. The Model map stays lazy — read only when the flag and the env are both unset — so AC4/AC5 precedence for valid values is unchanged and the AC5 shield cases (`5` shielding a junk map) stay green. Only a junk env now fails. AC4/AC5 prose is not amended. `resolve-concurrency.sh` keeps the single merge; `engine-preflight.sh` stays a thin `--flag` wrapper. Status stays ACTIVE. |

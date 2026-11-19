@@ -81,7 +81,10 @@ check_case() {
   local name="$1"; shift
   local scope_arg="$1"; shift
   local out rc norm golden
-  out="$(cd "$REPO" && bash "$ENGINE" preflight --scope claim --scope-arg "$scope_arg" "$@" 2>"$TMP/$name.err")"
+  # The goldens are the UNSET-cap shape, so pin the baseline: a cap inherited
+  # from the caller's environment would emit plan.waves (CDT-594 AC1). The Model
+  # map layer is absent in $REPO, so the env layer is the only carrier here.
+  out="$(cd "$REPO" && env -u COUNCIL_CONCURRENCY bash "$ENGINE" preflight --scope claim --scope-arg "$scope_arg" "$@" 2>"$TMP/$name.err")"
   rc=$?
   if [ "$rc" -ne 0 ]; then
     fail_msg "$name: preflight exit $rc (want 0); stderr: $(cat "$TMP/$name.err")"
@@ -104,6 +107,14 @@ check_case() {
     fail_msg "$name: unexpected M14 key present (claims/ac_source/process_acs)"
   else
     ok "$name: no M14 keys (claims/ac_source/process_acs)"
+  fi
+  # CDT-594 AC1: these goldens pin the UNSET-cap plan shape. The runner sets no
+  # cap, so a wave-plan key here means either the emission is not gated on the
+  # cap or the golden was captured under a capped environment.
+  if printf '%s' "$norm" | jq -e '(has("waves") or has("waves_pending")) | not' >/dev/null 2>&1; then
+    ok "$name: no wave-plan keys (unset cap, SPEC-013 CDT-594 AC1)"
+  else
+    fail_msg "$name: wave-plan key present on an uncapped run (CDT-594 AC1)"
   fi
 }
 

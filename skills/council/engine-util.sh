@@ -35,12 +35,28 @@ Subcommands:
                    1-9 per m14-ac-split.sh / SPEC-033 M14(g)/(j)), no
                    stdout. Exit 64: argv misuse.
 
+  waves --plan-file P --claims-file C
+                   Post-Phase-1 wave-plan emitter (SPEC-013 CDT-594 waves[]):
+                   cap from plan.concurrency ONLY, claim records from the
+                   JSON-array file, emits the phase2 + phase2.5 waves, merges
+                   them into P (tmp + rename), drops the emitted names from
+                   plan.waves_pending, prints the plan's waves[] on stdout
+                   (compact). Writes nothing on any 64 path.
+  waves --blind [--teams N] [--lenses L1,L2,...] [--concurrency N]
+                   The blind-path wave (N + M reviewer slots): resolves its cap
+                   through skills/model-map/resolve-concurrency.sh, prints the
+                   wave, writes no file. Defaults: --teams 3, --lenses
+                   security,contributor,spec.
+
 Exit codes: 0 ok | 1 jq required but not found | 2 usage/no-scope | 3 reserved (unused; no deferred scopes)
             4 unknown preset | 5 empty evidence | 6 index-writer failure | 7 schema mismatch
             8 M14 per-AC split fails closed (SPEC-033 M14(g)) | m14-ac-split: <cause>
             9 report no-overwrite: every candidate up to -99 is taken
             64 m14-check: argv misuse
             64 preflight: invalid --concurrency (Spawn concurrency cap, CDT-573)
+            64 waves: bad flag, missing/unreadable plan or claims file, a plan
+               with no concurrency, a claims file that is not a JSON array, an
+               empty claims array (CDT-594 -- zero writes on every one)
             127 python3 required but not found (not exit 1 — that code is jq)
 USAGE
 }

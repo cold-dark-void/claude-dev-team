@@ -89,10 +89,18 @@ prior verdicts. **Model pin:** the extractor is a tool-less
 ### Phase 2 — Parallel Investigation
 
 **Spawn contract:**
-- **Spawn concurrency cap (CDT-573):** when `plan.concurrency` is set, append
-  the contract line in `skills/council/spawn-contract.md` once, after the fleet
-  instruction, before the per-spawn prompts. Unset: emit no line; this fence is
-  unchanged.
+- **Spawn concurrency cap (CDT-573 + CDT-594):** this fence is
+  wave-plan-enforced. When `plan.concurrency` is set, append the contract line
+  in `skills/council/spawn-contract.md` once, after the fleet instruction,
+  before the per-spawn prompts, and run the wave off `plan.waves[]`
+  (`wave == "phase2"`) by § Wave-plan iteration in that file: one message per
+  batch, ascending `batch`, every return awaited before the next batch. The
+  plan owns the boundaries — this fence counts nothing, slices nothing,
+  enumerates nothing, re-ranks nothing, and re-resolves no cap layer. A capped
+  plan with no `phase2` wave means the emitter has not run: run
+  `commands/council.md` § Phase 1.5 (wave-plan emission) first; never fall back
+  to a self-chosen fan-out. A batch observes no sibling-batch output. Unset:
+  no `waves` key, emit no line; this fence is unchanged.
 - **Model pin (SPEC-037 + SPEC-042):** resolve `finder` first (canonical fence in
   § Model pins of `skills/council/model-map.md`). Named fallback `finder`→`ic5`
   resolves `ic5` (same fence for later spawns of that agent). Empty stdout is
@@ -111,7 +119,10 @@ prior verdicts. **Model pin:** the extractor is a tool-less
 - **Minimum 2 investigators per claim with distinct flavor presets** (e.g.
   `paranoid-ic` + one other) to defeat monoculture. (SPEC-013 § Council tiering.)
 - One task per claim per flavor — investigators MUST spawn in parallel
-  within a single message, subject to Task-tool concurrency limits.
+  within a single message, subject to Task-tool concurrency limits. With a cap
+  set, "single message" means one message per batch of `plan.waves[]`, in
+  `batch` order (skills/council/spawn-contract.md § Wave-plan iteration) — the
+  wave is never pre-fired whole and never serialized one spawn at a time.
 - Investigators MUST NOT receive prior assistant narrative, prior verdicts,
   or prior advocate/prosecutor output. They see raw artifacts only.
   (SPEC-013 § Output Shapes.)

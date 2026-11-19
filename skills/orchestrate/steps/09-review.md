@@ -259,6 +259,18 @@ merge and its exit 64 stderr surfaces verbatim. The cap binds the council fleet 
 the Step 8 IC spawn fence, the Step 4 kickoff spawns, and advisor spawns
 stay cap-free (SPEC-013 § CDT-573 AC2).
 
+**Wave-plan enforcement (SPEC-013 § waves[], CDT-594).** The cap token buys the
+wave plan: the council run this gate waits on carries `plan.waves[]`, and that
+run's fleet iterates its batches. § Wave-plan iteration of
+`skills/council/spawn-contract.md` is the single copy of that loop — cite it and
+add nothing. This gate pre-fires nothing: it spawns no investigator, counts
+nothing, slices nothing, and re-resolves no cap layer — `plan.waves[]` and
+`plan.concurrency` are the only carriers (SPEC-013 AC13). A batch observes no
+sibling-batch output, and queueing is not a spawn failure, so batching never
+degrades a task-gate verdict. Unset cap: the run carries no wave plan and fans
+out as today, so this paragraph is inert. The Step 8 IC DAG spawn fence stays
+cap-free — the IC DAG is not a fleet (SPEC-013 § CDT-573 AC2, CDT-594 AC12).
+
 In the `light`/`full`/`"null"` branches the orchestrator MUST have exported
 `CLAUDE_TASK_ID=<task_id>` in the IC agent's subprocess environment at spawn
 time (Step 8) so the council run binds to the correct index row (SPEC-013

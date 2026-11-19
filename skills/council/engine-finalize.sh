@@ -18,6 +18,42 @@ _finalize_physical_path() {
   fi
 }
 
+# _finalize_phase2_wave_scan PLAN_FILE EVIDENCE_FILE — CDT-594 T2 (SPEC-013
+# AC18). Prints one TAB-separated "<group>\t<intended>\t<observed>" line per
+# Phase-2 claim group whose bundle count is BELOW its intended slot count,
+# sorted by group key. Group key is the `claim_id` a slot / bundle carries; a
+# null claim_id is the single no-claim-id group (the Phase 2.5 grouping rule,
+# reused). Intended counts `phase2` slots from plan.waves; observed counts
+# evidence bundles — an excess is never a shortfall (Phase 3 specialist merge,
+# appended flavors, the additive external slot). No other wave is counted.
+# Prints nothing (a non-zero exit on an unparseable file counts the same way)
+# — so the caller runs no check — when the plan carries no phase2 wave, the
+# evidence set is empty (the exit 5 gate owns that case), the counts agree, or
+# a file is unparseable (the repair + exit 5/7 path owns those). Reads the plan
+# with jq only: no waves-lib.sh re-derivation of the partition.
+_finalize_phase2_wave_scan() {
+  jq -rn --slurpfile plan "$1" --slurpfile evidence "$2" '
+    def gkey: (.claim_id? // null)
+      | if . == null then "__no-claim-id__" else (tostring | gsub("[\t\n\r]"; " ")) end;
+    def tally(s): [s | gkey] | group_by(.) | map({key: .[0], value: length}) | from_entries;
+    $plan[0] as $p
+    | $evidence[0] as $e
+    | (if ($e | type) == "array" then $e
+       elif ($e | type) == "object" then ($e.bundles // $e.evidence_bundles // [])
+       else [] end) as $bundles
+    | [ $p.waves[]? | select(.wave == "phase2") | .spawns[]? ] as $slots
+    | if ($slots | length) == 0 then empty
+      elif ($bundles | length) == 0 then empty
+      else
+        tally($slots[]) as $want
+        | tally($bundles[]) as $got
+        | [ $want | to_entries[] | {k: .key, i: .value, o: (($got[.key]) // 0)} ]
+        | sort_by(.k)[]
+        | select(.o < .i)
+        | "\(.k)\t\(.i)\t\(.o)"
+      end'
+}
+
 # ---- finalize ---------------------------------------------------------------
 # Consume plan + evidence + judge output, render report, write index row.
 # Inputs: --plan-file, --evidence-file, --judge-output. Does not interpret
@@ -170,6 +206,34 @@ cmd_finalize() {
     plan_report_path=$(cmd_report_path "$slug" --task-id "$task_id")
   fi
 
+  # CDT-594 T2 (SPEC-013 AC18): Phase-2-only wave count check. A completed
+  # Phase 2 spawn count below the plan's phase2 slot count is a dropped spawn
+  # (the M14 C1 incident). Runs before the reservation below so the hard fail
+  # leaves no report and no reservation, and it skips an empty bundle set so
+  # that case keeps exiting 5. Shortfall + full → exit 7 naming the claim ids
+  # (exit 7 is the existing contract-violation code; the stderr text naming the
+  # ids is the discriminator). Shortfall the caller declares self-verified →
+  # proceed and record the Audit Trail line phase2-wave-shortfall:.
+  local phase2_shortfall_summary="" phase2_shortfall_note=""
+  local _p2_short="" _p2_key="" _p2_want="" _p2_got=""
+  _p2_short=$(_finalize_phase2_wave_scan "$plan_file" "$evidence_file" 2>/dev/null) || _p2_short=""
+  while IFS=$(printf '\t') read -r _p2_key _p2_want _p2_got; do
+    [ -n "$_p2_key" ] || continue
+    [ "$_p2_key" = "__no-claim-id__" ] && _p2_key="no-claim-id"
+    if [ -z "$phase2_shortfall_summary" ]; then
+      phase2_shortfall_summary="$_p2_key intended $_p2_want observed $_p2_got"
+    else
+      phase2_shortfall_summary="$phase2_shortfall_summary; $_p2_key intended $_p2_want observed $_p2_got"
+    fi
+  done < <(printf '%s\n' "$_p2_short")
+  if [ -n "$phase2_shortfall_summary" ]; then
+    phase2_shortfall_note="phase2-wave-shortfall: $phase2_shortfall_summary — declared self-verified (SPEC-013 CDT-594 AC18)"
+    if [ "$verification_mode" = "full" ]; then
+      echo "engine.sh: phase2 wave count shortfall (SPEC-013 CDT-594 AC18): $phase2_shortfall_summary — Phase 2 dropped a spawn; re-run the missing slots or declare --verification-mode self-verified" >&2
+      exit 7
+    fi
+  fi
+
   # Report no-overwrite (SPEC-013 Phase 6, WP 1-14): reserve the path again
   # at write time, right before rendering. `--report-out` is exempt — it
   # reserves nothing and can overwrite; the caller that passes it owns that
@@ -258,7 +322,8 @@ cmd_finalize() {
     "$plan_report_path" "$scope" "$preset" "$output_shape" "$created_at" \
     "$task_id" "$cross_review_status" "$cross_review_rankings" \
     "$cross_review_scores" "$verification_mode" "${tokens_file:-}" \
-    "$council_tier" "$grading_reason" "$degradation_reason" "$concurrency" <<'PYEOF'
+    "$council_tier" "$grading_reason" "$degradation_reason" "$concurrency" \
+    "$phase2_shortfall_note" <<'PYEOF'
 import json, sys, os, re, math
 from collections import Counter
 
@@ -291,6 +356,10 @@ degradation_reason    = sys.argv[18] if len(sys.argv) > 18 else ""
 concurrency           = sys.argv[19] if len(sys.argv) > 19 else "unbounded"
 if not re.fullmatch(r"[1-9][0-9]*", concurrency or ""):
     concurrency = "unbounded"
+# CDT-594 AC18: the Phase-2 wave shortfall line for the Audit Trail. Bash builds
+# it only after it has already exited 7 on the verification_mode full path, so a
+# non-empty value here is the self-verified declaration.
+phase2_shortfall_note = sys.argv[20] if len(sys.argv) > 20 else ""
 if verification_mode not in ("full", "self-verified"):
     verification_mode = "full"
 
@@ -382,6 +451,11 @@ def missing_tool_use_id(obj):
     return v.strip() == ""
 
 engine_strikes = []
+
+# CDT-594 AC18: a self-verified Phase-2 wave shortfall joins the Audit Trail the
+# same way an engine strike does — one line, merged, never a replacement.
+if isinstance(phase2_shortfall_note, str) and phase2_shortfall_note.strip():
+    engine_strikes.append(phase2_shortfall_note.strip())
 
 # --- Plan metadata ---
 flavors = plan.get("flavors", [])

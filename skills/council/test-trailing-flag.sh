@@ -60,9 +60,11 @@ ENGINE_PROBE="$HERMETIC_ROOT/engine-probe.sh"
 # functions are defined before the dispatch case runs.
 cat "$ROOT/skills/council/engine-util.sh" \
   "$ROOT/skills/council/engine-report-path.sh" \
+  "$ROOT/skills/council/waves-lib.sh" \
   "$ROOT/skills/council/engine-preflight.sh" \
-  "$ROOT/skills/council/engine-finalize.sh" > "$ENGINE_PROBE"
-sed '/^\. "\$SCRIPT_DIR\/engine-/d' "$ENGINE" >> "$ENGINE_PROBE"
+  "$ROOT/skills/council/engine-finalize.sh" \
+  "$ROOT/skills/council/engine-waves.sh" > "$ENGINE_PROBE"
+sed -e '/^\. "\$SCRIPT_DIR\/engine-/d' -e '/^\. "\$SCRIPT_DIR\/waves-lib\.sh"$/d' "$ENGINE" >> "$ENGINE_PROBE"
 # --concurrency is exempt: a missing cap value is THIS flag's fail-closed hard
 # fail (SPEC-013 CDT-573 AC5: exit 64), not the engine's usage exit 2. It gets
 # its own probe below so the no-hang guarantee is still checked.
@@ -82,6 +84,9 @@ fi
 probe_case "engine finalize" 11 "$ENGINE_PROBE" 2 cmd_finalize finalize
 probe_case "engine resolve-task-id" 1 "$ENGINE_PROBE" 2 cmd_resolve_task_id resolve-task-id
 probe_case "engine report-path" 1 "$ENGINE_PROBE" 2 cmd_report_path report-path some-slug
+# engine.sh waves (CDT-594): every value flag with no value is the emitter's own
+# fail-closed code, 64 (SPEC-013 AC7), not the engine's usage exit 2.
+probe_case "engine waves" 5 "$ENGINE_PROBE" 64 cmd_waves waves
 probe_case "external-reviewer detect" 1 "$EXTREV" 2 cmd_detect detect
 probe_case "external-reviewer normalize" 4 "$EXTREV" 2 cmd_normalize normalize
 probe_case "external-reviewer run" 5 "$EXTREV" 2 cmd_run run

@@ -22,7 +22,8 @@
 #     output_shape, render the report from skills/council/templates/, write
 #     it, and call index-writer.sh for the atomic index update.
 #
-# Utility subcommands: resolve-task-id, report-path (pure helpers).
+# Utility subcommands: resolve-task-id, report-path (pure helpers), waves
+#   (the waves[] wave-plan emitter — SPEC-013 CDT-594).
 
 set -euo pipefail
 
@@ -62,6 +63,8 @@ readonly INVESTIGATOR_TOOL_BUDGET=5
 . "$SCRIPT_DIR/engine-report-path.sh"
 . "$SCRIPT_DIR/engine-preflight.sh"
 . "$SCRIPT_DIR/engine-finalize.sh"
+. "$SCRIPT_DIR/waves-lib.sh"
+. "$SCRIPT_DIR/engine-waves.sh"
 # ---- Dispatch ---------------------------------------------------------------
 if [ $# -lt 1 ]; then
   usage
@@ -72,6 +75,7 @@ SUBCMD="$1"; shift
 case "$SUBCMD" in
   preflight)       cmd_preflight "$@" ;;
   finalize)        cmd_finalize "$@" ;;
+  waves)           cmd_waves "$@" ;;
   resolve-task-id) cmd_resolve_task_id "$@" ;;
   report-path)     cmd_report_path "$@" ;;
   m14-check)       cmd_m14_check "$@" ;;

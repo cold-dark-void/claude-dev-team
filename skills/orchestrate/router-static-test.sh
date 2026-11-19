@@ -1042,14 +1042,55 @@ done
 if [ -z "$t33_fail" ]; then t_ok
 else t_bad "T33:$t33_fail"; fi
 
-# ---- Harness self-check: the suite defines 38 checks (T0-T35). Check numbers
+# ---- T36: CDT-594 — the gated sites state wave-plan enforcement (AC12) ----
+# Every gated council site carries its wave-plan paragraph under ONE exact
+# heading: '**Wave-plan enforcement (SPEC-013 § waves[], CDT-594).**'. A reworded
+# heading breaks the grep the spec's Test 28 gate reads, and a heading in any
+# other file names a gated site the spec does not (SPEC-013 § waves[] AC12 names
+# two; Step 9 mirrors the Step 8 gate). The paragraph states the carriers and
+# pre-fires nothing; the Step 8 IC DAG fence stays cap-free (T32 owns that text).
+WPE_HEADING='**Wave-plan enforcement (SPEC-013 § waves[], CDT-594).**'
+t36_fail=""
+for gs in "$SHIPGATE" "$STEPS/08-execute.md" "$STEPS/09-review.md"; do
+  hn=$(grep -cF -- "$WPE_HEADING" "$gs")
+  if [ "$hn" != "1" ]; then
+    t36_fail="$t36_fail ${gs##*/} heading count=$hn want=1"
+    continue
+  fi
+  # The heading opens the paragraph: carriers named, nothing pre-fired, and the
+  # batch loop cited in the one copy, never retyped here.
+  para=$(awk -v h="$WPE_HEADING" 'index($0,h)==1{p=1;next} p&&/^$/{exit} p' "$gs" \
+    | tr -s '[:space:]' ' ')
+  if ! printf '%s\n' "$para" | grep -qF -- 'plan.waves[]'; then
+    t36_fail="$t36_fail ${gs##*/} paragraph names no plan.waves[]"
+  fi
+  if ! printf '%s\n' "$para" | grep -qF -- 'single copy of that loop'; then
+    t36_fail="$t36_fail ${gs##*/} paragraph does not cite the one copy of the loop"
+  fi
+  if ! printf '%s\n' "$para" | grep -qF -- 'pre-fires nothing'; then
+    t36_fail="$t36_fail ${gs##*/} paragraph does not state that the gate pre-fires nothing"
+  fi
+  if printf '%s\n' "$para" | grep -qF -- 'spawn exactly the slots of batch'; then
+    t36_fail="$t36_fail ${gs##*/} retypes the batch loop"
+  fi
+done
+stray=$(grep -rlF --include='*.md' -- "$WPE_HEADING" "$ROOT/skills" "$ROOT/commands" 2>/dev/null \
+  | grep -vF -- "$SHIPGATE" | grep -vF -- "$STEPS/08-execute.md" \
+  | grep -vF -- "$STEPS/09-review.md" || true)
+if [ -n "$stray" ]; then
+  t36_fail="$t36_fail heading in a non-gated file:$stray"
+fi
+if [ -z "$t36_fail" ]; then t_ok
+else t_bad "T36:$t36_fail"; fi
+
+# ---- Harness self-check: the suite defines 39 checks (T0-T36). Check numbers
 # follow the block label, not the run order (T34 sits next to T14). A total
-# below 38 means a check was skipped silently (stale copy of this file, an
+# below 39 means a check was skipped silently (stale copy of this file, an
 # early return, or an environment-dependent short-circuit) — turn that into
 # an explicit failure instead of a quietly-smaller PASS count. Under --ac the
-# run is a labeled subset, so 38 does not apply.
+# run is a labeled subset, so 39 does not apply.
 if [ -z "${AC_FILTER:-}" ]; then
-  EXPECTED_CHECKS=38
+  EXPECTED_CHECKS=39
   RUN_TOTAL=$((PASS + FAIL))
   if [ "$RUN_TOTAL" -ne "$EXPECTED_CHECKS" ]; then
     t_bad "harness ran $RUN_TOTAL checks, expected $EXPECTED_CHECKS (a check did not run)"

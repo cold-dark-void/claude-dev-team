@@ -143,6 +143,24 @@ surfaces verbatim. The cap binds the council fleet the IC runs, never this step'
 DAG: the `Spawn @<agent>` fence above MUST NOT carry the flag, a batching
 instruction, or the `Spawn contract:` line (SPEC-013 § CDT-573 AC2).
 
+**Wave-plan enforcement (SPEC-013 § waves[], CDT-594).** The cap token buys the
+wave plan: the council run the IC drives from this addendum carries
+`plan.waves[]`, and that run's fleet iterates its batches. § Wave-plan iteration
+of the council spawn contract (`spawn-contract.md`) is the single copy of that
+loop — cite it and add nothing. This step pre-fires nothing: it spawns no
+investigator, counts nothing, slices nothing, and
+re-resolves no cap layer — `plan.waves[]` and `plan.concurrency` are the only
+carriers (SPEC-013 AC13). A batch observes no sibling-batch output, and queueing
+is not a spawn failure, so batching never degrades a task-gate verdict. Unset
+cap: the run carries no wave plan and fans out as today, so this paragraph is
+inert. The `Spawn @<agent>` IC DAG fence above stays cap-free — the IC DAG is
+not a fleet (SPEC-013 § CDT-573 AC2, CDT-594 AC12).
+<!-- The citation above is the bare file name, not the full path:
+skills/council/test-concurrency.sh § 10 ngreps the full path out of the Step 8
+IC spawn fence as its "IC spawn step is out of the cap" guard. CDT-594 T7
+re-scoped that guard to the IC spawn fence so this council-gate paragraph may
+cite the contract file. -->
+
 ```
 Before reporting done, run:
   <COMMAND>

@@ -16,7 +16,7 @@
 | SPEC-010 | Code Review & Release | ACTIVE | skills/review-and-commit, release (Step 4.7 dual-copy hook gate retired/reduced — CDT-54) |
 | SPEC-011 | Memory Validation | ACTIVE | commands/memory.md (`/memory validate`), skills/validate-memory, `/memory distill` integration, skills/memory-store/migrate-v3.sh, skills/memory-store/migrate-v4.sh (`--reconcile` cross-agent) |
 | SPEC-012 | Session Retrospective | ACTIVE | commands/retro.md, skills/retro-gate (incl. trial-meta/trial-review CDV-200), skills/retro-subagent, skills/transcript-parse/, skills/kickoff + orchestrate hooks |
-| SPEC-013 | Adversarial Council Tribunal | ACTIVE | skills/council/ (engine), commands/council.md, skills/review-and-commit/SKILL.md (preset refactor), /retro + TaskCompleted hooks; Spawn concurrency cap (CDT-573) — one home `skills/lib/chunked-parallel.js`, unit + one-home guards `skills/lib/chunked-parallel-test.sh` (run from the council and fix-ticket suites) |
+| SPEC-013 | Adversarial Council Tribunal | ACTIVE | skills/council/ (engine), commands/council.md, skills/review-and-commit/SKILL.md (preset refactor), /retro + TaskCompleted hooks; Spawn concurrency cap (CDT-573) — one home `skills/lib/chunked-parallel.js`, unit + one-home guards `skills/lib/chunked-parallel-test.sh` (run from the council and fix-ticket suites); waves[] mechanical wave plan (CDT-594) — emitter `engine.sh waves` (`skills/council/engine-waves.sh`), partition helper `skills/council/waves-lib.sh`, suite `skills/council/test-waves.sh`; host degrade path + known limit note `docs/host-tool-map.md` |
 | SPEC-014 | Debug Workflow | ACTIVE | commands/debug.md, skills/debug/SKILL.md, skills/debug/theme-status.sh (SPEC-029 gates); skills/fix-ticket/ (ticket-mode backend; no commands/fix-ticket.md); ticket refuter wave Spawn concurrency cap (CDT-573) |
 | SPEC-015 | Refactor Workflow | ACTIVE | skills/refactor/SKILL.md |
 | SPEC-016 | Worktree Isolation | ACTIVE | skills/worktree-lib.sh, commands/worktree.md (release only), commands/status.md (`/status worktree`), skills/orchestrate, skills/kickoff (create-caller, CDT-105), wrap-ticket, AGENTS.md |
@@ -51,6 +51,7 @@
 
 | Date | Change |
 |------|--------|
+| 2026-11-19 | CDT-594: SPEC-013 coverage adds the waves[] mechanical wave plan (emitter, partition helper, `test-waves.sh`) and the host degrade path + known-limit note in `docs/host-tool-map.md`. |
 | 2026-10-22 | CDT-582: SPEC-040 Backlog Sweep ACTIVE — Phase 1 purge + walk + journal; Phase 2 spec text only. |
 | 2026-10-21 | CDT-573: SPEC-013 Spawn concurrency cap; SPEC-037 top-level `concurrency`; SPEC-034 S1/S2 compose; SPEC-014 ticket refuter wave. |
 | 2026-10-13 | CDT-556: SPEC-039 DRAFT — Advisor agent (third roster category, `--with-advisor`, two-phase ask.sh). |

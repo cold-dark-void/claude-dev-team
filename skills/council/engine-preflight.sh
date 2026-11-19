@@ -413,7 +413,20 @@ cmd_preflight() {
     external_json='{"requested":false}'
   fi
 
-  jq -n \
+  # Claim set knowable at preflight (SPEC-013 waves[] / AC4, AC5): the M14
+  # split carries plan.claims[]; a single pasted claim and --from-retro are one
+  # claim with no claim record, so their slots key the no-claim_id group that
+  # Phase 2.5 and finalize group by. Empty array = the claims come from Phase 1
+  # (transcript-slice, plan, diff) → those two waves land in waves_pending.
+  local claims_known_json="[]"
+  if [ "$m14_triggered" = "true" ]; then
+    claims_known_json="$m14_claims_json"
+  elif [ "$scope" = "claim" ] || [ "$scope" = "from-retro" ]; then
+    claims_known_json='[{"claim_id":null}]'
+  fi
+
+  local plan_json
+  plan_json=$(jq -n \
     --arg scope "$scope" \
     --arg scope_arg "$scope_arg" \
     --arg resolved_claim "$resolved_claim" \
@@ -527,6 +540,16 @@ cmd_preflight() {
           }
         }
       else .
-      end'
+      end')
+
+  # ---- waves[] — the mechanical wave plan (SPEC-013 CDT-594 AC1/AC4/AC5) ----
+  # Emit every wave whose slot set is knowable without an LLM output; name the
+  # Phase-1-dependent waves in waves_pending. Unset cap: waves_preflight_plan
+  # returns the plan unchanged, so no `waves` / `waves_pending` key appears and
+  # the plan bytes stay identical to the CDT-573 shape.
+  if [ "$concurrency_json" != "null" ]; then
+    plan_json=$(waves_preflight_plan "$plan_json" "$claims_known_json")
+  fi
+  printf '%s\n' "$plan_json"
 }
 

@@ -58,8 +58,18 @@ git -C "$REPO" add -A
 git -C "$REPO" commit -q -m fixtures
 
 preflight() {  # preflight <scope-arg> [engine-flags...] -> stdout on fd1, stderr on fd2
+  # Every case here is uncapped: scrub the env cap layer so the wave-plan
+  # assertions below bind to the plan shape, not to the caller's environment.
   local scope_arg="$1"; shift
-  ( cd "$REPO" && bash "$ENGINE" preflight --scope claim --scope-arg "$scope_arg" "$@" )
+  ( cd "$REPO" && env -u COUNCIL_CONCURRENCY bash "$ENGINE" preflight --scope claim --scope-arg "$scope_arg" "$@" )
+}
+
+# no_wave_keys <label> <plan-json> — CDT-594 AC1: an unset cap emits no wave
+# plan. The M14 split plan is the C1 incident shape (28 Phase 2 spawns at cap 4),
+# so its uncapped plan shape is pinned here as well as in test-waves.sh.
+no_wave_keys() {
+  ok_eq "$1: no waves key (unset cap)" "$(printf '%s' "$2" | jq 'has("waves")')" "false"
+  ok_eq "$1: no waves_pending key (unset cap)" "$(printf '%s' "$2" | jq 'has("waves_pending")')" "false"
 }
 
 # expected_claim <id> <ticket_id> <path> <line> -- SPEC-013 Phase 1 / C2 exact template
@@ -99,6 +109,7 @@ EXPECT_CLAIM_A="$(expected_claim A wp-e2e-split valid-spec.md "$A_LINE")"
 ok_eq "1 claims[0].claim exact template" "$(printf '%s' "$OUT1" | jq -r '.claims[0].claim')" "$EXPECT_CLAIM_A"
 EXPECT_CLAIM_B="$(expected_claim B wp-e2e-split valid-spec.md "$B_LINE")"
 ok_eq "1 claims[1].claim exact template" "$(printf '%s' "$OUT1" | jq -r '.claims[1].claim')" "$EXPECT_CLAIM_B"
+no_wave_keys "1 valid trigger" "$OUT1"
 
 # ==============================================================================
 # 2. Trigger requires scope==claim: the identical text at scope==session never
@@ -125,6 +136,7 @@ else
   ok "3 zero-token envelope: no M14 keys"
 fi
 ok_eq "3 zero-token envelope: claim_budget stays 10" "$(printf '%s' "$OUT3" | jq '.claim_budget')" "10"
+no_wave_keys "3 zero-token envelope" "$OUT3"
 
 # ==============================================================================
 # 4. Case 1 (engine-side): two or more ac-source= tokens -> exit 8, empty
@@ -193,7 +205,8 @@ sed 's/^readonly M14_AC_BUDGET=16$/readonly M14_AC_BUDGET=25/' "$ENGINE" > "$CEI
 chmod +x "$CEILING_ENGINE"
 # L-10: engine.sh sources its helpers from its own directory — copy them next
 # to the patched copy so the hermetic engine behaves like the installed one.
-for _eh in engine-util.sh engine-report-path.sh engine-preflight.sh engine-finalize.sh; do
+for _eh in engine-util.sh engine-report-path.sh engine-preflight.sh engine-finalize.sh \
+           waves-lib.sh engine-waves.sh; do
   cp "$ROOT/skills/council/$_eh" "$HERMETIC_ROOT/$_eh"
 done
 unset _eh

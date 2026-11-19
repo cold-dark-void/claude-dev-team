@@ -531,6 +531,16 @@ the single carrier of the resolved cap (Spawn contract line:
 `skills/council/spawn-contract.md`; Workflow chunking:
 `skills/council/workflow.js`). Do not
 re-resolve the cap from the flag or the env mid-run.
+With a cap set, preflight also carries the **wave plan** (SPEC-013 § waves[],
+CDT-594): `waves` — an array of `{wave, batch, spawns[]}` objects holding the
+batch structure of every wave whose slot set needs no LLM (`phase2` when the
+claim set is known, `phase3` at 1 slot, `phase4` at 2 slots) — and
+`waves_pending` — the wave names that need Phase 1 (`["phase2","phase2.5"]` for
+the `session`, `plan`, and `diff` scopes). Both keys are **absent** when the cap
+is unset. A wave named in `waves_pending` has no batches yet: the fence expands
+it through the emitter (§ Phase 1.5, wave-plan emission) before it spawns. No
+fence computes batch boundaries of its own — `plan.waves[]` is the only carrier
+of the partition, and the fleet fences iterate it (§ Phase 2, § Phase 2.5).
 For an M14 per-AC split run (SPEC-033 M14(g); SPEC-013 Phase 1 "M14 per-AC
 split") the plan additionally carries `claims` (`[{claim_id, ac_id, claim,
 source_locator, claim_type, verify, tool_budget}]`), `ac_source` (path), and `process_acs` (ids).
@@ -624,7 +634,10 @@ When `USE_WORKFLOW=0`, continue with Step 3 (Task path).
 Read the investigation-plan JSON from `$PLAN_FILE`. The interpreting Claude
 executes the phases below, spawning Task subagents as specified. All subagent
 spawns for a given phase must be issued in a single message (parallel
-execution). (Skipped when Step 2.5 selected Workflow.)
+execution). (Skipped when Step 2.5 selected Workflow.) With a Spawn concurrency
+cap set, "single message" means one message per batch of `plan.waves[]` at the
+wave-plan-enforced phases (2, 2.5) — `skills/council/spawn-contract.md`
+§ Wave-plan iteration.
 
 **Model pins (SPEC-037 + SPEC-042):** protocol home is `skills/council/model-map.md`
 § Model pins, routed from `skills/council/SKILL.md`. Every covered spawn block
@@ -725,6 +738,65 @@ For diff-mode the records are candidate findings `{ file, line, description }`.
 orchestrator performs extraction with tools; set `degraded=true`. Protocol:
 `skills/council/SKILL.md` § Spawn-failure degradation.
 
+### Phase 1.5 — Wave-plan emission (CDT-594)
+
+Runs **only** when `plan.waves_pending` is a non-empty array — the capped
+`session` / `plan` / `diff` scopes, where preflight could not know the claim set
+(SPEC-013 § waves[], AC5/AC6). Every other run skips this step entirely: an
+unset cap emits no `waves_pending` key, and a known claim set (single pasted
+claim, `--from-retro`, M14 split) is already expanded in the plan at preflight.
+Skipping it on those runs is required — the emitter would rewrite waves preflight
+already emitted.
+
+`waves_pending` names the waves this fence must expand before it spawns:
+`phase2` and `phase2.5`. Write the Phase 1 claim list to a JSON-array file, then
+call the emitter (path arguments only — claim text never reaches a command line
+or stdin as code):
+
+```bash
+# PLAN_FILE was written by Step 2 to .claude/council/plan-path. Read it here.
+_gc=$(git rev-parse --git-common-dir 2>/dev/null) \
+  && MROOT=$(cd "$(dirname "$_gc")" && pwd) \
+  || MROOT=$(pwd)
+PLAN_FILE=""
+if [ -f "$MROOT/.claude/council/plan-path" ]; then
+  PLAN_FILE=$(head -1 "$MROOT/.claude/council/plan-path")
+fi
+# PDH is carried from Step 1 (SKILL.md § Load protocol); re-run Step 1 when not.
+ENGINE_SH=$(bash "$PDH/skills/plugin-dir.sh" file skills/council/engine.sh)
+CLAIMS_FILE=$(mktemp "${TMPDIR:-/tmp}/council-claims.XXXXXX.json") \
+  || { echo "council error: mktemp failed for CLAIMS_FILE" >&2; exit 1; }
+trap 'rm -f -- "$CLAIMS_FILE"' EXIT
+# CLAIMS_FILE holds the claim records as a JSON array, in Phase 1 order:
+#   [{claim, source_locator, claim_type, claim_id?}, …]
+# Write it as DATA (one Write/heredoc, no eval): verbatim order, no truncation.
+# Diff-mode writes the candidate findings in the same array shape.
+"$ENGINE_SH" waves --plan-file "$PLAN_FILE" --claims-file "$CLAIMS_FILE"
+```
+
+The emitter reads the cap from `plan.concurrency` only, merges the `phase2` and
+`phase2.5` wave objects into `$PLAN_FILE` through tmp + rename, drops each
+emitted name from `waves_pending`, and prints the merged `plan.waves` on stdout.
+It is idempotent: a re-run replaces its own wave objects, so a resumed run may
+call it again. Phase 2 and Phase 2.5 read the plan file, not stdout.
+
+- **Non-zero exit is a hard stop.** Print the engine's stderr verbatim and stop
+  — the run has a cap and no wave plan, which is exactly the C1 incident
+  (SPEC-013 AC14). Exit 64 covers a plan with no `concurrency`, a missing or
+  unreadable claims file, a claims file that is not a JSON array, and an empty
+  claims array: the plan is byte-unchanged. Do NOT fan out unbounded, do NOT
+  drop the cap, do NOT self-verify here. A claim set the emitter rejects is a
+  Phase 1 output defect: fix the claim file and re-run this step.
+- **Zero-slot wave:** the emitter drops from `waves_pending` only the names it
+  emitted objects for. A plan whose `plan.flavors` holds fewer than 3 entries
+  expands no `phase2.5` wave at all (no claim group reaches the ≥3-bundle bar),
+  so `phase2.5` stays listed with no wave objects behind it. That is a complete
+  expansion, not a pending wave: Phase 2.5 finds no `phase2.5` objects, runs its
+  documented bypass path, and calls nothing further. `phase2` is always emitted
+  here — a non-empty claim set yields at least one `phase2` object.
+
+`$CLAIMS_FILE` is removed by the `trap` above; no later step reads it.
+
 ### Phase 2 — Parallel Investigation
 
 For each claim from Phase 1 (or the single pasted / from-retro claim), spawn at
@@ -821,10 +893,23 @@ put the addendum in `investigator.md`, in a flavor file, or in a new preset.
 
 Section blocks: SPEC-013 Engine Architecture; remove `{{#VERIFY_COMMAND}}`…`{{/VERIFY_COMMAND}}` when empty, else remove the marker lines only.
 
-**Spawn concurrency cap (CDT-573):** when `plan.concurrency` is set, append the
-contract line from `skills/council/spawn-contract.md` once after the fleet
-instruction above (the parallel fan-out sentence), before these per-spawn
-blocks. Unset: emit no line; this fence is unchanged.
+**Spawn concurrency cap (CDT-573 + CDT-594) — wave-plan-enforced:** when
+`plan.concurrency` is set, append the contract line from
+`skills/council/spawn-contract.md` once after the fleet instruction above (the
+parallel fan-out sentence), before these per-spawn blocks, and drive the
+fan-out off the wave plan: take the `plan.waves[]` objects with
+`wave == "phase2"` and run them per § Wave-plan iteration of that file — one
+message per batch, ascending `batch`, every return awaited before the next
+batch. Map each slot to one spawn block below: `claim_index` selects the Phase 1
+record at that index (and its `verify` / `tool_budget` / `[forward]` tag),
+`flavor` selects the flavor file, `agent` + `model_pin_source` select the pin.
+This fence computes nothing: no count, no slice, no ranking, no reordering, no
+cap re-resolution — `plan.waves[]` is the only source of batch boundaries
+(SPEC-013 AC11/AC13). A batch never reads sibling-batch output, and queueing is
+not a spawn failure: batching sets no `verification_mode: self-verified` and
+emits no CDV-199 marker. A capped plan with no `phase2` wave object is a hard
+stop — run § Phase 1.5 first; never fan out on a fan-out this command invented.
+Unset: emit no line; this fence is unchanged.
 
 **Blindness invariant:** do NOT pass prior assistant narrative, prior
 verdicts, or prior advocate/prosecutor output to any investigator. Raw
@@ -1058,9 +1143,24 @@ labeled with their personal shuffled mapping. Cross-review is tool-less
 (SPEC-042 M2 — literal pin, no resolver call, no map key). Do not spawn
 `finder`, `ic4`, or `ic5`.
 
-**Spawn concurrency cap (CDT-573):** when `plan.concurrency` is set, append the
-contract line from `skills/council/spawn-contract.md` once after the fleet
-instruction above. Unset: no line.
+**Spawn concurrency cap (CDT-573 + CDT-594) — wave-plan-enforced:** when
+`plan.concurrency` is set, append the contract line from
+`skills/council/spawn-contract.md` once after the fleet instruction above, and
+run the wave off the wave plan: take the `plan.waves[]` objects with
+`wave == "phase2.5"` and run them per § Wave-plan iteration of that file — one
+message per batch, ascending `batch`, every return awaited before the next
+batch. Each slot is claim-keyed: `claim_index` / `claim_id` select the claim
+group whose cross-reviewer this is, so a batch may span claim groups while every
+reviewer stays inside its own group. No emitter call happens here — § Phase 1.5
+emitted `phase2.5` together with `phase2`. Two plan gaps stay under that same
+contract line, with no batching of this fence's own: a claim group the Phase 3
+specialist pushes over the ≥3-bundle bar contributes cross-reviewers the
+mechanical emitter never carried (spawn them after the last batch, cap in
+force), and a group this phase bypasses drops its intended slots — the documented
+bypass, not a dropped spawn, and finalize counts Phase 2 only. A `phase2.5` name
+left in `waves_pending` with no `phase2.5` objects behind it is the zero-slot
+expansion of § Phase 1.5: no cross-review wave exists for this run. Unset: no
+line.
 
 ```
 description: "Cross-review evidence bundles for claim <claim-id>"
@@ -1485,7 +1585,19 @@ Why:
   flavors: <why_detail.flavors joined by ", ">
   phase3_specialist: <runtime Phase 3 reason, else why_detail.phase3_specialist>
   claim_budget: <why_detail.claim_budget>
+  waves: <one line per wave>
 ```
+
+`waves:` prints the wave plan the run actually used (SPEC-013 § waves[],
+CDT-594): one line per wave in `plan.waves[]`, in plan order, as
+`<wave>: <batches> batches / <spawns> spawns` — read the plan file, because
+§ Phase 1.5 expands `phase2` / `phase2.5` after preflight wrote
+`why_detail.waves`; the preflight array is the stub for the waves it could know.
+Name a wave listed in `waves_pending` with no objects behind it (the zero-slot
+expansion) as `<wave>: no slots`, and one this run has not expanded yet as
+`<wave>: pending (Phase 1)`.
+Omit the `waves:` line entirely when the plan carries no `waves` key (cap
+unset — AC1).
 
 Optional one-line runtime notes (claim ranking / cap applied) may follow the
 bullets when observed during Phases 1–3. Without `--why`, omit this section

@@ -223,6 +223,17 @@ and validate nothing here; a bad value exits 64 at the engine's preflight and it
 surfaces verbatim. Overflow spawns queue into later batches — queueing is not a spawn failure
 and never routes to §5's total-council-spawn-failure mapper (CDT-573 AC3).
 
+**Wave-plan enforcement (SPEC-013 § waves[], CDT-594).** The cap token buys the wave
+plan: the `/council` run this pass drives carries `plan.waves[]`, and that run's
+fleet iterates its batches. § Wave-plan iteration of
+`skills/council/spawn-contract.md` is the single copy of that loop — cite it and
+add nothing. This gate pre-fires nothing: it spawns no investigator and schedules
+no batch, so the C1 shape (14 claims × 2 flavors at cap 4) runs as the 7 batches
+of 4 the emitter emits. Count nothing, slice nothing, and re-resolve no cap layer
+here: `plan.waves[]` and `plan.concurrency` are the only carriers (SPEC-013
+AC13). A batch observes no sibling-batch output. Unset cap: the run carries no
+wave plan and fans out as today, so this paragraph is inert.
+
 Use this invocation **verbatim**, filling the five placeholders at run time and appending the
 cap token only when `ORCH_CONCURRENCY` is set:
 
