@@ -1,21 +1,73 @@
 <!-- /council stage body — load via SKILL.md router; read only the current stage. -->
 
-## Model map (SPEC-037)
+## Model pins (SPEC-037 + SPEC-042)
 
 Named-roster Task/Agent spawns honor `$MROOT/.claude/dev-team/models.local.json`
-via `resolve-model.sh`. Empty stdout = **Tier default** (omit `model`; MUST
-NOT pass `""`). Then `resolve-model.sh --effort`: non-empty → Agent/Workflow
-`effort` param; empty → omit (**inherited effort**; MUST NOT pass `""`).
-Surface resolver stderr. Do not swallow. Mapping `council-judge` MUST NOT add
-tools (`tools: ""` stays empty).
+via `resolve-model.sh`. Every covered council spawn carries an **explicit
+`model`** (SPEC-042 M1): at these sites an empty map is **not** an omit. This
+overrides the SPEC-037 M13/M16 omit path at council sites only; M13 ∪ M16 sites
+elsewhere keep their omit path.
 
-**Wired roles** (one fence per role; same fence for later spawns of this
-agent). Resolve the agent actually spawned. Named fallback `finder`→`ic5`
-resolves `ic5` (CDT-230). Unnamed / `general-purpose` / Explore: omit the fence.
+Two pin classes cover every covered spawn (SPEC-042 M2):
 
-**Omit (OQ1):** Phase 1 extractor, Phase 2.5 cross-reviewer, Phase 3
-specialist, Phase 4 prosecutor/advocate, `--blind` waves. Those roles spawn
-`dev-team:council-scribe` (`tools: ""`). Do not map `council-scribe`.
+**P1 — map-resolved role.** A mappable role (`finder`, `council-judge`, the
+Phase 2 named fallback `ic5`, the Phase 3 specialist's named roster
+`dev-team:<agent>`) resolves through `resolve-model.sh` at spawn time
+(subprocess, never sourced; SPEC-037 M5, SPEC-002 PDH stanza). Non-empty stdout
+→ the `model` param. **Empty stdout → pass the role's SPEC-003 § Tier-default
+alias** below. MUST NOT pass `""`; MUST NOT omit. That alias is also the role's
+**sibling alias** for the host-reject retry.
+
+| P1 role | Tier-default alias (sibling alias) |
+|---|---|
+| `finder` | `sonnet` |
+| `ic5` | `sonnet` |
+| `devops` | `sonnet` |
+| `qa` | `sonnet` |
+| `council-judge` | `opus` |
+| `ds` | `opus` |
+| `pm` | `opus` |
+
+The suite asserts this column equals SPEC-003 § Tier table (SPEC-042 M7).
+
+**P2 — scribe-class role.** A tool-less, non-mappable `council-scribe`-class
+role (Phase 1 extractor, Phase 2.5 cross-reviewer, Phase 3 classifier, Phase 4
+prosecutor/advocate, and the `--blind` reviewers plus quorum analyst) pins the
+literal `model: sonnet`. That literal is the **P2 pin constant** — this
+sentence is its one home (maintainer ruling 2026-11-18; CDT-654 swaps it for a
+map resolve). No `resolve-model.sh` call, no map key, no `models.local.json`
+write: `council-scribe` stays out of `mappable-names.sh` (SPEC-042 M8) and is
+exempt from the alias table above. The unnamed Phase 2 fallbacks
+`general-purpose` / `"Explore"` have no Tier row and take the same P2 value.
+
+Effort stays on the map path: `resolve-model.sh --effort` — non-empty →
+Agent/Workflow `effort` param; empty → omit (**inherited effort**; MUST NOT
+pass `""`). Surface resolver stderr. Do not swallow. Mapping `council-judge`
+MUST NOT add tools (`tools: ""` stays empty).
+
+**Host-reject retry (SPEC-042 M4).** On a spawn failure attributed to the
+`model` param (invalid/unknown/unsupported model), retry **once** with the
+**sibling alias** — the Tier-default alias chosen at pin time (P1) or `sonnet`
+(P2). NEVER retry by omitting `model`, NEVER derive the alias from the rejected
+string, NEVER combinatorial-retry. Warn exactly:
+`model-map: host rejected model '<string>' for <agent>; retrying with sibling alias '<alias>'`.
+
+**Pin==sibling carve-out (SPEC-042 M4).** A P2 pin already equals its sibling
+alias (`sonnet` = `sonnet`), so the retry value equals the rejected value and a
+retry can add nothing. A P2 site therefore performs **no retry and emits no
+warn** on a model-attributed reject; it degrades per that site's existing
+failure path (Task path: the site's own spawn-failure handling; Workflow path:
+`skills/council/workflow.js` degradation). The retry above is the P1 path: it
+bites only where the resolved map value differs from the Tier-default alias.
+
+**Wired fences** (one fence per P1 role; same fence for later spawns of that
+role). Resolve the agent actually spawned.
+
+### Extractor (`council-scribe`) — Phase 1
+
+P2 pin. Tool-less. Spawn `subagent_type: "dev-team:council-scribe"` with
+`model: sonnet` on both extractor shapes (session/diff and plan). No
+`resolve-model.sh` call. MUST NOT run tools.
 
 ### Investigator (`finder`) — Phase 2
 
@@ -30,20 +82,46 @@ printf '%s\n' "$MODEL"
 EFFORT=$(bash "$RESOLVE" --effort finder)
 printf '%s\n' "$EFFORT"
 ```
-Bash stdout = model string; empty → omit model.
+Bash stdout = model string.
+If MODEL is non-empty: pass it as the Agent model param.
+If MODEL is empty: pass `sonnet` — `finder`'s SPEC-003 § Tier-default alias (P1 floor). NEVER omit `model` at a council site; MUST NOT pass `""`.
 Then `resolve-model.sh --effort` (same agent). Non-empty EFFORT → pass as Agent/Workflow `effort` param; empty → omit (MUST NOT pass `""`).
 Surface resolver stderr to the user. Do not swallow.
-If MODEL is non-empty: pass it as the Agent model param.
-If MODEL is empty: omit model. MUST NOT pass "".
-If spawn fails attributed to the model param (invalid/unknown/unsupported model): retry once with model omitted; warn `model-map: host rejected model '<string>' for finder; retrying with Tier default`.
+If spawn fails attributed to the model param (invalid/unknown/unsupported model): retry once with the sibling alias `sonnet` (the alias chosen at pin time — never derived from the rejected string, never an omitted `model`); warn `model-map: host rejected model '<string>' for finder; retrying with sibling alias 'sonnet'`.
 If spawn fails attributed to the `effort` param (invalid/unknown/unsupported effort): retry once omitting effort; warn `model-map: host rejected effort '<token>' for finder; retrying with inherited effort`.
 Model host-reject stays independent. Ambiguous failure: do not guess; do not combinatorial-retry both params.
 Other spawn failures MUST NOT be retried as a model or effort fallback.
 
+**Phase 2 fallback chain pins (SPEC-042 M2).** Named fallback `finder`→`ic5`
+(CDT-230): re-run the fence above resolving `ic5`; non-empty stdout → that
+value, empty → `sonnet` (ic5's Tier alias). The unnamed `general-purpose` and
+`"Explore"` fallbacks: pin `model: sonnet` (P2 value; no resolver call, no
+fence). Every fallback spawn carries an explicit pin — the chain never falls
+back to an unpinned spawn.
+
 ### Cross-reviewer (`council-scribe`) — Phase 2.5
 
-Tool-less. Spawn `subagent_type: "dev-team:council-scribe"`. No model-map
-fence (OQ1). MUST NOT run tools. Do not spawn `finder`.
+P2 pin. Tool-less. Spawn `subagent_type: "dev-team:council-scribe"` with
+`model: sonnet`. No `resolve-model.sh` call. MUST NOT run tools. Do not spawn
+`finder`.
+
+### Classifier and specialist — Phase 3
+
+- **Classifier** (`dev-team:council-scribe`): P2 pin — `model: sonnet`, no
+  resolver call. Tool-less.
+- **Specialist** (`dev-team:<agent>` — `devops` / `ds` / `qa` / `pm`): P1. Run
+  the canonical fence `skills/model-map/spawn-fence.md` with the spawned agent
+  as `<AGENT>` (one fence for this role; resolve the agent actually spawned, do
+  not paste full PDH at every later spawn). Non-empty stdout → the `model`
+  param; empty → that agent's Tier-default alias from the table above
+  (`devops`/`qa` → `sonnet`, `ds`/`pm` → `opus`). NEVER `""`, never omitted.
+  Effort: same `--effort` rule as @finder.
+
+### Prosecutor and Devil's Advocate (`council-scribe`) — Phase 4
+
+P2 pin. Tool-less. Spawn `subagent_type: "dev-team:council-scribe"` with
+`model: sonnet` for both briefs. No `resolve-model.sh` call. Do not spawn
+`ic5`.
 
 ### Judge (`council-judge`) — Phase 5
 
@@ -56,18 +134,28 @@ printf '%s\n' "$MODEL"
 EFFORT=$(bash "$RESOLVE" --effort council-judge)
 printf '%s\n' "$EFFORT"
 ```
-Bash stdout = model string; empty → omit model.
+Bash stdout = model string.
+If MODEL is non-empty: pass it as the Agent model param.
+If MODEL is empty: pass `opus` — `council-judge`'s SPEC-003 § Tier-default alias (P1 floor). NEVER omit `model` at a council site; MUST NOT pass `""`.
 Then `resolve-model.sh --effort` (same agent). Non-empty EFFORT → pass as Agent/Workflow `effort` param; empty → omit (MUST NOT pass `""`).
 Surface resolver stderr to the user. Do not swallow.
-If MODEL is non-empty: pass it as the Agent model param.
-If MODEL is empty: omit model. MUST NOT pass "".
-If spawn fails attributed to the model param (invalid/unknown/unsupported model): retry once with model omitted; warn `model-map: host rejected model '<string>' for council-judge; retrying with Tier default`.
+If spawn fails attributed to the model param (invalid/unknown/unsupported model): retry once with the sibling alias `opus` (the alias chosen at pin time — never derived from the rejected string, never an omitted `model`); warn `model-map: host rejected model '<string>' for council-judge; retrying with sibling alias 'opus'`.
 If spawn fails attributed to the `effort` param (invalid/unknown/unsupported effort): retry once omitting effort; warn `model-map: host rejected effort '<token>' for council-judge; retrying with inherited effort`.
 Model host-reject stays independent. Ambiguous failure: do not guess; do not combinatorial-retry both params.
 Other spawn failures MUST NOT be retried as a model or effort fallback.
 
-Dispatch surface: `commands/council.md` points here. Wired fences are
-Phase 2 `finder` and Phase 5 `council-judge`. Phase 2.5 is `council-scribe`
-with no fence.
+The pin is per role, not per spawn: every judge part of a bundle-cap split
+carries the same resolved value (SPEC-042 M1).
+
+### Blind reviewers and quorum analyst (`council-scribe`) — `--blind`
+
+P2 pin. Tool-less. Spawn `subagent_type: "dev-team:council-scribe"` with
+`model: sonnet` for each unconstrained team, each lens reviewer, and the single
+quorum analyst. No `resolve-model.sh` call.
+
+Dispatch surface: `commands/council.md` mirrors every pin above at its phase
+block. The P1 fences there expand `skills/model-map/spawn-fence.md`
+byte-identically (Phase 2 `finder`, Phase 5 `council-judge`; the Phase 3
+specialist reuses that canonical fence with its own `<AGENT>`).
 
 ---

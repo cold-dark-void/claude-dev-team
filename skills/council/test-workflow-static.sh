@@ -431,6 +431,7 @@ const p = loadPrompt('judge', {
 })
 if (p.includes('{{OUTPUT_SHAPE}}')) throw new Error('unsub')
 const agent = async (_pr, opts) => {
+  if (!opts.model) throw new Error('spawn with no model pin: ' + (opts.phase || opts.label))
   if (opts.phase === 'Investigate') return { bundles: [{ tool_use_id: 't', raw_blob: 'b', file_line: 'f:1', reproducible_command: 'e' }] }
   if (opts.phase === 'Phase4') return { briefs: [{ claim_id: 'c0', evidence_against: 'e', requested_verdict: 'UNVERIFIED', supporting_tool_use_ids: ['t'] }], struck_lines: [] }
   if (opts.label === 'council-judge') return { verdicts: [{ claim: 'x', verdict: 'UNVERIFIED', confidence: 50, evidence_blob: 'b' }], struck_lines: [] }
@@ -461,6 +462,7 @@ process.chdir(process.env.COUNCIL_TEST_REPO)
 
 const crossPrompts = []
 const agent = async (prompt, opts) => {
+  if (!opts.model) throw new Error('spawn with no model pin: ' + (opts.phase || opts.label))
   if (opts.phase === 'Extract') {
     return {
       claims: [
@@ -557,6 +559,7 @@ function reportText(r) {
 
 const cross = []
 const agent = async (_prompt, opts) => {
+  if (!opts.model) throw new Error('spawn with no model pin: ' + (opts.phase || opts.label))
   if (opts.phase === 'Investigate') {
     if (opts.label === 'inv:c0:paranoid-ic') {
       return {
@@ -622,6 +625,7 @@ async function diffRun(judge) {
   return runCouncil({
     args: { scope: 'diff', claim: 'diff probe' },
     agent: async (_prompt, opts) => {
+      if (!opts.model) throw new Error('spawn with no model pin: ' + (opts.phase || opts.label))
       if (opts.phase === 'Extract') {
         return {
           claims: [{ claim: 'diff claim', source_locator: 'src/a.js:4', claim_type: 'factual', load_weight: 5 }],
@@ -888,6 +892,84 @@ else
   echo "FAIL: workflow.js node --check"; fail=1
 fi
 
+# ---- CDT-641 T3: SPEC-042 model pin seam ------------------------------------
+# M3: all five safeAgent sites pass model. M2: the scribe-class pin is one
+# constant. M4: the host-reject retry carries the sibling alias, never omits.
+# AC6: no effort on the Workflow path (SPEC-037 F1).
+pin_sites=$(awk '
+  /await safeAgent\(/ { incall = 1; has = 0; next }
+  incall {
+    if ($0 ~ /^[[:space:]]*}[[:space:]]*\)[[:space:]]*,?[[:space:]]*$/) {
+      total++; if (has) pinned++; incall = 0
+    } else if ($0 ~ /^[[:space:]]*model[[:space:]]*:/) has = 1
+  }
+  END { printf "%d %d\n", pinned + 0, total + 0 }
+' skills/council/workflow.js)
+if [ "$pin_sites" = "5 5" ]; then
+  echo "OK: all five safeAgent sites pass model (SPEC-042 M3)"
+else
+  echo "FAIL: safeAgent model pins '$pin_sites' (want '5 5' — five sites, all pinned)"; fail=1
+fi
+if grep -qF "export const SCRIBE_MODEL_PIN = PIN_ALIAS['council-scribe']" skills/council/workflow.js \
+  && [ "$(grep -c 'model: SCRIBE_MODEL_PIN' skills/council/workflow.js)" -eq 3 ] \
+  && ! grep -qE "model:[[:space:]]*'" skills/council/workflow.js; then
+  echo "OK: scribe-class pin is single-site (one constant, three sites, no literal value)"
+else
+  echo "FAIL: scribe-class pin is not single-site"; fail=1
+fi
+# Map-resolved roles go through the resolver subprocess, plugin-dir-relative,
+# never sourced (SPEC-002 PDH; SPEC-037 M5).
+if grep -qF "join('skills', 'model-map', 'resolve-model.sh')" skills/council/workflow.js \
+  && grep -qF "join('skills', 'plugin-dir.sh')" skills/council/workflow.js \
+  && grep -qF "spawn('bash', [script, role]" skills/council/workflow.js \
+  && ! grep -qE '(^|[[:space:]])(source|\.) *"?[^[:space:]]*resolve-model\.sh' skills/council/workflow.js; then
+  echo "OK: model map resolves through the plugin-dir.sh + resolve-model.sh subprocess"
+else
+  echo "FAIL: model map resolve is not a plugin-dir-relative subprocess"; fail=1
+fi
+# M7 parity guard: the map-resolved aliases equal the SPEC-003 Tier rows; the
+# scribe policy pin deliberately differs from its Tier row (M7 exemption).
+pin_alias_of() {
+  sed -n '/^export const PIN_ALIAS = {/,/^}/p' skills/council/workflow.js \
+    | sed -n "s/^[[:space:]]*'\{0,1\}$1'\{0,1\}:[[:space:]]*'\{0,1\}\([a-z]*\)'\{0,1\},.*/\1/p"
+}
+tier_of() {
+  awk -F'|' -v a="$1" '{ k = $2; gsub(/[ `]/, "", k); if (k == a) { v = $3; gsub(/[ `]/, "", v); print v; exit } }' \
+    specs/core/SPEC-003-agent-role-system.md
+}
+for r in finder council-judge; do
+  if [ -n "$(pin_alias_of "$r")" ] && [ "$(pin_alias_of "$r")" = "$(tier_of "$r")" ]; then
+    echo "OK: PIN_ALIAS $r = $(pin_alias_of "$r") matches the SPEC-003 Tier row"
+  else
+    echo "FAIL: PIN_ALIAS $r='$(pin_alias_of "$r")' vs Tier '$(tier_of "$r")'"; fail=1
+  fi
+done
+if [ "$(pin_alias_of council-scribe)" = "sonnet" ] && [ "$(tier_of council-scribe)" = "opus" ]; then
+  echo "OK: scribe policy pin sonnet is the M7-exempt value, not its Tier row"
+else
+  echo "FAIL: scribe policy pin is not the M7 policy value"; fail=1
+fi
+# AC6 / SPEC-037 F1: no effort param on this path. Code only — the same
+# comment-stripping sed the cap-layer check above uses.
+eff_hits=$(sed -e 's://.*::' -e 's/^[[:space:]]*\*.*//' skills/council/workflow.js \
+  | grep -nE '\beffort\b' | grep -v 'best-effort' || true)
+if [ -z "$eff_hits" ]; then
+  echo "OK: no effort param on the Workflow path"
+else
+  echo "FAIL: effort on the Workflow path:"; printf '%s\n' "$eff_hits"; fail=1
+fi
+# M4: exact warn string, sibling from the pin table, never an omitted model.
+if grep -qF "model-map: host rejected model '" skills/council/workflow.js \
+  && grep -qF "retrying with sibling alias '" skills/council/workflow.js \
+  && grep -qF 'const sibling = PIN_ALIAS[role]' skills/council/workflow.js \
+  && grep -qF 'model: sibling }' skills/council/workflow.js \
+  && ! grep -qE "model:[[:space:]]*(undefined|null|'')" skills/council/workflow.js \
+  && ! grep -qF 'retrying with Tier default' skills/council/workflow.js; then
+  echo "OK: host-reject retry retries once with the sibling alias, never omits"
+else
+  echo "FAIL: host-reject sibling-alias retry contract"; fail=1
+fi
+
 COUNCIL_TEST_REPO="$TR" node --input-type=module <<'JS'
 import { readFileSync } from 'node:fs'
 import { runCouncil } from './skills/council/workflow.js'
@@ -904,7 +986,8 @@ const wave = (cap) => {
   let spawned = 0
   const agent = async (prompt, opts) => {
     spawned += 1
-    if (opts.phase) prompts.push({ phase: opts.phase, label: opts.label, prompt })
+    if (!opts.model) throw new Error('spawn with no model pin: ' + (opts.phase || opts.label))
+    if (opts.phase) prompts.push({ phase: opts.phase, label: opts.label, prompt, model: opts.model })
     if (opts.phase === 'Extract') {
       return {
         claims: [
@@ -981,6 +1064,30 @@ if (rOpen.degraded !== false || rOpen.verification_mode !== 'full') {
   throw new Error('unbounded run degraded: ' + rOpen.verification_mode)
 }
 console.log('OK: cap unset keeps the byte-identical single-wave path at all three sites (6|3)')
+
+// CDT-641 T3 (SPEC-042 M2/M3): every agent() entry carries model. The hermetic
+// tree has no Model map, so each map-resolved role sits on its Tier-alias
+// floor and each scribe-class site on the policy pin.
+const modelByPhase = {}
+for (const p of open.prompts) {
+  if (typeof p.model !== 'string' || !p.model) {
+    throw new Error('spawn with no model pin: ' + p.phase + '/' + p.label)
+  }
+  if (!modelByPhase[p.phase]) modelByPhase[p.phase] = p.model
+  else if (modelByPhase[p.phase] !== p.model) {
+    throw new Error(`phase ${p.phase} pins ${modelByPhase[p.phase]} then ${p.model}`)
+  }
+}
+const wantModels = { Extract: 'sonnet', Investigate: 'sonnet', 'Cross-review': 'sonnet', Phase4: 'sonnet', Judge: 'opus' }
+for (const site of Object.keys(wantModels)) {
+  if (modelByPhase[site] !== wantModels[site]) {
+    throw new Error(`model pin ${site}=${modelByPhase[site]} want ${wantModels[site]}`)
+  }
+}
+if (Object.keys(modelByPhase).length !== 5) {
+  throw new Error('expected five pinned phases, got ' + Object.keys(modelByPhase).join(','))
+}
+console.log('OK: empty Model map -> Tier-alias floor (finder sonnet, judge opus) and the sonnet scribe pin')
 
 const capped = wave(2)
 const rCap = await runCouncil(capped.runtime)

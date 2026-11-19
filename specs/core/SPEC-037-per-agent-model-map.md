@@ -241,6 +241,12 @@ amendment, and the surface retirement land as separate tickets.
   the host for model validity. Precedent: SPEC-018 M3e host-reject → omit
   `model`. Whether Agent `model` overrides plugin-agent frontmatter is
   unverified; this retry is the fail-soft.
+  **Scope (CDT-641).** This omit path covers the M13 ∪ M16 sites outside the
+  council/workflow covered set (SPEC-042 M1/M3). At a covered site the retry is
+  SPEC-042 M4: retry **once** with the sibling alias chosen at pin time and warn
+  `model-map: host rejected model '<string>' for <agent>; retrying with sibling alias '<alias>'`.
+  A covered site MUST NOT omit `model` on the retry, and MUST NOT derive the
+  alias from the rejected string.
 
 - **M15 — Static CI (AC23).** `skills/model-map/spawn-site-test.sh` MUST fail
   if any M13 ∪ M16 site’s committed template/prose lacks `resolve-model.sh`
@@ -268,14 +274,29 @@ amendment, and the surface retirement land as separate tickets.
      Step 5 refuters `qa` (unchanged).
      `skills/debug/SKILL.md` cites that contract. No `full` / `patch` /
      `arch` named-roster spawns.
-  4. `/council` — Phase 2 investigators `finder` (CDT-230; was `ic5`),
-     Phase 2.5 cross-reviewers `finder` (CDT-230; was `ic4`), Phase 5
+  4. `/council` — the whole tribunal (CDT-641; SPEC-042 M1). Fenced roles:
+     Phase 2 investigators `finder` (CDT-230; was `ic5`), Phase 2.5
+     cross-reviewers `finder` (CDT-230; was `ic4`), Phase 5
      `council-judge`. One Model map protocol section in
      `skills/council/SKILL.md`; `commands/council.md` points at it and
      contains one fence per role. Mapping `council-judge` MUST NOT add
-     tools; mapping `finder` MUST NOT add `Write` or `Edit`. MUST NOT wire
-     Phase 1 extractor, Phase 3 specialist, Phase 4 prosecutor/advocate, or
-     `--blind` extra waves.
+     tools; mapping `finder` MUST NOT add `Write` or `Edit`.
+     **The site list is widened (CDT-641, SPEC-042 M1).** Phase 1 extractor,
+     the Phase 2 named fallback chain, Phase 2.5 cross-reviewers, Phase 3
+     classifier and specialist, Phase 4 prosecutor/advocate, Phase 5 judge
+     (including the bundle-cap parts), and the `--blind` reviewer wave with its
+     quorum analyst are now fenced. The former MUST NOT ("MUST NOT wire Phase 1
+     extractor, Phase 3 specialist, Phase 4 prosecutor/advocate, or `--blind`
+     extra waves") is **inverted**: every one of those spawns carries an
+     explicit model pin.
+     **This site takes no omit path.** At the council sites the empty-stdout
+     rule of this MUST is replaced (SPEC-042 M2): a map-resolved role passes its
+     SPEC-003 § Tier-default alias when the resolve prints empty, and a
+     tool-less `council-scribe`-class role pins the literal `sonnet` (maintainer
+     ruling 2026-11-18). `council-scribe` stays outside the M8 mappable set — no
+     map key, no `resolve-model.sh` call, no `models.local.json` write;
+     CDT-654 owns that join (SPEC-042 M8). M14's omit retry is replaced here by
+     the SPEC-042 M4 sibling-alias retry.
   5. `/bug-hunt` (`skills/bug-hunt/SKILL.md`) — S1 unconstrained / lens /
      quorum `finder` and S2 investigators `finder` (CDT-230; both were
      `ic5`).
@@ -291,7 +312,11 @@ amendment, and the surface retirement land as separate tickets.
   schema, example JSON, empty = Tier default, warn-never-block for `qa` /
   `council-judge`, named-roster spawn-surface coverage (M13 ∪ M16), and the
   omit list (Step 4b, unnamed / `general-purpose` / Explore,
-  `/handoff` miner, `/memory validate`, `/retro`). Prose MUST use
+  `/handoff` miner, `/memory validate`, `/retro`). The list holds non-council
+  sites only (CDT-641; SPEC-042 M2/M4): the covered council/workflow sites are
+  not in it, and the doc states their two pin classes — map-resolved with the
+  Tier-default-alias floor, and the scribe-class literal `sonnet` — plus the
+  never-omit sibling-alias host-reject retry. Prose MUST use
   **Model map** and **Tier default** (not “model config” / “hardcoded model”).
   YAML `name` + `description` required. MUST NOT mention `--help` (smoke
   FLAG_RE). MUST document the local writer, `/setup models`, `/adjust-agent`
@@ -444,7 +469,12 @@ amendment, and the surface retirement land as separate tickets.
   default. Surface resolver stderr. Continue the pipeline. Resolve the
   agent actually spawned. Named fallback `ic5`→`ic4` resolves `ic4`.
   Unnamed / `general-purpose` / Explore MUST omit the effort fence. MUST
-  NOT newly wire `skills/council/workflow.js`. MUST NOT expand the
+  NOT wire the **effort** half into `skills/council/workflow.js`
+  (CDT-641; SPEC-042 M8): that file passes `model` only (SPEC-042 M3 — the
+  model seam is the wired half, per the M16 site-4 fence and SPEC-013 §
+  Council-on-Workflow execution path) and MUST NOT pass `effort` from a
+  `workflow.js` `agent()` call (F1: the Agent tool has no `effort` param;
+  `opts.effort` untested, out of scope). MUST NOT expand the
   spawn-site set beyond M13 ∪ M16.
 
 - **M28 — Effort host-reject (AC10).** **Superseded — F1.** The host has no
@@ -559,7 +589,7 @@ amendment, and the surface retirement land as separate tickets.
 - MUST NOT FAIL `/doctor` `models.map` (WARN or SKIP only).
 - MUST NOT pass `""` as the Agent `effort` param. **Superseded — F1.**
 - MUST NOT assert the absence of `effort:` frontmatter in `agents/*.md`, and MUST NOT treat the sibling `effort` map as the SoT for any agent's effort. Frontmatter is the only substrate that reaches a namespaced roster spawn (F3, F6); SPEC-003 § Tier table is the SoT.
-- MUST NOT newly wire `skills/council/workflow.js`.
+- MUST NOT wire the effort half into `skills/council/workflow.js` (M27; SPEC-042 M8). CDT-641 wires the **model** half there (SPEC-042 M3); the file MUST NOT pass `effort` (F1).
 - MUST NOT parse a second stdout line from `resolve-model.sh <agent>`.
 - MUST NOT store effort inside `agents` values or bump the layer `version`.
 
@@ -680,6 +710,7 @@ Format and rules: SPEC-033 M14(g) and M14(h).
 
 | Date | Change |
 |------|--------|
+| 2026-11-18 | CDT-641 (SPEC-042): the Model map stops treating council spawns as omit sites. **M14** gains a scope clause — the omit retry stays for the M13 ∪ M16 sites outside the council/workflow covered set, and a covered site takes SPEC-042 M4's sibling-alias retry (never omit, alias fixed at pin time). **M16 site 4** is rewritten: the `/council` fence covers the whole tribunal (Phase 1 extractor, Phase 2 named fallback chain, Phase 2.5, Phase 3, Phase 4, Phase 5 incl. the bundle-cap parts, `--blind` wave + quorum analyst), so the former "MUST NOT wire Phase 1 / Phase 3 / Phase 4 / `--blind`" is inverted; at those sites empty map stdout passes the SPEC-003 § Tier-default alias, a tool-less `council-scribe`-class role pins the literal `sonnet`, and `council-scribe` stays outside the M8 mappable set (CDT-654 owns that join). **M17**'s omit list is scoped to non-council sites and the skill doc gains the two pin classes. **M27** and the MUST NOT line are amended: `skills/council/workflow.js` carries `model` (SPEC-042 M3) and stays `effort`-free (F1). Status stays ACTIVE. |
 | 2026-10-22 | CDT-574-C3 — M33 gains the env-validation clause for `resolve-concurrency.sh`: `COUNCIL_CONCURRENCY` is validated on every path that reaches it, including when `--flag` wins (exit 64 + a stderr warning naming the variable). An empty-string env is unset. The map layer stays lazy: the merge helper reads it only when the flag and env are both unset, so the M30–M32 map contract and the flag > env > map precedence for valid values are unchanged. Status stays ACTIVE. |
 | 2026-10-22 | CDT-574-C5 — M18 and the M8 test lines state 11 names, matching M8 (`advisor` joins under SPEC-039 M36) and `mappable-names.sh --list`. `/setup models` docs list `advisor`. The model-map list bite-tests loop over `mappable-names.sh --list` (count-blind). Historical rows keep their facts; only the stale count literal is dropped from them. Status stays ACTIVE. |
 | 2026-10-21 | CDT-573: top-level integer `concurrency` (M30–M36); `resolve-model.sh --concurrency` isolated from named-roster (fail-closed 64 never aborts `resolve-model.sh <agent>`); `set-concurrency` / `unset-concurrency` local-only; `/setup models` grammar; doctor `models.map` WARN-never-FAIL on the key; forward-compat extra-key ignore (M2). Status stays ACTIVE. |
@@ -701,6 +732,7 @@ Format and rules: SPEC-033 M14(g) and M14(h).
 - SPEC-018 M3e — host-reject → omit `model` precedent (do not absorb miner aliases)
 - SPEC-019 — opencode model selection; out of scope
 - SPEC-013 — `council-judge` tool-less contract; Spawn concurrency cap (CDT-573) uses top-level `concurrency`
+- SPEC-042 — Council model-pin fence; the covered council/workflow sites (M14 scope, M16 site 4, M17, M27) and the Tier-default-alias floor
 - SPEC-007 — distiller `haiku` / `distill_model`; out of scope
 - SPEC-005 — `/setup models` dispatch
 - SPEC-022 — `/doctor` `models.map` (WARN-never-FAIL)

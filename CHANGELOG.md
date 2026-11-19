@@ -4,6 +4,14 @@ All notable changes to **claude-dev-team**, newest first.
 Authoritative version history. Prefer **`/release`** to add `### vX.Y.Z` headings.
 Pre-written headings (release-train M5c, orchestrate version-sync tasks) are kept
 via skip-if-present when `/release` is given an explicit version — do not invent a
+### v2.0.1
+
+- **Explicit model pin on every council/workflow spawn (CDT-641)** — closes the session-model-inheritance hole where the Step-6c ship-gate fleet and the workflow path inherited the orchestrator's session model instead of the SPEC-003 Tier table. New spec `specs/core/SPEC-042-council-model-pin-fence.md` defines the fence; every covered spawn site now passes an explicit `model`: mappable roles resolve through `resolve-model.sh` (PDH subprocess, never sourced) with the SPEC-003 Tier alias as the floor when the model map is empty; scribe-class roles (council-scribe, council internal roles) pin the literal `sonnet` per the 2026-11-18 maintainer ruling; Phase 2 fallbacks (`dev-team:ic5` → `general-purpose` → `"Explore"`) each carry a pin; host-reject falls back to the sibling alias with a warn — never omit.
+- **Workflow path seam** — `skills/council/workflow.js` `agent()` spawns read the model map via the same subprocess seam; all five `safeAgent` sites and the `parallel()` entry paths carry the resolved pin.
+- **M14 gate Phase-4 briefs pinned** — prosecutor/advocate dispatches default to `sonnet`; `COUNCIL_PHASE4_MODEL=opus` opts an exercised escalation up, recorded as `phase4_model=opus` on card #2 rationale.
+- **Fail-closed drift lint** — `skills/model-map/spawn-site-test.sh` (221 assertions) audits every covered spawn site for an explicit model, plus alias-parity against the SPEC-003 Tier table and P1/P2 pin-class rules; P2 pin==sibling is a carve-out (no retry, no warn).
+- **Spec amendments** — SPEC-037 (P1/P2 pin classes, Tier-alias floor), SPEC-013 (spawn fences carry `model`), SPEC-033 (M14 gate recipe §3b Phase-4 pin).
+
 ### v2.0.0
 
 - **The Control plane phase-1 seal (CDT-628)** — the final cut retires the pre-release arc: eleven children shipped as `v2.0.0-pre.3`…`v2.0.0-pre.13` — the service carve-out, the run journal + state machine + CI kill test, the lifecycle graph, the node agent, the run queue, the host adapter (Claude Code, Grok, omp), the tracker inversion, the container runner, the Chief, the web UI, and the phase-1 close-out. Every child landed as one folded commit through its M14 ship-gate council and the 13 release gates; the full detail lives in the per-child `### v2.0.0-pre.N` sections below. `stable` fast-forwards from `v1.28.20` to this commit; plain `X.Y.Z` releases resume from here.

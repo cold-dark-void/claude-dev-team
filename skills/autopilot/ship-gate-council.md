@@ -272,6 +272,52 @@ investigators run it; autopilot does not run it and passes no output.
 The investigator's own verify evidence follows the **M14(g) finder recipe** (SPEC-033).
 This procedure cites that recipe by name and does not restate its steps.
 
+**Phase-4 brief model pin (SPEC-042 M5 / SPEC-033 M14(m); CDT-641).** The council run
+this invocation drives dispatches two Phase-4 briefs: the prosecutor brief and the
+Devil's Advocate brief (`commands/council.md` § Phase 4). **Both brief dispatch sites
+pin `model: sonnet` by default** (maintainer ruling 2026-11-18). The pin is a spawn
+parameter on those two dispatches, never a flag on the invocation above — M14(a)'s
+"no other flag may be passed" rule is unchanged. SPEC-042 M5 owns the pin default and
+the knob grammar; this procedure carries the operational sequence only.
+
+**Escalation knob — closed set `{sonnet, opus}`.** A gate may escalate both Phase-4
+briefs to `opus`. Export `COUNCIL_PHASE4_MODEL=opus` in the gate shell **before** the
+dispatch above; the run's two Phase-4 brief dispatches read the exported value. Unset
+= the `sonnet` default. The value is a **closed set**: `sonnet`, `opus`. Any other
+value is **ignored** — print exactly one warning to stderr and use the `sonnet`
+default. Do not halt the gate on a bad value, do not rewrite it into an accepted one,
+and do not warn twice.
+
+```bash
+# Phase-4 brief model pin (SPEC-042 M5 / SPEC-033 M14(m)). Closed set
+# {sonnet, opus}; default sonnet; a value outside the set is ignored with one
+# stderr warning.
+PHASE4_MODEL="sonnet"
+case "${COUNCIL_PHASE4_MODEL:-}" in
+  sonnet|opus) PHASE4_MODEL="$COUNCIL_PHASE4_MODEL" ;;
+  "") : ;;
+  *) printf 'ship-gate: COUNCIL_PHASE4_MODEL=%s is outside the closed set {sonnet, opus}; using the sonnet default\n' "$COUNCIL_PHASE4_MODEL" >&2 ;;
+esac
+export COUNCIL_PHASE4_MODEL="$PHASE4_MODEL"
+```
+
+**Recording rule (SPEC-033 M14(m)).** When the escalation is exercised — the effective
+value is `opus` — the gate record MUST name it. §6's card #2 `rationale` carries the
+token `phase4_model=opus`: append it as a trailing space-separated token to the
+rationale string the verdict mapper printed (§4), before you pass that rationale to
+`append-card.sh`. On the `sonnet` default, append nothing — the token marks the
+escalation only, so its absence is not a finding. On a §4b split pass, append it once,
+to the single merged-meta card #2, never once per run.
+
+The suffix is the whole composition: `skills/autopilot/ship-gate-verdict.sh` stays
+byte-identical and never learns the token (M14(i)) — the recipe composes the rationale.
+The token carries no space and no control character, so the one-line, secret-redacted
+rationale obligation (M13) and the writer's rejection of newlines and control chars are
+unchanged.
+
+Direct `/council` runs outside this recipe MUST NOT set the variable (SPEC-042 M5):
+their Phase-4 pin is always `sonnet`.
+
 ## 4. Verdict interpretation
 
 Locate this run's `.finalize-meta.json` sidecar (from the invocation's `Council report:`

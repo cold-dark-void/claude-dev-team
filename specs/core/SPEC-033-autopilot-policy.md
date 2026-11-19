@@ -1017,6 +1017,24 @@ target.
       light-tier child gets the scoper-planner duties composed by the parent
       from the PM + Tech Lead results, short plan written by the parent.
 
+  - **(m) Phase-4 model pin in the gate recipe (normative; CDT-641).** The
+    recipe (`skills/autopilot/ship-gate-council.md` §3b) drives a council run
+    whose Phase-4 prosecutor/advocate briefs are pinned at `sonnet` by default;
+    a per-gate escalation of those briefs back to `opus` is allowed.
+    SPEC-042 M5 owns the pin default, the `COUNCIL_PHASE4_MODEL` knob, its
+    closed set, and the ignore-with-one-warning rule for any other value —
+    cited here, never restated (SPEC-002 D1 / M12 / N4). Two obligations stay
+    in this spec. **Recording:** when the escalation is exercised, the gate
+    record — the M14 decision card #2 that §6 of the recipe appends — MUST name
+    it, and that card's `rationale` carries the token `phase4_model=opus`.
+    **Mapper immunity:** `skills/autopilot/ship-gate-verdict.sh` stays
+    byte-identical; the recipe composes the rationale, so the mapper **(i)**
+    never learns the token. The knob is an environment variable the recipe
+    exports before the `/council` dispatch, never a flag — **(a)**'s
+    "no other flag may be passed" rule is unchanged. A direct `/council` run
+    outside this recipe MUST NOT set the variable; its Phase-4 pin is always
+    `sonnet`.
+
 ### AC8 — LOC exclusion + `--max-loc` override (CDT-223)
 
 A gate is **never** removed. This AC changes **what LOC counts** and **which numeric bound**
@@ -1601,6 +1619,7 @@ Format and rules: M14(g) and M14(h). Each ticket that ships through M14 has one
 
 | Date | Change |
 |------|--------|
+| 2026-11-18 | CDT-641 (SPEC-042): **M14(m)** — the gate recipe's Phase-4 model pin. The ship-gate council run pins its Phase-4 prosecutor/advocate briefs at `sonnet` by default; the recipe may escalate them to `opus` through the exported `COUNCIL_PHASE4_MODEL` knob (closed set and grammar owned by SPEC-042 M5 — cited, not restated). When the escalation is exercised, card #2's `rationale` carries the token `phase4_model=opus`; `skills/autopilot/ship-gate-verdict.sh` stays byte-identical because the recipe composes the rationale and the mapper (M14(i)) never learns the token. The knob is an env var, so M14(a)'s "no other flag may be passed" rule is unchanged; a direct `/council` run outside the recipe never sets it. No firing rule, card schema, BC mapping, or degraded-run rule changes. Status stays ACTIVE. |
 | 2026-11-17 | CDT-649 (CDT-628 C5): **the per-model budget amendment lands** — the five inputs `docs/internal/control-plane/run-budget.md` § Amendment carried are resolved there and ruled into the run-budget precedence and the run queue's slot ledger (`control-plane/queue/`). (1) **Precedence.** The map layer of run-budget.md § Precedence (`env > map > tier`) is inserted between env and the static default: per cap, independently, a resolved-model row of the Model map beats the static M default, and env still overrides everything (`Mixed = one cap from env and one from the map` follows the § AC9 mixed rule; a frozen run keeps its frozen caps — the freeze is immutable mid-run — and the map row applies where no freeze binds). (2) **The ceiling amendment scope.** N14's two clauses stay in force: a model-keyed budget row may not exceed the L ceiling (40 / 4500), so no clause is raised, and there is no `/setup` budget store — the Model map (SPEC-037 M11) is the store the budget reads. (3) **N12 stays.** The engine never writes `AUTOPILOT_ITERATION_CAP` / `AUTOPILOT_WALLCLOCK_CAP` to apply a derived budget; the map layer is read-only. (4) **The per-Run aggregation rule.** A model-keyed cap binds per runner, not per Run: a multi-agent Run holds one slot per runner; each runner's slot is counted against the model cap of that runner's resolved model; the Run's own concurrency setting caps the total. No runner waits on another runner's model cap. (5) **The match key.** The key is the resolved model string itself — a tier token (`opus`/`sonnet`/`haiku`, SPEC-037 M12) or a full vendor slug, compared byte-exact and never truncated or prefix-matched, so a stale slug matches nothing rather than a family (the CDT-603 failure mode, applied to slots); an unnamed string takes the Tier default row (run-budget.md § Precedence, "Fallback rule"). CDT-603 (validate slugs against the host spawn list) stays open and is the write-time validation owner. No ninth blocking condition, no budget-cap flag, no seventh `parse-flags.sh` key; the decision-card schema is unchanged. The helper argv contract of § AC9 is unchanged by this amendment — the budget-check map read rides a later wiring child; the queue's slot ledger (`control-plane/queue/`) is the only reader the amendment turns on now. Status stays DRAFT. |
 | 2026-10-31 | CDT-589-C5: card compatibility — the Step 6c BC1 mis-fire clear card is existing-schema (`gate: plan-approve`, `decision: proceed`, `blocking_condition: null`, `decided_by: auto`, `actor: advisor`, `schema_version` 1) with an M30 advisor object carrying `trigger: "a"` + ruling `mis-fire`; `append-card.sh` trigger-a accept set gains the M24 `halt-stands\|mis-fire` (reject cases and trigger-b/c unchanged); no enum gains a member. M13 advisor bullet amended. |
 | 2026-10-27 | CDT-589-C4: **M8.6c pointer.** Step 6c halt list (`skills/orchestrate/steps/06-design.md`) is evaluated on unstruck post-finalize verdicts. Plan-scope Forward claim rewrite is SPEC-013 Phase 5 (`engine-finalize.sh`); this spec does not restate the list. M14 ship-gate (AC7) unchanged. No new AC subsection here — ACs live in SPEC-013 `### CDT-589-C4`. |

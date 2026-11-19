@@ -22,6 +22,19 @@
 #      card #2.
 # c6 — ship-gate-council.md §5 is byte-equal to a committed golden
 #      extracted from 38bc739 (through tests/lib/fence.sh md_section).
+# c-phase4-pin — ship-gate-council.md §3b pins the two Phase-4 brief
+#      dispatches at `model: sonnet` by default (SPEC-042 M5, CDT-641 AC3).
+# c-phase4-knob — §3b states the COUNCIL_PHASE4_MODEL grammar: closed set
+#      {sonnet, opus}, a non-member ignored with one stderr warning, and the
+#      rule that a direct /council run never sets the variable.
+# c-phase4-token — an exercised escalation records the token
+#      `phase4_model=opus` on card #2's rationale, and §3b keeps the
+#      ship-gate-verdict.sh byte-identical clause.
+# c-phase4-scope — the knob name has one home: every line that carries it
+#      sits inside §3b.
+#
+# No check id here is "c7": that id is reserved (SPEC-021). The CDT-641 checks
+# report under the "c-phase4-*" names.
 #
 # THIS SCRIPT IS A SUBPROCESS CLI — NEVER SOURCE IT.
 
@@ -84,6 +97,7 @@ f4ntight_row() {
 }
 
 extract_sgc_2a() { md_section "$1" "### 2a. Process-stamp pre-flight"; }
+extract_sgc_3b() { md_section "$1" "### 3b. Invoke the council claim"; }
 extract_sgc_6() { md_section "$1" "## 6. Card-append sequencing"; }
 extract_sgc_5() { md_section "$1" "## 5."; }
 
@@ -293,6 +307,131 @@ if grep -qxF '## 5. Degraded-run rule' "$TMP/c6-heading-mut.md"; then
   fail "c6-heading-bite renamed heading still matched the whole-line check"
 else
   pass "c6-heading-bite renamed heading no longer matches -> check would fail"
+fi
+
+# =============================================================================
+# c-phase4 -- ship-gate-council.md §3b: Phase-4 brief model pin, the
+# COUNCIL_PHASE4_MODEL knob grammar, and the escalation recording rule
+# (SPEC-042 M5 / SPEC-033 M14(m); CDT-641 AC3).
+# =============================================================================
+P4_PIN='pin `model: sonnet` by default'
+P4_SET='closed set `{sonnet, opus}`'
+P4_ARMS='sonnet|opus) PHASE4_MODEL="$COUNCIL_PHASE4_MODEL"'
+P4_IGN='is **ignored**'
+P4_WARN='exactly one warning to stderr'
+P4_DIRECT='MUST NOT set the variable'
+P4_CARRIES='card #2 `rationale` carries the'
+P4_TOKEN='`phase4_model=opus`'
+P4_MAPPER='byte-identical and never learns the token'
+NONVAC_3B='M14(g) finder recipe'
+KNOB_NAME='COUNCIL_PHASE4_MODEL'
+
+BLOCK_3B=$(extract_sgc_3b "$SG")
+# c-phase4-nonvacuous: the §3b extraction must carry a phrase that predates
+# CDT-641 -- otherwise every "absent -> fail" check below is vacuous.
+if [ -z "$BLOCK_3B" ] || ! printf '%s\n' "$BLOCK_3B" | grep -F -q -- "$NONVAC_3B"; then
+  fail "c-phase4-nonvacuous extract_sgc_3b does not carry the finder-recipe phrase -- the §3b checks below would be vacuous"
+else
+  pass "c-phase4-nonvacuous extract_sgc_3b carries the finder-recipe phrase -- non-empty §3b extraction"
+fi
+
+# c-phase4-pin -- both Phase-4 brief dispatches pin sonnet by default.
+if [ -n "$BLOCK_3B" ] && printf '%s\n' "$BLOCK_3B" | grep -F -q -- "$P4_PIN"; then
+  pass "c-phase4-pin §3b pins the Phase-4 brief dispatches at model: sonnet by default"
+else
+  fail "c-phase4-pin ship-gate-council.md §3b missing the Phase-4 brief sonnet pin default"
+fi
+remove_line_substr "$SG" "$TMP/p4-pin-mut.md" "$P4_PIN"
+MUT_3B=$(extract_sgc_3b "$TMP/p4-pin-mut.md")
+if printf '%s\n' "$MUT_3B" | grep -F -q -- "$P4_PIN"; then
+  fail "c-phase4-pin-bite mutated §3b still had the sonnet pin default"
+else
+  pass "c-phase4-pin-bite mutated §3b no longer has the pin default -> check would fail"
+fi
+
+# c-phase4-knob -- the closed set, the ignore-with-one-warning rule, the
+# case arms that implement it, and the direct-/council ban.
+if [ -n "$BLOCK_3B" ] \
+  && printf '%s\n' "$BLOCK_3B" | grep -F -q -- "$P4_SET" \
+  && printf '%s\n' "$BLOCK_3B" | grep -F -q -- "$P4_ARMS" \
+  && printf '%s\n' "$BLOCK_3B" | grep -F -q -- "$P4_IGN" \
+  && printf '%s\n' "$BLOCK_3B" | grep -F -q -- "$P4_WARN" \
+  && printf '%s\n' "$BLOCK_3B" | grep -F -q -- "$P4_DIRECT"; then
+  pass "c-phase4-knob §3b states the COUNCIL_PHASE4_MODEL closed set {sonnet, opus} + ignore-with-one-stderr-warning"
+else
+  fail "c-phase4-knob §3b missing the knob grammar (closed set / case arms / ignore-with-one-warning / direct-/council ban)"
+fi
+# c-phase4-knob-bite: drop the closed-set statement; the grammar check fails.
+remove_line_substr "$SG" "$TMP/p4-set-mut.md" "$P4_SET"
+MUT_3B=$(extract_sgc_3b "$TMP/p4-set-mut.md")
+if printf '%s\n' "$MUT_3B" | grep -F -q -- "$P4_SET"; then
+  fail "c-phase4-knob-bite mutated §3b still stated the closed set"
+else
+  pass "c-phase4-knob-bite mutated §3b no longer states the closed set -> check would fail"
+fi
+# c-phase4-knob-bite2: widen the case arms to a wildcard -- the accepted set is
+# no longer {sonnet, opus}, so the arms check must fail.
+remove_line_substr "$SG" "$TMP/p4-arms-mut.md" "$P4_ARMS"
+MUT_3B=$(extract_sgc_3b "$TMP/p4-arms-mut.md")
+if printf '%s\n' "$MUT_3B" | grep -F -q -- "$P4_ARMS"; then
+  fail "c-phase4-knob-bite2 mutated §3b still had the closed-set case arms"
+else
+  pass "c-phase4-knob-bite2 mutated §3b no longer has the case arms -> check would fail"
+fi
+# c-phase4-knob-bite3: remove the one-warning clause.
+remove_line_substr "$SG" "$TMP/p4-warn-mut.md" "$P4_WARN"
+MUT_3B=$(extract_sgc_3b "$TMP/p4-warn-mut.md")
+if printf '%s\n' "$MUT_3B" | grep -F -q -- "$P4_WARN"; then
+  fail "c-phase4-knob-bite3 mutated §3b still required one stderr warning"
+else
+  pass "c-phase4-knob-bite3 mutated §3b no longer requires one warning -> check would fail"
+fi
+
+# c-phase4-token -- the escalation is recorded on card #2's rationale, and the
+# mapper stays byte-identical (the recipe composes the rationale).
+if [ -n "$BLOCK_3B" ] \
+  && printf '%s\n' "$BLOCK_3B" | grep -F -q -- "$P4_CARRIES" \
+  && printf '%s\n' "$BLOCK_3B" | grep -F -q -- "$P4_TOKEN" \
+  && printf '%s\n' "$BLOCK_3B" | grep -F -q -- "$P4_MAPPER"; then
+  pass "c-phase4-token §3b records an exercised escalation as phase4_model=opus on card #2 rationale, mapper byte-identical"
+else
+  fail "c-phase4-token §3b missing the recording rule (card #2 rationale token / mapper byte-identical clause)"
+fi
+remove_line_substr "$SG" "$TMP/p4-token-mut.md" "$P4_TOKEN"
+MUT_3B=$(extract_sgc_3b "$TMP/p4-token-mut.md")
+if printf '%s\n' "$MUT_3B" | grep -F -q -- "$P4_TOKEN"; then
+  fail "c-phase4-token-bite mutated §3b still carried the phase4_model=opus token"
+else
+  pass "c-phase4-token-bite mutated §3b no longer carries the token -> check would fail"
+fi
+remove_line_substr "$SG" "$TMP/p4-mapper-mut.md" "$P4_MAPPER"
+MUT_3B=$(extract_sgc_3b "$TMP/p4-mapper-mut.md")
+if printf '%s\n' "$MUT_3B" | grep -F -q -- "$P4_MAPPER"; then
+  fail "c-phase4-token-bite2 mutated §3b still had the mapper byte-identical clause"
+else
+  pass "c-phase4-token-bite2 mutated §3b no longer has the mapper-immunity clause -> check would fail"
+fi
+
+# c-phase4-scope -- the knob name has one home. Every line that carries it
+# lives in §3b: the recipe exports it there, before the dispatch, and no other
+# section reads it.
+KNOB_ALL=$(grep -c -- "$KNOB_NAME" "$SG" || true)
+KNOB_3B=$(printf '%s\n' "$BLOCK_3B" | grep -c -- "$KNOB_NAME" || true)
+if [ "${KNOB_3B:-0}" -ge 1 ] && [ "${KNOB_ALL:-0}" = "${KNOB_3B:-0}" ]; then
+  pass "c-phase4-scope knob $KNOB_NAME has one home: all $KNOB_3B lines sit in §3b"
+else
+  fail "c-phase4-scope knob $KNOB_NAME appears outside §3b (§3b=${KNOB_3B:-0} of ${KNOB_ALL:-0} lines)"
+fi
+# c-phase4-scope-bite: plant a knob read in §2a. The file count grows, the §3b
+# count does not, so the one-home check must fail.
+awk '{ if (index($0, "### 2a.") == 1) print "Knob leak: read " env " here too."; print }' \
+  env="$KNOB_NAME" "$SG" > "$TMP/p4-scope-mut.md" 2>/dev/null
+KNOB_ALL_MUT=$(grep -c -- "$KNOB_NAME" "$TMP/p4-scope-mut.md" || true)
+KNOB_3B_MUT=$(extract_sgc_3b "$TMP/p4-scope-mut.md" | grep -c -- "$KNOB_NAME" || true)
+if [ "${KNOB_ALL_MUT:-0}" = "${KNOB_3B_MUT:-0}" ]; then
+  fail "c-phase4-scope-bite planted knob line outside §3b was not caught (file=${KNOB_ALL_MUT:-0} §3b=${KNOB_3B_MUT:-0})"
+else
+  pass "c-phase4-scope-bite planted knob line in §2a diverges from §3b -> check would fail"
 fi
 
 # =============================================================================

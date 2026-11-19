@@ -23,7 +23,8 @@ printf 'PDH=%s\n' "$PDH" >&2
 a `light` `verdict[]` plan sets `skipped: true` with reason `council_tier: light`.
 
 **Classify:** one cheap Task per claim (`topic-classifier.md`, `{{CLAIM_TEXT}}`
-only). Output `{topic, confidence, agent}` with
+only) on tool-less `dev-team:council-scribe` with the P2 literal pin
+`model: sonnet` (SPEC-042 M2). Output `{topic, confidence, agent}` with
 `agent ∈ {devops, ds, qa, pm, null}`.
 
 **Spawn concurrency cap (CDT-573):** this wave (the per-claim classifier Tasks
@@ -38,7 +39,11 @@ line.
 - Cap **1 specialist per run** — highest confidence among eligible claims.
 - Specialist is an additional blind investigator: `subagent_type:
   "dev-team:<agent>"`, same evidence-bundle schema as Phase 2, domain lens via
-  `{{FLAVOR_DELTA}}`. MUST NOT read prior council reports.
+  `{{FLAVOR_DELTA}}`. MUST NOT read prior council reports. **Model pin (P1):**
+  resolve the winning agent through the canonical fence in § Model pins of
+  `skills/council/model-map.md`; empty stdout → that agent's Tier-default alias
+  (`devops`/`qa` → `sonnet`, `ds`/`pm` → `opus`) — never `""`, never omitted
+  (SPEC-042 M2).
 
 **Downstream:** specialist bundles merge into the Phase 2 set before Phase 2.5
 (and Phase 4/5). Empty pull is normal — not an error.
@@ -69,7 +74,20 @@ synthesizes, stubs, or empty-strings a brief the run did not produce.
 - Spawn exactly **one** Prosecutor (flavor: `jaded-senior`) and exactly
   **one** Devil's Advocate (flavor: `yolo-ic`) per council run, in parallel.
   (SPEC-013 § Council tiering.) Spawn `subagent_type: "dev-team:council-scribe"`
-  (`tools: ""`). Do not spawn `ic5`.
+  (`tools: ""`) with the P2 literal pin `model: sonnet` (SPEC-042 M2 — no
+  resolver call, no map key). Do not spawn `ic5`.
+- **Model knob consumer (SPEC-042 M5 / SPEC-033 M14(m)).** That `model: sonnet`
+  is the **default**, not a constant. If `COUNCIL_PHASE4_MODEL` is set and
+  ∈ {sonnet, opus}, pass that value at **both** brief dispatches — resolve it
+  once, before the wave, so the pair never splits across models. The M14 gate
+  recipe (`skills/autopilot/ship-gate-council.md` §3b) is the **only writer** of
+  that variable; this stage reads it and MUST NOT set it. Any other value is
+  ignored with one stderr warning and the `sonnet` default (the recipe
+  implements the grammar; do not re-validate it here). A direct `/council` run
+  outside that recipe never sets the variable, so its Phase-4 pin stays
+  `sonnet`. The escalation is the sanctioned path (SPEC-042 M5 / SPEC-033 M14(m))
+  and leaves the SPEC-042 M2 P2 grammar intact: `sonnet` and `opus` are the only
+  values this site can carry.
 - Both roles are **BLIND to the original claims.** They receive **ONLY the
   evidence bundles** — not the original claim list, not the prior narrative,
   not each other's output. Each role reconstructs the set of claims under
@@ -93,8 +111,11 @@ Devil's Advocate).
 ### Phase 5 — Judgment
 
 **Agent:** `agents/council-judge.md`. Structurally
-forbidden from running tools via `tools: ""` in YAML frontmatter. (SPEC-013 § Council tiering.) **Model map:** resolve `council-judge` first (canonical
-fence in § Model map). Mapping its model MUST NOT add tools.
+forbidden from running tools via `tools: ""` in YAML frontmatter. (SPEC-013 § Council tiering.) **Model pin (P1):** resolve `council-judge` first (canonical
+fence in § Model pins of `skills/council/model-map.md`); empty stdout → `opus`
+(the Tier-default alias) — never `""`, never omitted. Every judge part of a
+bundle-cap split carries that same pinned value (SPEC-042 M1). Mapping its
+model MUST NOT add tools.
 
 **Engine passes to the Judge** (plan key `phases.5_judgment.inputs` is the
 authoritative per-run list):

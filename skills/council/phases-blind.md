@@ -47,6 +47,13 @@ The engine.sh Task path keeps `repair_json_file` / `PYREPAIR` for free-form JSON
 **Judge tool-less:** judgment step uses `agentType: 'dev-team:council-judge'`
 (plugin-qualified as installed); empty tools from `agents/council-judge.md`.
 
+**Model pins (SPEC-042):** every `agent()` entry on this path carries an
+explicit `model` — P1 roles resolve through the same `resolve-model.sh`
+subprocess with the Tier-alias floor, P2 scribe-class sites pin `sonnet`, and a
+host-rejected model retries once with the sibling alias (never omitted). The
+value MUST equal the Task-path value for the same role and run (parity).
+Contract: SPEC-042 M3/M4 — this stage cites it, it does not restate it.
+
 **Single-source prompts/flavors:** `workflow.js` loads `prompts/*` and
 `flavors/*` at runtime and substitutes the same `{{VARS}}` as
 `commands/council.md` / each prompt's `## Variables` table. No forked bodies.
@@ -98,7 +105,8 @@ Steps 1–6 tribunal. Dispatch surface + substitutions live in
   instruction, before the per-reviewer prompts. Unset: emit no line; this fence
   is unchanged.
 - **N unconstrained** reviewers (`--teams`, default 3); team IDs `U1..UN`;
-  prompt `prompts/blind-scribe.md` on `dev-team:council-scribe` (tool-less).
+  prompt `prompts/blind-scribe.md` on `dev-team:council-scribe` (tool-less)
+  with the P2 literal pin `model: sonnet` (SPEC-042 M2).
   Bug-hunt still uses `prompts/unconstrained-reviewer.md`.
 - **M lens-differentiated** reviewers (`--lenses`, default
   `security,contributor,spec`); team IDs `L-<lens>`; same
@@ -116,7 +124,10 @@ Steps 1–6 tribunal. Dispatch surface + substitutions live in
 - After collection: namespace findings with team ID; drop malformed (missing
   Category/Severity/Files/Claim/Evidence — no repair)
 - Spawn **one** quorum analyst (`prompts/quorum-analyst.md`) over all
-  namespaced findings → semantic clusters with tiers
+  namespaced findings → semantic clusters with tiers. Tool-less
+  `dev-team:council-scribe` with the P2 literal pin `model: sonnet`
+  (SPEC-042 M2). Every reviewer and the analyst carry an explicit `model`;
+  the blind wave never spawns unpinned.
 
 **Confidence tiers:**
 | Tier | Condition |
@@ -219,8 +230,9 @@ not shape-gated; the reviewer prompt is `prompts/cross-reviewer.md`).
 - **Spawn concurrency cap (CDT-573):** when `plan.concurrency` is set, append
   the contract line in `skills/council/spawn-contract.md` once, after the fleet
   instruction. Unset: emit no line; this fence is unchanged.
-- Spawn `subagent_type: "dev-team:council-scribe"` (tool-less; no model-map
-  fence). Do not spawn `finder`, `ic4`, or `ic5`.
+- Spawn `subagent_type: "dev-team:council-scribe"` (tool-less) with the P2
+  literal pin `model: sonnet` — SPEC-042 M2: no resolver call, no map key,
+  never an omitted `model`. Do not spawn `finder`, `ic4`, or `ic5`.
 - For N investigators, spawn N cross-reviewers in parallel.
 - Each reviewer sees every bundle **EXCEPT its own** (self-exclusion) — never
   investigator identities, prior narrative, or prior verdicts. (SPEC-013 § Council tiering.)

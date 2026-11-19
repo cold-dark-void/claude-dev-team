@@ -17,6 +17,12 @@
  * runs each fleet wave in batch-synchronous batches of plan.concurrency;
  * unset = one wave as before.
  *
+ * Model pins (SPEC-042): every safeAgent opts carries `model`. Map-resolved
+ * roles (finder, council-judge) resolve through skills/model-map/resolve-model.sh
+ * as a subprocess with the role's Tier alias as the floor; scribe-class sites
+ * use the single-site SCRIBE_MODEL_PIN. A model-attributed host reject retries
+ * once with the sibling alias. No `effort` on this path (SPEC-037 F1).
+ *
  * Host globals (Workflow runtime): args, agent, phase, parallel, budget (opt).
  * Pure helpers exported for node unit checks.
  */
@@ -281,6 +287,102 @@ export function isUsableAgentResult(result) {
   return true
 }
 
+// ---- model pin seam (SPEC-042 M2/M3/M4) -------------------------------------
+
+/**
+ * Pin-time alias table for the Workflow-path roles. `finder` and
+ * `council-judge` carry the SPEC-003 § Tier table value (SPEC-042 M7 parity);
+ * `council-scribe` carries the SPEC-042 M2 P2 policy value from the
+ * maintainer ruling 2026-11-18, which deliberately differs from its Tier row.
+ * One table serves both the empty-resolve floor (M3) and the host-reject
+ * sibling alias (M4), so both are chosen at pin time and never derived from a
+ * rejected model string.
+ */
+export const PIN_ALIAS = {
+  finder: 'sonnet',
+  'council-judge': 'opus',
+  'council-scribe': 'sonnet',
+}
+
+/**
+ * Scribe-class pin (SPEC-042 M3). Single site: CDT-654 swaps this constant for
+ * a map resolve without touching the three scribe spawn sites.
+ */
+export const SCRIBE_MODEL_PIN = PIN_ALIAS['council-scribe']
+
+// The plugin root is two levels above skills/council (the dir that carries
+// skills/plugin-dir.sh).
+const PLUGIN_ROOT = dirname(dirname(COUNCIL_DIR))
+const RESOLVE_MODEL_REL = join('skills', 'model-map', 'resolve-model.sh')
+const PLUGIN_DIR_SH_REL = join('skills', 'plugin-dir.sh')
+// Bounded resolve: a hung helper is a resolve failure, not a hung tribunal.
+const RESOLVE_TIMEOUT_MS = 10000
+
+/** Bare roster role of an agentType ('dev-team:finder' → 'finder'). */
+export function roleOfAgentType(agentType) {
+  const s = typeof agentType === 'string' ? agentType : ''
+  return s.startsWith('dev-team:') ? s.slice('dev-team:'.length) : s
+}
+
+/**
+ * Path of skills/model-map/resolve-model.sh, resolved plugin-dir-relative
+ * through plugin-dir.sh (SPEC-002 PDH stanza: subprocess only, never sourced).
+ * '' when the helper is unreachable, so the caller takes the Tier-alias floor.
+ */
+export function resolveModelScript(spawn = spawnSync, root = PLUGIN_ROOT) {
+  const direct = join(root, RESOLVE_MODEL_REL)
+  if (!existsSync(direct)) return ''
+  const pdh = join(root, PLUGIN_DIR_SH_REL)
+  if (existsSync(pdh)) {
+    const r = spawn('bash', [pdh, 'file', RESOLVE_MODEL_REL], {
+      encoding: 'utf8',
+      timeout: RESOLVE_TIMEOUT_MS,
+      // Tier 0 of plugin-dir.sh: stay inside the plugin copy that loaded this
+      // module, whichever install tier the cwd would otherwise pick.
+      env: { ...process.env, CLAUDE_PLUGIN_ROOT: root },
+    })
+    const path = (r && r.status === 0 ? String(r.stdout || '') : '').trim()
+    if (path && existsSync(path)) return path
+  }
+  return direct
+}
+
+/**
+ * Model pin for a map-resolved role (SPEC-042 M2 P1). Non-empty resolver
+ * stdout wins; the role's Tier-alias floor is passed on empty stdout, a
+ * non-zero exit, an unrunnable helper, or a timeout. Never '' (MUST NOT omit
+ * at council sites). Resolver stderr is surfaced, not swallowed.
+ */
+export function resolveRoleModel(role, deps = {}) {
+  const spawn = deps.spawn || spawnSync
+  const floor = PIN_ALIAS[role] || ''
+  const script = deps.resolver === undefined ? resolveModelScript(spawn, deps.root) : deps.resolver
+  if (!script) return floor
+  const r = spawn('bash', [script, role], { encoding: 'utf8', timeout: RESOLVE_TIMEOUT_MS })
+  const out = (r && r.status === 0 ? String(r.stdout || '') : '').trim()
+  const err = String((r && r.stderr) || '').trim()
+  if (err) console.error(err)
+  return out || floor
+}
+
+const MODEL_REJECT_VOCAB =
+  /\b(invalid|unknown|unsupported|unrecognized|unrecognised|not supported|does not support|no such|not found|not available|rejected|denied)\b/i
+
+/**
+ * True only for a failure the host attributes to the model param
+ * (SPEC-042 M4). Rate-limit, refusal, timeout and other ambiguous failures
+ * return false: SPEC-013 § Spawn-failure degradation owns them and this seam
+ * never guesses at a model fallback.
+ */
+export function isModelAttributedFailure(err, model) {
+  if (!model) return false
+  let text = ''
+  if (typeof err === 'string') text = err
+  else if (err && typeof err === 'object') text = String(err.message || err.error || err.stderr || '')
+  else if (err != null) text = String(err)
+  return /\bmodel\b/i.test(text) && MODEL_REJECT_VOCAB.test(text)
+}
+
 function tmpHandoff(prefix) {
   const dir = mkdtempSync(join(tmpdir(), 'council-wf-'))
   return {
@@ -466,26 +568,75 @@ export async function runCouncil(runtime) {
     degraded = true
   }
 
-  const safeAgent = async (prompt, opts) => {
+  // SPEC-042 M3: resolve a map role once per run, so every spawn of that role
+  // carries the same value as the Task path for the same run (parity). A
+  // resolver anomaly takes the Tier-alias floor — it never omits and never
+  // fails the tribunal.
+  const modelCache = new Map()
+  const mapModel = (role) => {
+    if (!modelCache.has(role)) {
+      let pinned = PIN_ALIAS[role] || ''
+      try {
+        pinned = resolveRoleModel(role) || pinned
+      } catch {
+        /* resolve failure -> floor alias (SPEC-042 M3) */
+      }
+      modelCache.set(role, pinned)
+    }
+    return modelCache.get(role)
+  }
+
+  const recordTokens = (opts) => {
+    if (opts && opts.phase && runtime.budget && typeof runtime.budget === 'function') {
+      try {
+        const b = runtime.budget()
+        if (b) tokenUsage.push({ phase: opts.phase, ...b })
+      } catch {
+        /* budget API optional */
+      }
+    }
+  }
+
+  // One spawn attempt. An unusable result and a throw both come back as
+  // { ok: false, err } so the caller can tell a model-attributed reject from
+  // an ambiguous failure; nothing here rethrows.
+  const callAgent = async (prompt, opts) => {
     try {
       const result = await agent(prompt, opts)
-      if (!isUsableAgentResult(result)) {
-        markDegraded()
-        return null
-      }
-      if (opts && opts.phase && runtime.budget && typeof runtime.budget === 'function') {
-        try {
-          const b = runtime.budget()
-          if (b) tokenUsage.push({ phase: opts.phase, ...b })
-        } catch {
-          /* budget API optional */
-        }
-      }
-      return result
-    } catch {
+      if (isUsableAgentResult(result)) return { ok: true, result }
+      return { ok: false, err: (result && (result.error || result.message)) || result }
+    } catch (err) {
+      return { ok: false, err }
+    }
+  }
+
+  // SPEC-042 M4: a model-attributed failure retries ONCE with the sibling
+  // alias chosen at pin time — never with model omitted, never combinatorial.
+  // A pin already at its sibling has nothing left to try, and every second
+  // failure falls through to the CDV-199 degradation path exactly as before.
+  const safeAgent = async (prompt, opts) => {
+    const first = await callAgent(prompt, opts)
+    if (first.ok) {
+      recordTokens(opts)
+      return first.result
+    }
+    const model = opts && typeof opts.model === 'string' ? opts.model : ''
+    const role = roleOfAgentType(opts && opts.agentType)
+    const sibling = PIN_ALIAS[role] || ''
+    if (!model || !sibling || sibling === model || !isModelAttributedFailure(first.err, model)) {
       markDegraded()
       return null
     }
+    console.error(
+      `model-map: host rejected model '${model}' for ${role}; retrying with sibling alias '${sibling}'`,
+    )
+    const second = await callAgent(prompt, { ...opts, model: sibling })
+    if (!second.ok) {
+      markDegraded()
+      return null
+    }
+    recordTokens(opts)
+    return second.result
   }
 
   // --- Preflight ------------------------------------------------------------
@@ -641,6 +792,7 @@ export async function runCouncil(runtime) {
     const extracted = await safeAgent(extractPrompt, {
       schema: ClaimsSchema,
       agentType: 'dev-team:council-scribe',
+      model: SCRIBE_MODEL_PIN,
       phase: 'Extract',
       label: extractPromptName,
     })
@@ -711,6 +863,7 @@ export async function runCouncil(runtime) {
     const res = await safeAgent(prompt, {
       schema: EvidenceSchema,
       agentType: 'dev-team:finder',
+      model: mapModel('finder'),
       phase: 'Investigate',
       label: `inv:${claimId}:${flavor}`,
     })
@@ -815,6 +968,7 @@ export async function runCouncil(runtime) {
       const res = await safeAgent(prompt, {
         schema: RankingSchema,
         agentType: 'dev-team:council-scribe',
+        model: SCRIBE_MODEL_PIN,
         phase: 'Cross-review',
         label: `cross:${key}:${ri}`,
       })
@@ -882,6 +1036,7 @@ export async function runCouncil(runtime) {
       const res = await safeAgent(prompt, {
         schema: BriefSchema,
         agentType: 'dev-team:council-scribe',
+        model: SCRIBE_MODEL_PIN,
         phase: 'Phase4',
         label: role,
       })
@@ -968,6 +1123,7 @@ export async function runCouncil(runtime) {
     const partOut = await safeAgent(judgePrompt, {
       schema: judgeSchema,
       agentType: 'dev-team:council-judge',
+      model: mapModel('council-judge'),
       phase: 'Judge',
       label: 'council-judge',
     })

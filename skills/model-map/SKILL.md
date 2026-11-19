@@ -17,6 +17,10 @@ Empty resolver stdout for a model means **Tier default** (shipped
 effort** (omit the Agent `effort` param). Tiers stay the SoT for role
 capability intent (SPEC-003).
 
+At a covered council/workflow spawn site, empty model stdout is **not** an
+omit. See "Council sites: pinned, never omitted" under "Empty stdout = Tier
+default".
+
 ## Paths
 
 Three layers. Per-field first hit wins (local > repo > global > omit).
@@ -80,6 +84,53 @@ warning.
 
 A listed key with a bad value (null / non-string / empty) warns and falls
 through to the next layer.
+
+### Council sites: pinned, never omitted
+
+The covered council/workflow sites take SPEC-042, not the omit path: the
+whole `/council` tribunal (Phase 1, 2 and its named fallback chain, 2.5, 3,
+4, 5 including the bundle-cap judge parts, and the `--blind` wave) plus the
+five `skills/council/workflow.js` `safeAgent` sites. There, empty stdout
+passes an alias — it never omits `model`. This overrides the omit path of
+M13 ∪ M16 at those sites only.
+
+Two pin classes cover every spawn there (SPEC-042 M2):
+
+- **P1 — map-resolved role.** `finder`, `council-judge`, the Phase 2 named
+  fallback `ic5`, and the Phase 3 specialist roster (`devops`, `ds`, `qa`,
+  `pm`) resolve through `resolve-model.sh` as usual. Non-empty stdout → the
+  `model` param, so the map still wins and the pin never fights
+  `models.local.json`. Empty stdout → pass that role's **Tier default**
+  alias: `sonnet` for `finder` / `ic5` / `devops` / `qa`, `opus` for
+  `council-judge` / `ds` / `pm`. MUST NOT pass `""`.
+  `skills/council/model-map.md` carries the table; the suite keeps it equal
+  to SPEC-003 § Tier table (SPEC-042 M7).
+- **P2 — scribe-class role.** A tool-less `council-scribe`-class role
+  (Phase 1 extractor, Phase 2.5 cross-reviewer, Phase 3 classifier,
+  Phase 4 prosecutor/advocate, the `--blind` reviewers and quorum analyst)
+  pins the literal `model: sonnet` by policy (maintainer ruling
+  2026-11-18). No resolver call, no map key, no `models.local.json` write:
+  `council-scribe` stays outside the mappable set (CDT-654 owns that join).
+  This pin is exempt from the Tier-table equality — it deliberately differs
+  from the `agents/council-scribe.md` frontmatter value (`opus`).
+
+**Host-reject retry at a covered site (SPEC-042 M4).** A spawn failure
+attributed to the `model` param retries **once** with the sibling alias —
+the Tier default (P1) or `sonnet` (P2), chosen at pin time — and warns
+exactly:
+
+`model-map: host rejected model '<string>' for <agent>; retrying with sibling alias '<alias>'`
+
+MUST NOT omit `model` on that retry, MUST NOT derive the alias from the
+rejected string, MUST NOT combinatorial-retry. A P2 pin already equals its
+sibling alias, so a P2 site performs no retry and no warn on a
+model-attributed reject — it degrades per the site's existing failure path
+(SPEC-042 M4). Outside the covered set, the M14 retry-omitting-`model` path
+above stands unchanged.
+
+Effort is unchanged at these sites: `resolve-model.sh --effort` still omits
+on empty stdout, and `skills/council/workflow.js` stays effort-free
+(SPEC-037 F1, SPEC-042 M8).
 
 ## Empty stdout = inherited effort
 
@@ -166,7 +217,10 @@ site also runs `resolve-model.sh --effort` for the same agent:
   Step 3 feed-back `@pm`, Step 5 / 6 `@tech-lead`
 - `/epic` — A.2 `@pm` / `@tech-lead` only (Mode E reuses A.2)
 - `/debug ticket` — premise `debugger`, implement `--agent ic4|ic5`, refuters `qa`
-- `/council` — Phase 2 `finder`, Phase 5 `council-judge` (Phase 2.5 is `council-scribe`, omitted)
+- `/council` — the whole tribunal (SPEC-042 M1): Phase 1 extractor, Phase 2
+  `finder` and its named fallback chain, Phase 2.5 cross-reviewer, Phase 3
+  classifier + specialist, Phase 4 prosecutor/advocate, Phase 5
+  `council-judge`, and the `--blind` wave. Every spawn is pinned — P1 or P2.
 - `/bug-hunt` — S1 unconstrained / lens / quorum `finder` and S2 investigators
   `finder`
 
@@ -174,14 +228,16 @@ Resolve the agent actually spawned. Named fallback `ic5`→`ic4` resolves
 `ic4` (pre-CDT-230 sites still on `ic5`, e.g. `/orchestrate`, `/kickoff`).
 `finder`/`debugger` spawns fall back to `ic5` on host-reject (CDT-230),
 never `ic4`. Empty model stdout = **Tier default**. Empty effort stdout =
-**inherited effort**.
+**inherited effort**. At a council/workflow covered site the model rule is
+the alias floor, not the omit — see "Council sites: pinned, never omitted".
 
-**Omit the fence:** kickoff Step 4b verifier; unnamed /
-`general-purpose` / Explore; council Phase 1 extractor, Phase 2.5
-cross-reviewer, Phase 3 specialist, Phase 4 prosecutor/advocate, `--blind`
-waves (`council-scribe`); `/handoff` miner
-(`HANDOFF_MINER_MODEL`); `/memory validate`; `/retro`;
-`skills/council/workflow.js`. Direct `@agent` / chat stays on frontmatter.
+**Omit the fence (non-council sites only):** kickoff Step 4b verifier;
+unnamed / `general-purpose` / Explore; `/handoff` miner
+(`HANDOFF_MINER_MODEL`); `/memory validate`; `/retro`.
+Direct `@agent` / chat stays on frontmatter.
+The council sites and `skills/council/workflow.js` left this list (CDT-641;
+SPEC-042 M2/M3): the omit path now applies only to the M13 ∪ M16 sites
+outside the covered set.
 "Omit the fence" means these stay outside the named-roster model-map — it
 does not mean unpinned. `/handoff`'s chunk-summarizer/annotation spawns,
 `/retro`'s friction-analysis spawn, and `/memory validate`'s claim-extractor
@@ -273,6 +329,7 @@ not an object / bad effort value / unknown effort key → WARN (never FAIL).
 ## Related
 
 - SPEC-037 — Per-agent Model map
+- SPEC-042 — Council model-pin fence (covered sites, pin classes, sibling retry)
 - SPEC-003 — Tier default roster
 - SPEC-005 — `/setup models` dispatch
 - SPEC-022 — `models.map` doctor check

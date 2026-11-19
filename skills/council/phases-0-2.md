@@ -82,7 +82,9 @@ subagent. Session/diff use `skills/council/prompts/claim-extractor.md`;
 plan scope uses `skills/council/prompts/plan-extractor.md` (path from
 `phases.1_claim_extraction.prompt` in the investigation plan). Extractors
 are blind — raw transcript/diff/plan text only, never prior narrative or
-prior verdicts.
+prior verdicts. **Model pin:** the extractor is a tool-less
+`dev-team:council-scribe` spawn and carries the P2 literal pin
+`model: sonnet` (SPEC-042 M2 — no resolver call, no map key).
 
 ### Phase 2 — Parallel Investigation
 
@@ -91,9 +93,13 @@ prior verdicts.
   the contract line in `skills/council/spawn-contract.md` once, after the fleet
   instruction, before the per-spawn prompts. Unset: emit no line; this fence is
   unchanged.
-- **Model map:** resolve `finder` first (canonical fence in § Model map). Named
-  fallback `finder`→`ic5` resolves `ic5` (same fence for later spawns of that
-  agent). Unnamed / `general-purpose` / Explore: omit the fence.
+- **Model pin (SPEC-037 + SPEC-042):** resolve `finder` first (canonical fence in
+  § Model pins of `skills/council/model-map.md`). Named fallback `finder`→`ic5`
+  resolves `ic5` (same fence for later spawns of that agent). Empty stdout is
+  **not** an omit at council sites: pass the Tier-default alias — `finder`/`ic5`
+  → `sonnet`. The unnamed `general-purpose` / `"Explore"` fallbacks pin the
+  literal `model: sonnet` (P2). Every investigator spawn in the chain carries an
+  explicit `model`; none spawns unpinned (SPEC-042 M1/M2).
 - Spawn investigators via the Task tool with
   **`subagent_type: "dev-team:finder"` preferred** (CDT-230 — `finder` is the
   shared read-only fan-out investigator; named `dev-team:*` agents delivered

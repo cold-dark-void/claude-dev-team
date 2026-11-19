@@ -626,15 +626,29 @@ executes the phases below, spawning Task subagents as specified. All subagent
 spawns for a given phase must be issued in a single message (parallel
 execution). (Skipped when Step 2.5 selected Workflow.)
 
-**Model map (SPEC-037):** protocol home is `skills/council/SKILL.md` § Model
-map. Wired fences: Phase 2 `finder`, Phase 5 `council-judge`. Same fence
-for later spawns of that agent. Do not paste full PDH at every later spawn
-of the same role. Named fallback `finder`→`ic5` resolves `ic5`.
-Unnamed / `general-purpose` / Explore: omit the fence. Omit Phase 1
-extractor, Phase 2.5 cross-reviewer, Phase 3 specialist, Phase 4
-prosecutor/advocate, and `--blind` waves (OQ1) — those tool-less roles
-spawn `dev-team:council-scribe` (`tools: ""`), not `ic4` or `ic5`. Mapping
-`council-judge` or `council-scribe` MUST NOT add tools.
+**Model pins (SPEC-037 + SPEC-042):** protocol home is `skills/council/model-map.md`
+§ Model pins, routed from `skills/council/SKILL.md`. Every covered spawn block
+below carries an explicit `model` — an empty Model map is **not** an omit at
+council sites (SPEC-042 M1/M2):
+
+- **P1 — map-resolved:** Phase 2 `finder`, its named fallback `ic5`, the Phase 3
+  specialist's named roster, Phase 5 `council-judge`. Same fence for later
+  spawns of that agent; do not paste full PDH at every later spawn of the same
+  role. Non-empty stdout → that `model`. Empty stdout → the role's SPEC-003
+  § Tier-default alias: `finder`/`ic5` → `sonnet`, `council-judge` → `opus`,
+  Phase 3 `devops`/`qa` → `sonnet`, `ds`/`pm` → `opus`. NEVER `""`, NEVER omit.
+- **P2 — scribe-class pin:** Phase 1 extractor, Phase 2.5 cross-reviewer, Phase 3
+  classifier, Phase 4 prosecutor/advocate, and the `--blind` waves are tool-less
+  and spawn `dev-team:council-scribe` (`tools: ""`), not `ic4` or `ic5`; each
+  pins the literal `model: sonnet` (maintainer ruling 2026-11-18; no resolver
+  call, no map key). The unnamed `general-purpose` / `"Explore"` fallbacks pin
+  the same `sonnet`. Phase 4 is the one sanctioned exception: its `sonnet` is a
+  default the § Phase 4 consumer clause may escalate to `opus` (SPEC-042 M5) —
+  no other P2 site reads that variable.
+
+A host-rejected `model` retries once with the sibling alias, never by omitting
+`model` (SPEC-042 M4; per-site prose). Mapping `council-judge` or
+`council-scribe` MUST NOT add tools.
 
 ### Phase 1 — Claim Extraction
 
@@ -651,6 +665,7 @@ Use the prompt path from `plan.phases.1_claim_extraction.prompt` (session/diff
 ```
 description: "Extract claims from session"
 subagent_type: "dev-team:council-scribe"   # tool-less; tools: ""
+model: sonnet                              # P2 pin (SPEC-042 M2)
 prompt: skills/council/prompts/claim-extractor.md
   with substitutions:
     {{SCOPE_TYPE}}   ← plan.scope
@@ -665,6 +680,7 @@ prompt: skills/council/prompts/claim-extractor.md
 ```
 description: "Extract claims from plan"
 subagent_type: "dev-team:council-scribe"   # tool-less; tools: ""
+model: sonnet                              # P2 pin (SPEC-042 M2)
 prompt: skills/council/prompts/plan-extractor.md
   with substitutions:
     {{PLAN_PATH}}    ← plan.scope_arg (path as given to --plan)
@@ -746,7 +762,10 @@ Empty/missing seed is fine — correctness unchanged. Do not seed narrative.
 
 Spawn pattern (one Agent per claim per flavor). Same fence for later `finder`
 spawns of this agent. Named fallback `finder`→`ic5`: re-run the `ic5`
-fence. Unnamed / `general-purpose` / Explore: omit.
+fence (empty stdout → `sonnet`, ic5's Tier alias). Unnamed /
+`general-purpose` / Explore: pin `model: sonnet` (P2 — SPEC-042 M2). Every
+fallback spawn carries an explicit pin: the chain never falls back to an
+unpinned spawn.
 
 Before spawning @finder:
 <!-- include: skills/model-map/spawn-fence.md agent=finder -->
@@ -760,12 +779,12 @@ EFFORT=$(bash "$RESOLVE" --effort "finder")
 printf '%s\n' "$EFFORT"
 ```
 <!-- /include -->
-Bash stdout = model string; empty → omit model.
+Bash stdout = model string.
+If MODEL is non-empty: pass it as the Agent model param.
+If MODEL is empty: pass `sonnet` — `finder`'s SPEC-003 § Tier-default alias (P1 floor). NEVER omit `model` at a council site; MUST NOT pass `""`.
 Then `resolve-model.sh --effort` (same agent). Non-empty EFFORT → pass as Agent/Workflow `effort` param; empty → omit (MUST NOT pass `""`).
 Surface resolver stderr to the user. Do not swallow.
-If MODEL is non-empty: pass it as the Agent model param.
-If MODEL is empty: omit model. MUST NOT pass "".
-If spawn fails attributed to the model param (invalid/unknown/unsupported model): retry once with model omitted; warn `model-map: host rejected model '<string>' for finder; retrying with Tier default`.
+If spawn fails attributed to the model param (invalid/unknown/unsupported model): retry once with the sibling alias `sonnet` (the alias chosen at pin time — never derived from the rejected string, never an omitted `model`); warn `model-map: host rejected model '<string>' for finder; retrying with sibling alias 'sonnet'`.
 If spawn fails attributed to the `effort` param (invalid/unknown/unsupported effort): retry once omitting effort; warn `model-map: host rejected effort '<token>' for finder; retrying with inherited effort`.
 Model host-reject stays independent. Ambiguous failure: do not guess; do not combinatorial-retry both params.
 Other spawn failures MUST NOT be retried as a model or effort fallback.
@@ -773,6 +792,7 @@ Other spawn failures MUST NOT be retried as a model or effort fallback.
 ```
 description: "Investigate claim <N> (<flavor>)"
 subagent_type: "dev-team:finder"   # prefer named; fallback ic5 → general-purpose → Explore
+model: <MODEL>                     # P1 pin: fence stdout; empty → `sonnet`. Fallbacks: ic5 → its fence value (empty → `sonnet`); general-purpose / Explore → `sonnet`
 prompt: skills/council/prompts/investigator.md
   with substitutions:
     {{CLAIM_TEXT}}     ← claim.claim (verbatim)
@@ -900,6 +920,7 @@ For each claim from Phase 1, spawn a cheap classifier Task (parallel OK):
 ```
 description: "Classify claim topic for domain specialist"
 subagent_type: "dev-team:council-scribe"   # tool-less; tools: ""
+model: sonnet                              # P2 pin (SPEC-042 M2)
 prompt: skills/council/prompts/topic-classifier.md
   with substitutions:
     {{CLAIM_TEXT}}  ← claim.claim (verbatim)
@@ -932,9 +953,18 @@ If no claim qualifies → record `phase3_specialist_reason =
 
 **When one claim qualifies — spawn the specialist:**
 
+P1 pin: run the canonical fence `skills/model-map/spawn-fence.md` with
+`agent=<agent>` for the winning agent (one fence for this role — resolve the
+agent actually spawned). Non-empty stdout → that `model`; empty → that agent's
+SPEC-003 § Tier-default alias (`devops`/`qa` → `sonnet`, `ds`/`pm` → `opus`).
+NEVER `""`, NEVER omit. Host-reject: retry once with that Tier alias as the
+sibling alias; warn `model-map: host rejected model '<string>' for <agent>;
+retrying with sibling alias '<alias>'`.
+
 ```
 description: "Domain specialist investigation (<agent>) for claim <claim-id>"
 subagent_type: "dev-team:<agent>"   # e.g. dev-team:devops — NOT general-purpose
+model: <MODEL>                     # P1 pin: fence stdout; empty → Tier alias (`devops`/`qa` → sonnet, `ds`/`pm` → opus)
 prompt: skills/council/prompts/investigator.md
   with substitutions:
     {{CLAIM_TEXT}}      ← winning claim.claim (verbatim)
@@ -1024,7 +1054,8 @@ their original submission order; other claim groups are unaffected.
 For each investigator (N investigators → N cross-reviewers), spawn one
 ephemeral Task subagent. Each reviewer sees all bundles EXCEPT their own,
 labeled with their personal shuffled mapping. Cross-review is tool-less
-(`agents/council-scribe.md`). No model-map fence (OQ1). Do not spawn
+(`agents/council-scribe.md`) and carries the P2 pin `model: sonnet`
+(SPEC-042 M2 — literal pin, no resolver call, no map key). Do not spawn
 `finder`, `ic4`, or `ic5`.
 
 **Spawn concurrency cap (CDT-573):** when `plan.concurrency` is set, append the
@@ -1034,6 +1065,7 @@ instruction above. Unset: no line.
 ```
 description: "Cross-review evidence bundles for claim <claim-id>"
 subagent_type: "dev-team:council-scribe"   # tool-less; MUST NOT run tools
+model: sonnet                              # P2 pin (SPEC-042 M2)
 prompt: skills/council/prompts/cross-reviewer.md
   with substitutions:
     {{CLAIM_TEXT}}    ← claim.claim (verbatim)
@@ -1093,16 +1125,37 @@ the absence (below); never write one from the bundles to fill the gap. That
 substitution is reserved for a *spawn failure* in a run where Phase 4 was
 supposed to run.
 
-Otherwise spawn exactly one Prosecutor and one Devil's Advocate in parallel:
+Otherwise spawn exactly one Prosecutor and one Devil's Advocate in parallel.
+Both are tool-less `dev-team:council-scribe` briefs and carry the P2 pin
+`model: sonnet` (SPEC-042 M2 — literal pin, no resolver call, no map key;
+maintainer ruling 2026-11-18).
+
+**Phase-4 model knob — consumer clause (SPEC-042 M5 / SPEC-033 M14(m)).** The
+`model: sonnet` pin at both dispatches below is the **default**, not a constant.
+If `COUNCIL_PHASE4_MODEL` is set and ∈ {sonnet, opus}, use that value for both
+briefs — the same value at both dispatch sites, resolved once before the wave.
+The M14 gate recipe (`skills/autopilot/ship-gate-council.md` §3b) is the **only
+writer** of that variable; this stage only reads it. Any other value is ignored
+with one stderr warning and the `sonnet` default (SPEC-042 M5 owns the grammar;
+the recipe implements it — do not re-validate it here). A direct `/council` run
+outside that recipe never sets the variable, so its Phase-4 pin stays `sonnet`.
+The knob is the sanctioned escalation path; it does not relax the SPEC-042 M2
+grammar — `opus` and `sonnet` are the only two values it can carry.
 
 **Spawn concurrency cap (CDT-573):** when `plan.concurrency` is set, append the
 contract line from `skills/council/spawn-contract.md` once after the fleet
 instruction above. Unset: no line.
 
 ```
+# Phase-4 model pin (SPEC-042 M2 P2 default; SPEC-042 M5 knob consumer):
+# if COUNCIL_PHASE4_MODEL is set and in {sonnet, opus}, pass that value to both
+# briefs below. The M14 gate recipe (skills/autopilot/ship-gate-council.md §3b)
+# is the only writer; any other value is ignored with one stderr warning and the
+# sonnet default.
 Prosecutor:
   description: "Prosecute claims against evidence"
   subagent_type: "dev-team:council-scribe"   # tool-less; tools: ""
+  model: sonnet                              # P2 pin (SPEC-042 M2) default; COUNCIL_PHASE4_MODEL consumer (SPEC-042 M5)
   prompt: skills/council/prompts/phase4-brief.md
     with substitutions:
       {{ROLE}}             ← "Prosecutor"
@@ -1120,6 +1173,7 @@ Prosecutor:
 Devil's Advocate:
   description: "Defend claims with evidence"
   subagent_type: "dev-team:council-scribe"   # tool-less; tools: ""
+  model: sonnet                              # P2 pin (SPEC-042 M2) default; COUNCIL_PHASE4_MODEL consumer (SPEC-042 M5)
   prompt: skills/council/prompts/phase4-brief.md
     with substitutions:
       {{ROLE}}             ← "Devil's Advocate"
@@ -1167,12 +1221,12 @@ EFFORT=$(bash "$RESOLVE" --effort "council-judge")
 printf '%s\n' "$EFFORT"
 ```
 <!-- /include -->
-Bash stdout = model string; empty → omit model.
+Bash stdout = model string.
+If MODEL is non-empty: pass it as the Agent model param.
+If MODEL is empty: pass `opus` — `council-judge`'s SPEC-003 § Tier-default alias (P1 floor). NEVER omit `model` at a council site; MUST NOT pass `""`.
 Then `resolve-model.sh --effort` (same agent). Non-empty EFFORT → pass as Agent/Workflow `effort` param; empty → omit (MUST NOT pass `""`).
 Surface resolver stderr to the user. Do not swallow.
-If MODEL is non-empty: pass it as the Agent model param.
-If MODEL is empty: omit model. MUST NOT pass "".
-If spawn fails attributed to the model param (invalid/unknown/unsupported model): retry once with model omitted; warn `model-map: host rejected model '<string>' for council-judge; retrying with Tier default`.
+If spawn fails attributed to the model param (invalid/unknown/unsupported model): retry once with the sibling alias `opus` (the alias chosen at pin time — never derived from the rejected string, never an omitted `model`); warn `model-map: host rejected model '<string>' for council-judge; retrying with sibling alias 'opus'`.
 If spawn fails attributed to the `effort` param (invalid/unknown/unsupported effort): retry once omitting effort; warn `model-map: host rejected effort '<token>' for council-judge; retrying with inherited effort`.
 Model host-reject stays independent. Ambiguous failure: do not guess; do not combinatorial-retry both params.
 Other spawn failures MUST NOT be retried as a model or effort fallback.
@@ -1180,6 +1234,7 @@ Other spawn failures MUST NOT be retried as a model or effort fallback.
 ```
 description: "Judge claims from evidence"
 subagent_type: "dev-team:council-judge"
+model: <MODEL>                     # P1 pin: fence stdout; empty → `opus` (Tier alias)
 prompt: skills/council/prompts/judge.md
   with substitutions:
     {{ORIGINAL_CLAIMS}}   ← original claim list from Phase 1 (verbatim records)
@@ -1212,7 +1267,9 @@ into claim-atomic parts:
 4. Spawn the judge once per part. Each part gets: the part's claims only in
    `{{ORIGINAL_CLAIMS}}`, the part's bundles in `{{EVIDENCE_BUNDLES}}`, the
    brief lines whose `claim_id` is in the part, and the same
-   `{{OUTPUT_SHAPE}}`.
+   `{{OUTPUT_SHAPE}}`. Every part spawn carries the same pinned `model` as the
+   single-judge spawn above — the P1 value resolves once per role (SPEC-042 M1);
+   a part never spawns unpinned and never with `model` omitted.
 5. Merge the parts: `concat` the `verdicts`/`findings` arrays and the
    `struck_lines` arrays, in part order. If any spawn fails, treat the whole
    judge as failed (degraded path below) — never finalize a partially
@@ -1515,7 +1572,9 @@ Total reviewers: $((TEAMS + M))
 ### B2 — Parallel reviewer fan-out (single wave)
 
 Spawn all unconstrained and lens reviewers in one message so they run in
-parallel and none sees another's output.
+parallel and none sees another's output. Every reviewer is a tool-less
+`dev-team:council-scribe` and carries the P2 pin `model: sonnet` (SPEC-042
+M2 — literal pin, no resolver call, no map key).
 
 **Spawn concurrency cap (CDT-573):** when `plan.concurrency` is set, append the
 contract line from `skills/council/spawn-contract.md` once after the fleet
@@ -1527,6 +1586,7 @@ the wave is batch-synchronous: a batch MUST NOT observe sibling-batch output.
 ```
 description: "Blind review unconstrained U<N>"
 subagent_type: "dev-team:council-scribe"   # tool-less; tools: ""
+model: sonnet                              # P2 pin (SPEC-042 M2)
 prompt: skills/council/prompts/blind-scribe.md
   with substitutions:
     {{TEAM_ID}}      ← U<N> (U1, U2, …)
@@ -1544,6 +1604,7 @@ prompt: skills/council/prompts/blind-scribe.md
 ```
 description: "Blind review lens L-<lens>"
 subagent_type: "dev-team:council-scribe"   # tool-less; tools: ""
+model: sonnet                              # P2 pin (SPEC-042 M2)
 prompt: skills/council/prompts/blind-scribe.md
   with substitutions:
     {{TEAM_ID}}      ← L-<lens> (e.g. L-security)
@@ -1567,11 +1628,13 @@ Files, Claim, or Evidence — drop, do not repair. Count dropped.
 
 ### B4 — Quorum analyst (clustering)
 
-Spawn ONE quorum analyst:
+Spawn ONE quorum analyst — tool-less `dev-team:council-scribe` with the P2 pin
+`model: sonnet` (SPEC-042 M2):
 
 ```
 description: "Blind review quorum analysis"
 subagent_type: "dev-team:council-scribe"   # tool-less; tools: ""
+model: sonnet                              # P2 pin (SPEC-042 M2)
 prompt: skills/council/prompts/quorum-analyst.md
   with substitutions:
     {{ALL_FINDINGS}}         ← namespaced FINDING blocks (=== TEAM <id> === headers)

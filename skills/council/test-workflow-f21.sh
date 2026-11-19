@@ -54,7 +54,7 @@ else
 fi
 
 COUNCIL_TEST_REPO="$TR" node --input-type=module <<'JS'
-import { readFileSync, writeFileSync, readdirSync, existsSync } from 'node:fs'
+import { readFileSync, writeFileSync, readdirSync, existsSync, mkdirSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { loadPrompt, parsePreflightStdout, runCouncil } from './skills/council/workflow.js'
 
@@ -135,6 +135,7 @@ console.log('OK: phase3 and external exit 2 with no handoff dir')
 console.error = origErr
 
 const struckAgent = async (_p, opts) => {
+  if (!opts.model) throw new Error('spawn with no model pin: ' + (opts.phase || opts.label))
   if (opts.phase === 'Investigate') {
     if (String(opts.label).endsWith(':paranoid-ic')) {
       return { bundles: [{ tool_use_id: 't', raw_blob: 'BLOB', file_line: 'f:1', reproducible_command: 'true' }] }
@@ -185,6 +186,111 @@ const noTok = await runCouncil({
 })
 if (String(noTok.stdout).includes('Tokens:')) throw new Error('invented a tokens block')
 console.log('OK: tokens-file is passed only when the caller has one')
+
+// ---- CDT-641 T3: SPEC-042 M2/M4 model pins on the Workflow path -------------
+// A Model map layer whose values are NOT the Tier aliases, written here only,
+// so every run above keeps the empty-map Tier floor.
+const mapDir = process.env.COUNCIL_TEST_REPO + '/.claude/dev-team'
+mkdirSync(mapDir, { recursive: true })
+writeFileSync(
+  mapDir + '/models.local.json',
+  JSON.stringify({ agents: { finder: 'sonnet-preview', 'council-judge': 'opus-preview' } }),
+)
+
+const warnErrs = []
+console.error = (...a) => { warnErrs.push(a.join(' ')) }
+const rejectWarn = (l) => l.startsWith("model-map: host rejected model '")
+const seen = { Extract: [], Investigate: [], Judge: [] }
+const okVerdicts = () => ({
+  verdicts: [{ claim: 'x', claim_id: 'c0', verdict: 'UNVERIFIED', confidence: 40, evidence_blob: 'BLOB' }],
+  struck_lines: [],
+})
+const baseFleet = (judgeFn, extractFn) => async (_p, opts) => {
+  if (!opts.model) throw new Error('spawn with no model pin: ' + (opts.phase || opts.label))
+  if (seen[opts.phase]) seen[opts.phase].push(opts.model)
+  if (opts.phase === 'Extract') {
+    if (extractFn) return extractFn(opts)
+    return { claims: [{ claim: 'x', source_locator: 'f:1', claim_type: 'factual', load_weight: 5 }] }
+  }
+  if (opts.phase === 'Investigate') {
+    if (String(opts.label).endsWith(':paranoid-ic')) {
+      return { bundles: [{ tool_use_id: 't', raw_blob: 'BLOB', file_line: 'f:1', reproducible_command: 'true' }] }
+    }
+    return { bundles: [] }
+  }
+  if (opts.phase === 'Phase4') return { briefs: [], struck_lines: [] }
+  if (opts.label === 'council-judge') return judgeFn(opts)
+  return null
+}
+const runWf = (agent, args) =>
+  runCouncil({
+    args,
+    agent,
+    phase: () => {},
+    parallel: async (fns) => Promise.all(fns.map((f) => f())),
+  })
+
+// 1. Model-attributed judge reject: one retry with the sibling alias, and the
+// map value (not the Tier alias) on every other spawn.
+const rejectJudge = (opts) => {
+  if (opts.model !== 'opus') throw new Error(`Invalid model '${opts.model}': the host does not support it`)
+  return okVerdicts()
+}
+const retried = await runWf(baseFleet(rejectJudge), { scope: 'claim', claim: 'model reject' })
+if (!retried.ok) throw new Error('sibling-alias retry run failed: ' + JSON.stringify(retried))
+if (seen.Judge.length !== 2) throw new Error('judge spawns ' + seen.Judge.length + ' (want the reject plus one retry)')
+if (seen.Judge[0] !== 'opus-preview' || seen.Judge[1] !== 'opus') {
+  throw new Error('retry chain ' + seen.Judge.join(' -> ') + ' (want opus-preview -> opus)')
+}
+const warns = warnErrs.filter(rejectWarn)
+const wantWarn = "model-map: host rejected model 'opus-preview' for council-judge; retrying with sibling alias 'opus'"
+if (warns.length !== 1 || warns[0] !== wantWarn) throw new Error('retry warning ' + JSON.stringify(warns))
+if (!seen.Investigate.length || seen.Investigate.some((m) => m !== 'sonnet-preview')) {
+  throw new Error('Model map value not passed to investigators: ' + seen.Investigate.join(','))
+}
+if (retried.degraded !== false || retried.verification_mode !== 'full') {
+  throw new Error('the model retry degraded the run: ' + JSON.stringify({ d: retried.degraded, m: retried.verification_mode }))
+}
+console.log('OK: model-attributed reject retries once with the sibling alias; map value wins; no degradation')
+
+// 2. An ambiguous failure is never retried as a model fallback; CDV-199
+// degradation is untouched.
+warnErrs.length = 0
+for (const k of Object.keys(seen)) seen[k].length = 0
+const ambiguous = await runWf(
+  baseFleet(() => {
+    throw new Error('429 rate limit exceeded; retry later')
+  }),
+  { scope: 'claim', claim: 'ambiguous reject' },
+)
+if (seen.Judge.length !== 1) {
+  throw new Error('ambiguous failure retried as a model fallback: ' + seen.Judge.length + ' judge spawns')
+}
+if (warnErrs.some(rejectWarn)) throw new Error('model-reject warning on a non-model failure')
+if (ambiguous.degraded !== true || ambiguous.verification_mode !== 'self-verified') {
+  throw new Error('ambiguous judge failure did not degrade: ' + JSON.stringify({ d: ambiguous.degraded, m: ambiguous.verification_mode }))
+}
+console.log('OK: an ambiguous judge failure is not model-retried and degrades exactly as before')
+
+// 3. A pin already at its sibling (scribe = sonnet) never retries and never
+// falls back to an unpinned spawn.
+warnErrs.length = 0
+for (const k of Object.keys(seen)) seen[k].length = 0
+const scribeRun = await runWf(
+  baseFleet(okVerdicts, (opts) => {
+    throw new Error(`unknown model '${opts.model}'`)
+  }),
+  { scope: 'session', claim: 'scribe reject' },
+)
+if (seen.Extract.length !== 1) {
+  throw new Error('scribe pin retried against its own sibling: ' + seen.Extract.length + ' extract spawns')
+}
+if (seen.Extract[0] !== 'sonnet') throw new Error('scribe pin is not the policy sonnet: ' + seen.Extract[0])
+if (warnErrs.some(rejectWarn)) throw new Error('scribe reject emitted a retry warning')
+if (scribeRun.degraded !== true) throw new Error('scribe reject did not fall through to degradation')
+console.log('OK: a pin at its own sibling degrades without a second, unpinned spawn')
+
+console.error = origErr
 
 const after = wfDirs().filter((n) => !before.has(n))
 if (after.length) throw new Error('success path leaked handoff: ' + after.join(','))

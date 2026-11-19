@@ -71,6 +71,14 @@ is a bug.
   whose YAML frontmatter declares `tools: ""`. The empty allowlist is
   structurally enforced by the agent file — the engine does not attempt a
   per-invocation override. (SPEC-013 § Council tiering)
+- **Explicit model pin on every covered spawn.** Phases 1, 2 (incl. the named
+  fallback chain), 2.5, 3, 4, 5 (incl. the judge parts), and the `--blind`
+  waves each pass an explicit `model`: P1 roles resolve through the Model map
+  with the SPEC-003 § Tier-default alias as the empty-map floor (never `""`,
+  never omitted at council sites); tool-less scribe-class roles pin the literal
+  `sonnet`. A host-rejected model retries once with the sibling alias — never
+  by omitting `model`, never combinatorial. Protocol home:
+  `skills/council/model-map.md` § Model pins. (SPEC-042 M1/M2/M4)
 - **Queueing is not a spawn failure.** Under a Spawn concurrency cap
   (`plan.concurrency`), overflow waits in later batches: batching MUST NOT set
   `verification_mode: self-verified` and MUST NOT emit
@@ -139,7 +147,7 @@ current stage**; do not read every stage file up front.
 
 | Section | File | What |
 |---------|------|------|
-| Model map (SPEC-037) | `model-map.md` | finder / council-scribe / council-judge spawn fences |
+| Model pins (SPEC-037 + SPEC-042) | `model-map.md` | P1 spawn fences (`finder` / `ic5` / Phase 3 specialist / `council-judge`) with the Tier-alias floor; P2 scribe-class `sonnet` pin; sibling-alias host-reject retry |
 | Invocation Contract | `invocation-contract.md` | CLI arguments, presets, task-id resolution |
 | Spawn contract line | `spawn-contract.md` | Canonical AC8 sentence + substitution, placement, and unset rules (cited by every fleet fence) |
 | Phases 0–2 | `phases-0-2.md` | Intake, claim extraction, parallel investigation, spawn-failure degradation |
