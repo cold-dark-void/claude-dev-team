@@ -6,7 +6,8 @@
 #
 # Usage:
 #   sweep.sh compile-ship --ship=<pr|master|patch|minor|major|auto>
-#   sweep.sh compile-orchestrate-args --size <S|M|L> [--council-tier <skip|light|full>] [--ship <val>]
+#   sweep.sh compile-orchestrate-args --size <S|M|L> [--council-tier <skip|light|full>]
+#                        [--ship <val>] [--with-advisor[=<model>]]
 #   sweep.sh last-release-tag [--root PATH]
 #   sweep.sh tag-date --root PATH --tag TAG
 #   sweep.sh evidence-paths-absent --root PATH -- path [path...]
@@ -20,6 +21,7 @@
 #   sweep.sh is-epic-child --parent-id ID
 #   sweep.sh parse-flags [--ship <v>] [--limit <N>] [--project <X>]
 #                        [--refresh] [--skip-decided] [--autopilot]
+#                        [--with-advisor[=<model>]] [--note <text> ...]
 #   sweep.sh summary --counts JSON
 #
 # Verb contracts (SPEC-040 requirement ids):
@@ -32,7 +34,13 @@
 #     caller passes it (user-set only). `--ship` is optional: when it is present the
 #     compile-ship result is appended last; when it is absent or empty no autopilot
 #     argv is emitted, which is the attended default (run /orchestrate with no
-#     --autopilot flag). stdout is one space-separated argv line.
+#     --autopilot flag). `--with-advisor` and `--with-advisor=<model>` (SPEC-039
+#     M10) are appended verbatim, in the caller's spelling, after the tier and
+#     council argv and before the autopilot argv; when the flag is absent the
+#     line is byte-identical to the pre-CDT-585 line. A model outside
+#     [A-Za-z0-9._:+@~/-]+, an empty model, `null`, `--clear`, a newline or CR,
+#     and `--note` (the note is not child argv) exit 64.
+#     stdout is one space-separated argv line.
 #   last-release-tag (M21) — stdout is the newest local tag whose name passes
 #     is_release_tag, in committer-date order, or nothing when there is none
 #     (empty stdout, exit 0 — the M21 empty baseline). A --root that is not a
@@ -95,12 +103,17 @@
 #   is-epic-child (M7) — exit 0 = epic child, so SKIP it; exit 1 = not a child.
 #     An empty --parent-id is not a child.
 #   parse-flags (M18, M22) — accepts --ship <v> (or --ship=<v>), --limit <N>,
-#     --project <X>, --refresh, --skip-decided, --autopilot[=<true|false>], and a
-#     `--` terminator. A bump belongs on --ship: `--autopilot=patch` is a usage
-#     error, not a ship intent. Any other token, a duplicate value flag, a
-#     non-integer --limit, a bad --ship, or --refresh with --skip-decided exits 64
+#     --project <X>, --refresh, --skip-decided, --autopilot[=<true|false>],
+#     --with-advisor[=<model>] (SPEC-039 M10), --note <text> (every following
+#     word up to the next `--`-prefixed token) and a `--` terminator. A bump
+#     belongs on --ship: `--autopilot=patch` is a usage error, not a ship intent.
+#     Any other token, a duplicate value flag (including a second
+#     --with-advisor in either spelling, and a second --note), a non-integer
+#     --limit, a bad --ship, an empty/reserved advisor model, a --note with no
+#     text, a newline or CR in the note, or --refresh with --skip-decided exits 64
 #     (before any write: this verb writes nothing). stdout is one JSON object
-#     {"ship","limit","project","refresh","skip_decided","autopilot"}.
+#     {"ship","limit","project","refresh","skip_decided","autopilot",
+#      "with_advisor","advisor_model","note"}.
 #     Under --autopilot an unset --ship defaults to master (M17).
 #   summary (M24) — --counts is a JSON object
 #     {"open":N,"CLOSE":n,"ASK":n,"ORCHESTRATE":n,"DEFER":n,"SKIP":n,"escalations":n};
@@ -111,7 +124,9 @@
 # argv or as a JSON file path. Values go to jq with --arg and to git with argv
 # only. This script never evals, never bash -c's, and never builds a shell command
 # from item content. The one eval is load_is_release_tag, over plugin-shipped
-# source it checks first.
+# source it checks first. The --note text is data on the same rule: parse-flags
+# reports it, the protocol appends it to the journal `args` string, and no verb
+# builds a command from it.
 #
 # Exit codes: 0 ok / skip, 1 negative verdict or machinery failure, 64 usage.
 
@@ -123,7 +138,8 @@ TS_SH="$SCRIPT_DIR/terminal-status.sh"
 
 USAGE='Usage: sweep.sh <verb> [options]
   compile-ship --ship=<pr|master|patch|minor|major|auto>
-  compile-orchestrate-args --size <S|M|L> [--council-tier <skip|light|full>] [--ship <val>]
+  compile-orchestrate-args --size <S|M|L> [--council-tier <skip|light|full>]
+                           [--ship <val>] [--with-advisor[=<model>]]
   last-release-tag [--root PATH]
   tag-date --root PATH --tag TAG
   evidence-paths-absent --root PATH -- path [path...]
@@ -135,6 +151,7 @@ USAGE='Usage: sweep.sh <verb> [options]
   walk-sort                      (JSONL on stdin)
   is-epic-child --frontmatter FILE | --parent-id ID
   parse-flags [--ship <v>] [--limit <N>] [--project <X>] [--refresh] [--skip-decided] [--autopilot]
+              [--with-advisor[=<model>]] [--note <text> ...]
   summary --counts JSON
 Exit: 0 ok/skip, 1 negative verdict, 64 usage.'
 
@@ -160,6 +177,19 @@ reject_ctrl() {
   case "$1" in
     *$'\n'*|*$'\r'*) usage_err "option value must not contain a newline or CR: $2" ;;
   esac
+}
+
+# Advisor model token grammar (SPEC-039 M37, SPEC-040 AC22): an allowlist, not a
+# denylist. `null` and `--clear` are reserved so an absent override can never be
+# spelled as a model. The child run re-parses the compiled flag through
+# skills/advisor/parse-flags.sh, which owns the advisor semantics and the
+# path-traversal guard.
+valid_advisor_model() {
+  case "$1" in
+    ''|null|--clear) return 1 ;;
+    *[!A-Za-z0-9._:+@~/-]*) return 1 ;;
+  esac
+  return 0
 }
 
 # ---- shared helpers (sourced, never copied) --------------------------------
@@ -318,6 +348,7 @@ cmd_compile_ship() {
 
 cmd_compile_orchestrate_args() {
   local size="" ship="" ctier="" have_ctier=0 have_ship=0
+  local adv="" have_adv=0
   local ap=""
   local -a out=()
   while [ $# -gt 0 ]; do
@@ -328,6 +359,7 @@ cmd_compile_orchestrate_args() {
       --ship=*) ship="${1#--ship=}"; have_ship=1; shift ;;
       --council-tier) [ $# -ge 2 ] || usage_err "--council-tier needs value"; ctier="$2"; have_ctier=1; shift 2 ;;
       --council-tier=*) ctier="${1#--council-tier=}"; have_ctier=1; shift ;;
+      --with-advisor|--with-advisor=*) adv="$1"; have_adv=1; shift ;;
       -h|--help) printf '%s\n' "$USAGE"; exit 0 ;;
       *) usage_err "compile-orchestrate-args: unexpected argument: $1" ;;
     esac
@@ -344,6 +376,18 @@ cmd_compile_orchestrate_args() {
     validate_council_tier "$ctier" \
       || usage_err "invalid --council-tier '$ctier' (expected skip|light|full)"
     out+=("--council-tier=$ctier")
+  fi
+  # SPEC-040 AC23: the flag reaches /orchestrate verbatim, in the caller's
+  # spelling, and only when Step 1 reported it. The model grammar is re-checked
+  # here so a caller that skips Step 1 cannot put a metacharacter in the line;
+  # skills/advisor/parse-flags.sh stays the owner of advisor semantics.
+  if [ "$have_adv" -eq 1 ]; then
+    reject_ctrl "$adv" --with-advisor
+    if [ "$adv" != "--with-advisor" ]; then
+      valid_advisor_model "${adv#--with-advisor=}" \
+        || usage_err "invalid --with-advisor model '${adv#--with-advisor=}' (expected [A-Za-z0-9._:+@~/-]+; null and --clear are reserved)"
+    fi
+    out+=("$adv")
   fi
   # Attended default (M17, sweep.md Step 9b): an absent or empty --ship emits no
   # autopilot argv, so /orchestrate runs with no --autopilot flag. A value that is
@@ -961,7 +1005,9 @@ cmd_is_epic_child() {
 cmd_parse_flags() {
   local ship="" n_ship=0 limit=0 n_limit=0 project="" n_project=0
   local n_refresh=0 n_skip=0 n_ap=0
-  local b_refresh b_skip b_ap
+  local b_refresh b_skip b_ap b_adv
+  local adv_model="" n_adv=0 adv_has_value=0
+  local note="" n_note=0
   while [ $# -gt 0 ]; do
     case "$1" in
       --ship)
@@ -981,6 +1027,18 @@ cmd_parse_flags() {
       --autopilot) n_ap=$((n_ap + 1)); shift ;;
       --autopilot=false|--autopilot=0) n_ap=$((n_ap - 1)); shift ;;
       --autopilot=true|--autopilot=1) n_ap=$((n_ap + 1)); shift ;;
+      --with-advisor) n_adv=$((n_adv + 1)); shift ;;
+      --with-advisor=*)
+        n_adv=$((n_adv + 1)); adv_has_value=1
+        adv_model="${1#--with-advisor=}"; shift ;;
+      --note)
+        n_note=$((n_note + 1)); shift
+        # The note is every following word up to the next `--`-prefixed token,
+        # joined with single spaces. Words stay argv data (M25).
+        while [ $# -gt 0 ]; do
+          case "$1" in --*) break ;; esac
+          note="${note:+$note }$1"; shift
+        done ;;
       --) shift; break ;;
       -h|--help) printf '%s\n' "$USAGE"; exit 0 ;;
       *) usage_err "unknown flag: $1" ;;
@@ -990,6 +1048,15 @@ cmd_parse_flags() {
   [ "$n_ship" -le 1 ] || usage_err "duplicate --ship"
   [ "$n_limit" -le 1 ] || usage_err "duplicate --limit"
   [ "$n_project" -le 1 ] || usage_err "duplicate --project"
+  [ "$n_adv" -le 1 ] || usage_err "duplicate --with-advisor"
+  [ "$n_note" -le 1 ] || usage_err "duplicate --note"
+  if [ "$n_note" -eq 1 ] && [ -z "$note" ]; then
+    usage_err "option --note takes a value: every word up to the next -- flag"
+  fi
+  if [ "$n_adv" -eq 1 ] && [ "$adv_has_value" -eq 1 ]; then
+    valid_advisor_model "$adv_model" \
+      || usage_err "invalid --with-advisor model '$adv_model' (expected [A-Za-z0-9._:+@~/-]+; null and --clear are reserved)"
+  fi
   if [ "$n_refresh" -gt 0 ] && [ "$n_skip" -gt 0 ]; then
     usage_err "--refresh and --skip-decided are mutually exclusive"
   fi
@@ -1006,19 +1073,25 @@ cmd_parse_flags() {
     ship="master"
   fi
   reject_ctrl "$project" --project
+  reject_ctrl "$note" --note
   require_jq parse-flags
   b_refresh=false
   b_skip=false
   b_ap=false
+  b_adv=false
   [ "$n_refresh" -gt 0 ] && b_refresh=true
   [ "$n_skip" -gt 0 ] && b_skip=true
   [ "$n_ap" -gt 0 ] && b_ap=true
+  [ "$n_adv" -gt 0 ] && b_adv=true
   jq -cn --arg ship "$ship" --arg project "$project" \
     --argjson limit "$limit" \
     --argjson refresh "$b_refresh" \
     --argjson skip_decided "$b_skip" \
     --argjson autopilot "$b_ap" \
-    '{ship:$ship, limit:$limit, project:$project, refresh:$refresh, skip_decided:$skip_decided, autopilot:$autopilot}'
+    --argjson with_advisor "$b_adv" \
+    --arg advisor_model "$adv_model" \
+    --arg note "$note" \
+    '{ship:$ship, limit:$limit, project:$project, refresh:$refresh, skip_decided:$skip_decided, autopilot:$autopilot, with_advisor:$with_advisor, advisor_model:$advisor_model, note:$note}'
 }
 
 # ---- summary (M24) ------------------------------------------------------

@@ -4,6 +4,10 @@ All notable changes to **claude-dev-team**, newest first.
 Authoritative version history. Prefer **`/release`** to add `### vX.Y.Z` headings.
 Pre-written headings (release-train M5c, orchestrate version-sync tasks) are kept
 via skip-if-present when `/release` is given an explicit version — do not invent a
+### v2.0.2
+
+- **/backlog sweep forwards `--with-advisor` and carries the `--note` directive (CDT-585)** — `sweep.sh` `parse-flags` accepts `--with-advisor[=<model>]` (SPEC-039 charset, reserved values and duplicates exit 64) and one `--note <text>` DRI-directive token (argv words up to the next flag, LF/CR rejected), emitting `with_advisor` / `advisor_model` / `note` in the FLAGS JSON; `compile-orchestrate-args` gains the forwarding slot that appends the flag verbatim to the compiled `/orchestrate` argv (absent → byte-identical output; the M17 literal-`--ship` ban unchanged); `sweep.md` documents both flags, the Step 9b forwarding template, and the note suffix on the run line and the journal `args` field (never `eval`ed, M25). `sweep-test.sh` gains 75 bites for AC22–AC26 with two simulated-walk fixtures proving the note lands in the run line and both journal records and stays out of compile output.
+
 ### v2.0.1
 
 - **Explicit model pin on every council/workflow spawn (CDT-641)** — closes the session-model-inheritance hole where the Step-6c ship-gate fleet and the workflow path inherited the orchestrator's session model instead of the SPEC-003 Tier table. New spec `specs/core/SPEC-042-council-model-pin-fence.md` defines the fence; every covered spawn site now passes an explicit `model`: mappable roles resolve through `resolve-model.sh` (PDH subprocess, never sourced) with the SPEC-003 Tier alias as the floor when the model map is empty; scribe-class roles (council-scribe, council internal roles) pin the literal `sonnet` per the 2026-11-18 maintainer ruling; Phase 2 fallbacks (`dev-team:ic5` → `general-purpose` → `"Explore"`) each carry a pin; host-reject falls back to the sibling alias with a warn — never omit.

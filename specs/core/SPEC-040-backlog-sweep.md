@@ -233,6 +233,7 @@ Phase 2 (spec text only): MERGE + EPIC + BC5 mid-flight reroute.
 
 | Date | Change |
 |------|--------|
+| 2026-11-19 | CDT-585: `### CDT-585` ACs for child-surface flag forwarding — Step 1 `parse-flags` accepts `--with-advisor[=<model>]` (SPEC-039) and a documented `--note <text>` DRI-directive token; `compile-orchestrate-args` gains a `--with-advisor[=<model>]` slot; the note rides every walk run and the journal `args` field. Exit 64 stays for unknown flags; the M17 literal-`--ship` ban is unchanged. |
 | 2026-11-03 | M17/AC9 amendment: `auto` joins the `--ship` enum, compiling to `--autopilot=auto` (SPEC-041). |
 | 2026-10-23 | Fold old AC17 into AC1 and old AC18 into AC3 (M14(j) claim budget ≤16). |
 | 2026-10-23 | Register `tag-date` and `walk-outcome` helper verbs (CDT-582). |
@@ -277,6 +278,19 @@ Format and rules: SPEC-033 M14(g) and M14(h).
 - **AC15.** Terminal summary prints N open plus per-Disposition counts (CLOSE/ASK/ORCHESTRATE/DEFER/SKIP) plus escalations; every item is in exactly one bucket; exit 0 with escalations; non-zero only on machinery failure.
   Verify: bash skills/backlog/sweep-test.sh
 - **AC16.** Sweep edits nothing outside `.claude/sweeps/` and tracker flips via close/defer verbs; it does not invoke `/release`; `commands/backlog.md` is absent.
+  Verify: bash skills/backlog/sweep-test.sh
+
+### CDT-585
+
+- **AC22.** Step 1 `parse-flags` accepts `--with-advisor` and `--with-advisor=<model>` (SPEC-039 M10) — at most one occurrence in either form, a duplicate of either form exits 64; the model matches `[A-Za-z0-9._:+@~/-]+`, and an empty model or the reserved `null`/`--clear` exits 64; the FLAGS JSON carries `with_advisor` (`true|false`) and `advisor_model` (the model, else `""`); a genuinely unknown flag still exits 64 before any write.
+  Verify: bash skills/backlog/sweep-test.sh
+- **AC23.** `compile-orchestrate-args` accepts `--with-advisor[=<model>]` and appends the flag verbatim to the compiled `/orchestrate` argv only when Step 1 reported it; with no flag its output is byte-identical to the pre-CDT-585 output; the literal `--ship` never appears in the compiled line (M17 unchanged).
+  Verify: bash skills/backlog/sweep-test.sh
+- **AC24.** Step 1 `parse-flags` accepts one `--note <text>` DRI-directive token: the note is every following argv word up to the next `--`-prefixed token or end of argv, joined with single spaces; a second `--note` exits 64; LF or CR in the text exits 64 (`reject_ctrl`); the FLAGS JSON carries `note` (empty string when absent).
+  Verify: bash skills/backlog/sweep-test.sh
+- **AC25.** The Step 9 walk carries the note: the Step 9d run line and the Step 9c intent and Step 9e outcome journal `args` field append the note text after the compiled argv; the note never appears in `compile-orchestrate-args` output and is never `eval`ed or built into a shell word (M25); with no `--note`, the journal records stay byte-identical to the pre-CDT-585 shape.
+  Verify: bash skills/backlog/sweep-test.sh
+- **AC26.** Forwarding `--with-advisor` changes no sweep-side behavior beyond the compiled argv: `sweep.sh` reads no `ADVISOR` env, the Step 8 write fences stay verbs-only (M13/M14/M20), the journal field set is unchanged, and `skills/autopilot/parse-flags.sh` keeps its six-key output (no seventh key); the child run's advisor fences are owned by SPEC-039 (`Verify: bash skills/advisor/test.sh` covers them there).
   Verify: bash skills/backlog/sweep-test.sh
 
 ### Phase-2

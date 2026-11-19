@@ -24,8 +24,15 @@ M5–M25).
 | `--refresh` | Re-judge every item; ignore the journal | M22 |
 | `--skip-decided` | Skip any item with a terminal journal outcome | M22 |
 | `--autopilot` | Zero human turns; every would-be ASK becomes DEFER | M23 |
+| `--with-advisor[=<model>]` | Forwarded verbatim to every walk `/orchestrate` run (SPEC-039 M10); the sweep itself reads no advisor state | AC22, AC23 |
+| `--note <text>` | DRI directive: appended to the run line and to the journal `args` of every walk record; never `eval`ed | AC24, AC25 |
 
 `--refresh` with `--skip-decided` is a usage error: exit 64 before any write.
+
+`--with-advisor` takes at most one occurrence in either spelling. A model MUST
+match `[A-Za-z0-9._:+@~/-]+`; `null` and `--clear` are reserved. A duplicate
+flag, a model outside that grammar, a second `--note`, a `--note` with no text,
+or a newline or CR in the note are usage errors: exit 64 before any write.
 
 ## Step 0: Resolve the helpers and the shared root
 
@@ -66,8 +73,16 @@ fi
 ```
 
 `FLAGS` is one JSON object: `ship`, `limit`, `project`, `refresh`,
-`skip_decided`, `autopilot`. Under `--autopilot` an unset `--ship` defaults to
+`skip_decided`, `autopilot`, `with_advisor`, `advisor_model`, `note`. Under
+`--autopilot` an unset `--ship` defaults to
 `master` (M17). On exit 64, report the usage line and write nothing.
+
+`with_advisor` is `true` when the user passed `--with-advisor` (or
+`--with-advisor=<model>`) and `advisor_model` is that model, else `""`. Carry
+both to Step 9b. `note` is the `--note` text, joined with single spaces, and
+`""` when the flag is absent. The note is data: Step 9 appends it to the run
+line and to the journal `args`; you MUST NOT `eval` it, put it through a shell
+word, or pass it to any verb (M25).
 
 ## Step 2: Snapshot the tag baseline
 
@@ -297,23 +312,43 @@ parallel `git worktree` operations. For each item, in order:
 the `SKIP` bucket, so the buckets still sum to N open (M24).
 
 **9b. Compile the argv.** Pass `--council-tier` only when the user set it
-(SPEC-013), and pass `--ship` only when Step 1 reported one:
+(SPEC-013), pass `--ship` only when Step 1 reported one, and pass
+`--with-advisor` only when Step 1 reported it:
 
 ```bash template
 # lint-ok: C1 — SWEEP is carried from Step 0; SHIP and COUNCIL_TIER come from Step 1
 ARGS=$(bash "$SWEEP" compile-orchestrate-args --size "<S|M|L>" --ship "<val>")
 # Attended sweep with no --ship: pass no --ship and the line carries no autopilot argv.
 ARGS=$(bash "$SWEEP" compile-orchestrate-args --size "<S|M|L>")
+# Step 1 reported the advisor flag: pass the same spelling to the same verb call.
+ARGS=$(bash "$SWEEP" compile-orchestrate-args --size "<S|M|L>" --ship "<val>" --with-advisor="<model>")
 ```
 
 The compiled line carries `--tier=light` for `S`, no `--tier` for `M`,
-`--tier=full` for `L`, then the compiled autopilot argv. The literal `--ship`
-never appears in it and MUST NOT reach `/orchestrate` (M17). With no `--ship`,
-the verb emits the tier (and `--council-tier` when set) and nothing else: run
-`/orchestrate` with no autopilot flag (the attended Step-11 gate).
+`--tier=full` for `L`, then `--with-advisor[=<model>]` when Step 1 reported it,
+then the compiled autopilot argv. The verb appends that flag verbatim, and with
+no advisor flag the line is byte-identical to the pre-CDT-585 line. The literal
+`--ship` never appears in it and MUST NOT reach `/orchestrate` (M17). With no
+`--ship`, the verb emits the tier (and `--council-tier` when set) and nothing
+else: run `/orchestrate` with no autopilot flag (the attended Step-11 gate).
+
+**9b-append. Append the note.** When Step 1 reported a non-empty `note`, append
+it to that line after the compiled argv, separated by one space (no leading
+space when the compiled argv is empty):
+
+```bash template
+# lint-ok: C1 — ARGS is carried from Step 9b and NOTE from Step 1 in this sweep session
+if [ -n "$NOTE" ]; then
+  ARGS="${ARGS:+$ARGS }$NOTE"
+fi
+```
+
+Carry the note as text only. Never `eval` it, never build a shell word from it,
+and never pass it to `compile-orchestrate-args` (M25). The advisor flag ends in
+the child argv; the note ends in the run line and the journal only.
 
 **9c. Journal the intent.** An `ORCHESTRATE` record whose `args` field is the
-compiled line (Step 8's fence).
+compiled line with the note suffix (Step 8's fence).
 
 **9d. Probe the host, then run (M19).**
 
@@ -330,10 +365,14 @@ fi
 
 On true, invoke `/orchestrate` for that item as the host supports. On false,
 print the compiled line and run it in the current host turn. MUST NOT claim a
-nested agent spawn on that host.
+nested agent spawn on that host. The text after the slug is the Step 9b line:
+the compiled argv, then the note when one is set. Print the note as text only —
+the note is not a `/orchestrate` flag.
 
 **9e. Journal the outcome.** Write the completed record with one of the Step 8
-outcomes. Each spawned run emits its own decision-cards (SPEC-033).
+outcomes. It repeats the intent record's `args` value verbatim, note suffix
+included, so the two records for one run differ only by `outcome`. Each spawned
+run emits its own decision-cards (SPEC-033).
 
 The journal outcome enum is closed (M20): `closed`, `shipped`, `pr-stopped`,
 `deferred`, `asked-answered`. A child run that halts names its own blocking

@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# skills/backlog/sweep-test.sh — SPEC-040 § CDT-582 Phase-1 suite (AC1–AC16).
+# skills/backlog/sweep-test.sh — SPEC-040 § CDT-582 Phase-1 suite (AC1–AC16)
+# plus § CDT-585 (AC22–AC26, the child-surface flag forwarding).
 #
 # Two layers of bites:
 #   1. Data plane — every sweep.sh verb (T1 helpers, T3 purge evidence) plus
@@ -13,7 +14,7 @@
 # `(protocol-assert)`.
 #
 # Every case prints `PASS: AC<n>: ...`; the COVERAGE gate refuses a clean run
-# when any AC1–AC16 has no passing case.
+# when any AC1–AC16 or AC22–AC26 has no passing case.
 #
 # Hermetic: tests/lib/hermetic.sh roots every fixture under $TMPDIR (git
 # ceiling, fake HOME, fixed git identity). Never writes into the real repo.
@@ -500,11 +501,14 @@ decide_size() {
   if [ "$n" -le 1 ]; then printf 'S\n'; elif [ "$n" -eq 2 ]; then printf 'M\n'; else printf 'L\n'; fi
 }
 
-# sweep_sim <root> <linear-json> <limit> <autopilot> <refresh> <events> <batch>
+# sweep_sim <root> <linear-json> <limit> <autopilot> <refresh> <events> <batch> [note]
 # Emulates skills/backlog/sweep.md Steps 2-10 with the real verbs and the real
 # write verbs. stdout is the summary counts JSON. Events are appended in order.
 sweep_sim() {
   local root="$1" lin="$2" limit="$3" ap="$4" refresh="$5" ev="$6" batch="$7"
+  # CDT-585 (AC25): the Step 1 note rides the run line and the walk journal
+  # records. It is argv data — the sim never evals it and never builds a word.
+  local note="${8:-}"
   local d swd tag tag_date row total i slug lid title added epic key jline
   local n_open=0 n_skip=0 n_close=0 n_ask=0 n_defer=0 n_orch=0 n_esc=0
   local disp evid rc aff sz args oc pre p halt
@@ -635,6 +639,11 @@ sweep_sim() {
       args=$(bash "$SWEEP" compile-orchestrate-args --size "$sz" --ship master)
     else
       args=$(bash "$SWEEP" compile-orchestrate-args --size "$sz")
+    fi
+    # Step 9d/9c/9e — the note suffix rides the run line and both journal
+    # records as data (SPEC-040 AC25); with no note the shape is unchanged.
+    if [ -n "$note" ]; then
+      args="${args:+$args }$note"
     fi
     printf 'ARGS %s|%s\n' "$key" "$args" >> "$ev"
     journal_rec "$jline" ORCHESTRATE "walk: size $sz" "$args" "$tag"
@@ -767,7 +776,7 @@ md_rule "AC9" "the protocol passes --ship only when Step 1 reported one" 1 \
 # 1. The sweep's own flag-parse path accepts --ship=auto (sweep.sh parse-flags
 #    validates via validate_ship, the same enum compile-ship consults).
 check "AC1" "Backlog sweep --ship enum accepts --ship=auto: parse-flags --ship=auto rc 0 with ship=auto" \
-  '{"ship":"auto","limit":0,"project":"","refresh":false,"skip_decided":false,"autopilot":false}' \
+  '{"ship":"auto","limit":0,"project":"","refresh":false,"skip_decided":false,"autopilot":false,"with_advisor":false,"advisor_model":"","note":""}' \
   "$(bash "$SWEEP" parse-flags --ship auto)"
 # 1b. The sweep-level compile path (the argv the walk hands /orchestrate)
 #     accepts --ship=auto and emits the autopilot token.
@@ -1536,7 +1545,7 @@ md_rule "AC3" "the protocol forbids eval of ticket text" 1 "Never \`eval\` ticke
 # ===========================================================================
 # AC9 / AC13 / AC14 — the flag surface the protocol parses first (Step 1).
 check "AC9" "parse-flags defaults" \
-  '{"ship":"","limit":0,"project":"","refresh":false,"skip_decided":false,"autopilot":false}' \
+  '{"ship":"","limit":0,"project":"","refresh":false,"skip_decided":false,"autopilot":false,"with_advisor":false,"advisor_model":"","note":""}' \
   "$(bash "$SWEEP" parse-flags)"
 check "AC9" "sweep --autopilot defaults --ship to master" "master" \
   "$(bash "$SWEEP" parse-flags --autopilot | jq -r '.ship')"
@@ -1567,6 +1576,209 @@ check "AC1" "parse-flags keeps an untrusted --project as data" "'; rm -rf / #" \
   "$(bash "$SWEEP" parse-flags --project "'; rm -rf / #" | jq -r '.project')"
 check "AC1" "parse-flags reports the project filter for the Linear query" "acme" \
   "$(bash "$SWEEP" parse-flags --project=acme | jq -r '.project')"
+
+# ===========================================================================
+# CDT-585 — child-surface flag forwarding: --with-advisor and --note
+# ===========================================================================
+# AC22 — Step 1 accepts --with-advisor[=<model>] (SPEC-039 M10).
+AP_SH="$HERE/../autopilot/parse-flags.sh"
+[ -f "$AP_SH" ] || { printf 'FAIL: missing %s\n' "$AP_SH"; printf 'VERIFY exit=1\n'; exit 1; }
+
+check "AC22" "the FLAGS JSON carries with_advisor, advisor_model and note by default" \
+  "9|false||" \
+  "$(bash "$SWEEP" parse-flags | jq -r '[(keys | length), .with_advisor, .advisor_model, .note] | map(tostring) | join("|")')"
+check "AC22" "bare --with-advisor enables the advisor with an empty model" "true|" \
+  "$(bash "$SWEEP" parse-flags --with-advisor | jq -r '[.with_advisor, .advisor_model] | map(tostring) | join("|")')"
+check "AC22" "--with-advisor=<model> reports the model" "true|grok-4.6" \
+  "$(bash "$SWEEP" parse-flags --with-advisor=grok-4.6 | jq -r '[.with_advisor, .advisor_model] | map(tostring) | join("|")')"
+check "AC22" "the whole model charset [A-Za-z0-9._:+@~/-] is accepted" "aB9._:+@~/-z" \
+  "$(bash "$SWEEP" parse-flags --with-advisor='aB9._:+@~/-z' | jq -r '.advisor_model')"
+check "AC22" "a namespaced model keeps its slash" "spark-llama/ornith1.5-35b-a3b" \
+  "$(bash "$SWEEP" parse-flags --with-advisor=spark-llama/ornith1.5-35b-a3b | jq -r '.advisor_model')"
+check "AC22" "the advisor flag coexists with the other flags" \
+  "true|grok-4.6|master" \
+  "$(bash "$SWEEP" parse-flags --autopilot --with-advisor=grok-4.6 --limit 2 \
+     | jq -r '[.with_advisor, .advisor_model, .ship] | map(tostring) | join("|")')"
+rc_is "AC22" "a duplicate --with-advisor exits 64" 64 \
+  bash "$SWEEP" parse-flags --with-advisor --with-advisor
+rc_is "AC22" "the two spellings together exit 64" 64 \
+  bash "$SWEEP" parse-flags --with-advisor --with-advisor=grok-4.6
+rc_is "AC22" "a duplicate --with-advisor=<model> exits 64" 64 \
+  bash "$SWEEP" parse-flags --with-advisor=grok-4.6 --with-advisor=grok-4.7
+rc_is "AC22" "an empty model exits 64" 64 bash "$SWEEP" parse-flags --with-advisor=
+rc_is "AC22" "the reserved model null exits 64" 64 bash "$SWEEP" parse-flags --with-advisor=null
+rc_is "AC22" "the reserved model --clear exits 64" 64 bash "$SWEEP" parse-flags --with-advisor=--clear
+rc_is "AC22" "a model with whitespace exits 64" 64 bash "$SWEEP" parse-flags --with-advisor='grok 4.6'
+rc_is "AC22" "a model with shell metachars exits 64" 64 bash "$SWEEP" parse-flags --with-advisor='$(id)'
+rc_is "AC22" "a model with a semicolon exits 64" 64 bash "$SWEEP" parse-flags --with-advisor='a;b'
+check "AC22" "a rejected advisor value emits no JSON" "" \
+  "$(bash "$SWEEP" parse-flags --with-advisor=null 2>/dev/null)"
+check "AC22" "an unknown flag still exits 64 and emits no JSON" "" \
+  "$(bash "$SWEEP" parse-flags --with-advisors 2>/dev/null)"
+rc_is "AC22" "a near-miss flag name is an unknown flag" 64 bash "$SWEEP" parse-flags --with-advisors
+md_rule "AC22" "the protocol bounds the advisor flag to one occurrence" 1 \
+  "takes at most one occurrence in either spelling"
+
+# AC23 — compile-orchestrate-args appends the flag verbatim, only when set.
+check "AC23" "with no advisor flag the legacy matrix is byte-identical (pinned literals)" \
+  "S=--tier=light|M=|L=--tier=full|Lc=--tier=full --council-tier=light|Sp=--tier=light --autopilot=master|Mp=--autopilot=patch|Lp=--tier=full --council-tier=light --autopilot=patch" \
+  "$(printf 'S=%s|M=%s|L=%s|Lc=%s|Sp=%s|Mp=%s|Lp=%s' \
+     "$(bash "$SWEEP" compile-orchestrate-args --size S)" \
+     "$(bash "$SWEEP" compile-orchestrate-args --size M)" \
+     "$(bash "$SWEEP" compile-orchestrate-args --size L)" \
+     "$(bash "$SWEEP" compile-orchestrate-args --size L --council-tier light)" \
+     "$(bash "$SWEEP" compile-orchestrate-args --size S --ship master)" \
+     "$(bash "$SWEEP" compile-orchestrate-args --size M --ship patch)" \
+     "$(bash "$SWEEP" compile-orchestrate-args --size L --council-tier light --ship patch)")"
+check "AC23" "the bare flag is appended verbatim before the autopilot argv" \
+  "--tier=light --with-advisor --autopilot=master" \
+  "$(bash "$SWEEP" compile-orchestrate-args --size S --ship master --with-advisor)"
+check "AC23" "the model spelling is appended verbatim" \
+  "--tier=full --council-tier=light --with-advisor=grok-4.6 --autopilot=patch" \
+  "$(bash "$SWEEP" compile-orchestrate-args --size L --council-tier light --ship patch \
+     --with-advisor=grok-4.6)"
+check "AC23" "the attended M line carries the advisor flag alone" "--with-advisor" \
+  "$(bash "$SWEEP" compile-orchestrate-args --size M --with-advisor)"
+check "AC23" "an empty --ship with the advisor emits tier plus flag only" "--tier=light --with-advisor" \
+  "$(bash "$SWEEP" compile-orchestrate-args --size S --ship '' --with-advisor)"
+check "AC23" "the advisor line carries no literal --ship" "0" \
+  "$(bash "$SWEEP" compile-orchestrate-args --size S --ship master --with-advisor \
+     | grep -c -- '--ship' || true)"
+check "AC23" "the advisor value carries no --autopilot argv of its own" "1" \
+  "$(bash "$SWEEP" compile-orchestrate-args --size S --ship master --with-advisor \
+     | grep -c -- '--autopilot=master' || true)"
+rc_is "AC23" "compile rejects an empty advisor model" 64 \
+  bash "$SWEEP" compile-orchestrate-args --size S --with-advisor=
+rc_is "AC23" "compile rejects the reserved model null" 64 \
+  bash "$SWEEP" compile-orchestrate-args --size S --with-advisor=null
+rc_is "AC23" "compile rejects the reserved model --clear" 64 \
+  bash "$SWEEP" compile-orchestrate-args --size S --with-advisor=--clear
+rc_is "AC23" "compile rejects a model with whitespace" 64 \
+  bash "$SWEEP" compile-orchestrate-args --size S --with-advisor='grok 4.6'
+rc_is "AC23" "compile rejects --note (the note is not child argv)" 64 \
+  bash "$SWEEP" compile-orchestrate-args --size S --note x
+check "AC23" "a rejected advisor value emits no compiled line" "" \
+  "$(bash "$SWEEP" compile-orchestrate-args --size S --with-advisor=null 2>/dev/null)"
+md_rule "AC23" "the protocol forwards the advisor flag only when Step 1 reported it" 1 \
+  '`--with-advisor` only when Step 1 reported it'
+md_rule "AC23" "the protocol pins the absent-flag line as byte-identical" 1 \
+  "byte-identical to the pre-CDT-585 line"
+
+# AC24 — Step 1 accepts one --note <text> token.
+check "AC24" "--note joins the following words with single spaces" \
+  "fix the typo in the README" \
+  "$(bash "$SWEEP" parse-flags --note fix the typo in the README | jq -r '.note')"
+check "AC24" "the note stops at the next -- flag" "skip the flaky test" \
+  "$(bash "$SWEEP" parse-flags --note skip the flaky test --limit 3 | jq -r '.note')"
+check "AC24" "a flag after the note keeps its own value" "3" \
+  "$(bash "$SWEEP" parse-flags --note skip the flaky test --limit 3 | jq -r '.limit')"
+check "AC24" "a trailing note after the flags is captured" "bump class only" \
+  "$(bash "$SWEEP" parse-flags --ship pr --note bump class only | jq -r '.note')"
+check "AC24" "the note stops at the -- terminator" "tail words" \
+  "$(bash "$SWEEP" parse-flags --note tail words -- | jq -r '.note')"
+check "AC24" "a one-word note is exact" "N" "N" \
+  "$(bash "$SWEEP" parse-flags --note N | jq -r '.note')"
+check "AC24" "note words with metachars stay data" "; rm -rf / #" \
+  "$(bash "$SWEEP" parse-flags --note ';' rm -rf / '#' | jq -r '.note')"
+check "AC24" "spaces inside one word are kept verbatim" "a  b" \
+  "$(bash "$SWEEP" parse-flags --note 'a  b' | jq -r '.note')"
+rc_is "AC24" "a second --note exits 64" 64 bash "$SWEEP" parse-flags --note a --note b
+rc_is "AC24" "a --note with no words exits 64" 64 bash "$SWEEP" parse-flags --note
+rc_is "AC24" "a --note whose text is empty exits 64" 64 bash "$SWEEP" parse-flags --note --limit 3
+rc_is "AC24" "an LF in the note exits 64" 64 bash "$SWEEP" parse-flags --note "$(printf 'a\nb')"
+rc_is "AC24" "a CR in the note exits 64" 64 bash "$SWEEP" parse-flags --note "$(printf 'a\rb')"
+check "AC24" "the verb names the accepted spelling" "1" \
+  "$(bash "$SWEEP" parse-flags --note 2>&1 | grep -cF 'option --note takes a value' || true)"
+check "AC24" "a rejected note emits no JSON" "" "$(bash "$SWEEP" parse-flags --note a --note b 2>/dev/null)"
+md_rule "AC24" "the protocol documents the joined note text" 1 "joined with single spaces"
+md_rule "AC24" "the protocol makes a note with no text a usage error" 1 \
+  "a \`--note\` with no text,"
+
+# AC25 — the note rides the Step 9d run line and the 9c/9e journal args.
+# make_walk_repo <root> — two purge-clean items (S and M) and one release tag.
+make_walk_repo() {
+  local root="$1"
+  mkdir -p "$root/.claude/backlog" "$root/src"
+  cp "$GITIGNORE" "$root/.gitignore"
+  printf '%s\n' '# Changelog' '' '### v1.2.0' '' '- seed (2026-04-04)' > "$root/CHANGELOG.md"
+  printf '%s\n' 'kept' > "$root/src/keep.c"
+  git -C "$root" init -q 2>/dev/null
+  git -C "$root" add -A
+  GIT_COMMITTER_DATE='2026-04-04T09:00:00 +0000' git -C "$root" commit -q -m seed
+  git -C "$root" tag v1.2.0
+  printf '%s\n' '# NoteRepo - Backlog Index' '' '## Pending' '' \
+    '- [Note work a](backlog/note-a.md) - Note work a [PENDING]' \
+    '- [Note work b](backlog/note-b.md) - Note work b [PENDING]' '' '## Completed' \
+    > "$root/.claude/backlog.md"
+  write_item "$root" note-a 'Note work a' PENDING 2026-07-01 '' '' 'S'
+  write_item "$root" note-b 'Note work b' PENDING 2026-07-02 '' '' 'M'
+}
+
+REPOF="$WORK/repoF"
+REPOG="$WORK/repoG"
+make_walk_repo "$REPOF"
+make_walk_repo "$REPOG"
+EV_F="$WORK/ev-f.txt"; BT_F="$WORK/bt-f.txt"
+EV_G="$WORK/ev-g.txt"; BT_G="$WORK/bt-g.txt"
+NOTE_F='; drop table sweeps; rm -rf / # ship it'
+sweep_sim "$REPOF" "$WORK/empty-linear.json" 0 0 0 "$EV_F" "$BT_F" "$NOTE_F" >/dev/null
+sweep_sim "$REPOG" "$WORK/empty-linear.json" 0 0 0 "$EV_G" "$BT_G" >/dev/null
+JF="$REPOF/.claude/sweeps/note-a.jsonl"
+JG="$REPOG/.claude/sweeps/note-a.jsonl"
+check "AC25" "the note-suffixed run line is the argv plus one space plus the note" \
+  "--tier=light $NOTE_F" \
+  "$(grep -m1 '^ARGS note-a|' "$EV_F" | sed 's/^ARGS note-a|//')"
+check "AC25" "the Step 9c intent record carries the note in args" \
+  "--tier=light $NOTE_F" \
+  "$(jq -r 'select(has("outcome") | not) | .args' "$JF" | head -n1)"
+check "AC25" "the Step 9e outcome record carries the same note in args" \
+  "--tier=light $NOTE_F" \
+  "$(jq -r 'select(has("outcome")) | .args' "$JF" | head -n1)"
+check "AC25" "both walk records carry the note (M item included)" "2" \
+  "$(cat "$REPOF/.claude/sweeps/note-b.jsonl" | grep -cF -- "$NOTE_F" || true)"
+check "AC25" "the journal field set is unchanged: 5 intent keys, 6 completed keys" "5|6" \
+  "$(printf '%s|%s' "$(jq -r 'keys | length' "$JF" | head -n1)" \
+     "$(jq -r 'keys | length' "$JF" | tail -n1)")"
+check "AC25" "with no --note the record args are the bare compiled line" "--tier=light" \
+  "$(jq -r 'select(has("outcome") | not) | .args' "$JG" | head -n1)"
+check "AC25" "with no --note the M record keeps its empty args string" "" \
+  "$(jq -r 'select(has("outcome") | not) | .args' "$REPOG/.claude/sweeps/note-b.jsonl" | head -n1)"
+check "AC25" "with no --note the record key set is the pre-CDT-585 shape" "5|6" \
+  "$(printf '%s|%s' "$(jq -r 'keys | length' "$JG" | head -n1)" \
+     "$(jq -r 'keys | length' "$JG" | tail -n1)")"
+check "AC25" "the M item with no argv is the note alone (no leading space)" "$NOTE_F" \
+  "$(jq -r 'select(has("outcome") | not) | .args' "$REPOF/.claude/sweeps/note-b.jsonl" | head -n1)"
+check "AC25" "the metachar note ran nothing (no injected path in the fixture repo)" "absent" \
+  "$(cd "$REPOF" && ls -A | grep -cE '^(drop|sweeps;|sweeps|rm|rf|#|ship|it)$' \
+     | awk '{print ($1==0)?"absent":"present"}')"
+check "AC25" "the note walk wrote one journal file per item" "2" \
+  "$(ls -1 "$REPOF/.claude/sweeps" | grep -c '\.jsonl$' || true)"
+count_not "AC25" "sweep.sh never evals the note" "$SWEEP" 'eval[^#]*note'
+count_not "AC25" "sweep.sh builds no shell word from the note" "$SWEEP" 'bash -c[^#]*note'
+md_rule "AC25" "the protocol journals the compiled line with the note suffix" 1 \
+  "compiled line with the note suffix"
+md_rule "AC25" "the protocol forbids eval of the note" 1 "Never \`eval\` it, never build a shell word from it"
+md_rule "AC25" "the protocol keeps the note out of the compiled argv" 1 \
+  "the note ends in the run line and the journal only"
+
+# AC26 — forwarding changes no sweep-side behavior.
+count_not "AC26" "sweep.sh reads no ADVISOR env" "$SWEEP" 'ADVISOR'
+check "AC26" "the autopilot parser keeps its six keys with the advisor flag" "6" \
+  "$(bash "$AP_SH" --with-advisor | jq -r 'keys | length')"
+check "AC26" "the autopilot parser keeps its six keys with a model" "6" \
+  "$(bash "$AP_SH" --with-advisor=grok-4.6 | jq -r 'keys | length')"
+check "AC26" "the journal verb accepts the advisor-free record shape unchanged" "0" \
+  "$(bash "$SWEEP" journal-append --file "$WORK/ac26.jsonl" \
+      --json '{"ts":"2026-11-19T09:00","disposition":"ORCHESTRATE","evidence":"walk: size S","args":"--tier=light --with-advisor","tag_baseline":"v1.9.0"}' \
+      >/dev/null 2>&1; echo $?)"
+check "AC26" "the journal verb keeps the five-field intent shape" "5" \
+  "$(jq -r 'keys | length' "$WORK/ac26.jsonl" | tail -n1)"
+check "AC26" "the advisor run journal reads back with the same field set" \
+  "args,disposition,evidence,outcome,tag_baseline,ts" \
+  "$(jq -r 'select(has("outcome")) | keys | join(",")' "$JF" | head -n1)"
+md_rule "AC26" "the Step 8 dispositions stay verbs-only" 1 "with verbs only (M13)"
+md_rule "AC26" "the protocol keeps the sweep out of advisor state" 1 \
+  "the sweep itself reads no advisor state"
 
 # AC6 — defer.sh is the DEFER verb: open status, idempotent, index untouched.
 DFR="$WORK/deferroot"
@@ -1686,9 +1898,9 @@ check "AC3" "sweep.sh stays under the size budget" "under-64k" \
   "$([ "$(wc -c < "$SWEEP" | tr -d ' ')" -lt 65536 ] && echo under-64k || echo over)"
 
 # ===========================================================================
-# Coverage gate: every AC1–AC16 has at least one passing case
+# Coverage gate: every AC1–AC16 and AC22–AC26 has at least one passing case
 # ===========================================================================
-for n in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16; do
+for n in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 22 23 24 25 26; do
   if grep -q "^PASS: AC$n:" "$LOG"; then
     printf 'PASS: COVERAGE AC%s has a passing case\n' "$n"
   else
