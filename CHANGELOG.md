@@ -4,6 +4,10 @@ All notable changes to **claude-dev-team**, newest first.
 Authoritative version history. Prefer **`/release`** to add `### vX.Y.Z` headings.
 Pre-written headings (release-train M5c, orchestrate version-sync tasks) are kept
 via skip-if-present when `/release` is given an explicit version — do not invent a
+### v2.0.3
+
+- **lock-test.sh section 7 signal cases are deterministic off-GNU (CDT-586)** — `skills/backlog/lock-test.sh` probes `env --default-signal` support once and adds a `BACKLOG_LOCK_TEST_FORCE_ENV_UNSUPPORTED=1` hook so the unsupported branch is exercisable on Linux; the CDT-584 child shape stays verbatim when supported (rc 130/143, marker `OK`, no lock dir), the fallback branch runs the full contract for SIGTERM, and SIGINT — provably undeliverable in a non-interactive child when the disposition is inherited-ignored (POSIX forbids the reset; `SigIgn` evidence recorded) — takes an explicit `SKIP SIGINT rc — … (uname -s=…)` line that counts no FAIL, still asserts no-lock-dir, and exits 0. Never silently passes: a started child that never writes the marker still FAILs. SPEC-009 § Backlog write integrity carries the `### CDT-586` ACs superseding CDT-584's mechanism.
+
 ### v2.0.2
 
 - **/backlog sweep forwards `--with-advisor` and carries the `--note` directive (CDT-585)** — `sweep.sh` `parse-flags` accepts `--with-advisor[=<model>]` (SPEC-039 charset, reserved values and duplicates exit 64) and one `--note <text>` DRI-directive token (argv words up to the next flag, LF/CR rejected), emitting `with_advisor` / `advisor_model` / `note` in the FLAGS JSON; `compile-orchestrate-args` gains the forwarding slot that appends the flag verbatim to the compiled `/orchestrate` argv (absent → byte-identical output; the M17 literal-`--ship` ban unchanged); `sweep.md` documents both flags, the Step 9b forwarding template, and the note suffix on the run line and the journal `args` field (never `eval`ed, M25). `sweep-test.sh` gains 75 bites for AC22–AC26 with two simulated-walk fixtures proving the note lands in the run line and both journal records and stays out of compile output.

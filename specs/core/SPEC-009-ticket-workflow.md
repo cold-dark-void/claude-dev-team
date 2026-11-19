@@ -812,6 +812,46 @@ Format and rules: SPEC-033 M14(g) and M14(h). Each ticket that ships through M14
   Verify: bash skills/backlog/lock-test.sh
 - **AC4.** [process] `bash tools/run-all-tests.sh --jobs 8` exits 0. `skills/backlog/lock-test.sh` is not a FAIL.
 
+### CDT-586
+
+- **AC1.** Section 7 signal delivery must not depend on GNU coreutils. This
+  subsection supersedes the `env --default-signal` mechanism in CDT-584
+  AC1/AC2 with a probed mechanism; the rc/marker/no-dir contract of CDT-584
+  AC1/AC2 is unchanged.
+  `skills/backlog/lock-test.sh` probes `env --default-signal` support
+  exactly once, before section 7, by running a harmless command under
+  `env --default-signal=INT --default-signal=TERM` and reading its exit status.
+  The probe result selects the section-7 mechanism; the `signal_case` call
+  sites MUST NOT re-probe. A test hook (e.g.
+  `BACKLOG_LOCK_TEST_FORCE_ENV_UNSUPPORTED=1`) forces the unsupported branch
+  on any host, so the fallback path is exercisable deterministically.
+  Verify: bash skills/backlog/lock-test.sh
+- **AC2.** When the probe says supported, section 7 keeps the CDT-584 child
+  shape (`env --default-signal=INT --default-signal=TERM bash -c …`) and
+  asserts the identical contract: `wait` rc is 130 for INT and 143 for TERM,
+  the marker is exactly `OK`, and no lock dir is left. Deleting or weakening
+  any of those asserts is not a fix.
+  Verify: bash skills/backlog/lock-test.sh
+- **AC3.** When the probe says unsupported, section 7 starts the holder
+  through a portable construct that resets the child's INT/TERM dispositions
+  to default (job-control subshell or another bash-only mechanism; no
+  GNU-only flags) and asserts the identical contract from AC2.
+  Verify: bash skills/backlog/lock-test.sh
+- **AC4.** No silent pass: only when the probe says unsupported AND the
+  portable fallback cannot produce a child whose marker appears (the signal
+  is undeliverable) does section 7 print one explicit SKIP line naming the
+  platform (from `uname -s`), count no FAIL, still assert no lock dir was
+  left (the safety assertion), and let the suite continue to section 8 with
+  exit 0. A child that starts but never writes the marker while the signal
+  path is expected to work (probe supported, or the fallback claimed a
+  deliverable holder) stays a FAIL, never a skip.
+  Verify: bash skills/backlog/lock-test.sh
+- **AC5.** [process] On this Linux host `bash tools/run-all-tests.sh --jobs 8`
+  exits 0 with `lock-test.sh` green, and
+  `BACKLOG_LOCK_TEST_FORCE_ENV_UNSUPPORTED=1 bash skills/backlog/lock-test.sh`
+  exits 0 — section 7 passes under the portable fallback or takes the AC4
+  SKIP path, and section 8 onward is unaffected.
+
 ### CDT-646
 
 - **AC1.** `skills/backlog/ticket.sh` creates, claims, and closes a **ticket**, an **epic**, and a

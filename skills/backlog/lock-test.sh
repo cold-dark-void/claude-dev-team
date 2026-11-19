@@ -185,7 +185,8 @@ assert_eq "exit-passthrough: acquire actually succeeded" "ACQUIRED" "$(cat "$mar
 if [ -d "$lockdir" ]; then fail "exit-passthrough: no dir left" "present"; else pass "exit-passthrough: no dir left"; fi
 
 # ============================================================================
-# 7. SIGINT -> 130, SIGTERM -> 143, both release and leave no dir (CDT-584).
+# 7. SIGINT -> 130, SIGTERM -> 143, both release and leave no dir (CDT-584,
+#    made portable by CDT-586).
 #
 # The parent suite signals a CHILD holder; in-process self-kill by signal
 # is banned here. When this suite runs as a background job without job control
@@ -199,23 +200,91 @@ if [ -d "$lockdir" ]; then fail "exit-passthrough: no dir left" "present"; else 
 # immediately; a foreground external sleep would defer the trap), so the
 # child exits within ~0 s of the parent's signal. The marker poll has a
 # 10 s deadline and the child's sleep bounds any hang at ~5 s.
+#
+# `env --default-signal` is GNU coreutils only: BSD/macOS `env` rejects the
+# option and the child dies at exec (CDT-586). Support is probed once below
+# and the GNU shape runs only when the probe passes. No POSIX shell can
+# replace it for an inherited ignore — "signals ignored on entry to a
+# non-interactive shell cannot be trapped or reset" — and `set -m`/`bash -m`
+# needs a controlling terminal, which the background pool has none of (bash
+# answers "no job control in this shell" and leaves the disposition ignored).
+# So the fallback starts the child as-is and classifies each signal first:
+# SIGTERM is not part of the inherited ignore mask and delivers (full AC2
+# contract), SIGINT, when inherited as ignored, takes the AC4 SKIP path.
 # ============================================================================
-signal_case() {
-  local sig="$1" want_rc="$2" name="$3"
-  local sname="SIG$sig"
-  local root lockdir marker pid rc i
-  root=$(new_root "$name")
-  lockdir=$(lockdir_of "$root")
-  marker="$WORK/${name}_marker.txt"
-  rm -f "$marker"
 
-  env --default-signal=INT --default-signal=TERM bash -c '
+# ENV_DEFAULT_SIGNAL — 1 when `env --default-signal` works, probed exactly
+# once, before any signal case (SPEC-009 CDT-586 AC1). Call sites read this
+# variable; they never re-probe. BACKLOG_LOCK_TEST_FORCE_ENV_UNSUPPORTED=1
+# forces the unsupported branch so the fallback is exercisable on a GNU host.
+ENV_DEFAULT_SIGNAL=0
+if [ "${BACKLOG_LOCK_TEST_FORCE_ENV_UNSUPPORTED:-0}" != "1" ] \
+  && env --default-signal=INT --default-signal=TERM true 2>/dev/null; then
+  ENV_DEFAULT_SIGNAL=1
+fi
+
+# The section-7 holder body, shared by both mechanisms so the child shape is
+# identical (AC2/AC3): $1 lock.sh, $2 root, $3 marker.
+SIGNAL_CHILD='
     . "$1"
     backlog_lock_acquire "$2" || { printf "ACQUIRE_FAILED\n" > "$3"; exit 1; }
     printf "OK\n" > "$3"
     sleep 5 &
     wait $!
-  ' _ "$LOCK" "$root" "$marker" &
+  '
+
+# sig_is_deliverable <sig> <want_rc> <name> — success when a child this suite
+# starts receives <sig>. The probe holder self-kills: with the disposition at
+# default, lock.sh's trap runs and the holder exits <want_rc> (the marker is
+# never written); with the disposition inherited as ignored the self-kill is
+# dropped, so the marker appears. This classifies the inherited disposition
+# only — the case below keeps the parent-signals-child shape (CDT-584).
+# Bounded by `timeout 10` and a 10 s marker poll.
+sig_is_deliverable() {
+  local sig="$1" want="$2" name="$3"
+  local proot pprobe ppid prc i
+  proot=$(new_root "${name}_probe")
+  pprobe="$WORK/${name}_probe_ignored.txt"
+  rm -f "$pprobe"
+  timeout 10 bash -c '
+    . "$1"
+    backlog_lock_acquire "$2" >/dev/null 2>&1 || exit 1
+    kill -"$3" "$$"
+    printf "IGNORED\n" > "$4"
+    exit 0
+  ' _ "$LOCK" "$proot" "$sig" "$pprobe" &
+  ppid=$!
+  i=0
+  while [ ! -s "$pprobe" ] && [ "$i" -lt 100 ]; do
+    sleep 0.1
+    i=$((i + 1))
+  done
+  prc=0
+  wait "$ppid" 2>/dev/null || prc=$?
+  [ ! -s "$pprobe" ] && [ "$prc" -eq "$want" ]
+}
+
+signal_case() {
+  local sig="$1" want_rc="$2" name="$3"
+  local sname="SIG$sig"
+  local root lockdir marker pid rc i deliverable
+  root=$(new_root "$name")
+  lockdir=$(lockdir_of "$root")
+  marker="$WORK/${name}_marker.txt"
+  rm -f "$marker"
+
+  # Fallback branch only: decide deliverability before asserting, so the
+  # asserts below run only when the signal is expected to land (AC4).
+  deliverable=1
+  if [ "$ENV_DEFAULT_SIGNAL" -eq 0 ] && ! sig_is_deliverable "$sig" "$want_rc" "$name"; then
+    deliverable=0
+  fi
+
+  if [ "$ENV_DEFAULT_SIGNAL" -eq 1 ]; then
+    env --default-signal=INT --default-signal=TERM bash -c "$SIGNAL_CHILD" _ "$LOCK" "$root" "$marker" &
+  else
+    bash -c "$SIGNAL_CHILD" _ "$LOCK" "$root" "$marker" &
+  fi
   pid=$!
 
   i=0
@@ -236,6 +305,18 @@ signal_case() {
   kill -"$sig" "$pid"
   rc=0
   wait "$pid" || rc=$?
+
+  if [ "$deliverable" -eq 0 ]; then
+    # AC4: the signal never reached the holder, so the 130/143 exit is not
+    # assertable from this parent. Not a silent pass — the SKIP names the
+    # platform, and the holder still ran to its own `sleep 5`, so its EXIT
+    # trap released the lock and the assertion below is a real check.
+    printf '  SKIP %s rc — SIG%s inherited as ignored, `env --default-signal` unsupported (uname -s=%s)\n' \
+      "$sname" "$sig" "$(uname -s 2>/dev/null || echo unknown)"
+    if [ -d "$lockdir" ]; then fail "$sname: no dir left" "present"; else pass "$sname: no dir left"; fi
+    return
+  fi
+
   assert_eq "$sname rc" "$want_rc" "$rc"
   assert_eq "$sname: marker shows trap ran, no unreachable code" "OK" "$(cat "$marker" 2>/dev/null)"
   if [ -d "$lockdir" ]; then fail "$sname: no dir left" "present"; else pass "$sname: no dir left"; fi
