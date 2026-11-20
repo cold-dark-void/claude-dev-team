@@ -4,19 +4,20 @@ description: >
   Onboarding dispatcher — project scaffold (TDD structure), orchestration
   bootstrap (sandbox/hooks/teams), team memory init (SQLite + project-init),
   Model map (local per-agent model strings), Telegram Intercom setup
-  (SPEC-038), or a Slack stub. Usage /setup
-  <project|orchestration|team|models|telegram|slack> [flags...].
+  (SPEC-038), Control plane install (SPEC-043), or a Slack stub. Usage /setup
+  <project|orchestration|team|models|telegram|control-plane|slack> [flags...].
   Bare/unknown prints usage only (no side effects).
-argument-hint: "<project|orchestration|team|models|telegram|slack> [flags...]"
+argument-hint: "<project|orchestration|team|models|telegram|control-plane|slack> [flags...]"
 agent: build
 ---
 
 # /setup — Onboarding Dispatcher
 
-Single entry for project onboarding plus the Model map (SPEC-005) and the
-Telegram Intercom subs (SPEC-038). The onboarding subs stay **behaviorally
-distinct** — do not merge their protocols. `models`, `telegram` and `slack`
-are known subs and are **not** doctor-gated.
+Single entry for project onboarding plus the Model map (SPEC-005), the Telegram
+Intercom subs (SPEC-038), and the Control plane install (SPEC-043). The
+onboarding subs stay **behaviorally distinct** — do not merge their protocols.
+`models`, `telegram`, `control-plane` and `slack` are known subs and are **not**
+doctor-gated.
 
 ## Dispatch
 
@@ -29,7 +30,7 @@ Remaining args (including flags) pass through unchanged to the routed sub.
 ### Usage (bare / unknown — prose only, zero side effects)
 
 ```
-Usage: /setup <project|orchestration|team|models|telegram|slack> [flags...]
+Usage: /setup <project|orchestration|team|models|telegram|control-plane|slack> [flags...]
 
 Subs:
   project         Scaffold TDD workflow structure (AGENTS.md, specs/TDD.md,
@@ -55,6 +56,18 @@ Subs:
                   --start-daemon (already-paired box). Interactive —
                   delegates to skills/intercom/setup-telegram.sh. Not
                   doctor-gated.
+  control-plane   Build, install, enable, and verify the Control plane
+                  service on this node (SPEC-043). One run: preflight → build
+                  in the approved Go image → install both binaries under
+                  $HOME, install and enable the chiefd systemd user unit →
+                  PASS/WARN/FAIL table. The node agent ships as a CLI that is
+                  invoked by path: phase 1 gives it no unit (SPEC-043 M5).
+                  Never sudo. Linux with a systemd user manager only;
+                  WSL2 needs [boot] systemd=true. An unsupported node prints
+                  one message and exits 63 with zero side effects. Needs a
+                  dev-team checkout (control-plane/go.mod under $MROOT) — no
+                  prebuilt binaries. Flags: --status --uninstall --help.
+                  Not doctor-gated.
   slack           Zero-write stub: prints "Slack ships in v1.1/v2." and
                   exits 0. Not doctor-gated.
 
@@ -76,6 +89,9 @@ Examples:
   /setup models unset-concurrency
   /setup telegram
   /setup telegram --start-daemon
+  /setup control-plane
+  /setup control-plane --status
+  /setup control-plane --uninstall
   /setup slack
 ```
 
@@ -86,8 +102,8 @@ hard-gate on plugin **`dev-team:doctor`** (NOT the Claude Code harness built-in
 `/doctor`) with `--gate=team` / `--gate=orchestration`. Exit ≤1 continues (including
 self-remediating FAILs whose fix-it exactly matches the active sub); exit 2 blocks.
 Override: `--skip-doctor` prints an explicit WARNING then continues. `/setup project`
-is soft-advisory only. `/setup models` is **not** gated on doctor. Marketplace
-install has no doctor gate.
+is soft-advisory only. `/setup models` and `/setup control-plane` are **not**
+gated on doctor. Marketplace install has no doctor gate.
 
 ## Routing table
 
@@ -98,12 +114,15 @@ install has no doctor gate.
 | `team` | **inline** | former `commands/init-team.md` body; flags pass through |
 | `models` | **skill-delegate** | `skills/model-map/write-model.sh` via `plugin-dir.sh file` (SPEC-037) |
 | `telegram` | **skill-delegate** | `skills/intercom/setup-telegram.sh` via `plugin-dir.sh file` (SPEC-038) |
+| `control-plane` | **skill-delegate** | `skills/control-plane/setup.sh` via `plugin-dir.sh file` (SPEC-043); prose contract `skills/control-plane/SKILL.md` |
 | `slack` | **inline stub** | prints `Slack ships in v1.1/v2.`, exit 0, zero state writes (AC5) |
 
 The three onboarding protocols stay distinct (greenfield scaffold vs brownfield
 orchestration vs team memory bootstrap). Dispatcher only — no semantic merge.
 `models` writes local Model map JSON only (never repo/global). `telegram` and
-`slack` never write repo state (SPEC-038 AC1/AC5/AC23).
+`slack` never write repo state (SPEC-038 AC1/AC5/AC23). `control-plane` writes
+only under `$HOME` and inside `control-plane/dist/` (SPEC-043 M3/M4) and never
+writes a record the Control plane owns.
 
 ```
 /setup project
@@ -111,6 +130,7 @@ orchestration vs team memory bootstrap). Dispatcher only — no semantic merge.
 /setup team [--refresh|--migrate-only|--no-extensions]
 /setup models [set <agent> <string>|unset <agent>|set-effort <agent> <token>|unset-effort <agent>|set-concurrency <N>|unset-concurrency]
 /setup telegram [--start-daemon]
+/setup control-plane [--status|--uninstall|--help]
 /setup slack
 ```
 
@@ -672,6 +692,67 @@ set -f; set -- $ARGS; set +f
 [ "${1:-}" = "telegram" ] && shift
 bash "$TG_SETUP" "$@"
 ```
+
+---
+
+## Sub: `control-plane` — skill-delegate → `skills/control-plane/setup.sh`
+
+Install the Control plane service on this node in one command (SPEC-043). The
+engine is `skills/control-plane/setup.sh`; its prose contract — the modes, the
+probe flow, the linger answer, the WSL2 operator steps — is
+`skills/control-plane/SKILL.md`. The command delegates: **do not** inline any
+install behavior here. Not doctor-gated. Run it in the foreground — the linger
+row asks one continue/skip question (SPEC-043 M10).
+
+| Invocation | Expected behavior |
+|------------|-------------------|
+| `/setup control-plane` | preflight → build in the approved Go image → install `node-agent` and `chiefd` to `%h/.local/bin/` and the chiefd systemd **user** unit to `%h/.config/systemd/user/` → `systemctl --user enable --now dev-team-chiefd.service` → the PASS/WARN/FAIL verify table. The node agent ships as a CLI invoked by path: phase 1 gives it no unit (M5). Idempotent: a re-run writes only bytes that differ and re-uses the recorded probe outcome (M12). |
+| `/setup control-plane --status` | The verify table alone, zero writes: no build, no install, no probe start, and no journal read on a node with no journal file (the journal CLI creates one when it opens it). On an uninstalled node it is WARN-only, never FAIL — the service is opt-in. |
+| `/setup control-plane --uninstall` | Stop, disable, and remove the chiefd unit and both binaries (the node-agent CLI binary included), reload the manager, `systemctl --user reset-failed`, exit 0. The run journal is never touched. Linux side only — the Windows-side steps are printed, never executed (M9). |
+| `/setup control-plane --help` | Usage text, exit 0. |
+
+**Exit codes (M7 / AC12):** `0` = PASS, WARN, and SKIP rows only; `2` = at least
+one FAIL row, or a failed phase; `63` = unsupported node; `64` = usage error
+(including two modes in one run).
+
+**Unsupported platform (AC8 → exit 63):** macOS, Linux with no usable
+`systemctl --user`, WSL2 without `[boot] systemd=true`, and a checkout with no
+`control-plane/go.mod` each print one message that names the failing check and
+its fix, then exit `63` with **zero** side effects: no binaries, no units, no
+journal rows.
+
+**Checkout-only preflight (AC5):** the sub builds the service from source, so
+`control-plane/go.mod` must exist under `$MROOT`. Prebuilt release binaries are
+out of scope (phase 4 / CDT-631).
+
+**Hard boundaries:** never `sudo`, `su`, or `pkexec` — every write target is
+under `$HOME` (AC4). The only container image is the approved digest; any other
+reference aborts preflight before the pull. The service CLIs stay off `PATH`:
+the probe and every doc call `control-plane/dist/journalctl`,
+`control-plane/dist/node-agent`, and `control-plane/dist/chiefd` by path (AC11).
+
+```bash
+PDH="${PDH:-$( { [ -n "${CLAUDE_PLUGIN_ROOT:-}" ] && [ -f "$CLAUDE_PLUGIN_ROOT/skills/plugin-dir.sh" ] && printf '%s\n' "$CLAUDE_PLUGIN_ROOT"; } || { [ -f skills/plugin-dir.sh ] && [ -f agents/pm.md ] && grep -qF '"name": "dev-team"' .claude-plugin/plugin.json 2>/dev/null && pwd; } || { _pr='${CLAUDE_PLUGIN_ROOT}'; [ "${_pr#\$}" = "$_pr" ] && [ -f "$_pr/skills/plugin-dir.sh" ] && printf '%s\n' "$_pr"; } || { for _mp in "$HOME"/.claude/plugins/marketplaces/*/; do [ -f "${_mp}skills/plugin-dir.sh" ] && [ -f "${_mp}agents/pm.md" ] && grep -qF '"name": "dev-team"' "${_mp}.claude-plugin/plugin.json" 2>/dev/null && printf '%s\n' "${_mp%/}" && break; done; } || find ~/.claude/plugins/cache \( -path '*/dev-team/*/skills/plugin-dir.sh' -o -path '*/dev-team-edge/*/skills/plugin-dir.sh' \) 2>/dev/null | awk -F/ '{ver=""; for(i=1;i<=NF;i++) if(($i=="dev-team"||$i=="dev-team-edge")&&i<NF){ver=$(i+1);break}; if(ver=="") next; m=ver; gsub(/-pre\./,"~pre.",m); p=($0 ~ /\/cache\/cold-dark-void\/dev-team\//)?2:(($0 ~ /\/cache\/cold-dark-void\/dev-team-edge\//)?1:0); print m "\t" p "\t" $0}' | sort -t $'\t' -k1,1V -k2,2n -k3,3 | tail -1 | cut -f3 | xargs -r dirname | xargs -r dirname )}"
+CP_SETUP=$(bash "$PDH/skills/plugin-dir.sh" file skills/control-plane/setup.sh)
+if [ -z "$CP_SETUP" ] || [ ! -f "$CP_SETUP" ]; then
+  echo "error: skills/control-plane/setup.sh not found in the installed plugin" >&2
+  exit 1
+fi
+# Bash-tool fence has no positional arguments: read the user's text through a
+# quoted heredoc, then split it with globbing off (skill-lint C9).
+ARGS=$(cat <<'__A__'
+$ARGUMENTS
+__A__
+)
+set -f; set -- $ARGS; set +f
+[ "${1:-}" = "control-plane" ] && shift
+bash "$CP_SETUP" "$@"
+```
+
+Surface engine stdout/stderr unchanged — the verify table and its fix-it lines
+are the product. `/doctor` carries the read-only twin of this check as the
+`controlplane.units` row (SPEC-022: WARN-never-FAIL, never on the `--fix`
+allowlist).
 
 ---
 

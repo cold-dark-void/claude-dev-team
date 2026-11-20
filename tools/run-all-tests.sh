@@ -50,8 +50,9 @@ Usage: bash tools/run-all-tests.sh [--root DIR] [--list] [--portable] [--platfor
 
 Discovers every test.sh, test-*.sh and *-test.sh suite under --root (default:
 git rev-parse --show-toplevel of the cwd) via `git ls-files --cached --others
---exclude-standard`, excluding any path with a fixtures, .worktrees,
-node_modules or control-plane segment and the runner itself. Runs each suite in sorted
+--exclude-standard`, excluding any path with a fixtures, .worktrees, or
+node_modules segment, anything under the top-level control-plane/ service
+directory, and the runner itself. Runs each suite in sorted
 order as `bash <repo-relative-path>` with cwd = root -- serially by
 default, or in a worker pool of N suites with --jobs N (N > 1).
 
@@ -329,8 +330,11 @@ discover_suites() {
           test.sh|test-*.sh|*-test.sh) ;;
           *) continue ;;
         esac
+        # control-plane/ (the plugin-unowned service dir, SPEC-030 R4) is
+        # anchored at the repo root: skills/control-plane/ ships plugin suites
+        # and MUST stay in the pool (CDT-658 T8, P2).
         case "/$p/" in
-          */fixtures/*|*/.worktrees/*|*/node_modules/*|*/control-plane/*) continue ;;
+          /control-plane/*|*/fixtures/*|*/.worktrees/*|*/node_modules/*) continue ;;
         esac
         [ "$p" = "tools/run-all-tests.sh" ] && continue
         [ -f "$ROOT/$p" ] || continue

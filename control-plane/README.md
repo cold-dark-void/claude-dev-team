@@ -28,6 +28,34 @@ This directory is an isolated top-level service directory inside the
 Build outputs (Go and container artifacts) are git-ignored at the repo root
 `.gitignore`; this directory carries no checked-in binaries.
 
+## Install on a node — one command
+
+`/setup control-plane` is the install path (SPEC-043). One run preflights the
+node, builds `node-agent` and `chiefd` inside the approved Go image, installs
+both binaries at `%h/.local/bin/`, writes and enables the
+`dev-team-chiefd.service` **user** unit at `%h/.config/systemd/user/`, and
+prints the PASS/WARN/FAIL verify table. The node agent ships as a CLI with no
+unit (SPEC-043 M5). Flags: `--status` (the table only, zero writes),
+`--uninstall` (Linux side; the journal is never touched), `--help`. It never
+uses sudo, and it needs
+this checkout — `control-plane/go.mod` under `$MROOT` — because it builds from
+source.
+
+Linux with a usable systemd user manager is the only supported platform; WSL2
+needs `[boot] systemd=true` in `/etc/wsl.conf`. An unsupported node prints one
+message and exits `63` with zero side effects. The service CLIs stay off `PATH`:
+the command calls `control-plane/dist/journalctl`,
+`control-plane/dist/node-agent`, and `control-plane/dist/chiefd` by path.
+
+Surface contract: [`commands/setup.md`](../commands/setup.md). Engine and
+protocol: `skills/control-plane/setup.sh`,
+[`skills/control-plane/SKILL.md`](../skills/control-plane/SKILL.md).
+
+Use the manual recipes below (`build.sh`, the chiefd `docker run` +
+`control-plane/dist/chiefd` block) as the fallback for operators who need them:
+one target built by hand, a node outside a checkout, or container-build
+debugging.
+
 ## Files
 
 | File | Carries |
@@ -86,7 +114,7 @@ docker run --rm --init -v "$PWD":/src -w /src/control-plane \
   -e GOCACHE=/tmp/gocache -e GOMODCACHE=/tmp/gomodcache \
   docker.io/library/golang:1.27-bookworm@sha256:4fa7c968ba93f1635670522dbb01a2c78150443e1385746924566079f36570ea \
   go build -o ./dist/chiefd ./cmd/chiefd
-./dist/chiefd   # binds 127.0.0.1:8090 by default
+control-plane/dist/chiefd   # binds 127.0.0.1:8090 by default; run from $MROOT
 ```
 
 Open <http://127.0.0.1:8090/> in a browser on the same machine. The bind is

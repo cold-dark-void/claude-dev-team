@@ -95,7 +95,7 @@ First-ticket lifecycle: install → health → plan → execute → review → s
 
 | Command | When to use |
 |---------|-------------|
-| [`/setup`](docs/commands/setup.md) | Onboard a project — `project` · `orchestration` · `team` · `models` |
+| [`/setup`](docs/commands/setup.md) | Onboard a project — `project` · `orchestration` · `team` · `models` · `control-plane` |
 | [`/doctor`](docs/commands/doctor.md) | Diagnose install/config health (PASS/WARN/FAIL); read-only default, `--fix` allowlist |
 | [`/audit`](docs/commands/audit.md) | Instruction-stack inventory + skill-size WARN; approve-then-apply |
 | [`/kickoff`](docs/commands/kickoff.md) | Parallel PM+TL planning → spec → implementation plan → task graph |

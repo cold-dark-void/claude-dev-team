@@ -128,6 +128,7 @@ non-bootstrap — gating is the caller's job.
 | `intercom.slack` | intercom |
 | `omp.enabled_providers` | omp |
 | `omp.marketplace` | omp |
+| `controlplane.units` | controlplane (CDT-658; read-only; WARN-never-FAIL — the service is opt-in; never on `--fix`) |
 
 omp checks (CDT-551) are print-only — doctor never writes omp config or host
 state. Paths are injectable for tests: `OMP_CONFIG_FILE`,

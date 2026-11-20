@@ -33,12 +33,13 @@ CHECK_HOOK_TEMPLATES="$PLUGIN_ROOT/skills/init-orchestration/check-hook-template
 # ---------------------------------------------------------------------------
 # Result registry
 # ---------------------------------------------------------------------------
-# Indexed arrays (bash 3.2+).
-CHECK_IDS=()
-CHECK_GROUPS=()
-CHECK_STATUSES=()
-CHECK_DETAILS=()
-CHECK_FIXITS=()
+# The PASS/WARN/FAIL record-and-render pair has one home:
+# skills/lib/record-status.sh (CDT-658 T3 copy-extract), shared with
+# skills/control-plane/setup.sh. It owns CHECK_IDS/CHECK_GROUPS/CHECK_STATUSES/
+# CHECK_DETAILS/CHECK_FIXITS, render_status_rows, and status_footer.
+# shellcheck source=../../lib/record-status.sh
+. "$PLUGIN_ROOT/skills/lib/record-status.sh"
+
 CHECK_GATE_WAIVED=()  # parallel: 0|1 when --gate set and FAIL self-remediating
 
 # Registration table: id|group|fn  (populated then filtered/run)
@@ -53,13 +54,9 @@ register_check() {
 }
 
 record() {
-  # record <id> <group> <status> <detail> [fixit]
-  local id="$1" group="$2" status="$3" detail="$4" fixit="${5:-}"
-  CHECK_IDS+=("$id")
-  CHECK_GROUPS+=("$group")
-  CHECK_STATUSES+=("$status")
-  CHECK_DETAILS+=("$detail")
-  CHECK_FIXITS+=("$fixit")
+  # record <id> <group> <status> <detail> [fixit] — the shared row
+  # (record_status) plus doctor's own --gate column.
+  record_status "$@" || return 1
   CHECK_GATE_WAIVED+=(0)
 }
 

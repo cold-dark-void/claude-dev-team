@@ -51,7 +51,9 @@ HARNESS="$REPO_ROOT/tests/lib/run-all-tests-harness.sh"
 
 # Case 1: discovery -- new *-test.sh (tracked and untracked-not-ignored),
 # test.sh, test-*.sh are found; fixtures/, .worktrees/, node_modules/,
-# control-plane/ (CDT-628-C1) and a non-matching name are not; sorted order.
+# the top-level control-plane/ service dir (CDT-628-C1) and a non-matching
+# name are not; a nested skills/control-plane/ suite IS (CDT-658 T8: the
+# exclusion is anchored at the repo root, not any segment); sorted order.
 R1=$(new_root)
 ok_suite > "$R1/test.sh"
 ok_suite > "$R1/test-foo.sh"
@@ -61,10 +63,12 @@ ok_suite > "$R1/mytest.sh"            # close but non-matching (no leading '-')
 git -C "$R1" add mytest.sh
 
 mkdir -p "$R1/fixtures" "$R1/.worktrees" "$R1/node_modules" "$R1/control-plane"
+mkdir -p "$R1/skills/control-plane"
 ok_suite > "$R1/fixtures/sub-test.sh"
 ok_suite > "$R1/.worktrees/foo-test.sh"
 ok_suite > "$R1/node_modules/bar-test.sh"
 ok_suite > "$R1/control-plane/service-test.sh"
+ok_suite > "$R1/skills/control-plane/test.sh"
 git -C "$R1" add -A
 
 run_runner --root "$R1" --list
@@ -72,25 +76,27 @@ expect_exit 0 "case1 --list"
 expect_out_line "new-test.sh" "case1 discovers untracked *-test.sh"
 expect_out_line "test.sh" "case1 discovers test.sh"
 expect_out_line "test-foo.sh" "case1 discovers test-*.sh"
+expect_out_line "skills/control-plane/test.sh" "case1 keeps a nested skills/control-plane suite"
 expect_not_out "mytest.sh" "case1 excludes non-matching name"
 expect_not_out "fixtures/sub-test.sh" "case1 excludes fixtures segment"
 expect_not_out ".worktrees/foo-test.sh" "case1 excludes .worktrees segment"
 expect_not_out "node_modules/bar-test.sh" "case1 excludes node_modules segment"
 expect_not_out "control-plane/service-test.sh" "case1 excludes the control-plane service segment"
 
-WANT_ORDER=$'new-test.sh\ntest-foo.sh\ntest.sh'
+WANT_ORDER=$'new-test.sh\nskills/control-plane/test.sh\ntest-foo.sh\ntest.sh'
 GOT_ORDER=$(printf '%s' "$OUT")
 if [ "$GOT_ORDER" = "$WANT_ORDER" ]; then pass; else
   fail "case1 sorted order: got [$GOT_ORDER] want [$WANT_ORDER]"
 fi
 
-# Case 2: PASS-only run of the discovered set -> exit 0, all three counted.
+# Case 2: PASS-only run of the discovered set -> exit 0, all four counted.
 run_runner --root "$R1"
 expect_exit 0 "case2 PASS-only run"
 expect_out "PASS new-test.sh" "case2 runs the untracked suite"
 expect_out "PASS test.sh" "case2 runs test.sh"
 expect_out "PASS test-foo.sh" "case2 runs test-foo.sh"
-expect_out "3 suites: 3 passed, 0 failed, 0 timed out, 0 quarantined, 0 skipped" "case2 summary"
+expect_out "PASS skills/control-plane/test.sh" "case2 runs the nested skills suite"
+expect_out "4 suites: 4 passed, 0 failed, 0 timed out, 0 quarantined, 0 skipped" "case2 summary"
 
 # Case 3: FAIL -> exit 1.
 R3=$(new_root)

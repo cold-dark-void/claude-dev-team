@@ -10,6 +10,9 @@ Record both facts, then choose and verify one start mechanism:
 - How the Node agent starts — systemd user unit or launchd.
 
 This host is Linux/WSL. launchd is not applicable here. The chosen mechanism is the systemd user unit; verify it works and show the unit file and the probe result (`systemctl --user` start/status of a trivial placeholder is acceptable evidence). No service code is committed — the unit file text appears in this doc as evidence only.
+(Since SPEC-043 the shipped templates are product code:
+`skills/control-plane/units.sh`, written to `%h/.config/systemd/user/` by
+`/setup control-plane`. See § "Start mechanism — chosen and verified".)
 
 ### Supervision record
 
@@ -54,30 +57,33 @@ dbus-broker.service loaded active running D-Bus User Message Bus
 
 **Verdict: systemd user unit — chosen and verified working on this machine.**
 launchd is macOS-only and not applicable to this Linux/WSL host (WSL2,
-kernel `6.18.58.1-microsoft-standard-WSL2`, host `malcolm-pc`). The unit below
-is a **representative mechanism**: the Node agent is one Go binary that ships in
-phase 1 and has no defined start command yet, so `ExecStart` names the intended
-install path `/usr/local/bin/node-agent` and is **marked pending the agent's
-first build**. The subcommand and flags are phase-1 decisions. No service code
-ships — the unit file text is evidence only.
+kernel `6.18.58.1-microsoft-standard-WSL2`, host `malcolm-pc`). The install path
+is `%h/.local/bin/node-agent` (SPEC-043 M3): every write target is under
+`$HOME`, the command never uses sudo, and `/setup control-plane` writes the
+chiefd unit, enables it, and verifies it. The node agent is invoked by path per
+run; since the T8 replan it has no unit (§ "CDT-644", D1).
 
-Installed at `~/.config/systemd/user/dev-team-node-agent.service`
-(mode `644`, probed 2026-11-15):
+The shipped unit template lives in `skills/control-plane/units.sh` (SPEC-043 M5)
+and installs to `%h/.config/systemd/user/` (mode `644`). `/setup control-plane`
+writes one unit — `dev-team-chiefd.service`, the text below. The
+`dev-team-node-agent.service` text after it is the **pre-T8 template**: phase 1
+ships no node-agent unit (D1, recorded in § "CDT-644"), and the command removes
+that unit file when an earlier install left one behind.
+
+`dev-team-chiefd.service` (the bind stays loopback — SPEC-043 M5 forbids
+widening it, so `ExecStart` names `127.0.0.1` explicitly):
 
 ```ini
 [Unit]
-Description=dev-team node agent (control plane Option C+, CDT-626)
+Description=dev-team chiefd — the Chief API and web UI (CDT-650, CDT-652)
 Documentation=https://linear.app/cold-dark-void/issue/CDT-626
-# Phase 0 discovery unit — the node agent Go binary does not exist yet
-# (ships in phase 1). ExecStart names the intended install path; the
-# subcommand and flags are undefined until phase 1 defines the agent CLI.
 Wants=network-online.target
 After=network-online.target
 StartLimitIntervalSec=60
 StartLimitBurst=10
 
 [Service]
-ExecStart=/usr/local/bin/node-agent
+ExecStart=%h/.local/bin/chiefd --addr 127.0.0.1:8090
 Restart=on-failure
 RestartSec=2s
 
@@ -85,7 +91,54 @@ RestartSec=2s
 WantedBy=default.target
 ```
 
+`dev-team-node-agent.service` (pre-T8 template, **not shipped**: the agent has
+no long-lived verb, so this unit exits at once and restart-loops — see the D1
+record in § "CDT-644"):
+
+```ini
+[Unit]
+Description=dev-team node agent (control plane Option C+, CDT-626)
+Documentation=https://linear.app/cold-dark-void/issue/CDT-626
+Wants=network-online.target
+After=network-online.target
+StartLimitIntervalSec=60
+StartLimitBurst=10
+
+[Service]
+ExecStart=%h/.local/bin/node-agent
+Restart=on-failure
+RestartSec=2s
+
+[Install]
+WantedBy=default.target
+```
+
+**Chief unit evidence status (T0-recorded, 2026-11-19; unit count amended by
+T8).** The chiefd unit has no prior probe on this node — the probes below cover
+the node-agent unit only. The template above is SPEC-043 M5's text as shipped;
+the CDT-658 T0 spike (`specs/core/SPEC-043-control-plane-setup.md` § "Open
+Questions", probe 2026-11-19) probed the node agent, the journal CLI, and the
+linger key, and recorded no chiefd unit run. The template is exercised by the
+SPEC-043 hermetic suite (`bash skills/control-plane/test.sh`) against a fake
+`systemctl` that expands `%h` and execs the unit's `ExecStart` argv in a scratch
+`$HOME`, so the shipped target is proven to start clean. Live unit evidence for
+the chiefd unit lands with the phase-1 dogfood run below, whose install step is
+`/setup control-plane`. No live chiefd unit has run on this node as of this
+writing.
+
+**Node-agent unit status (T8, 2026-11-19).** The probes below are the phase-0
+record of a node-agent unit that no longer ships. On the CDT-658 T7 real-node
+cycle the unit start-loops: `ExecStart=%h/.local/bin/node-agent` runs a binary
+whose verbs are `start`, `stop`, `status`, `steer`, and `status-node`, so a bare
+exec prints usage and exits `64`, and `Restart=on-failure` re-spawns it every
+2 s. The D1 ruling drops the unit from phase 1 — see § "CDT-644".
+
 Probe evidence — each row: verdict + probe date + command + verbatim output.
+The probes below are the **phase-0 record (2026-11-15)**: that unit's
+`ExecStart` named the then-intended install path, since superseded by
+`%h/.local/bin/node-agent` (SPEC-043 M3). The supervision mechanics they record
+are unchanged by the path — the unit supervises whatever binary sits at
+`ExecStart`.
 
 **Probe 1 — systemd user manager is available (supported, 2026-11-15).**
 
@@ -115,9 +168,11 @@ confirms it does not auto-start until enabled.
 
 **Probe 3 — the unit starts and systemd supervises it: restart-on-failure and
 journald capture observed (supported, 2026-11-15).** Because the Node agent
-binary does not exist yet, the start attempt exercises the real supervision
-mechanics against the real command path — systemd spawns `/usr/local/bin/node-agent`,
-sees it fail, and restarts it on the configured schedule.
+binary did not exist on 2026-11-15, the start attempt exercised the real
+supervision mechanics against the real command path — systemd spawned the
+`ExecStart` target, saw the exec fail, and restarted it on the configured
+schedule. The binary has existed since CDT-644; its install path is
+`%h/.local/bin/node-agent`, written by `/setup control-plane` (SPEC-043 M3).
 
 Command: `systemctl --user start dev-team-node-agent` (exit 0), then after ~5 s:
 
@@ -138,6 +193,8 @@ Nov 15 01:47:03 malcolm-pc systemd[290]: dev-team-node-agent.service: Failed wit
 ```
 
 Command: `journalctl --user -u dev-team-node-agent --no-pager -n 12 --output=short-iso`
+(the OS journald CLI, by unit name — not the Control plane journal CLI, which is
+`control-plane/dist/journalctl` and stays off `PATH`; SPEC-043 AC11)
 
 ```
 2026-11-15T01:47:08-05:00 malcolm-pc systemd[290]: dev-team-node-agent.service: Scheduled restart job, restart counter is at 6.
@@ -188,8 +245,11 @@ systemd instance (and this unit) exists only while the user is logged in;
 a unit with `WantedBy=default.target` will not start at boot before login. The
 CDT-626 goal "after a forced reboot, every in-flight run continues without a
 human" requires `loginctl enable-linger malcolm` on the node. Enabling linger is
-a machine-config change outside this discovery ticket's footprint; phase 1
-(CDT-632 or the phase-1 build) must decide and execute it.
+a machine-config change outside this discovery ticket's footprint. The decision
+landed in SPEC-043: `/setup control-plane` carries the linger row, prints the
+exact `sudo loginctl enable-linger "$USER"` line, and waits for the operator's
+continue/skip answer — the command never executes sudo (SPEC-043 M10/AC10).
+Operator step B8 below is the manual form of the same step.
 
 ### Rejected alternative — unsupervised
 
@@ -209,9 +269,9 @@ each absence was observed directly in the probe above (2026-11-15):
   boot; the unit encodes it declaratively.
 - **No journald capture.** A bare process's stdout/stderr go to a terminal or
   hand-managed log file. The probe shows the unit's output and failures landing
-  in the per-unit journal (`journalctl --user -u dev-team-node-agent`), which is
-  the log source the CDT-626 append-only run journal and the Chief's status
-  surface would build on.
+  in the per-unit journal (`journalctl --user -u dev-team-node-agent`, the OS
+  journald CLI), which is the log source the CDT-626 append-only run journal and
+  the Chief's status surface would build on.
 
 The bare process also dies with its terminal/session (SIGHUP class), which the
 session-death probes in `host-capability-matrix.md` reproduce — the exact
@@ -240,14 +300,46 @@ Everything above is the phase-0 record and is unchanged. C4 (CDT-628 C4,
   the recorded orphan, and re-spawns as the next attempt: an in-flight run
   continues without a human. The AC-level proof — a real Windows reboot of the
   WSL host — stays the operator step below.
-- **The systemd unit text above stays evidence-only.** The unit on this node
-  still names `/usr/local/bin/node-agent`; installing the built binary there
-  (`install -Dm755 control-plane/dist/node-agent-linux-amd64
-  /usr/local/bin/node-agent` — root) and enabling the unit are operator work,
-  out of C4's footprint. The supervision mechanics themselves — start, state
-  tracking with a PID, restart-on-failure, dependency-ordered unit, journald
-  capture — are the probe-3 evidence above (2026-11-15) and are unchanged by
-  C4: the unit supervises whatever binary sits at `ExecStart`.
+- **The systemd unit text above stays evidence-only.** In C4 the install and
+  enablement were operator work outside the ticket. SPEC-043 closes that gap:
+  `/setup control-plane` writes both binaries to `%h/.local/bin/` and the
+  chiefd unit to `%h/.config/systemd/user/`, runs `systemctl --user
+  daemon-reload`, and enables it — no root, and no write target outside
+  `$HOME` (SPEC-043 M3). The unit template in § "Start mechanism — chosen and
+  verified" is what that command writes. The supervision mechanics themselves —
+  start, state tracking with a PID, restart-on-failure, dependency-ordered
+  unit, journald capture — are the probe-3 evidence above (2026-11-15) and are
+  unchanged by C4: the unit supervises whatever binary sits at `ExecStart`.
+
+- **D1 (CDT-658 T8, 2026-11-19): the node-agent unit is deferred.** The T7
+  real-node cycle proved the unit is not correct as written. `node-agent` has no
+  long-lived verb — `control-plane/cmd/node-agent/main.go` answers `start`,
+  `stop`, `status`, `steer`, and `status-node`, and a bare exec prints usage and
+  exits `64` — so a supervised `ExecStart` exits at once, `Restart=on-failure`
+  re-spawns it every `RestartSec`, and the unit sits in a restart loop that
+  leaves the user manager `degraded`. A `serve`/daemon verb would fix it, and
+  that is a control-plane change: it touches service code and `control-plane/VERSION`
+  and belongs to a service-owning ticket, so it is **filed as a follow-up**
+  rather than landed on a plugin setup ticket. Phase 1 therefore ships
+  `dev-team-chiefd.service` only (SPEC-043 M5); the node agent is invoked by
+  path per run, which the isolation probe already proved works, and nothing
+  needs it resident. `/setup control-plane` stops, disables, and removes a
+  `dev-team-node-agent.service` left by an earlier install. The deferred
+  capability is reboot-time re-spawn of the agent, and with it the agent half of
+  the reboot acceptance test below (`journalctl --user -u dev-team-node-agent`
+  has no unit to read until the daemon verb lands).
+
+- **D2 (CDT-658 T8, 2026-11-19): the probe carries the runner selection.** The
+  agent is fail-closed: a node with no runner selection starts no run
+  (`agent.ErrNoRunnerSelected`, `control-plane/agent/config.go` `Load`), so a
+  fresh node's probe `start` refused and AC1 was unreachable. The contract the
+  driver uses is the agent's own documented override channel —
+  `DEVTEAM_RUNNER=<resolved> control-plane/dist/node-agent start --run-id
+  devteam-setup-probe --command <no-op>` — where `<resolved>` is the selection
+  preflight read (`node.json` key `runner`, else `$DEVTEAM_RUNNER`, else
+  `native`). The assignment sits on that child process only: it is not a record
+  write, so record-ownership row 14 (`node.json`) keeps its single writer in the
+  service, and the plugin never exports `$DEVTEAM_RUNNER` (SPEC-043 M11, AC6).
 
 - **The credential contract the runner inherits.** The native runner runs the
   configured host CLI with its own logins and never injects a secret: in
@@ -276,25 +368,63 @@ Commands, in order, with the evidence slot each one fills:
 3. `loginctl show-user "$USER" -p Linger` — **after**. Evidence slot: the
    `Linger=yes` line. Before-and-after together are the evidence pair.
 
-### Operator step — reboot acceptance test (pending-operator)
+**The command prints this step; it never performs it.** `/setup control-plane`
+reads the same key and renders the linger verify row. `Linger=no` prints the
+exact `sudo loginctl enable-linger "$USER"` line and waits for the operator's
+documented continue/skip answer — the command never executes sudo (SPEC-043
+M10/AC10). The row is WARN, never FAIL: the units work until the session ends.
+Run the three commands above, then `/setup control-plane --status` — the row
+reads PASS.
+
+### Operator step — phase-1 dogfood run (pending-operator, CDT-659)
+
+**Status: pending-operator.** The first real use of the node. Install step:
+`/setup control-plane` (SPEC-043) — one command that builds in the approved Go
+image, installs both binaries and the chiefd systemd user unit, enables it, and
+prints the verify table. The run executes under CDT-659 (Phase 1 — Validation).
+
+1. `/setup control-plane` — evidence slot: the verify table plus its
+   `N pass / N warn / N fail / N skip` footer. This is the live unit evidence
+   for `dev-team-chiefd.service`, and the `controlplane.node-agent` row is the
+   live read of the agent binary (`status-node`, exit 0 — no unit, D1).
+2. `/setup control-plane --status` — evidence slot: the same verdict from a
+   read-only run (zero writes, SPEC-043 M1).
+3. Start one run and read it back: `control-plane/dist/node-agent start
+   --run-id <RUN-ID> --ticket <TICKET> --workflow orchestrate`, then
+   `control-plane/dist/journalctl read --run-id <RUN-ID> --events` — evidence
+   slot: the journaled rows.
+4. `/setup control-plane --uninstall`, then `/setup control-plane --status` —
+   evidence slot: the journal still reads (SPEC-043 M9), and a re-install
+   reaches the same verdict (SPEC-043 M12).
+
+### Operator step — reboot acceptance test (pending-operator, CDT-659)
 
 **Status: pending-operator. Do not execute inside the ticket.** The test uses
 a real reboot of the WSL host — not a service kill — because the AC is that
-the work survives the machine, not the process. Protocol, once the node agent
-is installed and enabled (the unit above) and at least one run is in flight:
+the work survives the machine, not the process. Install step:
+`/setup control-plane` (SPEC-043) — it installs, enables, and verifies the
+chiefd unit, and its linger row is step B8. The test itself executes under
+CDT-659 (Phase 1 — Validation); this ticket records the protocol only.
+**Deferred with D1:** phase 1 ships no node-agent unit, so step 3's
+`journalctl --user -u dev-team-node-agent` slot has no unit to read — the
+reboot re-spawn of the agent needs the daemon-verb follow-up. Record the
+journal-CLI slots below and mark the unit slot `deferred (D1)`. Protocol, once
+the install is verified and at least one run is in flight:
 
-1. Start a run and record it: `node-agent start --run-id <RUN-ID> --ticket
-   <TICKET> --workflow orchestrate` — evidence slot: the run id and the
-   `run_claimed` / `run_started` rows in the journal (`journalctl read
-   --run-id <RUN-ID> --events`, the control-plane journal CLI).
+1. Start a run and record it: `control-plane/dist/node-agent start --run-id
+   <RUN-ID> --ticket <TICKET> --workflow orchestrate` — evidence slot: the run
+   id and the `run_claimed` / `run_started` rows in the journal
+   (`control-plane/dist/journalctl read --run-id <RUN-ID> --events`, the
+   Control plane journal CLI — by path, never on `PATH`, SPEC-043 AC11).
 2. Reboot the Windows host from inside WSL:
    `wsl.exe --shutdown` issued from Windows, or a Windows-side `shutdown /r
    /t 0`. Evidence slot: the exact command used and its exit status.
 3. After the host comes back and the user session is up (linger enabled, step
    B8): prove no human touched the run — evidence slots:
    - `journalctl --user -u dev-team-node-agent --no-pager -n 50` — the agent's
-     restart on failure captured by journald.
-   - `journalctl read --run-id <RUN-ID> --state` — the resumed run state.
+     restart on failure captured by journald (the OS journald CLI, by unit name).
+   - `control-plane/dist/journalctl read --run-id <RUN-ID> --state` — the
+     resumed run state.
    - The resumed run ids: every in-flight run id from step 1, carried to
      `completed` or `running` again without operator action.
 4. The pass rule: every in-flight run from step 1 shows a `lease_acquired`

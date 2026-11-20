@@ -5,23 +5,13 @@
 render_human() {
   echo "dev-team doctor  plugin=${PLUGIN_VERSION:-unknown}  tier=${RESOLVED_TIER}  mroot=$MROOT${GATE:+  gate=$GATE}"
   echo "----------------------------------------------------------------"
-  local i=0
-  while [ $i -lt ${#CHECK_IDS[@]} ]; do
-    printf '%-4s | %s | %s\n' \
-      "${CHECK_STATUSES[$i]}" "${CHECK_IDS[$i]}" "${CHECK_DETAILS[$i]}"
-    if [ "${CHECK_STATUSES[$i]}" = "WARN" ] || [ "${CHECK_STATUSES[$i]}" = "FAIL" ]; then
-      if [ -n "${CHECK_FIXITS[$i]}" ]; then
-        printf '       fix-it: %s\n' "${CHECK_FIXITS[$i]}"
-      fi
-    fi
-    i=$((i + 1))
-  done
+  render_status_rows
   echo "----------------------------------------------------------------"
   if [ -n "$GATE" ] && [ "$N_FAIL_WAIVED" -gt 0 ]; then
     printf '%d pass / %d warn / %d fail (%d self-remediating under --gate=%s) / %d skip\n' \
       "$N_PASS" "$N_WARN" "$N_FAIL" "$N_FAIL_WAIVED" "$GATE" "$N_SKIP"
   else
-    printf '%d pass / %d warn / %d fail / %d skip\n' "$N_PASS" "$N_WARN" "$N_FAIL" "$N_SKIP"
+    status_footer
   fi
 }
 

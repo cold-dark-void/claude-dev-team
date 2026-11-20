@@ -163,6 +163,7 @@ register_check "lint.waivers" "lint" check_lint_waivers
 register_check "test.quarantine" "tests" check_test_quarantine
 register_check "omp.enabled_providers" "omp" check_omp_enabled_providers
 register_check "omp.marketplace" "omp" check_omp_marketplace
+register_check "controlplane.units" "controlplane" check_controlplane_units
 
 # ---------------------------------------------------------------------------
 # --only filter validation
@@ -187,7 +188,7 @@ if [ -n "$ONLY_FILTER" ]; then
   done
   if [ "$known" -eq 0 ]; then
     echo "doctor: unknown check id or group: $ONLY_FILTER" >&2
-    echo "Known groups: version memory hooks settings deps worktree plugin transcript config handoff lint tests omp" >&2
+    echo "Known groups: version memory hooks settings deps worktree plugin transcript config handoff lint tests omp controlplane" >&2
     echo "Known ids: ${REG_IDS[*]}" >&2
     exit 64
   fi

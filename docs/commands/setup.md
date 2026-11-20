@@ -10,6 +10,7 @@ plus the local Model map share one Surface — do not merge their protocols.
 | `team` | former init-team command | Memory bootstrap: SQLite DB, embedding extensions, project-init scan |
 | `models` | `write-model.sh` | Local Model map list/set/unset/set-effort/unset-effort/set-concurrency/unset-concurrency (not doctor-gated) |
 | `telegram` | `setup-telegram.sh` | Personal Intercom bot: token, pairing, Topics on/off |
+| `control-plane` | `skills/control-plane/setup.sh` | Control plane (SPEC-043): preflight, build in the approved image, install the binaries and the chiefd user unit, verify; `--status`, `--uninstall` |
 | `slack` | inline stub | Prints `Slack ships in v1.1/v2.` and exits 0 |
 
 Prefer this surface. Old slash names (`/init-team`, `/scaffold-project`,
@@ -19,7 +20,7 @@ protocol lives under `skills/` as permanent skill-delegate backends.
 ## Usage
 
 ```
-/setup <project|orchestration|team|models|telegram|slack> [flags...]
+/setup <project|orchestration|team|models|telegram|control-plane|slack> [flags...]
 ```
 
 Bare or unknown sub prints usage and **stops with zero side effects** — no default.

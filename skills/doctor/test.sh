@@ -195,10 +195,12 @@ fi
 FAKE_PLUGIN="$TMP/fake-plugin"
 mkdir -p "$FAKE_PLUGIN/skills/doctor" "$FAKE_PLUGIN/.claude-plugin" \
   "$FAKE_PLUGIN/skills/init-orchestration" "$FAKE_PLUGIN/skills/memory-store" \
-  "$FAKE_PLUGIN/skills"
+  "$FAKE_PLUGIN/skills/lib" "$FAKE_PLUGIN/skills"
 cp "$DOCTOR" "$FAKE_PLUGIN/skills/doctor/doctor.sh"
 # rv-w3-39: the dispatcher sources its check groups from skills/doctor/checks/.
 cp -R "$SCRIPT_DIR/checks" "$FAKE_PLUGIN/skills/doctor/checks"
+# CDT-658 T3: checks/lib.sh sources the shared record-and-render pair.
+cp "$PLUGIN_ROOT/skills/lib/record-status.sh" "$FAKE_PLUGIN/skills/lib/record-status.sh"
 cp "$PLUGIN_ROOT/skills/plugin-dir.sh" "$FAKE_PLUGIN/skills/plugin-dir.sh"
 cp "$PLUGIN_ROOT/skills/worktree-lib.sh" "$FAKE_PLUGIN/skills/worktree-lib.sh" 2>/dev/null || true
 cp "$SCHEMA_SQL" "$FAKE_PLUGIN/skills/memory-store/schema.sql"
@@ -2438,9 +2440,10 @@ if command -v sqlite3 >/dev/null 2>&1 && command -v jq >/dev/null 2>&1; then
 
   # h: a doctor install without embed-common.sh → SKIP with a reason, never a false PASS
   T25_FAKE="$TMP/t25-fakeplugin"
-  mkdir -p "$T25_FAKE/skills/doctor"
+  mkdir -p "$T25_FAKE/skills/doctor" "$T25_FAKE/skills/lib"
   cp "$SCRIPT_DIR/doctor.sh" "$T25_FAKE/skills/doctor/doctor.sh"
   cp -R "$SCRIPT_DIR/checks" "$T25_FAKE/skills/doctor/checks"
+  cp "$PLUGIN_ROOT/skills/lib/record-status.sh" "$T25_FAKE/skills/lib/record-status.sh"
   cd "$T25" || exit 1
   printf '%s\n' '2026-01-01T00:00:00Z embed embed-one memory 1: boom' > "$T25/.claude/memory/.errors.log"
   RC=0
@@ -2560,9 +2563,10 @@ fi
 
 # Marketplace tier: the script path, not the fixture, decides resolved_tier.
 MKT_ROOT="$TMP/mkt-home/.claude/plugins/marketplaces/dev-team"
-mkdir -p "$MKT_ROOT/skills/doctor"
+mkdir -p "$MKT_ROOT/skills/doctor" "$MKT_ROOT/skills/lib"
 cp "$DOCTOR" "$MKT_ROOT/skills/doctor/doctor.sh"
 cp -R "$SCRIPT_DIR/checks" "$MKT_ROOT/skills/doctor/checks"
+cp "$PLUGIN_ROOT/skills/lib/record-status.sh" "$MKT_ROOT/skills/lib/record-status.sh"
 MKT_PROJ="$TMP/mkt-proj"
 make_bare_project "$MKT_PROJ"
 cd "$MKT_PROJ" || exit 1
@@ -2856,9 +2860,10 @@ fi
 QROOT="$TMP/t28-qscratch"
 QF="$QROOT/tools/test-quarantine.txt"
 QDOCTOR="$QROOT/skills/doctor/doctor.sh"
-mkdir -p "$QROOT/skills/doctor" "$QROOT/tools"
+mkdir -p "$QROOT/skills/doctor" "$QROOT/skills/lib" "$QROOT/tools"
 cp "$DOCTOR" "$QDOCTOR"
 cp -R "$SCRIPT_DIR/checks" "$QROOT/skills/doctor/checks"
+cp "$PLUGIN_ROOT/skills/lib/record-status.sh" "$QROOT/skills/lib/record-status.sh"
 # Pre-bite snapshot of the tracked file for the T28g5 restore guard.
 QSNAP="$TMP/t28-qreal-snapshot"
 cp "$PLUGIN_ROOT/tools/test-quarantine.txt" "$QSNAP"
@@ -3410,9 +3415,10 @@ fi
 
 # T30n — commands/setup.md absent → WARN (scratch PLUGIN_ROOT)
 T30PLUG="$TMP/t30-plugin"
-mkdir -p "$T30PLUG/skills/doctor/checks"
+mkdir -p "$T30PLUG/skills/doctor/checks" "$T30PLUG/skills/lib"
 cp "$PLUGIN_ROOT/skills/doctor/doctor.sh" "$T30PLUG/skills/doctor/"
 cp "$PLUGIN_ROOT/skills/doctor/checks/"*.sh "$T30PLUG/skills/doctor/checks/"
+cp "$PLUGIN_ROOT/skills/lib/record-status.sh" "$T30PLUG/skills/lib/record-status.sh"
 RC=0
 OUT=$(PATH="$t29_tools" HOME="$T30_HOME" INTERCOM_STATE_ROOT="$INTERCOM_STATE_ROOT" \
   bash "$T30PLUG/skills/doctor/doctor.sh" --json --only intercom.slack 2>/dev/null) || RC=$?
@@ -3705,6 +3711,258 @@ if grep -q '^| `advisor` | Opus |' "$PLUGIN_ROOT/AGENTS.md"; then
 else
   fail "T33e AGENTS.md roster table has no '| \`advisor\` | Opus |' row"
 fi
+
+# =============================================================================
+# T34. controlplane.units (SPEC-043 T5/T8 / CDT-658) — one row: the chiefd unit
+#      file present, its is-enabled/is-active, chiefd answering on loopback, and
+#      no stale node-agent unit (SPEC-043 M5 ships one unit).
+#      WARN-never-FAIL: the service is opt-in (SPEC-022 M3); --fix never repairs.
+# =============================================================================
+t34_field() {
+  printf '%s' "$1" | jq -r ".checks[0] | $2" 2>/dev/null || echo ERR
+}
+T34_PATH_SAVE=$PATH
+T34_CWD_SAVE=$(pwd)
+T34_HOME="$TMP/t34-home"
+t34_bin="$TMP/t34-bin"
+mkdir -p "$T34_HOME" "$t34_bin"
+T34_URL='http://127.0.0.1:8090/v1/runs'
+for cmd in bash jq python3 flock grep sed awk cat chmod mkdir date stat \
+  touch wc tr mktemp rm ls head find mv cp basename dirname uname \
+  sleep kill env id ps tail cmp diff file ln git sort uniq cut tee \
+  true false test timeout; do
+  p=$(command -v "$cmd" 2>/dev/null) || continue
+  ln -sf "$p" "$t34_bin/$cmd"
+done
+t34_systemctl() { # t34_systemctl <chief-is-active> <is-enabled> — one unit (M5)
+  local chief="$1" en="$2"
+  rm -f "$t34_bin/systemctl"
+  cat > "$t34_bin/systemctl" <<EOF
+#!/usr/bin/env bash
+verb=''
+unit=''
+for a in "\$@"; do
+  case "\$a" in
+    --user | --no-pager | --no-ask-password) ;;
+    is-active | is-enabled | status | show) verb="\$a" ;;
+    *.service) unit="\$a" ;;
+  esac
+done
+state='not-found'
+case "\$unit" in
+  dev-team-node-agent.service) state='activating' ;;
+  dev-team-chiefd.service) state='$chief' ;;
+esac
+if [ "\$verb" = 'is-active' ]; then
+  printf '%s\n' "\$state"
+  [ "\$state" = 'active' ]
+  exit
+fi
+if [ "\$verb" = 'is-enabled' ]; then
+  printf '%s\n' '$en'
+  [ '$en' = 'enabled' ]
+  exit
+fi
+exit 0
+EOF
+  chmod +x "$t34_bin/systemctl"
+}
+t34_curl() { # t34_curl up|down [marker-file] — the marker proves a dial happened
+  local mode="$1" marker="${2:-}"
+  rm -f "$t34_bin/curl"
+  cat > "$t34_bin/curl" <<EOF
+#!/usr/bin/env bash
+if [ -n '$marker' ]; then
+  printf 'dialed\n' >> '$marker'
+fi
+[ '$mode' = 'up' ]
+exit
+EOF
+  chmod +x "$t34_bin/curl"
+}
+t34_install_units() {
+  mkdir -p "$T34_HOME/.config/systemd/user"
+  printf '[Unit]\nDescription=t34 fixture unit\n' \
+    > "$T34_HOME/.config/systemd/user/dev-team-chiefd.service"
+}
+t34_stale_unit() { # a dev-team-node-agent.service a pre-T8 install left behind
+  mkdir -p "$T34_HOME/.config/systemd/user"
+  printf '[Unit]\nDescription=t34 stale fixture unit\n' \
+    > "$T34_HOME/.config/systemd/user/dev-team-node-agent.service"
+}
+t34_wipe_units() {
+  rm -rf "$T34_HOME/.config/systemd"
+}
+t34_run() { # t34_run — the row alone; sets RC, T34_OUT, T34_ST, T34_DE, T34_FX
+  RC=0
+  T34_OUT=$(PATH="$t34_bin" HOME="$T34_HOME" CP_HTTP_URL="$T34_URL" \
+    bash "$DOCTOR" --json --only controlplane.units 2>/dev/null) || RC=$?
+  T34_ST=$(t34_field "$T34_OUT" .status)
+  T34_DE=$(t34_field "$T34_OUT" .detail)
+  T34_FX=$(t34_field "$T34_OUT" .fixit)
+}
+T34_PROJ="$TMP/t34-proj"
+make_bare_project "$T34_PROJ"
+seed_plugin_triplet "$T34_PROJ"
+cd "$T34_PROJ" || exit 1
+
+# T34a — registry wiring: doctor.sh registers the id and the check function
+if grep -q 'register_check "controlplane.units" "controlplane" check_controlplane_units' \
+   "$SCRIPT_DIR/doctor.sh" \
+   && grep -q '^check_controlplane_units()' "$SCRIPT_DIR/checks/controlplane.sh"; then
+  pass "T34a doctor.sh registry carries controlplane.units + the check fn exists"
+else
+  fail "T34a controlplane.units is not registered in doctor.sh"
+fi
+
+# T34b — uninstalled (no unit files) → WARN never FAIL, fix names /setup control-plane
+t34_wipe_units
+t34_systemctl active enabled
+t34_curl up
+t34_run
+if [ "$T34_ST" = "WARN" ] && [ "$RC" -eq 1 ] \
+   && printf '%s' "$T34_DE" | grep -q 'not installed' \
+   && [ "$T34_FX" = "/setup control-plane" ]; then
+  pass "T34b uninstalled service → WARN (never FAIL), rc 1, fix /setup control-plane"
+else
+  fail "T34b status=$T34_ST rc=$RC detail=$T34_DE fixit=$T34_FX out=$T34_OUT"
+fi
+
+# T34c — installed + healthy: both units active/enabled, chiefd answers → PASS
+t34_install_units
+t34_systemctl active enabled
+t34_curl up
+t34_run
+if [ "$T34_ST" = "PASS" ] && [ "$RC" -eq 0 ] \
+   && printf '%s' "$T34_DE" | grep -q 'active and enabled' \
+   && printf '%s' "$T34_DE" | grep -q '127.0.0.1:8090'; then
+  pass "T34c installed + healthy (units active, port answering) → PASS rc 0"
+else
+  fail "T34c status=$T34_ST rc=$RC detail=$T34_DE out=$T34_OUT"
+fi
+
+# T34d — unit files present, chiefd unit inactive → WARN, names the unit
+t34_install_units
+t34_systemctl inactive enabled
+t34_curl up
+t34_run
+if [ "$T34_ST" = "WARN" ] && [ "$RC" -eq 1 ] \
+   && printf '%s' "$T34_DE" | grep -q 'dev-team-chiefd.service' \
+   && printf '%s' "$T34_DE" | grep -q 'inactive' \
+   && [ "$T34_FX" = "/setup control-plane" ]; then
+  pass "T34d unit present but inactive → WARN naming dev-team-chiefd.service"
+else
+  fail "T34d status=$T34_ST rc=$RC detail=$T34_DE fixit=$T34_FX out=$T34_OUT"
+fi
+
+# T34e — units healthy, chiefd port not answering → WARN (opt-in service, M3)
+t34_install_units
+t34_systemctl active enabled
+t34_curl down
+t34_run
+if [ "$T34_ST" = "WARN" ] && [ "$RC" -eq 1 ] \
+   && printf '%s' "$T34_DE" | grep -q 'does not answer' \
+   && printf '%s' "$T34_DE" | grep -q '127.0.0.1:8090' \
+   && [ "$T34_FX" = "/setup control-plane" ]; then
+  pass "T34e chiefd port silent → WARN never FAIL, names the loopback URL"
+else
+  fail "T34e status=$T34_ST rc=$RC detail=$T34_DE fixit=$T34_FX out=$T34_OUT"
+fi
+
+# T34f — a node with only the stale node-agent unit: not installed, and the
+#        detail names the unit /setup control-plane writes (SPEC-043 M5)
+t34_wipe_units
+t34_stale_unit
+t34_systemctl active enabled
+t34_curl up
+t34_run
+if [ "$T34_ST" = "WARN" ] && [ "$RC" -eq 1 ] \
+   && printf '%s' "$T34_DE" | grep -q 'not installed' \
+   && printf '%s' "$T34_DE" | grep -q 'dev-team-chiefd.service'; then
+  pass "T34f stale node-agent unit only → WARN naming dev-team-chiefd.service"
+else
+  fail "T34f status=$T34_ST rc=$RC detail=$T34_DE out=$T34_OUT"
+fi
+
+# T34f2 — chiefd healthy plus the stale node-agent unit → WARN, never PASS:
+#         the leftover unit restart-loops (SPEC-043 M5, CDT-658 T7)
+t34_wipe_units
+t34_install_units
+t34_stale_unit
+t34_systemctl active enabled
+t34_curl up
+t34_run
+if [ "$T34_ST" = "WARN" ] && [ "$RC" -eq 1 ] \
+   && printf '%s' "$T34_DE" | grep -q 'stale unit dev-team-node-agent.service'; then
+  pass "T34f2 stale node-agent unit alongside a healthy chiefd → WARN naming it"
+else
+  fail "T34f2 status=$T34_ST rc=$RC detail=$T34_DE out=$T34_OUT"
+fi
+
+# T34g — systemctl absent (units installed) → WARN naming systemctl, never FAIL
+t34_install_units
+rm -f "$t34_bin/systemctl"
+t34_curl up
+t34_run
+if [ "$T34_ST" = "WARN" ] && [ "$RC" -eq 1 ] \
+   && printf '%s' "$T34_DE" | grep -q 'systemctl is not on PATH'; then
+  pass "T34g systemctl absent → WARN 'systemctl is not on PATH', never FAIL"
+else
+  fail "T34g status=$T34_ST rc=$RC detail=$T34_DE out=$T34_OUT"
+fi
+
+# T34h — a non-loopback CP_HTTP_URL is reported, never dialed (SPEC-043 AC13)
+T34_MARKER="$TMP/t34-marker"
+rm -f "$T34_MARKER"
+t34_install_units
+t34_systemctl active enabled
+t34_curl up "$T34_MARKER"
+T34_URL='http://198.51.100.7:8090/v1/runs'
+t34_run
+T34_URL='http://127.0.0.1:8090/v1/runs'
+if [ "$T34_ST" = "WARN" ] \
+   && printf '%s' "$T34_DE" | grep -q 'not loopback' \
+   && [ ! -s "$T34_MARKER" ]; then
+  pass "T34h non-loopback CP_HTTP_URL → WARN, curl never invoked (AC13 loopback)"
+else
+  fail "T34h status=$T34_ST rc=$RC detail=$T34_DE marker=$(wc -c < "$T34_MARKER" 2>/dev/null || echo 0)"
+fi
+
+# T34i — WARN-never-FAIL: the check source has no FAIL record call (SPEC-022 M3)
+if ! grep -qE "record[[:space:]].*['\"]FAIL['\"]" "$SCRIPT_DIR/checks/controlplane.sh"; then
+  pass "T34i checks/controlplane.sh records no FAIL row (SPEC-022 M3 opt-in)"
+else
+  fail "T34i checks/controlplane.sh contains a FAIL record call"
+fi
+
+# T34j — the group filter runs the row; --fix makes no change (SPEC-043 M7)
+RC=0
+GROUP_OUT=$(PATH="$t34_bin" HOME="$T34_HOME" CP_HTTP_URL="$T34_URL" \
+  bash "$DOCTOR" --json --only controlplane 2>/dev/null) || RC=$?
+if [ "$RC" -ne 64 ] && [ "$(t34_field "$GROUP_OUT" .id)" = "controlplane.units" ]; then
+  pass "T34j --only controlplane (group) runs the row, rc $RC"
+else
+  fail "T34j group filter rc=$RC out=$GROUP_OUT"
+fi
+t34_wipe_units
+t34_install_units
+t34_systemctl active enabled
+t34_curl up
+T34_BEFORE=$( (cd "$T34_HOME" && find . | sort) )
+RC=0
+PATH="$t34_bin" HOME="$T34_HOME" CP_HTTP_URL="$T34_URL" CP_UNIT_DIR="$T34_HOME/.config/systemd/user" \
+  bash "$DOCTOR" --fix --only controlplane.units >/dev/null 2>&1 || RC=$?
+T34_AFTER=$( (cd "$T34_HOME" && find . | sort) )
+if [ "$RC" -eq 0 ] && [ "$T34_BEFORE" = "$T34_AFTER" ] \
+   && ! grep -q 'controlplane' "$SCRIPT_DIR/checks/fix.sh"; then
+  pass "T34k --fix repairs nothing for controlplane.units (healthy row, rc 0)"
+else
+  fail "T34k --fix rc=$RC tree-changed=$([ "$T34_BEFORE" = "$T34_AFTER" ] && echo no || echo yes) fix.sh mentions controlplane"
+fi
+
+PATH=$T34_PATH_SAVE
+export PATH
+cd "$T34_CWD_SAVE" || exit 1
 
 # =============================================================================
 # Summary
