@@ -628,6 +628,68 @@ f7_release_authority_text() {
   fi
 }
 
+# ---- G cases (CDT-655): §5-release pre-keyword guard ------------------------
+
+g_structural() {
+  if md_section "$END_STATE" "### 5-release" | grep -qF 'refuse-pre-keyword.sh'; then
+    pass_line "structural: §5-release wires refuse-pre-keyword.sh before /release"
+  else
+    fail_line "structural: §5-release wires refuse-pre-keyword.sh before /release"
+  fi
+  if md_section "$END_STATE" "### 5-release" | grep -qF 'CDT-655'; then
+    pass_line "structural: §5-release guard cites CDT-655"
+  else
+    fail_line "structural: §5-release guard cites CDT-655"
+  fi
+}
+
+# G1: pre-release version + release token → the §5-release guard fence halts
+# (rc!=0, ship-choice halt line, CDT-655 named) before any /release invoke.
+g1_refuses_on_pre() {
+  local fx block rc out
+  fx="$(build_fixture)" || { fail_line "G1 setup"; return; }
+  mkdir -p "$fx/.claude-plugin"
+  printf '{\n  "name": "dev-team",\n  "version": "2.0.0-pre.2"\n}\n' >"$fx/.claude-plugin/plugin.json"
+  git -C "$fx" add .claude-plugin/plugin.json
+  git -C "$fx" commit -qm pre-version
+  block="$(fence_nth "$END_STATE" "### 5-release" 1 | subst_block "$fx" "" "/tmp/card.json" "" "patch")"
+  run_block "$fx" "$block"
+  rc=$?; out="$RUN_OUT"
+  if [ "$rc" -ne 0 ]; then
+    pass_line "G1: §5-release guard exits !=0 on a pre-release version"
+  else
+    fail_line "G1: §5-release guard exits !=0 on a pre-release version (rc=$rc: $out)"
+  fi
+  if printf '%s\n' "$out" | grep -qF 'ship-choice halt:'; then
+    pass_line "G1: guard prints ship-choice halt:"
+  else
+    fail_line "G1: guard prints ship-choice halt: (missing)"
+  fi
+  if printf '%s\n' "$out" | grep -qF 'CDT-655'; then
+    pass_line "G1: guard names CDT-655"
+  else
+    fail_line "G1: guard names CDT-655 (missing)"
+  fi
+}
+
+# G2: final version + release token → the guard fence passes (rc==0).
+g2_final_passes() {
+  local fx block rc out
+  fx="$(build_fixture)" || { fail_line "G2 setup"; return; }
+  mkdir -p "$fx/.claude-plugin"
+  printf '{\n  "name": "dev-team",\n  "version": "2.1.1"\n}\n' >"$fx/.claude-plugin/plugin.json"
+  git -C "$fx" add .claude-plugin/plugin.json
+  git -C "$fx" commit -qm final-version
+  block="$(fence_nth "$END_STATE" "### 5-release" 1 | subst_block "$fx" "" "/tmp/card.json" "" "patch")"
+  run_block "$fx" "$block"
+  rc=$?; out="$RUN_OUT"
+  if [ "$rc" -eq 0 ]; then
+    pass_line "G2: §5-release guard exits 0 on a final version"
+  else
+    fail_line "G2: §5-release guard exits 0 on a final version (rc=$rc: $out)"
+  fi
+}
+
 # ---- run ----------------------------------------------------------------
 
 h_structural
@@ -649,6 +711,9 @@ f6_structural
 f6_clean_clears
 f6b_release_needs_no_snapshot
 f7_release_authority_text
+g_structural
+g1_refuses_on_pre
+g2_final_passes
 
 echo "----"
 echo "pass=$pass fail=$fail"

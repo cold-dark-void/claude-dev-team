@@ -124,7 +124,23 @@ Read `.claude-plugin/plugin.json` to get the current `"version"` field.
 Resolve the new version using these rules (first match wins):
 
 1. **Explicit version in args** (e.g. `v0.14.0` or `0.14.0`) → use it directly
-2. **Bump keyword in args** (`patch`, `minor`, or `major`) → compute from current version
+2. **Bump keyword in args** (`patch`, `minor`, or `major`) → compute from current version.
+   FIRST run the CDT-655 pre-keyword guard — a keyword on a pre-release version refuses
+   and the release halts for an explicit version:
+
+   ```bash
+   # Fresh shell — carry PDH from the stanza fence above (SPEC-021 C1)
+   PDH="${PDH:-$( { [ -n "${CLAUDE_PLUGIN_ROOT:-}" ] && [ -f "$CLAUDE_PLUGIN_ROOT/skills/plugin-dir.sh" ] && printf '%s\n' "$CLAUDE_PLUGIN_ROOT"; } || { [ -f skills/plugin-dir.sh ] && [ -f agents/pm.md ] && grep -qF '"name": "dev-team"' .claude-plugin/plugin.json 2>/dev/null && pwd; } || { _pr='${CLAUDE_PLUGIN_ROOT}'; [ "${_pr#\$}" = "$_pr" ] && [ -f "$_pr/skills/plugin-dir.sh" ] && printf '%s\n' "$_pr"; } || { for _mp in "$HOME"/.claude/plugins/marketplaces/*/; do [ -f "${_mp}skills/plugin-dir.sh" ] && [ -f "${_mp}agents/pm.md" ] && grep -qF '"name": "dev-team"' "${_mp}.claude-plugin/plugin.json" 2>/dev/null && printf '%s\n' "${_mp%/}" && break; done; } || find ~/.claude/plugins/cache \( -path '*/dev-team/*/skills/plugin-dir.sh' -o -path '*/dev-team-edge/*/skills/plugin-dir.sh' \) 2>/dev/null | awk -F/ '{ver=""; for(i=1;i<=NF;i++) if(($i=="dev-team"||$i=="dev-team-edge")&&i<NF){ver=$(i+1);break}; if(ver=="") next; m=ver; gsub(/-pre\./,"~pre.",m); p=($0 ~ /\/cache\/cold-dark-void\/dev-team\//)?2:(($0 ~ /\/cache\/cold-dark-void\/dev-team-edge\//)?1:0); print m "\t" p "\t" $0}' | sort -t $'\t' -k1,1V -k2,2n -k3,3 | tail -1 | cut -f3 | xargs -r dirname | xargs -r dirname )}"
+   PRE_KEYWORD_GUARD=$(bash "$PDH/skills/plugin-dir.sh" file skills/release/refuse-pre-keyword.sh)
+   bash "$PRE_KEYWORD_GUARD" "<keyword>" || exit 1
+   ```
+
+   On rc 1 the release **halts** — do NOT compute a version, bump the pair, commit,
+   tag, or push. `2.0.0-pre.1` + `patch` would compute the final `2.0.0` (SPEC-010
+   § Pre-release arc scheme P1) and cut the arc mid-flight — the CDT-628 failure.
+   While the version carries a pre-release suffix, the only way forward is
+   `/release <explicit-version>` (e.g. the next `2.0.0-pre.N`, or the final cut
+   `2.0.0` when the arc completes).
 3. **No args provided** → auto-detect from everything being released — BOTH
    commits since the last tag AND the current uncommitted changes:
    - `LAST_TAG` empty (first release) → `git log --oneline HEAD` (full

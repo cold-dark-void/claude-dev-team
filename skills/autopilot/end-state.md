@@ -224,6 +224,27 @@ Carry the bump from card #1 (copied through the council-agree path; `ship-gate-c
 
 **Guard:** only when bump is a release token. Stage-only tree from §4 is the input.
 
+**CDT-655 pre-keyword guard — runs BEFORE `/release`.** A release token on a
+pre-release version refuses: `patch` on `2.0.0-pre.N` would compute the final
+`X.Y.Z` and cut the arc mid-flight (SPEC-010 § Pre-release arc scheme P1 — the
+CDT-628 failure). The autopilot land step must not compute a version from a
+keyword while `plugin.json` carries a pre-release suffix; an explicit-version
+release is the only way forward there.
+
+```bash
+# Fresh shell — carry PDH from the stanza fence above (SPEC-021 C1)
+PDH="${PDH:-$( { [ -n "${CLAUDE_PLUGIN_ROOT:-}" ] && [ -f "$CLAUDE_PLUGIN_ROOT/skills/plugin-dir.sh" ] && printf '%s\n' "$CLAUDE_PLUGIN_ROOT"; } || { [ -f skills/plugin-dir.sh ] && [ -f agents/pm.md ] && grep -qF '"name": "dev-team"' .claude-plugin/plugin.json 2>/dev/null && pwd; } || { _pr='${CLAUDE_PLUGIN_ROOT}'; [ "${_pr#\$}" = "$_pr" ] && [ -f "$_pr/skills/plugin-dir.sh" ] && printf '%s\n' "$_pr"; } || { for _mp in "$HOME"/.claude/plugins/marketplaces/*/; do [ -f "${_mp}skills/plugin-dir.sh" ] && [ -f "${_mp}agents/pm.md" ] && grep -qF '"name": "dev-team"' "${_mp}.claude-plugin/plugin.json" 2>/dev/null && printf '%s\n' "${_mp%/}" && break; done; } || find ~/.claude/plugins/cache \( -path '*/dev-team/*/skills/plugin-dir.sh' -o -path '*/dev-team-edge/*/skills/plugin-dir.sh' \) 2>/dev/null | awk -F/ '{ver=""; for(i=1;i<=NF;i++) if(($i=="dev-team"||$i=="dev-team-edge")&&i<NF){ver=$(i+1);break}; if(ver=="") next; m=ver; gsub(/-pre\./,"~pre.",m); p=($0 ~ /\/cache\/cold-dark-void\/dev-team\//)?2:(($0 ~ /\/cache\/cold-dark-void\/dev-team-edge\//)?1:0); print m "\t" p "\t" $0}' | sort -t $'\t' -k1,1V -k2,2n -k3,3 | tail -1 | cut -f3 | xargs -r dirname | xargs -r dirname )}"
+PRE_KEYWORD_GUARD=$(bash "$PDH/skills/plugin-dir.sh" file skills/release/refuse-pre-keyword.sh)
+if ! bash "$PRE_KEYWORD_GUARD" "<AUTOPILOT_BUMP>"; then
+  echo "ship-choice halt: bump keyword refused on a pre-release version — explicit version required (CDT-655) — card: <card-path>"
+  exit 1
+fi
+```
+
+On refusal: no squash invoke, no `/release`, no land — write the halt card
+(append-card shape per `self-answer.md` §3f) and stop. Land-no-release
+(`bump=master`) is out of scope: the sentinel never computes a version.
+
 Invoke `/release` with the bump. Ensure `SHIP_START_SHA` from §3.5 is exported so
 `/release` Step 0.5 reuses W:
 

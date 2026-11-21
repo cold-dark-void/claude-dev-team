@@ -343,10 +343,22 @@ Format and rules: SPEC-033 M14(g) and M14(h). Each ticket that ships through M14
   Verify: bash skills/release/test.sh
 - **AC2.** [process] `bash tools/run-all-tests.sh` exits 0 and every `/release` gate passes with the fallback text in place.
 
+### CDT-655
+
+- **A.** New `skills/release/refuse-pre-keyword.sh` refuses (exit 1) a bump keyword (`patch`, `minor`, `major`) when the current `plugin.json` version carries a pre-release suffix — stderr names CDT-655 and requires an explicit version. A final version passes (exit 0) for every keyword; a `v`-prefixed pre version refuses; usage errors (no args, two args, unknown keyword, non-repo cwd, unreadable plugin.json) exit 64. The script is a subprocess CLI (never sourced) and mutates nothing.
+  Verify: bash skills/release/test-refuse-pre-keyword.sh
+- **B.** `/release` Step 1 rule 2 runs the guard before computing from a keyword and halts the release on rc 1 — no version computed, no pair bump, no commit, tag, or push — and names `/release <explicit-version>` as the only way forward while the version carries a pre-release suffix (SPEC-010 § Pre-release arc scheme P1; the CDT-628 mid-arc cut is the recorded failure).
+  Verify: bash skills/release/test-refuse-pre-keyword.sh
+- **C.** The autopilot land step (`skills/autopilot/end-state.md` §5-release) runs the same guard BEFORE invoking `/release <AUTOPILOT_BUMP>` and halts the ship-choice on refusal (`ship-choice halt: bump keyword refused on a pre-release version — explicit version required (CDT-655)`), with no land, no land-no-release commit/push. Land-no-release (`bump=master`) is out of scope — the sentinel never computes a version.
+  Verify: bash skills/autopilot/test-end-state-safety.sh
+- **D.** The pre→final arc cut (`2.0.0-pre.9 → 2.0.0`) stays reachable through an EXPLICIT version argument only — Step 1 rule 1 is untouched, and `check-bump-class.sh`'s class table (including the allowed pre→final row) is unchanged: this guard judges HOW the version was chosen (keyword vs explicit), never the pair itself.
+  Verify: bash skills/release/test-bump-class.sh
+
 ## Version History
 
 | Date | Change |
 |------|--------|
+| 2026-11-21 | CDT-655: keyword-on-pre refusal — new `skills/release/refuse-pre-keyword.sh` refuses `patch`/`minor`/`major` while `plugin.json` carries a pre-release suffix (a keyword there computes the final `X.Y.Z` and cuts the arc mid-flight — the CDT-628 failure); `/release` Step 1 rule 2 and the autopilot land step (`end-state.md` §5-release) both run the guard and halt for an explicit version. The pair-class table is unchanged; the pre→final arc cut stays reachable through an explicit version only. `### CDT-655` ACs A–D. |
 | 2026-11-19 | CDT-608: `/release` Step 3 gains the documented manual-copy fallback for host-classifier refusals of version-pair edits — one retry, then scratch file under `"${TMPDIR:-/tmp}/"` + `cp`/`mv`; never a runtime `.claude/settings.local.json` write. Pairs with the `/setup orchestration` scoped-allow seeding and live self-edit probe (SPEC-005 `### CDT-608`). `### CDT-608` ACs. |
 | 2026-11-16 | CDT-628-C1 service-directory carve-out: S7 gains the service-only-release rule — the staged `control-plane/` paths ride `--intended` exactly like product paths; the S2/S4 exact-strings predicate is unchanged, so an undeclared service path still fails and no directory/glob membership is added. Test cases land in `skills/release/test.sh` (service path passes when declared, fails when not). |
 | 2026-11-12 | CDT-633: pre-release arc scheme (control plane Option C+ / CDT-626) — new P1–P10; `is_release_tag` admits `v2.0.0-pre.N`; `lead-summary.sh` accepts pre suffixes; `gen-supported-versions.sh` strips `-pre.N`; core-shape classification kept (no new class string); SECURITY gate fails closed on the pre series. Open question on pre-release support resolved. `### CDT-633` ACs 1–13. |

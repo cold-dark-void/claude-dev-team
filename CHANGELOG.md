@@ -4,6 +4,9 @@ All notable changes to **claude-dev-team**, newest first.
 Authoritative version history. Prefer **`/release`** to add `### vX.Y.Z` headings.
 Pre-written headings (release-train M5c, orchestrate version-sync tasks) are kept
 via skip-if-present when `/release` is given an explicit version — do not invent a
+### v2.1.5
+- **`/release` refuses a bump keyword while the version carries a pre-release suffix (CDT-655)** — new `skills/release/refuse-pre-keyword.sh` guard: `patch`/`minor`/`major` on a `X.Y.Z-pre.N` current version exits 1 naming CDT-655 and requiring an explicit version (a final version passes for every keyword; a `v`-prefixed pre version refuses with the `v` stripped; the five usage-error shapes exit 64). Wired into `/release` Step 1 rule 2 and the autopilot end-state §5-release (a guard refusal halts the ship path with the halt card); the guard is a subprocess CLI that mutates nothing. `test-refuse-pre-keyword.sh` (24 asserts) plus end-state-safety G cases and SPEC-010 `### CDT-655` ACs A–D.
+
 ### v2.1.4
 - **M14 council investigator tool budget scales with the run's technical-AC count (CDT-611)** — the M14 verify budget is now `min(8 + 2·(K−1), 16)` per verify claim, where K is the ticket's technical-AC count from the m14-split: a 1-AC run keeps the base 8, a 3-AC run gets 12 (recorded case CDT-656: three ACs × 12), a 7-AC run reaches the 16 ceiling. The budget rides the preflight plan (`claims[].tool_budget`), the render prompt and the judge prompt carry it, and the engine's strike rule is unchanged. `test-m14-split.sh` extended for the scaled cases and the ceiling pin. This fold also repairs three under-test pins the scaling displaced: `test-m14-verify-chain.sh` asserts the scaled budget (16 with verify, 5 without), the `non-m14-plan` investigator byte-pin is re-anchored to the prompt's current non-M14 render, and the receipts suite's `AC_LABEL` line anchor re-pins to `investigator.md:132`.
 
