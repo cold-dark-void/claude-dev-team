@@ -18,7 +18,7 @@ M5–M25).
 
 | Flag | Effect | Requirement |
 |------|--------|-------------|
-| `--ship=<pr\|master\|patch\|minor\|major>` | Compiled to `/orchestrate` autopilot argv; omitted = attended, so the walk runs with no autopilot flag | M17 |
+| `--ship=<pr\|master\|patch\|minor\|major\|auto>` | Compiled to `/orchestrate` autopilot argv; `auto` lets the ship gate decide the concrete bump per item (SPEC-033 M17); omitted = attended, so the walk runs with no autopilot flag | M17 |
 | `--limit <N>` | Bounds code-bearing `/orchestrate` runs only; the Purge pre-pass stays full; `0` = no bound | M18 |
 | `--project <X>` | Filters the Linear query only; never filters the local set | M5 |
 | `--refresh` | Re-judge every item; ignore the journal | M22 |

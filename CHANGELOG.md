@@ -4,6 +4,9 @@ All notable changes to **claude-dev-team**, newest first.
 Authoritative version history. Prefer **`/release`** to add `### vX.Y.Z` headings.
 Pre-written headings (release-train M5c, orchestrate version-sync tasks) are kept
 via skip-if-present when `/release` is given an explicit version — do not invent a
+### v2.1.8
+- **Docs: the backlog sweep's `--ship` flag table names `auto` (CDT-docs-drift class)** — `skills/backlog/sweep.md`'s flag row now reads `--ship=<pr|master|patch|minor|major|auto>` with a note that `auto` lets the ship gate decide the concrete bump per item (SPEC-033). The flag parser and `compile-ship` already accepted `auto`; only the operator-facing table lagged. No code change.
+
 ### v2.1.7
 - **Bump-class ladder rewrite (AGENTS.md)** — the versioning rule is now an explicit three-tier ladder: patch for fixes/rule-corrections/test-hardening/internal policy amendments with no user-visible capability change; minor for significant, "proud" changes worth headlining (a new command surface, a new user-visible default, a capability the team would announce) that stay compatible with the current major line; major for monumental or incompatible arc-level rewrites (the control-plane arc is the precedent), broken install/update contracts, or migrations. Replaces the old two-line rule that read any default-behavior change as minor; opt-in flags with unchanged defaults stay patch. Applied retroactively-consistent: this week's sweep corrections shipped as patch releases v2.1.2–v2.1.6 under the new ladder.
 
