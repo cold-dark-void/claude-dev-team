@@ -392,6 +392,34 @@ ticket and ACs). Code identifiers use `takeover`.
   the same change; `.claude-plugin/plugin.json` and `CHANGELOG.md` are
   untouched.
 
+### CDT-656
+
+- **A.** The steer-then-stop supervision test is clock-independent:
+  `TestSuperviseSteerThenOperatorStop` pins a wide `DEVTEAM_STALL_LIMIT`
+  (270) so the heartbeat — half the stall limit, `heartbeatFloor`-clamped —
+  can never go stale between `waitRunner` and the `Steer` call, and a
+  loaded CI runner can no longer race the 1 s default limit into
+  `ErrSteerLost`. The C2 kill semantics of the test stay asserted: the
+  steer is delivered at a step boundary, the stop SIGTERMs then SIGKILLs
+  past the grace, and the run lands `halted:operator_halt` with the
+  pidfile cleared and a second stop refused `ErrNotRunning`.
+  Verify: bash control-plane/test.sh
+- **B.** The seam tests are environment-independent: the chief model-map
+  subtest ("the real script falls back to the tier default with no
+  layers") execs the REAL `resolve-model.sh` against a layer-free fixture
+  checkout of its own (git-inited, `skills/model-map/` copied in, `HOME`
+  and the process cwd pinned to the fixture), so the script's MROOT rule
+  — which follows `git rev-parse --git-common-dir` from the process cwd —
+  reads the fixture, never the shared worktree store's local Model map
+  layer. A DRI machine with `.claude/dev-team/models.local.json` now gets
+  the same tier-default verdict CI gets.
+  Verify: bash control-plane/test.sh
+- **C.** `control-plane/test.sh` exists as the Go lane's suite script — the
+  SPEC-044 Version History names it the follow-up that restores the
+  ship-gate Verify binding after the per-file Verify lines were dropped —
+  and it runs `go test ./... -count=1` green from the repo root.
+  Verify: bash control-plane/test.sh
+
 ## Validation
 
 - Spec reviewed and promoted to ACTIVE
@@ -431,5 +459,6 @@ ticket and ACs). Code identifiers use `takeover`.
 
 | Date | Change |
 |------|--------|
+| 2026-11-21 | CDT-656: clock- and environment-independent control-plane tests — `TestSuperviseSteerThenOperatorStop` pins a wide `DEVTEAM_STALL_LIMIT` (270) so a loaded CI runner can no longer race the 1 s default limit into `ErrSteerLost` between `waitRunner` and the steer; the chief model-map seam subtest execs the real `resolve-model.sh` against a layer-free fixture checkout (its own git root + pinned `HOME`/cwd) instead of the live worktree, whose shared store may carry a DRI's local Model map layer; new `control-plane/test.sh` runs `go test ./... -count=1` and restores the ship-gate Verify binding the spec-lint pass dropped. `### CDT-656` ACs A–C. |
 | 2026-11-20 | Spec-lint pass (CDT-660): added the `## Validation` record — the landed proofs per AC, incl. the AC13 restart kill test inside the control-plane CI job and the digest-pinned G-02 image run. Every AC bullet now carries the M14(g) bullet form `- **ACn.** …`; the 14 `Verify:` lines that named Go `_test.go` files are dropped, because M14(g) admits a suite script basename (`test.sh`, `test-*.sh`, `*-test.sh`) only and no suite script covers the Go lane — the proofs are named in `## Validation` instead (a `control-plane/test.sh` suite is the follow-up that restores the ship-gate Verify binding). AC13 is a `[process]` AC, so it holds no Verify line by rule. Registered in `specs/TDD.md`. No MUST, Test, or AC requirement text changed. |
 | 2026-11-20 | SPEC-044 created (CDT-660): chiefd startup takeover of in-flight runs — the chiefd half of the CDT-626 reboot contract. Premises P1–P4 accepted per the DRI rulings of 2026-11-20; AC1–AC14 from the PM's revised scope review, plus AC15 (shutdown contract) and AC16 (version) from the rulings. |

@@ -3,6 +3,7 @@ package chief
 import (
 	"context"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -158,10 +159,36 @@ func TestModelMapResolution(t *testing.T) {
 		}
 	})
 	t.Run("the real script falls back to the tier default with no layers", func(t *testing.T) {
-		// The worktree's checkout carries no Model map layer, so the real
-		// script resolves empty: the Tier default (AC3). The script's own
-		// suite owns the map-hit cases; the seam only execs it.
-		m := &bashModelMap{root: func() (string, error) { return "../..", nil }}
+		// CDT-656 hermeticity: the fixture is its own git checkout with the
+		// REAL resolve-model.sh + mappable-names.sh copied in and no
+		// `.claude/dev-team` layer — the script's MROOT rule follows the git
+		// common dir, so against the live worktree it would read the shared
+		// store's local Model map layer and see a map hit on a DRI machine.
+		// The map-hit cases are the script's own suite; the seam only execs
+		// the real script on a layer-free fixture (AC3: the tier default).
+		root := t.TempDir()
+		if err := exec.Command("git", "-C", root, "init", "-q").Run(); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.MkdirAll(filepath.Join(root, "skills/model-map"), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		for _, f := range []string{"resolve-model.sh", "mappable-names.sh"} {
+			src, err := os.ReadFile(filepath.Join("../..", "skills/model-map", f))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(filepath.Join(root, "skills/model-map", f), src, 0o755); err != nil {
+				t.Fatal(err)
+			}
+		}
+		t.Setenv("HOME", root)
+		// The script's MROOT rule follows `git rev-parse --git-common-dir`
+		// from the PROCESS cwd, and bash() execs without a Dir override —
+		// chdir into the fixture so the lookup lands on the layer-free
+		// checkout, never the shared worktree store.
+		t.Chdir(root)
+		m := &bashModelMap{root: func() (string, error) { return root, nil }}
 		model, source, err := m.Resolve(context.Background(), "ic5")
 		if err != nil {
 			t.Fatalf("resolve-model.sh: %v", err)

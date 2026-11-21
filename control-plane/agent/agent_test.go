@@ -207,6 +207,14 @@ func TestSuperviseSteerThenOperatorStop(t *testing.T) {
 	script := `read l; printf '%s' "$l" > "$CDT644_TEST_STEER_OUT"; sleep 30`
 	a := nativeAgent()
 
+	// CDT-656: a wide stall limit makes the steer clock-independent. The
+	// heartbeat is half the stall limit (clamped by heartbeatFloor), so no
+	// beat can go stale between waitRunner and the Steer call — a loaded CI
+	// runner can no longer race the 1 s default limit into ErrSteerLost.
+	// The C2 kill semantics below are unchanged: the stop still SIGTERMs,
+	// then SIGKILLs past the grace, and lands halted:operator_halt.
+	t.Setenv("DEVTEAM_STALL_LIMIT", "270")
+
 	done := supervise(t, a, eng, startReq(runID, script))
 	waitRunner(t, eng, runID)
 
