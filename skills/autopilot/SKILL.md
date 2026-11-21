@@ -88,7 +88,15 @@ that don't apply to this gate — so it agrees with the "8 blocking conditions" 
 
 1. Does every plan task carry concrete file paths **and** a verification step, **and** does
    the plan's `process_acs:` line equal the `[process]` tags in the spec's `### <ticket_id>`
-   AC subsection (SPEC-033 M14(h) guard 2)? → else **BC1**.
+   AC subsection (SPEC-033 M14(h) guard 2)? → else **BC1**. When the subsection holds K ≥ 1
+   technical ACs, the `plan-approve` card's `rationale` MUST also carry the predicted
+   ship-gate budget `m14-predict: acs=<K> budget=<B>` where `B = min(8 + 2·(K−1), 16)`
+   (CDT-611) — informational, so a predicted M14 budget strain batches resume decisions into
+   one user prompt instead of one per WP BC7 halt. The M14 investigator budget itself scales
+   the same way (SPEC-033 M14(j): base 8, +2 per additional technical AC, ceiling 16 — named
+   constants in `skills/council/engine.sh`), and an investigator that hits its cap with
+   bundles in hand returns them with `"truncated": true`; the judge caps confidence on
+   truncated evidence at the missing-verify bar.
 2. Does any task perform a destructive / irreversible operation? → **BC3**.
 3. Is the projected **counted** (non-excluded, M15) change within the per-PR hard cap
    and the per-file size cap? → **BC4**. The ~1000 LOC soft cap is non-halting discipline

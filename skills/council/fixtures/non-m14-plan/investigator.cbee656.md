@@ -5,15 +5,18 @@ description: |
   investigation against a single claim and returns an evidence bundle of
   raw tool outputs. Spawned in parallel (>=2 flavors per claim) to defeat
   monoculture. Enforces the blindness invariant and the evidence-or-silence
-  rule (SPEC-013 lines 54-60).
+  rule (SPEC-013 § Output Shapes).
 ---
 
 # investigator prompt template
 
 Runtime template for Phase 2 investigators. `engine.sh` substitutes
 `{{CLAIM_TEXT}}`, `{{SOURCE_LOCATOR}}`, `{{RAW_ARTIFACTS}}`, `{{FLAVOR_DELTA}}`,
-`{{CACHE_DIR}}` before spawning each Task call. One instance per (claim, flavor)
-tuple.
+`{{CACHE_DIR}}`, `{{TOOL_BUDGET}}`, `{{VERIFY_COMMAND}}` before spawning each
+Task call. One instance per (claim, flavor) tuple. `{{#VERIFY_COMMAND}}` ...
+`{{/VERIFY_COMMAND}}` section blocks are removed with their body when
+`VERIFY_COMMAND` is empty, else only the marker lines are removed (SPEC-013
+Engine Architecture).
 
 ---
 
@@ -114,6 +117,15 @@ Respond with a SINGLE LINE of strict JSON matching this schema. No prose,
 no markdown fences.
 
 {"claim_id":"...","evidence_bundles":[{"tool_use_id":"...","raw_blob":"...","file_line":"path:N","reproducible_command":"..."}],"reason_if_empty":null}
+
+TRUNCATION FLAG (CDT-611): when the `5` cap binds while at least
+one bundle is already collected, you MUST return those partial bundles — the
+same schema above plus a `"truncated": true` field — instead of an empty
+`evidence_bundles` list. `"truncated"` is `true` only when you stopped at the
+cap with bundles in hand; omit it when you finished under the cap. The judge
+weighs partial evidence and treats `"truncated": true` as a confidence cap
+(the same bar as a missing verify bundle). An empty list remains the correct
+answer only when NO evidence was found at all.
 ```
 
 ---
@@ -127,6 +139,8 @@ no markdown fences.
 | `{{RAW_ARTIFACTS}}` | engine — file paths / diff / log blobs (NEVER narrative) |
 | `{{FLAVOR_DELTA}}` | engine — body of the selected flavor file (e.g. paranoid-ic) |
 | `{{CACHE_DIR}}` | engine — plan.cache_dir (per-run TMPDIR council-cache; CDV-211) |
+| `{{TOOL_BUDGET}}` | engine — claim.tool_budget (the scaled M14 verify budget when the claim verifies — base 8, +2 per additional technical AC, ceiling 16; else 5) |
+| `{{VERIFY_COMMAND}}` | engine — claim.verify (the AC's Verify command, or empty) |
 
 ## Output schema
 
@@ -146,17 +160,23 @@ no markdown fences.
 ## Validation rules (engine-enforced)
 
 The engine MUST strike any bundle that:
-1. Is missing `tool_use_id` (SPEC-013 line 59).
+1. Has a `raw_blob` that does not match a re-run of `reproducible_command`
+   (`skills/bug-hunt/strike-bundle.sh`). The one M14 bundle whose
+   `reproducible_command` is the claim `VERIFY_COMMAND` is exempt
+   (`--exempt-rerun`): its `raw_blob` is the wrapper output. A stable
+   `tool_use_id` label is not the host id. An empty label is still struck by
+   `engine.sh` (CDT-178), so set a non-empty label. Bug-hunt does not strike
+   solely for a missing host id.
 2. Has `raw_blob` empty or detectably paraphrased (e.g. no substring match
    against the investigator's recorded tool output).
 3. Is missing `file_line` or `reproducible_command`.
 4. References prior narrative, a prior verdict, or another investigator's
-   output (blindness leak — SPEC-013 line 56).
+   output (blindness leak — SPEC-013 § Output Shapes).
 
 If ALL bundles are struck, the engine MUST record the claim with
 `reason_if_empty = "no evidence found"` — it MUST NOT synthesize one.
 
-Enforces SPEC-013 lines 54-60 (Phase 2 investigation, blindness, read-only,
+Enforces SPEC-013 § Output Shapes (Phase 2 investigation, blindness, read-only,
 evidence bundle schema, >=2 flavors per claim). CACHE_DIR is an
 orchestrator-seeded read-only path (CDV-211 / CDT-275). The investigator
 does not write it.

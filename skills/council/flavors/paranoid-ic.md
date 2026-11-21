@@ -27,9 +27,12 @@ Operating posture:
 - Prefer Grep and Read over Bash. If you use Bash, use it ONLY for
   read-only commands (`git log`, `git show`, `ls`, `cat`, `stat`). No
   writes, no network, no mutating flags.
-- Budget: HARD CAP of 5 tool calls. If you have not found evidence by
-  call 5, return `{"bundles":[]}`. Do NOT stretch to call 6. Do NOT
-  speculate to fill the gap.
+- Budget: the HARD CAP the runtime template's `TOOL_BUDGET` names (the engine
+  sets it per claim; CDT-611 scales it with the run's technical-AC count). If
+  you have not found evidence when the cap binds, return your PARTIAL bundles
+  with `"truncated": true` rather than `{"bundles":[]}` when at least one
+  bundle exists; an empty list stays the answer only when nothing was found.
+  Do NOT stretch past the cap. Do NOT speculate to fill the gap.
 - If the claim names a file, Read that file first. If it names a
   function, Grep for the definition. If it names a behavior, find the
   implementing code. If the named thing does not exist, that IS evidence

@@ -20,9 +20,11 @@
 #   - end-to-end: preflight split -> synthetic judge output tagged [AC-<id>]
 #     -> finalize -> sidecar -> skills/autopilot/ship-gate-verdict.sh gives
 #     the expected decision
-#   - WP 1-15 C2: claims[].verify (the AC's Verify command or null) and
-#     .tool_budget (8 with a command, else 5); the claim text template is
-#     unaffected; case 10 (a second Verify line) propagates fail-closed
+#   - WP 1-15 C2 + CDT-611: claims[].verify (the AC's Verify command or null)
+#     and .tool_budget (the scaled M14 verify budget with a command — base 8,
+#     +2 per additional technical AC, ceiling 16 — else 5); the claim text
+#     template is unaffected; case 10 (a second Verify line) propagates
+#     fail-closed
 #
 # Fixtures: skills/council/fixtures/m14-split/*.md (committed into a private
 # temp git repo below; never the live worktree).
@@ -371,11 +373,14 @@ ok_eq "13 m14-check success: acs length" "$(printf '%s' "$OUT13B" | jq '.acs | l
 
 
 # ==============================================================================
-# 14. WP 1-15 C2: an AC with a Verify line -> plan.claims[].verify is the
-#     command and .tool_budget is M14_VERIFY_TOOL_BUDGET (8); an AC with none
-#     -> verify:null and tool_budget is INVESTIGATOR_TOOL_BUDGET (5). The
-#     claim text stays the exact WP 1-14 template (byte-equal), unaffected
-#     by the new keys.
+# 14. WP 1-15 C2 + CDT-611: an AC with a Verify line -> plan.claims[].verify is
+#     the command and .tool_budget is the SCALED verify budget — base
+#     M14_VERIFY_TOOL_BUDGET (8) + M14_VERIFY_BUDGET_PER_EXTRA_AC (2) per
+#     additional technical AC, ceiling 16. This fixture holds 2 technical ACs
+#     (A, B), so the verify budget is min(8 + 2*(2-1), 16) = 10. An AC with
+#     no Verify line -> verify:null and tool_budget is
+#     INVESTIGATOR_TOOL_BUDGET (5). The claim text stays the exact WP 1-14
+#     template (byte-equal), unaffected by the new keys.
 # ==============================================================================
 VA_LINE="$(grep -n '^- \*\*A\.\*\*' "$FIX/verify-spec.md" | head -1 | cut -d: -f1)"
 VB_LINE="$(grep -n '^- \*\*B\.\*\*' "$FIX/verify-spec.md" | head -1 | cut -d: -f1)"
@@ -384,8 +389,8 @@ OUT14="$(preflight "$VERIFY_TRIGGER_ARG")"; RC14=$?
 ok_eq "14 verify fixture: exit 0" "$RC14" "0"
 ok_eq "14 claims[0].verify (A has a Verify line)" \
   "$(printf '%s' "$OUT14" | jq -r '.claims[0].verify')" "bash test-stub.sh"
-ok_eq "14 claims[0].tool_budget == 8 (M14_VERIFY_TOOL_BUDGET)" \
-  "$(printf '%s' "$OUT14" | jq '.claims[0].tool_budget')" "8"
+ok_eq "14 claims[0].tool_budget == 10 (scaled: 8 + 2*(2 technical ACs - 1))" \
+  "$(printf '%s' "$OUT14" | jq '.claims[0].tool_budget')" "10"
 ok_eq "14 claims[1].verify (B has none) == null" \
   "$(printf '%s' "$OUT14" | jq -c '.claims[1].verify')" "null"
 ok_eq "14 claims[1].tool_budget == 5 (INVESTIGATOR_TOOL_BUDGET)" \
@@ -409,6 +414,21 @@ if [ "$(wc -l <"$HERMETIC_ROOT/err15")" -eq 1 ] && grep -q '^m14-ac-split: case 
 else
   fail_msg "15 case 10 (second Verify line): stderr ($(cat "$HERMETIC_ROOT/err15"))"
 fi
+
+# ==============================================================================
+# 16. CDT-611 ceiling clamp: 6 technical ACs (A-F, G is [process]) saturate the
+#     scaled verify budget — min(8 + 2*(6-1), 16) = min(18, 16) = 16 — so every
+#     verify claim carries the hard ceiling, never an unclamped 18.
+# ==============================================================================
+OUT16="$(preflight "Ship-gate audit for wp-six-ac. This ships under the ACs at ac-source=six-ac-spec.md (section '## Acceptance criteria', subsection '### wp-six-ac'). Claim under audit: the change ships correctly.")"; RC16=$?
+ok_eq "16 ceiling clamp fixture: exit 0" "$RC16" "0"
+ok_eq "16 claims length == 6 (A-F technical only)" \
+  "$(printf '%s' "$OUT16" | jq '.claims | length')" "6"
+ok_eq "16 claims[0].tool_budget == 16 (clamp: min(8 + 2*(6-1), 16))" \
+  "$(printf '%s' "$OUT16" | jq '.claims[0].tool_budget')" "16"
+ok_eq "16 claims[5].tool_budget == 16 (clamp applies to every verify claim)" \
+  "$(printf '%s' "$OUT16" | jq '.claims[5].tool_budget')" "16"
+ok_eq "16 process_acs == [G]" "$(printf '%s' "$OUT16" | jq -c '.process_acs')" '["G"]'
 echo
 echo "PASS=$pass FAIL=$fail"
 if [ "$fail" -ne 0 ]; then

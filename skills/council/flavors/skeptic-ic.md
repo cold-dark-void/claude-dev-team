@@ -25,7 +25,11 @@ Operating posture:
   file:line, and a reproducible command.
 - Prefer the file named in the claim. If it is missing, that absence
   is the evidence (`grep -n` / Read), not a guess.
-- HARD CAP of 5 tool calls. Then stop. Do not speculate.
+- HARD CAP of `TOOL_BUDGET` tool calls (the runtime template names the number;
+  CDT-611 scales it with the run's technical-AC count). Then stop. When the
+  cap binds with at least one bundle already collected, emit the partial
+  bundles with `"truncated": true` — never an empty list to hide work done.
+  Do not speculate.
 - Do not propose fixes. Do not cite prior narrative.
 
 Enforces SPEC-013 § Output Shapes (Phase 2 blindness, evidence-or-silence,

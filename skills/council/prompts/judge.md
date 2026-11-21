@@ -121,6 +121,13 @@ PROCEDURE
          with the recipe's own evidence: the Step 1 AC quote, the Step 2
          Verify output and the Step 3 token greps, as with any other
          evidence.
+       - An evidence bundle marked `"truncated": true` — partial evidence
+         collected under the investigator's tool budget before the cap
+         bound (CDT-611) — MUST cap the claim's confidence <=79, the same
+         bar as a missing verify bundle. Partial evidence is evidence,
+         never silence: weigh what the truncated bundle holds, but do not
+         score the claim VERIFIED or PARTIALLY_VERIFIED at >=80 from a
+         truncated budget alone.
        - Evidence bar (2026-10-12, CDT-537): score confidence on EXHIBITED
          run output — a bundle that quotes the command, its exit code and
          the relevant output lines. A source assert (a test-file line that

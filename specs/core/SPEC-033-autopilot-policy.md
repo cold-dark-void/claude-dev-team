@@ -135,7 +135,12 @@ target.
     don't apply to this gate — matching M6's global evaluation order.)
     1. Does every plan task carry concrete file paths **and** a verification step? Does the
        plan's `process_acs:` line equal the `[process]` tags in the `### <ticket_id>` AC
-       subsection of the spec (M14(h) guard 2)? → else BC1.
+       subsection of the spec (M14(h) guard 2)? → else BC1. When the subsection holds K ≥ 1
+       technical ACs, the `plan-approve` card's `rationale` MUST also carry the predicted
+       ship-gate budget `m14-predict: acs=<K> budget=<B>` where `B = min(8 + 2·(K−1), 16)`
+       (CDT-611) — so a predicted budget strain on the M14 gate is visible in ONE card at
+       plan time and resume decisions batch into one user prompt instead of one per WP
+       BC7 halt. The token is informational; it fires no BC and changes no gate outcome.
     2. Does any task perform a destructive/irreversible operation? → BC3.
     3. Is the projected **counted** (non-excluded, M15) change within the per-PR hard cap
        and the per-file size cap? → BC4. The ~1000 LOC soft cap is non-halting discipline
@@ -977,10 +982,21 @@ target.
     - The budget applies to M14 split runs only. Every other `/council` caller keeps the
       SPEC-013 claim budget of 10 and the 5-call investigator budget
       (`skills/council/prompts/investigator.md`).
-    - An M14 per-AC claim with a `Verify:` command gets an 8-call investigator budget. An
-      M14 claim with no `Verify:` command keeps 5 calls (SPEC-013 Phase 2; WP 1-15).
-      The finder recipe **(g)** fits in 8 calls: one quote, one verify run, one filter and
-      the token greps, grouped by file (WP 1-16). The budget does not change.
+    - An M14 per-AC claim with a `Verify:` command gets a **scaled** investigator budget
+      (CDT-611): base 8 for the run's first technical AC, **+2 per additional technical
+      AC**, capped at a hard ceiling of **16** — `min(8 + 2·(K−1), 16)` for K technical ACs,
+      applied at design time in `skills/council/engine-preflight.sh` when the split assigns
+      each claim's `tool_budget`. An M14 claim with no `Verify:` command keeps 5 calls
+      (SPEC-013 Phase 2; WP 1-15). The finder recipe **(g)** fits the granted budget: one
+      quote, one verify run, one filter and the token greps, grouped by file (WP 1-16). The
+      base recipe shape does not change; only the granted call count scales. The recorded
+      case: the flat 5-call investigator budget stranded multi-AC WPs on BC7 halts (WP 1-01, 1-02 and 1-03
+      each halted on the same investigator budget and needed a resume).
+    - A truncated investigation is evidence too (CDT-611): when an investigator hits its
+      `TOOL_BUDGET` cap with at least one bundle collected, it returns the partial bundles
+      with `"truncated": true` instead of an empty list; the judge weighs partial evidence
+      and treats `"truncated": true` as a confidence cap (the same bar as a missing verify
+      bundle). An empty list stays the answer only when no evidence was found at all.
 
   - **(k) Tests (WP 1-14).** These tests MUST run in `tools/run-all-tests.sh`. They MUST
     start no live council and MUST write only under `TMPDIR`.
@@ -1679,6 +1695,39 @@ Format and rules: M14(g) and M14(h). Each ticket that ships through M14 has one
   Verify: bash skills/autopilot/test-bc6-approval-wait.sh
 - **E.** [process] The touched suites pass on the changed tree: `bash skills/autopilot/test-bc6-approval-wait.sh` and `bash skills/autopilot/test.sh` each exit 0.
 
+### CDT-611
+
+- **A.** The scaled per-AC investigator budget. An M14 per-AC claim with a `Verify:` command
+  gets `min(8 + 2·(K−1), 16)` investigator tool calls for a run with K technical ACs — base
+  8 for the first AC, +2 per additional technical AC, hard ceiling 16 — applied at design
+  time in `skills/council/engine-preflight.sh` when the split assigns each claim's
+  `tool_budget`. Non-verify claims keep `INVESTIGATOR_TOOL_BUDGET` (5). The constants live
+  in `skills/council/engine.sh` next to `M14_AC_BUDGET` (the M14(j) precedent: named
+  constants with a hard ceiling, never an environment variable, a flag, a plan field or a
+  spec field; no per-WP override).
+  Verify: bash skills/council/test-m14-split.sh
+- **B.** Truncated evidence beats silence. When an investigator hits its `TOOL_BUDGET` cap
+  with at least one bundle collected, it returns the partial bundles with
+  `"truncated": true` instead of an empty `evidence_bundles` list; the investigator prompt
+  template and the `paranoid-ic` / `skeptic-ic` flavor deltas state the rule, and the judge
+  treats `"truncated": true` as a confidence cap (the same bar as a missing verify bundle).
+  An empty list stays the answer only when no evidence was found at all.
+  Verify: bash skills/council/test-verify-prompts.sh
+- **C.** The predicted-BC7 surface on the plan-approve card. When the `### <ticket_id>` AC
+  subsection holds K ≥ 1 technical ACs, the `plan-approve` card's `rationale` MUST carry
+  `m14-predict: acs=<K> budget=<B>` with `B = min(8 + 2·(K−1), 16)` — informational only,
+  no BC fired, no gate outcome changed — so a predicted M14 budget strain batches resume
+  decisions into one user prompt instead of one per WP BC7 halt (the recorded D8 case).
+  Verify: bash skills/autopilot/test-ship-gate-guardrails.sh
+- **D.** Docs in sync. SPEC-033 M14(j) states the scaled budget and the truncation rule;
+  M4 `plan-approve` item 1 states the `m14-predict:` token;
+  `skills/autopilot/SKILL.md` mirrors both (M12 one-operational-copy);
+  `skills/council/prompts/investigator.md` and the two flavor deltas carry the
+  `TOOL_BUDGET`-deferred wording and the truncation flag; SPEC-033 gains a dated CDT-611
+  Version History row; the g10 guardrail re-pins the new engine constants.
+  Verify: bash skills/autopilot/test-ship-gate-guardrails.sh
+- **E.** [process] The touched suites pass on the changed tree: `bash skills/council/test-m14-split.sh`, `bash skills/council/test-verify-prompts.sh`, `bash skills/autopilot/test-ship-gate-guardrails.sh`, and `bash skills/autopilot/test.sh` each exit 0.
+
 ---
 
 ## Test
@@ -1694,6 +1743,7 @@ Format and rules: M14(g) and M14(h). Each ticket that ships through M14 has one
 
 | Date | Change |
 |------|--------|
+| 2026-11-21 | CDT-611: **the investigator tool budget scales with claim/AC count, truncated evidence beats silence, and the plan-approve card predicts the M14 budget.** Recorded case (friction audit D8): WP 1-01, 1-02 and 1-03 each halted on the same flat 5-call investigator budget and each needed a resume; one investigator that hit the cap on call 6 self-struck its evidence, leaving a claim uncovered. Now (1) an M14 per-AC claim with a `Verify:` command gets `min(8 + 2·(K−1), 16)` investigator tool calls for K technical ACs — base 8, +2 per additional AC, ceiling 16 — applied at design time in `engine-preflight.sh` beside the `M14_AC_BUDGET` constants (M14(j) precedent: named constants + hard ceiling, no env/flag/plan/spec field, no per-WP override); non-verify claims keep 5. (2) An investigator that hits its cap with bundles in hand returns the partial bundles with `"truncated": true` instead of an empty list; the judge caps confidence on it like a missing verify bundle. (3) The `plan-approve` card's rationale carries `m14-predict: acs=<K> budget=<B>` when the AC subsection holds K ≥ 1 technical ACs — informational, so a predicted M14 budget strain batches resume decisions into one user prompt instead of one per WP BC7 halt. No ninth BC, no gate value, no card field; `M14_AC_BUDGET` and the BC7 reuse are unchanged. Docs synced: `skills/autopilot/SKILL.md` (M4 plan-approve), `skills/council/engine.sh`, `engine-preflight.sh`, `prompts/investigator.md`, `flavors/paranoid-ic.md`, `flavors/skeptic-ic.md`; g10 re-pinned; new `### CDT-611` AC subsection. Status stays ACTIVE. |
 | 2026-11-21 | CDT-610: **BC6's ship-choice carve-out — the budget cap gates new work, not the last push.** Recorded case WP 1-01: finished, reviewed and tested, then halted at the ship step at 81 min against the cap (and WP 1-15: 38,248 s against a 10,800 s cap, ~7.5 h of it user wait). Now, at the `ship-choice` gate only, a run-budget breach downgrades to a **non-blocking budget warning**: the gate's default answer is emitted unchanged (card #1 written with `blocking_condition = null`) and card #1's `rationale` MUST carry `budget-warning:` naming the breached cap (`iteration` or `wall_clock`) with both the measured value and the cap. BC6 stays a hard stop at every other gate (`scope-confirm`, `plan-approve`, `/kickoff`, `/epic` Mode A). User-wait coverage at the ship step is two-sided: an approval wait before card #1 is the M9a exclusion, a breach at the gate itself warns (this change), and BC6 is not evaluated after card #1 — so no user wait around the ship step, and no overrun on already-approved work, can cost a finished run its landing. No ninth BC, no new card field, no gate value, no `type`; the marker rides card #1's rationale like `approval-wait:` / `pass-with-note:`. `append-card.sh`, `budget-check.sh`, and the M14 gate are unchanged. Docs synced: `skills/autopilot/SKILL.md` (M6 item 6, M4 ship-choice item 3) and `skills/autopilot/self-answer.md` §d. New `### CDT-610` AC subsection; `test-bc6-approval-wait.sh` gains the static drift-guard. Status stays ACTIVE. |
 | 2026-11-21 | CDT-609: **M14(b) step 6 — an all-criteria-pass run below 80 becomes a pass-with-note.** Recorded case WP 1-04: 16 of 16 ACs `VERIFIED`/`PARTIALLY_VERIFIED`, none failed, lowest confidence 65 → BC7 halt. Now, when every technical AC passed (no unaudited AC, no `UNVERIFIED`/`CONTRADICTED`/`FABRICATED` AC) and the lowest confidence is below 80, card #2 copies `decision` and `bump` from card #1, sets `blocking_condition = null` and `confidence` = that lowest confidence (CDT-181 floor semantics), and carries a one-line `rationale` that names every AC below 80 and the marker phrase `pass-with-note`. No halt card, no user-facing decision card, and no full-council re-run offer — (f)'s escalation offer stays tied to BC7 halts. The fail-closed set is unchanged: steps 1–4, (d), a malformed sidecar or card #1, a guard-3 stamp miss, and a card #1 decision outside `pr`/`merge` still give `halt` / 7 / `confidence = 0`; BC7 still halts whenever a criterion actually fails. No ninth BC, no auto-clear, no self-answer past BC7, no auto re-run. Supersedes the wp-1-14 "agree only if every AC claim is … at 80 or higher" rule. Mapper `skills/autopilot/ship-gate-verdict.sh` changes; its blob pin (g6) and the M14(b) golden (g7) re-pin at this commit. Docs synced: `ship-gate-council.md` §4, `ship-pipeline.md`, `skills/orchestrate/steps/11-ship.md`, `end-state.md`, and the `resume-ship` notes (they name a `CONTRADICTED` / `UNVERIFIED` / unaudited AC). `ship-gate-council.md` §5 and the M14(d) golden stay byte-identical. New `### CDT-609` AC subsection. Status stays ACTIVE. |
 | 2026-11-18 | CDT-641 (SPEC-042): **M14(m)** — the gate recipe's Phase-4 model pin. The ship-gate council run pins its Phase-4 prosecutor/advocate briefs at `sonnet` by default; the recipe may escalate them to `opus` through the exported `COUNCIL_PHASE4_MODEL` knob (closed set and grammar owned by SPEC-042 M5 — cited, not restated). When the escalation is exercised, card #2's `rationale` carries the token `phase4_model=opus`; `skills/autopilot/ship-gate-verdict.sh` stays byte-identical because the recipe composes the rationale and the mapper (M14(i)) never learns the token. The knob is an env var, so M14(a)'s "no other flag may be passed" rule is unchanged; a direct `/council` run outside the recipe never sets it. No firing rule, card schema, BC mapping, or degraded-run rule changes. Status stays ACTIVE. |

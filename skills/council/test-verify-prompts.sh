@@ -323,6 +323,13 @@ PNEOF
     else
       fail_msg "AC B: missing the reproducible_command-equality / VERIFY exit= statement"
     fi
+    # ---- CDT-611: the render carries the truncation flag rule --------------
+    if grep -qF 'TRUNCATION FLAG (CDT-611)' "$RENDER_M14" \
+      && grep -qF '"truncated": true' "$RENDER_M14"; then
+      ok "AC B: truncation flag rule present in the M14 render (partial bundles beat silence)"
+    else
+      fail_msg "AC B: missing the truncation flag rule in the M14 render"
+    fi
   fi
 
   # ---- CDT-537 (2026-10-12): run-output evidence bar -----------------------
@@ -586,6 +593,17 @@ fi
 judge_bite "no-bundle-below-80" \
   '         bundle to read) MUST get confidence <=79 — a missing verify run' \
   'bundle to read) MUST get confidence <=79'
+
+# ---- CDT-611: the judge caps confidence on truncated evidence --------------
+if grep -qF 'An evidence bundle marked `"truncated": true`' "$JUDGE_MD" \
+  && grep -qF 'MUST cap the claim'"'"'s confidence <=79, the same' "$JUDGE_MD"; then
+  ok "judge.md: a truncated evidence bundle caps confidence at the missing-verify bar (CDT-611)"
+else
+  fail_msg "judge.md: missing the truncated-evidence confidence cap"
+fi
+judge_bite "truncated-bundle-cap" \
+  '         bound (CDT-611) — MUST cap the claim'"'"'s confidence <=79, the same' \
+  'MUST cap the claim'"'"'s confidence <=79, the same'
 
 if grep -qF 'is not enough by itself. A pass alone' "$JUDGE_MD"; then
   ok "judge.md: a pass alone is not enough"

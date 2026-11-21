@@ -504,8 +504,8 @@ if want_ac; then
   LINE=$(grep -nF -- "$PIN" "$INV" 2>/dev/null | head -1 | cut -d: -f1)
   if [ -n "$LINE" ]; then ok spike-regex-extract
   else bad spike-regex-extract "AC_LABEL template absent from $INV"; fi
-  if [ "${LINE:-none}" = "130" ]; then ok spike-regex-anchor
-  else bad spike-regex-anchor "AC_LABEL moved off investigator.md:130 (found at ${LINE:-nowhere})"; fi
+  if [ "${LINE:-none}" = "132" ]; then ok spike-regex-anchor
+  else bad spike-regex-anchor "AC_LABEL moved off investigator.md:132 (found at ${LINE:-nowhere})"; fi
   NX=$(printf '%s' "$PIN" | tr -cd 'X' | wc -c | tr -d ' ')
   if [ "$NX" = "3" ]; then ok spike-regex-arity
   else bad spike-regex-arity "template holds $NX X tokens, expected 3"; fi

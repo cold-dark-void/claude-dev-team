@@ -248,11 +248,19 @@ cmd_preflight() {
       m14_process_acs_json=$(printf '%s' "$m14_split_json" | jq -c '[.acs[] | select(.process == true) | .id]')
       # SPEC-013 Phase 1 claim record + exact template (WP 1-14 C2). Index i
       # (0-based) runs over the technical-only array, in document order.
+      # CDT-611: the per-AC verify budget scales with the technical-AC count —
+      # base 8 + 2 per additional technical AC, hard-capped at 16 (M14(j)
+      # precedent: named constants, no env/flag/plan field). Non-verify claims
+      # keep INVESTIGATOR_TOOL_BUDGET.
       m14_claims_json=$(printf '%s' "$m14_split_json" | jq -c \
         --arg ticket_id "$m14_ticket_id" --arg path "$m14_ac_source" \
         --argjson default_budget "$INVESTIGATOR_TOOL_BUDGET" \
-        --argjson verify_budget "$M14_VERIFY_TOOL_BUDGET" '
+        --argjson verify_budget "$M14_VERIFY_TOOL_BUDGET" \
+        --argjson per_extra "$M14_VERIFY_BUDGET_PER_EXTRA_AC" \
+        --argjson ceiling "$M14_VERIFY_BUDGET_CEILING" '
         [ .acs[] | select(.process == false) ] as $tech
+        | (($verify_budget + (($tech | length) - 1) * $per_extra)
+           | if . > $ceiling then $ceiling else . end) as $scaled_budget
         | [ range(0; ($tech | length)) as $i
             | ($tech[$i]) as $ac
             | {
@@ -265,7 +273,7 @@ cmd_preflight() {
                 source_locator: ($path + ":" + ($ac.line | tostring)),
                 claim_type: "factual",
                 verify: ($ac.verify // null),
-                tool_budget: (if ($ac.verify // null) == null then $default_budget else $verify_budget end)
+                tool_budget: (if ($ac.verify // null) == null then $default_budget else $scaled_budget end)
               }
           ]
         ')

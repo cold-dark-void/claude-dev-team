@@ -52,7 +52,14 @@ readonly M14_AC_BUDGET_CEILING=20
 # An M14 claim with a Verify command gets M14_VERIFY_TOOL_BUDGET investigator
 # tool calls (the verify run plus the citation calls); every other claim,
 # M14 or not, keeps INVESTIGATOR_TOOL_BUDGET (SPEC-013 interface contract C2).
+# CDT-611: the per-AC verify budget SCALES with the run's technical-AC count —
+# base 8 for the first AC, +2 per additional technical AC, capped at 16 (the
+# M14(j) precedent: named constants + a hard ceiling, never env/flag/plan
+# fields). Applied at design time by engine-preflight.sh; the recorded case is
+# the 5-call cap stranding multi-AC WPs on BC7 halts (D8: WP 1-01/1-02/1-03).
 readonly M14_VERIFY_TOOL_BUDGET=8
+readonly M14_VERIFY_BUDGET_PER_EXTRA_AC=2
+readonly M14_VERIFY_BUDGET_CEILING=16
 readonly INVESTIGATOR_TOOL_BUDGET=5
 
 

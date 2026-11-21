@@ -78,7 +78,9 @@ three recipe steps below, in order, as your first tool calls, from the
 worktree top level. Step 2's Verify call is the only one of these that
 may mutate anything, and it writes only under its own TMPDIR (a child
 of CACHE_DIR) plus the `$d.log` sibling file next to it. The recipe
-fits the 8-call M14 budget: 1 quote + 1 verify run + 1 filter + one
+fits the M14 tool budget the `TOOL_BUDGET` field names — base 8 for the
+first AC, scaled up with the run's technical-AC count (CDT-611): 1 quote +
+1 verify run + 1 filter + one
 default multi-token grep, plus one call per `path:N` token and rare
 scoped fallbacks.
 
@@ -243,6 +245,15 @@ Respond with a SINGLE LINE of strict JSON matching this schema. No prose,
 no markdown fences.
 
 {"claim_id":"...","evidence_bundles":[{"tool_use_id":"...","raw_blob":"...","file_line":"path:N","reproducible_command":"..."}],"reason_if_empty":null}
+
+TRUNCATION FLAG (CDT-611): when the `{{TOOL_BUDGET}}` cap binds while at least
+one bundle is already collected, you MUST return those partial bundles — the
+same schema above plus a `"truncated": true` field — instead of an empty
+`evidence_bundles` list. `"truncated"` is `true` only when you stopped at the
+cap with bundles in hand; omit it when you finished under the cap. The judge
+weighs partial evidence and treats `"truncated": true` as a confidence cap
+(the same bar as a missing verify bundle). An empty list remains the correct
+answer only when NO evidence was found at all.
 ```
 
 ---
@@ -256,7 +267,7 @@ no markdown fences.
 | `{{RAW_ARTIFACTS}}` | engine — file paths / diff / log blobs (NEVER narrative) |
 | `{{FLAVOR_DELTA}}` | engine — body of the selected flavor file (e.g. paranoid-ic) |
 | `{{CACHE_DIR}}` | engine — plan.cache_dir (per-run TMPDIR council-cache; CDV-211) |
-| `{{TOOL_BUDGET}}` | engine — claim.tool_budget (8 with a Verify command, else 5) |
+| `{{TOOL_BUDGET}}` | engine — claim.tool_budget (the scaled M14 verify budget when the claim verifies — base 8, +2 per additional technical AC, ceiling 16; else 5) |
 | `{{VERIFY_COMMAND}}` | engine — claim.verify (the AC's Verify command, or empty) |
 
 ## Output schema

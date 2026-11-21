@@ -701,13 +701,17 @@ else
 fi
 
 # =============================================================================
-# g10 (WP 1-16 AC F) — engine.sh holds the two M14 tool-budget constants.
+# g10 (WP 1-16 AC F; CDT-611) — engine.sh holds the M14 tool-budget constants:
+# the base verify budget, the CDT-611 scaling pair, and the non-M14 budget.
 # =============================================================================
 G10_A="readonly M14_VERIFY_TOOL_BUDGET=8"
 G10_B="readonly INVESTIGATOR_TOOL_BUDGET=5"
+G10_C="readonly M14_VERIFY_BUDGET_PER_EXTRA_AC=2"
+G10_D="readonly M14_VERIFY_BUDGET_CEILING=16"
 
-if has "$ENGINE_SH" "$G10_A" && has "$ENGINE_SH" "$G10_B"; then
-  pass "g10 engine.sh: holds both M14 tool-budget constants (8, 5)"
+if has "$ENGINE_SH" "$G10_A" && has "$ENGINE_SH" "$G10_B" \
+  && has "$ENGINE_SH" "$G10_C" && has "$ENGINE_SH" "$G10_D"; then
+  pass "g10 engine.sh: holds the M14 tool-budget constants (8 base, +2/extra AC, ceiling 16, 5 non-M14)"
 else
   fail "g10 engine.sh: missing one of the M14 tool-budget constants"
 fi

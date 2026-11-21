@@ -80,8 +80,9 @@ ok_eq "1 split: AC I is [process] with no verify" \
   '{"process":true,"verify":null}'
 
 # ==============================================================================
-# 2. Preflight: plan.claims[].verify and .tool_budget (8 with a command,
-#    5 without). 8 claims total (the [process] AC never becomes a claim).
+# 2. Preflight: plan.claims[].verify and .tool_budget (16 with a command,
+#    5 without; CDT-611 scale, K=8 technical ACs on this fixture). 8 claims
+#    total (the [process] AC never becomes a claim).
 # ==============================================================================
 PLAN="$HERMETIC_ROOT/plan.json"
 ( cd "$REPO" && bash "$ENGINE" preflight --scope claim --scope-arg "$TRIGGER_ARG" ) > "$PLAN"
@@ -100,10 +101,10 @@ for i in $(seq 0 7); do
   if [ "$V" = "null" ]; then
     [ "$B" = "5" ] || BUDGET_MISMATCH=1
   else
-    [ "$B" = "8" ] || BUDGET_MISMATCH=1
+    [ "$B" = "16" ] || BUDGET_MISMATCH=1
   fi
 done
-ok_eq "2 preflight: every claim's tool_budget matches its verify (8 with, 5 without)" \
+ok_eq "2 preflight: every claim's tool_budget matches its verify (16 with, 5 without)" \
   "$BUDGET_MISMATCH" "0"
 
 # ==============================================================================
@@ -164,7 +165,8 @@ JS
   TMP3="$HERMETIC_ROOT/step3-renders"
   mkdir -p "$TMP3"
 
-  # ---- 7 verify claims: budget=8 in all three spots, the C5 has_command
+  # ---- 7 verify claims: budget=16 in all three spots (CDT-611 scale), the
+  # C5 has_command
   # wrapper with the claim's own Verify command, VERIFY exit= present, no
   # leftover {{ markers. ------------------------------------------------
   VERIFY_ACS="$TMP3/verify-acs.txt"
@@ -177,12 +179,12 @@ JS
     jq -r --arg id "$ACID" '.[] | select(.ac_id==$id) | .text' "$RESULTS" > "$TXT"
     VCMD=$(jq -r --arg id "$ACID" '.[] | select(.ac_id==$id) | .verify' "$RESULTS")
 
-    if grep -qF 'BUDGET of 8 tool calls total' "$TXT" \
-      && grep -qF 'after 8 calls' "$TXT" \
-      && grep -qF 'NEVER exceed 8 tool calls' "$TXT"; then
-      ok "3 render AC $ACID: 8 in all three budget spots"
+    if grep -qF 'BUDGET of 16 tool calls total' "$TXT" \
+      && grep -qF 'after 16 calls' "$TXT" \
+      && grep -qF 'NEVER exceed 16 tool calls' "$TXT"; then
+      ok "3 render AC $ACID: 16 in all three budget spots"
     else
-      fail_msg "3 render AC $ACID: budget=8 not in all three spots"
+      fail_msg "3 render AC $ACID: budget=16 not in all three spots"
     fi
 
     if grep -qF "TMPDIR=\"\$d\" $VCMD >\"\$d.log\" 2>&1; echo \"VERIFY exit=\$?\"" "$TXT"; then
@@ -224,9 +226,9 @@ JS
   # ---- Negative control: the same budget-8 checks must fail on a verify
   # claim rendered with TOOL_BUDGET forced to '5'. -----------------------
   if [ -s "$NEGCTRL" ]; then
-    if grep -qF 'BUDGET of 8 tool calls total' "$NEGCTRL" \
-      || grep -qF 'after 8 calls' "$NEGCTRL" \
-      || grep -qF 'NEVER exceed 8 tool calls' "$NEGCTRL"; then
+    if grep -qF 'BUDGET of 16 tool calls total' "$NEGCTRL" \
+      || grep -qF 'after 16 calls' "$NEGCTRL" \
+      || grep -qF 'NEVER exceed 16 tool calls' "$NEGCTRL"; then
       fail_msg "3 negative control: budget-8 phrases leaked into a TOOL_BUDGET=5 render"
     else
       ok "3 negative control: budget-8 checks correctly fail when TOOL_BUDGET=5"
