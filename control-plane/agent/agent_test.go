@@ -249,6 +249,69 @@ func TestSuperviseSteerThenOperatorStop(t *testing.T) {
 	}
 }
 
+// AC15 (SPEC-044 M8): a cancelled supervision context is a quiet shutdown. The
+// child stops, the pidfile and the lease stay for the next supervisor, and the
+// journal gains no row at all — halted:operator_halt belongs to the stop verb,
+// so a restart journals no run event.
+func TestSuperviseCancelledContextIsQuietShutdown(t *testing.T) {
+	eng := newEngine(t)
+	// A wide stall limit keeps the heartbeat out of the window the row count is
+	// measured across: the beat is half the stall limit (clamped), so no beat
+	// fires before the cancel lands.
+	t.Setenv("DEVTEAM_STALL_LIMIT", "270")
+	runID := "CDT-660"
+	a := nativeAgent()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	done := make(chan error, 1)
+	go func() { done <- a.Supervise(ctx, eng, startReq(runID, "sleep 30")) }()
+	waitRunner(t, eng, runID)
+
+	rec, err := readPIDFile(runID)
+	if err != nil || rec.RunnerPID <= 0 {
+		t.Fatalf("pidfile before the cancel: %+v (err %v)", rec, err)
+	}
+	before, err := eng.Events(context.Background(), runID)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	cancel()
+	if err := <-done; !errors.Is(err, context.Canceled) {
+		t.Fatalf("supervisor exit = %v, want context.Canceled", err)
+	}
+
+	if got := probePID(rec.RunnerPID); got != processDead {
+		t.Errorf("runner pid %d reads %s, want %s", rec.RunnerPID, got, processDead)
+	}
+	if after, err := readPIDFile(runID); err != nil || after.RunnerPID != rec.RunnerPID ||
+		after.SupervisorPID != rec.SupervisorPID {
+		t.Errorf("pidfile after the shutdown = %+v (err %v), want the handover record kept", after, err)
+	}
+	if st := state(t, eng, runID); st.Status != journal.StatusRunning {
+		t.Errorf("state = %s, want running", st.Name())
+	}
+	if n := rowsByKind(t, eng, runID, journal.KindRunHalted); n != 0 {
+		t.Errorf("run_halted rows = %d, want none", n)
+	}
+	after, err := eng.Events(context.Background(), runID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(after) != len(before) {
+		t.Errorf("journal rows went %d → %d across the shutdown, want no write", len(before), len(after))
+	}
+	lease, err := run.New(eng, runID).ReadLease(context.Background())
+	if err != nil {
+		t.Fatalf("lease after the shutdown: %v", err)
+	}
+	if lease.Owner != a.owner() || lease.Token == 0 {
+		t.Errorf("lease after the shutdown = %q token %d, want %q and the live token",
+			lease.Owner, lease.Token, a.owner())
+	}
+}
+
 // AC: the CDT-626 reboot contract — every in-flight run continues without a
 // human. The first agent died after it closed its spawn (the closed intent and
 // the dead pidfile are its whole trail); the restarting agent takes over the

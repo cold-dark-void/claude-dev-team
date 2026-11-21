@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/cold-dark-void/claude-dev-team/control-plane/journal"
+	"github.com/cold-dark-void/claude-dev-team/control-plane/run"
 )
 
 // notifyRelPath is the phone-channel record of the chief: one line per page
@@ -114,12 +115,39 @@ func (c *Chief) appendNotify(rec notifyRecord) error {
 	return f.Sync()
 }
 
+// takeoverAnswered reports whether the takeover scan answered one halt row
+// (SPEC-044 M9/AC9). The scan answers exactly one shape: the watchdog's
+// stalled finding on a run whose replayed state has moved past
+// `halted:stalled` — the re-spawn landed and the run runs again, so the
+// stall is behind it and the phone stays silent.
+//
+// Every other answer is false, so the page stands: a halt the scan refused
+// (the spent stalled budget, a foreign-node runner, a matrix refusal) leaves
+// the run in `halted:stalled`, a skipped run has no host to re-spawn, and a
+// halt of any other reason is outside the M1 selection set (AC8).
+func (c *Chief) takeoverAnswered(ctx context.Context, h HaltReport) (bool, error) {
+	if h.Reason != run.ReasonStalled {
+		return false, nil
+	}
+	st, err := c.eng.RunState(ctx, h.RunID)
+	if err != nil {
+		return false, err
+	}
+	return st.Name() != stalledState, nil
+}
+
 // ScanHalts reports every halt (AC5) and pages the operator through the
 // Intercom for each halt whose page has not closed delivered: the reason
 // and the remaining retry budget are the page's content. The page is one
 // intent row in the record, then the channel call, then one outcome row —
 // and a page that failed re-pages on the next scan, so a transiently
 // failing channel loses no halt.
+//
+// The takeover answers a stalled halt (SPEC-044 M9/AC9): a
+// `halted:stalled` row whose run the scan has taken over pages nothing —
+// the re-spawn is the response. A halt the scan does not answer keeps its
+// page: a refusal, a skip, a spent stalled budget, and every halt of
+// another reason (AC8) all stay on the record's at-least-once rules.
 func (c *Chief) ScanHalts(ctx context.Context) ([]HaltReport, error) {
 	c.notifyMu.Lock()
 	defer c.notifyMu.Unlock()
@@ -139,6 +167,16 @@ func (c *Chief) ScanHalts(ctx context.Context) ([]HaltReport, error) {
 			out = append(out, h)
 			continue
 		}
+		answered, err := c.takeoverAnswered(ctx, h)
+		if err != nil {
+			return nil, err
+		}
+		if answered {
+			// No intent row, no page, no record: the journal is the proof
+			// this halt was answered, and the row stays readable.
+			out = append(out, h)
+			continue
+		}
 		if err := c.appendNotify(notifyRecord{
 			Kind: "intent", RunID: h.RunID, HaltSeq: h.Seq, Reason: h.Reason,
 		}); err != nil {
@@ -146,7 +184,7 @@ func (c *Chief) ScanHalts(ctx context.Context) ([]HaltReport, error) {
 		}
 		page := fmt.Sprintf("run %s halted: %s — %s (retry budget %d, %d remaining)",
 			h.RunID, h.Reason, orNone(h.Detail), h.Budget, h.Remaining)
-		err := c.phone.Page(ctx, h.RunID, page)
+		err = c.phone.Page(ctx, h.RunID, page)
 		pageErr := ""
 		if err != nil {
 			pageErr = err.Error()
@@ -163,9 +201,16 @@ func (c *Chief) ScanHalts(ctx context.Context) ([]HaltReport, error) {
 	return out, nil
 }
 
-// Watch pages every new halt as the journal names it (AC5), every interval,
-// until ctx ends. It is the background loop the service runs; the API's
-// Halts report stays a pure read.
+// Watch is the chief's background loop: the takeover scan, then the halt
+// pages, on one cadence, until ctx ends (SPEC-044 M2/AC2, AC5). It is the
+// loop the service runs; the API's Halts report stays a pure read.
+//
+// The takeover pass runs first on every turn — the first pass lands at
+// startup and one follows every interval for the service lifetime — so the
+// pages are read after the scan has had its say and a stall the scan answers
+// is suppressed by the pass that answered it. A stall whose re-spawn is
+// still unproven keeps its page: the page record is at-least-once and the
+// channel prefers a repeat over a lost page.
 func (c *Chief) Watch(ctx context.Context, interval time.Duration) {
 	if interval <= 0 {
 		interval = DefaultWatchInterval
@@ -173,8 +218,11 @@ func (c *Chief) Watch(ctx context.Context, interval time.Duration) {
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
 	for {
-		// A failed pass must not stop the watch: the next tick retries, and
-		// the record's delivered outcomes keep the page at-least-once.
+		// A failed pass must not stop the watch: the next tick retries, the
+		// journal stays the record, and the record's delivered outcomes keep
+		// the page at-least-once. The scan's per-run failures are report
+		// lines, never an error that ends the loop.
+		_, _ = c.TakeoverScan(ctx)
 		_, _ = c.ScanHalts(ctx)
 		select {
 		case <-ctx.Done():
@@ -184,7 +232,8 @@ func (c *Chief) Watch(ctx context.Context, interval time.Duration) {
 	}
 }
 
-// DefaultWatchInterval is the halt watch's cadence.
+// DefaultWatchInterval is the watch's cadence — the takeover scan's and the
+// halt pages' (SPEC-044 M2). It is the only takeover cadence: no knob exists.
 const DefaultWatchInterval = 5 * time.Second
 
 // orNone names an empty detail, so a page never carries a dangling dash.

@@ -21,7 +21,10 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"os/signal"
 	"strings"
+	"syscall"
+	"time"
 
 	"github.com/cold-dark-void/claude-dev-team/control-plane/agent"
 	"github.com/cold-dark-void/claude-dev-team/control-plane/journal"
@@ -52,7 +55,9 @@ Verbs:
                a clean exit completed, a failing exit failed. Runs in the
                foreground; the machine supervisor (the systemd user unit,
                docs/internal/control-plane/native-runner.md) owns its
-               lifetime.
+               lifetime. SIGINT/SIGTERM is an operator stop: this verb runs
+               the stop verb in response, so the run lands in
+               halted:operator_halt.
   stop         Stops a run: intent row, then SIGTERM, then SIGKILL after the
                grace, then the outcome row and the named halt
                halted:operator_halt.
@@ -117,7 +122,17 @@ func run(args []string, stdout, stderr io.Writer) int {
 	}
 }
 
-// startCmd implements `node-agent start`.
+// stopHandoverWait is how long startCmd waits, after the stop verb its signal
+// path runs, for the supervisor to read the stop intent and step aside. The
+// supervisor polls the journal every agent poll interval (100 ms), so this
+// covers the handover many times over; past it the CLI cancels the supervision
+// context and the supervisor exits through the quiet-shutdown path.
+const stopHandoverWait = 5 * time.Second
+
+// startCmd implements `node-agent start`. It is the owner of this process's
+// SIGINT/SIGTERM registration: the supervisor registers none (SPEC-044 M8), so
+// a signal here is an operator stop and lands the run in
+// halted:operator_halt through the stop verb.
 func startCmd(args []string, stdout, stderr io.Writer) int {
 	fs := newFlagSet("start", stderr)
 	var (
@@ -126,7 +141,7 @@ func startCmd(args []string, stdout, stderr io.Writer) int {
 		workflow = fs.String("workflow", "", "workflow of the run")
 		model    = fs.String("model", "", "model tier of the run (the budget map's fallback is the tier default)")
 		command  = fs.String("command", "", "host CLI to spawn; overrides the node config")
-		grace    = fs.Duration("grace", agent.DefaultGrace, "stop grace of the agent's own signal path")
+		grace    = fs.Duration("grace", agent.DefaultGrace, "SIGTERM grace of the signal-driven stop, before SIGKILL")
 		db       = fs.String("db", "", "journal file (default $DEVTEAM_RUN_DB)")
 	)
 	var ags multiFlag
@@ -161,12 +176,48 @@ func startCmd(args []string, stdout, stderr io.Writer) int {
 	}
 	defer func() { _ = eng.Close() }()
 
-	err = a.Supervise(context.Background(), eng, agent.StartRequest{
-		RunID: *runID, Ticket: *ticket, Workflow: *workflow, Model: *model,
-		Command: *command, Args: ags,
-	})
-	if err != nil {
-		fmt.Fprintf(stderr, "node-agent start: %v\n", err)
+	// The CLI owns the process signals (SPEC-044 M8): the supervisor registers
+	// none, so a signal here is an operator stop and drives the journal-first
+	// stop verb — the run lands in halted:operator_halt, the way `node-agent
+	// stop` leaves it. The supervision context is the CLI's to cancel, and the
+	// supervisor exits on the stop intent that verb journals; the cancel is
+	// the backstop for a stop that could not run.
+	sigCtx, stopSignals := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+	defer stopSignals()
+	runCtx, cancelRun := context.WithCancel(context.Background())
+	defer cancelRun()
+
+	sup := make(chan error, 1)
+	go func() {
+		sup <- a.Supervise(runCtx, eng, agent.StartRequest{
+			RunID: *runID, Ticket: *ticket, Workflow: *workflow, Model: *model,
+			Command: *command, Args: ags,
+		})
+	}()
+
+	var supErr, stopErr error
+	select {
+	case supErr = <-sup:
+		// The run reached its own end: there is nothing to stop.
+	case <-sigCtx.Done():
+		// Journal first, then the signal: the stop verb owns the close, and
+		// the supervisor steps aside when it reads the stop intent. A run that
+		// ended between the signal and this verb refuses it with ErrNotRunning,
+		// which is why the supervisor's result is the reported one and the
+		// stop error is reported only beside a clean supervisor exit.
+		stopErr = a.Stop(context.WithoutCancel(runCtx), eng, *runID, *grace)
+		select {
+		case supErr = <-sup:
+		case <-time.After(stopHandoverWait):
+			cancelRun()
+			supErr = <-sup
+		}
+	}
+	if supErr == nil {
+		supErr = stopErr
+	}
+	if supErr != nil {
+		fmt.Fprintf(stderr, "node-agent start: %v\n", supErr)
 		return exitFailure
 	}
 	fmt.Fprintln(stdout, "ok")

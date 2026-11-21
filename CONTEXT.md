@@ -61,6 +61,7 @@ agent output. Do not reintroduce avoided aliases.
 | Node agent | The headless process on a node that starts, stops, reports on, and steers runners for the control plane | daemon, worker |
 | Runner | The process or container that hosts one agent session for a run; a native runner or a container runner | executor, sandbox |
 | Node capability | A named property that a node advertises, for example `xcode`; a run can require it. Distinct from the host capability matrix, which describes agent CLIs | label, tag |
+| Takeover | chiefd's startup re-adoption of an in-flight run: select a run with an expired lease or a stalled state, kill a recorded orphan, and re-spawn through the one takeover path (host adapter Start) on the repeating watch cadence (SPEC-044). Identifier rule: code and journal rows use `takeover`; `adopt` stays the closed repair verb of reconcile | re-adopt, adoption (as a verb) |
 
 ## Decisions
 

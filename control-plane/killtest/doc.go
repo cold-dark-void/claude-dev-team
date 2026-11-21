@@ -25,6 +25,10 @@
 //     exactly-once property is finally measured on.
 //   - ./helper: the sacrificial process. The harness kills THAT process, so
 //     the test proves process death, not a simulated one.
+//   - ./restart/helper: the supervisor of the CDT-660 restart kill test
+//     (SPEC-044 AC13). It runs a real run through the host adapter's Start, is
+//     SIGKILLed mid-run, and its other mode is the chiefd that restarts and
+//     takes the run over.
 //
 // The suite needs no container: it is plain `go test ./...`. The CI lane in
 // .github/workflows/smoke.yml runs it in the G-02-approved golang image.

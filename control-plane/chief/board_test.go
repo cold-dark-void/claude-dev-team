@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/cold-dark-void/claude-dev-team/control-plane/journal"
 	"github.com/cold-dark-void/claude-dev-team/control-plane/queue"
@@ -118,6 +119,72 @@ func TestBoardCarriesStatePhaseHaltBudgetQueueNodeAndRunner(t *testing.T) {
 	// phase, and the state still says where the machine is.
 	if waiting.Phase != "" {
 		t.Errorf("phase = %q, want empty without a phase event", waiting.Phase)
+	}
+}
+
+// AC11: a taken-over run reads running on the board with the halt cell
+// clear, with no operator action. The run needs no board special case — the
+// cell is the replayed state and the takeover's resume clears the halt. The
+// halt record stays readable: the cell is the now, the halt rows are the
+// history, and the takeover lease at token+1 is the trail that proves it.
+func TestBoardShowsATakenOverRunRunningWithTheHaltCellClear(t *testing.T) {
+	_ = captureTakeoverLog(t)
+	eng := newEngine(t)
+	// The two shapes the scan takes over: the watchdog halt (the resume
+	// path, whose halt cell must clear) and the stale lease (no halt row).
+	seedTakeoverStalled(t, eng, "r-stalled", takeoverOwner, "claude")
+	seedTakeoverRunning(t, eng, "r-stale", takeoverOwner, "grok")
+
+	clock := takeoverClock(30 * time.Second)
+	c := newTakeoverChief(t, eng, &takeoverAgent{now: clock}, &fakePhone{})
+	c.Now = clock
+	rep, err := c.TakeoverScan(context.Background())
+	if err != nil {
+		t.Fatalf("TakeoverScan: %v", err)
+	}
+	if got := runIDsOf(rep.Taken); strings.Join(got, ",") != "r-stalled,r-stale" {
+		t.Fatalf("taken = %v, want both selected runs (%s)", got, joinReport(rep))
+	}
+
+	srv := httptest.NewServer(c.Handler())
+	t.Cleanup(srv.Close)
+	var doc struct {
+		Runs []RunStatus `json:"runs"`
+	}
+	if err := json.Unmarshal(get(t, srv, "/v1/runs"), &doc); err != nil {
+		t.Fatal(err)
+	}
+	byID := map[string]RunStatus{}
+	for _, rs := range doc.Runs {
+		byID[rs.RunID] = rs
+	}
+	owner := takeoverOwnerOf()
+	for _, id := range []string{"r-stalled", "r-stale"} {
+		rs := byID[id]
+		if rs.State != "running" || rs.Halt != nil || rs.Owner != owner || rs.Stint != 1 {
+			t.Errorf("%s board row = %+v, want running with a clear halt cell on %q at stint 1",
+				id, rs, owner)
+		}
+	}
+
+	// The stalled run's halt row stays in the record the halts surface
+	// reads — the board cell clears, the history does not vanish.
+	halts, err := c.Halts(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(halts) != 1 || halts[0].RunID != "r-stalled" ||
+		halts[0].Reason != run.ReasonStalled {
+		t.Errorf("halts = %+v, want r-stalled's stalled halt row", halts)
+	}
+
+	// M11's proof: the takeover lease at token+1, reason takeover.
+	for _, id := range []string{"r-stalled", "r-stale"} {
+		row := leaseAcquired(t, eng, id)
+		if row.Reason != "takeover" || row.Token != 2 || row.Owner != owner {
+			t.Errorf("%s lease_acquired = %+v, want reason takeover at token 2 on %q",
+				id, row, owner)
+		}
 	}
 }
 

@@ -589,3 +589,71 @@ func TestReportsFoldJournalAndQueueState(t *testing.T) {
 		t.Errorf("standup after completion = %+v, want r1 finished", up)
 	}
 }
+
+// M3 (SPEC-044): the takeover registers the runRecord bookkeeping — the host
+// the re-spawn rides — so the run reports, the checks reading, and the steer
+// path resolve a taken-over run with no special case. A taken-over run is an
+// ordinary run to every reading the chief serves.
+func TestTakeoverRegistersTheTakenOverRunForRunsChecksAndSteer(t *testing.T) {
+	_ = captureTakeoverLog(t)
+	eng := newEngine(t)
+	seedTakeoverRunning(t, eng, "r-taken", takeoverOwner, "omp")
+
+	clock := takeoverClock(30 * time.Second)
+	ag := &takeoverAgent{now: clock}
+	c := newTakeoverChief(t, eng, ag, &fakePhone{})
+	c.Now = clock
+	rep, err := c.TakeoverScan(context.Background())
+	if err != nil {
+		t.Fatalf("TakeoverScan: %v", err)
+	}
+	if got := runIDsOf(rep.Taken); strings.Join(got, ",") != "r-taken" {
+		t.Fatalf("taken = %v, want the taken-over run (%s)", got, joinReport(rep))
+	}
+
+	c.mu.Lock()
+	rec, ok := c.runs["r-taken"]
+	c.mu.Unlock()
+	if !ok || rec.Host != hostadapter.HostOmp {
+		t.Fatalf("the chief's record of r-taken = %+v (present %t), want the host its "+
+			"start record names", rec, ok)
+	}
+
+	ctx := context.Background()
+	rs, err := c.Run(ctx, "r-taken")
+	if err != nil {
+		t.Fatalf("run reading: %v", err)
+	}
+	if rs.State != "running" || rs.Halt != nil || rs.Ticket != takeoverTicket ||
+		rs.Workflow != takeoverWorkflow {
+		t.Errorf("run reading = %+v, want the taken-over run running on its journaled work", rs)
+	}
+
+	checks, err := c.Checks(ctx)
+	if err != nil {
+		t.Fatalf("checks reading: %v", err)
+	}
+	if len(checks) != 1 || checks[0].RunID != "r-taken" ||
+		checks[0].State != "running" || len(checks[0].Takeover) != 0 {
+		t.Errorf("checks = %+v, want the taken-over run and no takeover line for a taken run",
+			checks)
+	}
+
+	// The steer path: the correction resolves the host from the chief's own
+	// record of the taken-over run and reaches the host session.
+	if err := c.Correct(ctx, CorrectRequest{RunID: "r-taken",
+		Message: "steer text"}); err != nil {
+		t.Fatalf("correct: %v", err)
+	}
+	frames := ag.steered()
+	if len(frames) != 1 {
+		t.Fatalf("steered = %d frames, want one", len(frames))
+	}
+	var frame map[string]any
+	if err := json.Unmarshal([]byte(frames[0]), &frame); err != nil {
+		t.Fatalf("frame is not JSON: %v", err)
+	}
+	if frame["type"] != "steer" {
+		t.Errorf("frame = %v, want the omp steer frame", frame)
+	}
+}

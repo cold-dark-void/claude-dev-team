@@ -111,8 +111,13 @@ The service keeps its journal CLI name; the plugin never puts it on PATH.
   `start`, `stop`, `status`, `steer`, `status-node`, so a supervised
   `ExecStart` exits at once and restart-loops), so the agent is invoked by
   path per run and is never supervised. The daemon verb that restores
-  reboot-time supervision is a control-plane change owned by a follow-up
-  ticket (`docs/internal/control-plane/native-runner.md` § "CDT-644"). Install
+  reboot-time supervision of the agent stays a phase-4 concern (CDT-631) and
+  is recorded as the follow-up in
+  `docs/internal/control-plane/native-runner.md` § "CDT-644". Reboot-time
+  supervision of the work needs no such verb: SPEC-044 (CDT-660) lands
+  chiefd's takeover scan, so a restarted chiefd re-supervises the in-flight
+  runs in its own process (SPEC-044 OQ7), and the linger step that lets the
+  unit run before login stays the operator step of M10. Install
   MUST also stop, disable, and remove a `dev-team-node-agent.service` unit an
   earlier install left behind: it stays enabled, its supervised binary has no
   unit to run it, and `Restart=on-failure` restart-loops it. Every purge of
@@ -439,6 +444,7 @@ is-system-running` → `running` (rc 0).
 
 | Date | Change |
 |------|--------|
+| 2026-11-20 | M5's daemon-verb follow-up line is re-pointed (CDT-660, SPEC-044 AC14): the verb stays a phase-4 concern (CDT-631); the chiefd-side takeover scan of SPEC-044 is landed, so the single-node reboot contract needs no daemon verb (SPEC-044 OQ7) and linger stays M10's operator step. No other MUST, AC, or Test text changed. |
 | 2026-11-19 | Spec-alignment pass (CDT-658, Step 10b): M6 names the **installed** `%h/.local/bin/node-agent` for the binary row (a `dist/`-only node is WARN), M1 states why `--status` skips the journal read on a node with no journal (the CLI creates the database on open), M12 names the post-expiry takeover (`run.Lease.Expired` semantics, exactly one `start`), Boundaries adds the `skills/lib/record-status.sh` record-and-render home and the by-path split of the two ADR 0001 crossings, AC14 drops the pre-D1 "units name `%h/.local/bin/node-agent`" wording, Test items (13)–(15) bind the three fixes, and all 14 ACs carry the M14(g) `Verify: bash <path>` grammar. |
 | 2026-11-19 | T9 re-run follow-ups (CDT-658): M5 records that the legacy-unit purge runs in install as well as uninstall, so the `systemctl --user reset-failed` that clears the purged unit's `failed` state follows both purge paths (M9's uninstall reset is unchanged). SPEC-043 is registered in `specs/TDD.md` and `skills/control-plane` in `specs/OWNERS` (`tools/spec-lint.sh`). All 14 ACs PASS on the real-node cycle. |
 | 2026-11-19 | T8 replan (CDT-658, TL-ruled, DRI-approved): the T7 real-node cycle failed AC1/AC13, so (D1) M5/M3/M6/M9/M12 drop the node-agent unit — phase 1 ships the `dev-team-chiefd.service` unit only and the node agent stays a by-path CLI (the daemon verb that would make a unit correct is a control-plane follow-up ticket); (D2) M11 + M2(g) — the probe start carries the resolved selection as the per-invocation `$DEVTEAM_RUNNER` child override, never a `node.json` write; (P3) M9 — uninstall runs `systemctl --user reset-failed`. AC1/AC2/AC3 follow the one-unit wording; AC13 is unchanged. |

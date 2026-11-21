@@ -246,6 +246,263 @@ func TestAPIHaltsReportHonestNotified(t *testing.T) {
 	}
 }
 
+// waitForState reports whether a run reaches one replayed state inside the
+// deadline.
+func waitForState(t *testing.T, eng *journal.Engine, runID, want string,
+	deadline time.Duration) bool {
+	t.Helper()
+	end := time.Now().Add(deadline)
+	for {
+		st, err := eng.RunState(context.Background(), runID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if st.Name() == want {
+			return true
+		}
+		if time.Now().After(end) {
+			return false
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+}
+
+// AC2 + AC9: the watch's first takeover pass lands at startup — a stalled
+// run the scan can take over is running well inside one interval, with no
+// human input. The takeover is the response, so the answered stall pages
+// nothing, and it stays un-paged after the watch stops.
+func TestWatchTakeoverPassRunsAtStartup(t *testing.T) {
+	_ = captureTakeoverLog(t)
+	eng := newEngine(t)
+	seedTakeoverStalled(t, eng, "r-stalled", takeoverOwner, "claude")
+	phone := &fakePhone{}
+	clock := takeoverClock(30 * time.Second)
+	c := newTakeoverChief(t, eng, &takeoverAgent{now: clock}, phone)
+	c.Now = clock
+
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan struct{})
+	go func() { c.Watch(ctx, time.Second); close(done) }()
+
+	// The interval is 1 s: a takeover inside 400 ms is the startup pass,
+	// not a tick.
+	if !waitForState(t, eng, "r-stalled", "running", 400*time.Millisecond) {
+		cancel()
+		<-done
+		t.Fatal("the watch's first takeover pass did not take the stalled run over")
+	}
+	cancel()
+	<-done
+
+	if _, err := c.ScanHalts(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if pages := phone.recorded(); len(pages) != 0 {
+		t.Errorf("pages = %v, want none — the takeover is the response (AC9)", pages)
+	}
+}
+
+// AC2: the scan repeats on the watch cadence. A run that stays inside the
+// selection set is offered the takeover on every tick, and the passes stop
+// with the context.
+func TestWatchRepeatsTheTakeoverScan(t *testing.T) {
+	_ = captureTakeoverLog(t)
+	eng := newEngine(t)
+	seedTakeoverRunning(t, eng, "r-stale", takeoverOwner, "grok")
+	phone := &fakePhone{}
+	clock := takeoverClock(30 * time.Second)
+	ag := &takeoverAgent{now: clock,
+		errs: map[string]error{"r-stale": journal.ErrLeaseHeld}}
+	c := newTakeoverChief(t, eng, ag, phone)
+	c.Now = clock
+
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan struct{})
+	go func() { c.Watch(ctx, 20*time.Millisecond); close(done) }()
+
+	end := time.Now().Add(5 * time.Second)
+	for len(ag.recorded()) < 3 {
+		if time.Now().After(end) {
+			cancel()
+			<-done
+			t.Fatalf("takeover passes = %d in 5s, want one per tick", len(ag.recorded()))
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	cancel()
+	<-done
+
+	stopped := len(ag.recorded())
+	time.Sleep(150 * time.Millisecond)
+	if got := len(ag.recorded()); got != stopped {
+		t.Errorf("starts after the watch stopped = %d, want no pass past the context (was %d)",
+			got, stopped)
+	}
+	if pages := phone.recorded(); len(pages) != 0 {
+		t.Errorf("pages = %v, want none — a refused takeover of a running run pages nothing",
+			pages)
+	}
+}
+
+// AC9: the takeover is the response to a stalled halt. The pass takes the
+// run over and the halt scan pages nothing; the halt row stays readable,
+// answered by the journal rather than by the phone.
+func TestTakeoverAnsweredStallIsNotPaged(t *testing.T) {
+	_ = captureTakeoverLog(t)
+	eng := newEngine(t)
+	seedTakeoverStalled(t, eng, "r-stalled", takeoverOwner, "claude")
+	phone := &fakePhone{}
+	clock := takeoverClock(30 * time.Second)
+	c := newTakeoverChief(t, eng, &takeoverAgent{now: clock}, phone)
+	c.Now = clock
+	ctx := context.Background()
+
+	rep, err := c.TakeoverScan(ctx)
+	if err != nil {
+		t.Fatalf("takeover scan: %v", err)
+	}
+	if got := runIDsOf(rep.Taken); strings.Join(got, ",") != "r-stalled" {
+		t.Fatalf("taken = %v, want the stalled run (%s)", got, joinReport(rep))
+	}
+
+	halts, err := c.ScanHalts(ctx)
+	if err != nil {
+		t.Fatalf("scan halts: %v", err)
+	}
+	if len(halts) != 1 || halts[0].Reason != run.ReasonStalled || halts[0].Notified {
+		t.Errorf("halts = %+v, want the stalled row reported as not paged", halts)
+	}
+	if pages := phone.recorded(); len(pages) != 0 {
+		t.Fatalf("pages = %v, want none — the takeover answered the stall", pages)
+	}
+
+	// The suppression is stable: every later scan reads the journal and
+	// pages nothing.
+	for i := 0; i < 2; i++ {
+		if _, err := c.ScanHalts(ctx); err != nil {
+			t.Fatalf("rescan %d: %v", i, err)
+		}
+	}
+	if pages := phone.recorded(); len(pages) != 0 {
+		t.Errorf("pages after the rescans = %v, want none", pages)
+	}
+	reported, err := c.Halts(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(reported) != 1 || reported[0].Reason != run.ReasonStalled || reported[0].Notified {
+		t.Errorf("Halts = %+v, want the stalled row, paged by nothing", reported)
+	}
+}
+
+// AC9 + M9: the suppression never silences a halt the scan does not answer.
+// A stalled run whose takeover is refused (the spent budget) and one the
+// scan skips (no host, M5) keep their page, and the page record keeps it at
+// one.
+func TestTakeoverFailurePagesTheStalledHalt(t *testing.T) {
+	_ = captureTakeoverLog(t)
+	eng := newEngine(t)
+	seedTakeoverStalled(t, eng, "r-budget", takeoverOwner, "claude")
+	seedStall(run.ReasonStalled)(t, eng, "r-nohost")
+	phone := &fakePhone{}
+	clock := takeoverClock(30 * time.Second)
+	ag := &takeoverAgent{now: clock,
+		errs: map[string]error{"r-budget": journal.ErrBudgetExhausted}}
+	c := newTakeoverChief(t, eng, ag, phone)
+	c.Now = clock
+	ctx := context.Background()
+
+	rep, err := c.TakeoverScan(ctx)
+	if err != nil {
+		t.Fatalf("takeover scan: %v", err)
+	}
+	if got := runIDsOf(rep.Refused); strings.Join(got, ",") != "r-budget" {
+		t.Errorf("refused = %v, want the spent-budget run (%s)", got, joinReport(rep))
+	}
+	if got := runIDsOf(rep.Skipped); strings.Join(got, ",") != "r-nohost" {
+		t.Errorf("skipped = %v, want the hostless run (%s)", got, joinReport(rep))
+	}
+	if len(rep.Taken) != 0 {
+		t.Errorf("taken = %v, want nothing taken (%s)", runIDsOf(rep.Taken), joinReport(rep))
+	}
+
+	halts, err := c.ScanHalts(ctx)
+	if err != nil {
+		t.Fatalf("scan halts: %v", err)
+	}
+	if len(halts) != 2 {
+		t.Fatalf("halts = %+v, want both stalled rows", halts)
+	}
+	pages := phone.recorded()
+	if len(pages) != 2 {
+		t.Fatalf("pages = %v, want one per unanswered stall", pages)
+	}
+	for i, want := range []string{"r-budget", "r-nohost"} {
+		if !strings.Contains(pages[i], want) ||
+			!strings.Contains(pages[i], "halted: "+run.ReasonStalled) {
+			t.Errorf("page %d = %q, want %q named with the stalled reason", i, pages[i], want)
+		}
+	}
+
+	// The closed pair keeps the record's semantics: a re-scan pages
+	// neither run again.
+	if _, err := c.ScanHalts(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if got := phone.recorded(); len(got) != 2 {
+		t.Errorf("pages after the re-scan = %v, want no duplicate page", got)
+	}
+}
+
+// AC8: a halt the scan never handles keeps paging. The operator halt stays
+// halted — no takeover, no spawn — and it pages beside a stall the takeover
+// answered, which pages nothing.
+func TestOperatorHaltPagesAfterTheTakeoverPass(t *testing.T) {
+	_ = captureTakeoverLog(t)
+	eng := newEngine(t)
+	seedHalt(t, eng, "r-operator", run.ReasonOperatorHalt, "stopped by the operator")
+	seedTakeoverStalled(t, eng, "r-stalled", takeoverOwner, "claude")
+	phone := &fakePhone{}
+	clock := takeoverClock(30 * time.Second)
+	ag := &takeoverAgent{now: clock}
+	c := newTakeoverChief(t, eng, ag, phone)
+	c.Now = clock
+	ctx := context.Background()
+
+	if _, err := c.TakeoverScan(ctx); err != nil {
+		t.Fatalf("takeover scan: %v", err)
+	}
+	halts, err := c.ScanHalts(ctx)
+	if err != nil {
+		t.Fatalf("scan halts: %v", err)
+	}
+	if len(halts) != 2 {
+		t.Fatalf("halts = %+v, want the operator halt and the stall", halts)
+	}
+	pages := phone.recorded()
+	if len(pages) != 1 {
+		t.Fatalf("pages = %v, want the operator halt only", pages)
+	}
+	if !strings.Contains(pages[0], "r-operator") ||
+		!strings.Contains(pages[0], run.ReasonOperatorHalt) {
+		t.Errorf("page = %q, want the operator halt named", pages[0])
+	}
+	if strings.Contains(pages[0], "r-stalled") {
+		t.Errorf("page = %q, want no page for the answered stall", pages[0])
+	}
+	for _, call := range ag.recorded() {
+		if call.RunID == "r-operator" {
+			t.Errorf("the takeover spawned an operator halt: %+v", call)
+		}
+	}
+	if _, err := c.ScanHalts(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if got := phone.recorded(); len(got) != 1 {
+		t.Errorf("pages after the re-scan = %v, want one", got)
+	}
+}
+
 // Watch pages the halts as the journal names them and stops when the
 // context ends.
 func TestWatchPagesThenStops(t *testing.T) {

@@ -27,9 +27,11 @@ func TestMain(m *testing.M) {
 	os.Exit(setup(m))
 }
 
-// setup builds ./helper before any test runs. A suite that cannot build its own
-// victim is not a kill test, so a build failure fails the run: the suite never
-// passes by silently skipping.
+// setup builds ./helper and ./restart/helper before any test runs. A suite that
+// cannot build its own victim is not a kill test, so a build failure fails the
+// run: the suite never passes by silently skipping. Building here — in TestMain,
+// not in a test — is what keeps CDT-643 AC7 and SPEC-044 M14 honest: no test in
+// this package runs `go build`.
 func setup(m *testing.M) int {
 	dir, err := os.MkdirTemp("", "cdt643-killtest-")
 	if err != nil {
@@ -49,6 +51,14 @@ func setup(m *testing.M) int {
 	cmd.Env = os.Environ()
 	if out, err := cmd.CombinedOutput(); err != nil {
 		fmt.Fprintf(os.Stderr, "killtest: build ./helper: %v\n%s\n", err, out)
+		return 1
+	}
+	restartBin = filepath.Join(dir, "restart-helper")
+	cmd = exec.Command(goTool(), "build", "-o", restartBin, "./restart/helper")
+	cmd.Dir = pkg
+	cmd.Env = os.Environ()
+	if out, err := cmd.CombinedOutput(); err != nil {
+		fmt.Fprintf(os.Stderr, "killtest: build ./restart/helper: %v\n%s\n", err, out)
 		return 1
 	}
 	return m.Run()

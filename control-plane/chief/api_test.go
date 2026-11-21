@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/cold-dark-void/claude-dev-team/control-plane/agent"
 	"github.com/cold-dark-void/claude-dev-team/control-plane/queue"
 	"github.com/cold-dark-void/claude-dev-team/control-plane/run"
 )
@@ -111,6 +112,55 @@ func TestAPIQueueAnswersFromTheLedger(t *testing.T) {
 	if got := get(t, srv, "/v1/queue"); !strings.Contains(string(got),
 		`"state":"held"`) {
 		t.Errorf("queue = %s, want the held slot", got)
+	}
+}
+
+// AC5 (SPEC-044): the takeover scan's report reaches the UI. A selected run
+// that records no agent.start intent is skipped, and GET /v1/checks carries
+// that skip as the run's takeover reading — chiefd's stdout is never the
+// only record. A run the scan took over carries no line: the reading reports
+// what the scan did, never a projected state (M7).
+func TestAPIChecksCarriesTheTakeoverSkip(t *testing.T) {
+	_ = captureTakeoverLog(t)
+	eng := newEngine(t)
+	seedRunning(t, eng, "r-nohost")
+	seedTakeoverRunning(t, eng, "r-taken", takeoverOwner, "omp")
+
+	clock := takeoverClock(30 * time.Second)
+	c := newTakeoverChief(t, eng, &takeoverAgent{now: clock}, &fakePhone{})
+	c.Now = clock
+	rep, err := c.TakeoverScan(context.Background())
+	if err != nil {
+		t.Fatalf("TakeoverScan: %v", err)
+	}
+	if got := runIDsOf(rep.Skipped); strings.Join(got, ",") != "r-nohost" {
+		t.Fatalf("skipped = %v, want the run with no start intent (%s)", got, joinReport(rep))
+	}
+
+	srv := httptest.NewServer(c.Handler())
+	t.Cleanup(srv.Close)
+	var doc struct {
+		Checks []Check `json:"checks"`
+	}
+	if err := json.Unmarshal(get(t, srv, "/v1/checks"), &doc); err != nil {
+		t.Fatal(err)
+	}
+	byID := map[string]Check{}
+	for _, chk := range doc.Checks {
+		byID[chk.RunID] = chk
+	}
+	skip := byID["r-nohost"]
+	if len(skip.Takeover) != 1 {
+		t.Fatalf("checks = %+v, want r-nohost with one takeover report line", doc.Checks)
+	}
+	if !strings.Contains(skip.Takeover[0], string(TakeoverSkipped)) ||
+		!strings.Contains(skip.Takeover[0], agent.EffectStart) ||
+		!strings.Contains(skip.Takeover[0], "r-nohost") {
+		t.Errorf("takeover line = %q, want the skip line naming the run and the missing %s intent",
+			skip.Takeover[0], agent.EffectStart)
+	}
+	if got := byID["r-taken"]; len(got.Takeover) != 0 {
+		t.Errorf("r-taken takeover reading = %v, want no line for a taken run", got.Takeover)
 	}
 }
 

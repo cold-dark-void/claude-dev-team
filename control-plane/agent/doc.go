@@ -64,6 +64,9 @@
 // journal (journal.Replay). The agent supervises the runner process it
 // spawned: a clean exit completes the run, a failing exit fails it with a
 // named reason, and the operator's stop lands the run in halted:operator_halt.
+// A cancelled supervision context is a quiet shutdown (SPEC-044 M8): the
+// runner child stops, the pidfile and the lease row stay, and no halt row is
+// written, because halted:operator_halt belongs to the stop verb alone.
 //
 // Adoption policy (the CDT-626 reboot contract — every in-flight run
 // continues without a human): a run's live runner process is recorded in
@@ -74,6 +77,19 @@
 // anyway, and re-spawns the runner as the next attempt — the run continues,
 // and its trail stays in the journal. A live lease refuses a second owner
 // (journal.ErrLeaseHeld), so a healthy run is never double-spawned.
+//
+// Two callers reach this policy. The first is a starting agent: the cases
+// above are inside its start verb. The second is chiefd's takeover scan
+// (chief.TakeoverScan, SPEC-044), which runs inside the halt-watch loop
+// (chief.Watch, every chief.DefaultWatchInterval) for the whole service
+// lifetime. It selects the runs whose replayed state is running or claimed
+// with an expired lease, or halted:stalled, and reaches this policy through
+// the one spawn path — hostadapter.Adapter.Start → Supervise — so the
+// orphan kill, the journaled takeover, and the re-spawn now also run on a
+// schedule, not only inside a starting agent. The scan re-spawns the host
+// session fresh as the next attempt: a dead stint's session id is not
+// journaled, so Adapter.Resume stays outside the scan and CDT-661 owns a true
+// resume.
 //
 // Trust rule (AGENTS.md § Code Conventions): every value arrives as argv, an
 // environment entry, a JSON config field, or a Go value. The steer message is

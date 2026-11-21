@@ -133,11 +133,16 @@ func run(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintf(stderr, "chiefd: %v\n", err)
 		return exitFailure
 	}
-	ch := chief.New(eng, a)
-
+	// The signal context is the chief's base context (SPEC-044 M8/AC15): a
+	// shutdown cancels every supervised run's context, which is the quiet
+	// path agent.Supervise takes — the runner child stops, the pidfile and
+	// the lease stay, and the journal gains no halt row. chiefd registers no
+	// stop intent of its own; the operator halt belongs to the stop verb.
 	ctx, stop := signal.NotifyContext(context.Background(),
 		syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
+
+	ch := chief.New(eng, a, chief.WithBaseContext(ctx))
 	go ch.Watch(ctx, chief.DefaultWatchInterval)
 
 	srv := &http.Server{Addr: *addr, Handler: withUI(ch.Handler())}

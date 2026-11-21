@@ -74,7 +74,7 @@ debugging.
 | `chief/` | The Chief (CDT-650): the single point of contact — routes work to the existing Surfaces and reports from journal and queue state. Its one interface is the HTTP API the web UI consumes |
 | `cmd/node-agent/` | The node-agent binary, one per node |
 | `cmd/journalctl/` | The journal CLI — the plugin↔service boundary: one append, one read, exit codes 0/1/64 |
-| `cmd/chiefd/` | The Chief's host process: it serves `chief.Handler` — the API the web UI consumes — and, since CDT-652, the web UI's static page on the same loopback port; it also runs the halt watch that pages the operator through the Intercom |
+| `cmd/chiefd/` | The Chief's host process: it serves `chief.Handler` — the API the web UI consumes — and, since CDT-652, the web UI's static page on the same loopback port; it also runs the halt watch that pages the operator through the Intercom and, since SPEC-044 (CDT-660), the takeover scan on that same cadence that re-supervises in-flight runs after a chiefd restart |
 | `killtest/` | The AC7 kill-test lane: SIGKILL at every phase boundary, in the G-02 container; parameterised by runner type since CDT-644 |
 | `build.sh` | The CDT-644 build entry: the three phase-0 targets in the G-02-approved Go image |
 | `README.md` | This boundary and ownership statement |

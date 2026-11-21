@@ -117,6 +117,16 @@ type Chief struct {
 	mu   sync.Mutex
 	runs map[string]*runRecord
 
+	// takeoverSeen holds the takeover report lines this process already put
+	// on stdout, so the repeating scan (SPEC-044 M2) does not write the same
+	// skip or refusal to journald on every tick.
+	takeoverSeen map[string]bool
+
+	// takeoverRep is the last takeover scan's report: the skips (M5) and
+	// refusals (M6) it named. Checks projects it per run so a run the scan
+	// did not take over is named on GET /v1/checks (AC5). Guarded by mu.
+	takeoverRep TakeoverReport
+
 	// notifyMu serializes the halt scan and its pages: two scans must not
 	// page the same halt twice.
 	notifyMu sync.Mutex
@@ -203,14 +213,15 @@ func New(eng *journal.Engine, a *agent.Agent, opts ...Option) *Chief {
 // the node agent through.
 func NewWithAdapter(eng *journal.Engine, ad *hostadapter.Adapter, opts ...Option) *Chief {
 	c := &Chief{
-		eng:       eng,
-		Adapter:   ad,
-		Queue:     queue.New(eng),
-		Now:       time.Now,
-		StartWait: DefaultStartWait,
-		baseCtx:   context.Background(),
-		mroot:     journal.MROOT,
-		runs:      map[string]*runRecord{},
+		eng:          eng,
+		Adapter:      ad,
+		Queue:        queue.New(eng),
+		Now:          time.Now,
+		StartWait:    DefaultStartWait,
+		baseCtx:      context.Background(),
+		mroot:        journal.MROOT,
+		runs:         map[string]*runRecord{},
+		takeoverSeen: map[string]bool{},
 	}
 	for _, opt := range opts {
 		opt(c)
@@ -353,13 +364,18 @@ func (c *Chief) Route(ctx context.Context, req RouteRequest) (*RouteResult, erro
 	}
 }
 
-// startRun journals the route onto a run: the run's claim payload carries
-// the ticket, the Surface as the workflow, and the resolved model — the
-// route's own trail in the closed event set, never a new kind. The
-// supervision lives under the chief's base context, not the caller's.
-func (c *Chief) startRun(ctx context.Context, req RouteRequest, res *RouteResult) error {
+// startSupervised is the one spawn path of the chief's own starts — a routed
+// run (startRun) and a takeover re-spawn (takeoverSpawn). It records the run,
+// starts it through the host adapter on the chief's base context (the service
+// lifetime, never the caller's), and answers with the start's channel: nil
+// when the supervision is running, a refusal when the start wrote no row.
+// Proving the start is the caller's read of the journal.
+func (c *Chief) startSupervised(runID string, req hostadapter.StartRequest) <-chan error {
 	c.mu.Lock()
-	c.runs[res.RunID] = &runRecord{Host: req.Host}
+	if c.runs == nil {
+		c.runs = map[string]*runRecord{}
+	}
+	c.runs[runID] = &runRecord{Host: req.Host}
 	c.mu.Unlock()
 
 	base := c.baseCtx
@@ -368,30 +384,45 @@ func (c *Chief) startRun(ctx context.Context, req RouteRequest, res *RouteResult
 	}
 	errc := make(chan error, 1)
 	go func() {
-		cap, err := c.Adapter.Start(base, c.eng, hostadapter.StartRequest{
-			RunID: res.RunID, Ticket: res.RunID, Workflow: res.Surface.Name,
-			Model: res.Model, Host: req.Host,
-		})
+		cap, err := c.Adapter.Start(base, c.eng, req)
 		if cap != nil {
 			c.mu.Lock()
-			if rec, ok := c.runs[res.RunID]; ok {
+			if rec, ok := c.runs[runID]; ok {
 				rec.Cap = cap
 			}
 			c.mu.Unlock()
 		}
 		if err != nil {
-			// A refused start wrote no row: the route's own record goes.
+			// A refused start wrote no row: the chief's record of the run goes.
 			c.mu.Lock()
-			delete(c.runs, res.RunID)
+			delete(c.runs, runID)
 			c.mu.Unlock()
 		}
 		errc <- err
 	}()
+	return errc
+}
 
-	wait := c.StartWait
-	if wait <= 0 {
-		wait = DefaultStartWait
+// startWait is the start-wait budget: how long a caller watches the journal
+// for the proof of a start before it answers unconfirmed.
+func (c *Chief) startWait() time.Duration {
+	if c.StartWait <= 0 {
+		return DefaultStartWait
 	}
+	return c.StartWait
+}
+
+// startRun journals the route onto a run: the run's claim payload carries
+// the ticket, the Surface as the workflow, and the resolved model — the
+// route's own trail in the closed event set, never a new kind. The
+// supervision lives under the chief's base context, not the caller's.
+func (c *Chief) startRun(ctx context.Context, req RouteRequest, res *RouteResult) error {
+	errc := c.startSupervised(res.RunID, hostadapter.StartRequest{
+		RunID: res.RunID, Ticket: res.RunID, Workflow: res.Surface.Name,
+		Model: res.Model, Host: req.Host,
+	})
+
+	wait := c.startWait()
 	timer := time.NewTimer(wait)
 	defer timer.Stop()
 	for {
@@ -661,10 +692,15 @@ type Check struct {
 	// effect whose outcome never landed is the reconciler's work list.
 	PendingEffects []string `json:"pending_effects,omitempty"`
 	Repairs        int      `json:"repairs"`
+	// Takeover is the last takeover scan's report line for this run — the
+	// run it skipped (SPEC-044 M5) or refused (M6), named on the reading so
+	// an operator sees why a selected run never came back (AC5). Empty for a
+	// run the scan took over, and for one it never selected.
+	Takeover []string `json:"takeover,omitempty"`
 }
 
-// Checks reports every run's integrity reading (AC2), from the journal
-// state alone.
+// Checks reports every run's integrity reading (AC2): the journal state,
+// plus the last takeover scan's reading for the run (SPEC-044 AC5).
 func (c *Chief) Checks(ctx context.Context) ([]Check, error) {
 	ids, err := c.runIDs(ctx)
 	if err != nil {
@@ -685,6 +721,7 @@ func (c *Chief) Checks(ctx context.Context) ([]Check, error) {
 		for _, e := range st.PendingEffects() {
 			chk.PendingEffects = append(chk.PendingEffects, e.Effect+" "+e.Key)
 		}
+		chk.Takeover = c.takeoverReading(id)
 		out = append(out, chk)
 	}
 	return out, nil

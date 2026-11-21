@@ -194,6 +194,14 @@ jobs:
   # variant needs no Docker: the G-02 image compiles and tests the runner
   # code, and the runner's live container work stays on a real node (the
   # node agent is the only holder of the Docker socket).
+  #
+  # CDT-660 — this job also carries the SPEC-044 AC13 restart kill test
+  # (control-plane/killtest): a real supervising process is SIGKILLed mid-run
+  # and the restarted chiefd must take the run over and complete it exactly
+  # once. It needs no step of its own — `go test ./...` runs it, the test kills
+  # a real process with SIGKILL, builds nothing inside a test, skips nothing,
+  # and its output goes only under $TMPDIR. `DEVTEAM_STALL_LIMIT=2` inside the test is
+  # what keeps it inside the 10-minute timeout.
   control-plane:
     runs-on: ubuntu-latest
     timeout-minutes: 10

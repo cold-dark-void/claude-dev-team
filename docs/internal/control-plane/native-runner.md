@@ -353,6 +353,60 @@ Everything above is the phase-0 record and is unchanged. C4 (CDT-628 C4,
   version drift recorded as actual; (4) the `--bare` split itself, which AC-9
   does not split rows by CLI mode. C4 changes none of them; the agent neither
   reads nor writes any of these paths itself (AC-9 § AC-9 native rows).
+
+- **D3 (CDT-660, 2026-11-20): the chiefd half of the reboot contract is
+  landed (SPEC-044).** `control-plane/VERSION` reads `0.2.0`. Chiefd
+  re-supervises the in-flight work in its own process, so the D1 deferral no
+  longer gates the reboot contract for the work.
+
+  - **The takeover scan runs on the halt-watch cadence.**
+    `chief.TakeoverScan` runs inside `chief.Watch`
+    (`control-plane/chief/halts.go`): the first pass lands at startup, then
+    one follows every `chief.DefaultWatchInterval` (5 s) for the service
+    lifetime. It selects a run whose replayed state is `running` or `claimed`
+    with an expired lease, or `halted:stalled`, and selects nothing else —
+    none of the other named halts, no terminal state, no `new`, no
+    `reconcile` pseudo-Run.
+  - **One path, no fork.** The scan re-spawns through
+    `hostadapter.Adapter.Start` into the agent's `Supervise`, so the pidfile
+    probe, the orphan kill, the `lease_acquired` takeover at token+1, and the
+    re-spawn as the next attempt are the Layer-1 machinery above, not a second
+    spawn path. The pass is serial, one run at a time; a refusal stops that
+    run only and chiefd keeps serving; a selected run that records no
+    `agent.start` intent is skipped and named on `GET /v1/checks` and on
+    chiefd's stdout (journald).
+  - **The scan pages nothing.** A `halted:stalled` run with remaining retry
+    budget gets no page — the takeover is the response. The operator is paged
+    only when a takeover leaves a selected run unsupervised, or when the
+    stalled budget is spent (the machine's own
+    `run.RetryBudgets["stalled"]` check).
+  - **The shutdown contract (SPEC-044 M8, DRI ruling OQ1(a)).** A chiefd
+    SIGTERM or SIGINT journals no run event. `agent.Supervise` treats a
+    cancelled supervision context as a quiet shutdown: it stops the runner
+    child, keeps the pidfile and the lease row, and writes no halt row.
+    `halted:operator_halt` comes only from an explicit stop (the UI stop →
+    the journal-first stop verb; the standalone `node-agent start` signal
+    path). A live lease at shutdown is left to expire — the closed event set
+    has no live-lease release verb — and the fencing token refuses every
+    write from a zombie of the dead chiefd.
+  - **Fresh re-spawn, not a resume.** A dead stint's host session id is not
+    journaled, so the scan re-spawns the run as attempt N+1 and never calls
+    `Adapter.Resume`; it relies on workflow idempotency. CDT-661 owns the
+    session-id resume.
+  - **No daemon verb is needed (SPEC-044 OQ7).** Chiefd supervises the runner
+    in-process, so the single-node reboot contract needs no node-agent
+    `serve` verb: the chiefd unit, linger (step B8), the shutdown contract
+    above, and this scan suffice. The daemon verb stays a phase-4 concern
+    (CDT-631) and D1's node-agent-unit deferral stands.
+  - **What stays open.** The real-reboot proof is the operator step below and
+    stays CDT-659. The code-level proof of this half is
+    `control-plane/chief/takeover_test.go` (selection, the one path, the
+    refusal matrix, the live lease), `control-plane/chief/halts_test.go`
+    (the cadence and page discipline), and `control-plane/agent/agent_test.go`
+    with `control-plane/cmd/node-agent/main_test.go` (the quiet shutdown and
+    the operator-halt paths). The SIGKILL restart case belongs to the SPEC-044
+    AC13 lane, `control-plane/killtest/`.
+
 ### Operator step B8 — linger (pending-operator)
 
 **Status: pending-operator. Do not execute inside the ticket.** The CDT-626
@@ -408,8 +462,11 @@ CDT-659 (Phase 1 — Validation); this ticket records the protocol only.
 **Deferred with D1:** phase 1 ships no node-agent unit, so step 3's
 `journalctl --user -u dev-team-node-agent` slot has no unit to read — the
 reboot re-spawn of the agent needs the daemon-verb follow-up. Record the
-journal-CLI slots below and mark the unit slot `deferred (D1)`. Protocol, once
-the install is verified and at least one run is in flight:
+journal-CLI slots below and mark the unit slot `deferred (D1)`. The chiefd
+half is landed (SPEC-044, D3 above): a restarted chiefd takes the in-flight
+runs over itself, so the journal-CLI slots and the pass rule below are the
+live proof of that half. Protocol, once the install is verified and at least
+one run is in flight:
 
 1. Start a run and record it: `control-plane/dist/node-agent start --run-id
    <RUN-ID> --ticket <TICKET> --workflow orchestrate` — evidence slot: the run
@@ -433,7 +490,8 @@ the install is verified and at least one run is in flight:
 
 Until this step executes, the code-level proof of the same contract is
 `go test ./agent/` — `TestSuperviseTakeoverAfterAgentDeathCompletesOnce` and
-`TestRecoveryPerformsThePendingSpawn` — in the CDT-644 branch.
+`TestRecoveryPerformsThePendingSpawn` — in the CDT-644 branch, plus the
+chiefd half of the contract (`go test ./chief/`, D3 above).
 
 ## AC-9 (native half) — Native credential survival
 

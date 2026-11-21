@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
-	"os/signal"
 	"path/filepath"
 	"regexp"
 	"strconv"
@@ -135,6 +134,11 @@ type StartRequest struct {
 //
 // The returned error carries the terminal reason when the run ends failed, so
 // a caller (and the systemd unit's Restart=on-failure) can react.
+//
+// A cancelled ctx is a quiet shutdown (SPEC-044 M8): this verb registers no
+// process signal of its own, so the caller owns the reason. The child is
+// stopped, the pidfile and the lease stay, and no halt row is written — the
+// operator halt belongs to the stop verb alone.
 func (a *Agent) Supervise(ctx context.Context, eng *journal.Engine, req StartRequest) error {
 	if err := validRunID(req.RunID); err != nil {
 		return err
@@ -151,9 +155,6 @@ func (a *Agent) Supervise(ctx context.Context, eng *journal.Engine, req StartReq
 	if a.Now != nil {
 		m.Now = a.Now
 	}
-	ctx, cancel := signal.NotifyContext(ctx, syscall.SIGINT, syscall.SIGTERM)
-	defer cancel()
-
 	// The pidfile check comes before any write: one supervisor per run.
 	pidRec, pidErr := readPIDFile(req.RunID)
 	if pidErr == nil && pidRec.live() {
@@ -232,9 +233,9 @@ func (a *Agent) Supervise(ctx context.Context, eng *journal.Engine, req StartReq
 func (a *Agent) killOrphan(ctx context.Context, m *run.Machine, token int64,
 	runID string, pid int, container string) error {
 	var (
-		p        Process
-		target   any
-		stopErr  error
+		p       Process
+		target  any
+		stopErr error
 	)
 	if container != "" {
 		cs, ok := a.Runner.(containerStopper)
@@ -370,8 +371,8 @@ func (a *Agent) spawn(ctx context.Context, m *run.Machine, token int64,
 }
 
 // supervise is the supervision loop: heartbeats, steers, and the terminal
-// exit. It returns when the run ends, the lease is lost, or the context is
-// cancelled by the operator's signal.
+// exit. It returns when the run ends, the lease is lost, or the caller
+// cancels the supervision context for a quiet shutdown.
 func (a *Agent) supervise(ctx context.Context, m *run.Machine, token int64,
 	runID string, proc Process) error {
 	st, err := m.State(ctx)
@@ -392,9 +393,15 @@ func (a *Agent) supervise(ctx context.Context, m *run.Machine, token int64,
 	for {
 		select {
 		case <-ctx.Done():
-			// The machine stopped the agent: the operator's stop. Halt the
-			// run, stop the child, and leave the trail in the journal.
-			a.operatorHalt(ctx, m, token, runID, proc, "agent signal")
+			// Quiet shutdown (SPEC-044 M8): the caller cancelled the
+			// supervision context — chiefd's restart, not an operator stop.
+			// Stop the child inside the stop grace and write nothing: the
+			// ctx is gone, so no journal write on it is trustworthy, and the
+			// closed event set has no live-lease release verb. The pidfile
+			// and the lease stay for the next supervisor — its orphan probe
+			// reads the recorded pid and its takeover rides the fencing
+			// token once the lease expires.
+			a.stopQuiet(proc, DefaultGrace)
 			return ctx.Err()
 		case <-beat.C:
 			if err := m.Heartbeat(ctx, a.owner(), token); err != nil {
@@ -464,14 +471,6 @@ func (a *Agent) runnerExit(ctx context.Context, m *run.Machine, token int64,
 	return err
 }
 
-// operatorHalt stops the child and lands the run in halted:operator_halt.
-func (a *Agent) operatorHalt(ctx context.Context, m *run.Machine, token int64,
-	runID string, proc Process, detail string) {
-	a.stopQuiet(proc, DefaultGrace)
-	_ = m.Halt(ctx, a.owner(), token, run.ReasonOperatorHalt, detail)
-	removeRunFiles(runID)
-}
-
 // stopQuiet stops a child and reports nothing: the exit that follows carries
 // the reason.
 func (a *Agent) stopQuiet(proc Process, grace time.Duration) {
@@ -524,10 +523,12 @@ func (a *Agent) deliverSteers(ctx context.Context, m *run.Machine, token int64,
 }
 
 // Stop stops a run: the intent row first, then SIGTERM, then SIGKILL after
-// the grace, then the outcome row and the named halt operator_halt. It runs
-// outside the supervising process — the pidfile is the handover between the
+// the grace, then the outcome row and the named halt operator_halt. It is the
+// only producer of halted:operator_halt (SPEC-044 M8). It usually runs in a
+// process other than the supervisor — the pidfile is the handover between the
 // two — and the supervising process, on seeing the unanswered stop intent,
-// steps aside.
+// steps aside. The `node-agent start` signal path calls it in-process for the
+// same result.
 func (a *Agent) Stop(ctx context.Context, eng *journal.Engine, runID string, grace time.Duration) error {
 	if grace < 0 {
 		return fmt.Errorf("%w: %s", ErrGraceInvalid, grace)
