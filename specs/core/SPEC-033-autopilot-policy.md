@@ -162,7 +162,11 @@ target.
        supplied** — the token only satisfies "explicit ship intent" for `decision=merge`; it
        never exempts BC3 (force-push still BC3; intentional baseline land under `=master` is
        authorized only when the N3a mechanical check passes — same safety as release land).
-    3. Budget (BC6) and confidence (BC7).
+    3. Budget (BC6) and confidence (BC7). BC6 carries its M6 ship-choice carve-out here
+       (CDT-610): a breached budget downgrades to a non-blocking warning — card #1 keeps the
+       gate's default answer with `blocking_condition = null` and a `budget-warning:` rationale
+       naming the breached cap with its measured value and cap — while confidence (BC7) is
+       unchanged.
 
 - **M5 — The three-gate scheme fits `/orchestrate` only; `/kickoff` and `/epic` are handled per
   command.** The `scope-confirm` / `plan-approve` / `ship-choice` triad (M3/M4) describes
@@ -251,7 +255,17 @@ target.
   5. **Complexity overflow** — the work meets the AC4 overflow criteria. This is the **only
      non-blocking** condition: autopilot MUST NOT halt for a human; it MUST **reroute to `/epic`**
      decompose (recording a `reroute-epic` decision-card) and continue autonomously. → **reroute**.
-  6. **Run-budget breach** — the run exceeds an AC3 budget cap (iteration or wall-clock). → **halt**.
+  6. **Run-budget breach** — the run exceeds an AC3 budget cap (iteration or wall-clock). → **halt**,
+     **except at `ship-choice`**: there the breach downgrades to a **non-blocking budget warning**
+     (CDT-610). The gate's default answer is emitted unchanged (card #1 written with
+     `blocking_condition = null`), and card #1's `rationale` MUST carry the marker phrase
+     `budget-warning:` naming the breached cap (`iteration` or `wall_clock`) with both the
+     measured value and the cap. The cap gates **new work**; by the ship step the plan is
+     approved, spec-alignment has passed, and QA has reached PASS, so halting abandons finished,
+     approved work and forces a manual resume — the recorded WP 1-01 friction (81 min of active
+     time, finished and unshipped). At every other gate BC6 stays a hard stop. No new field,
+     no new gate value, and no ninth BC: the warning rides card #1's rationale, the same
+     channel as the `approval-wait:` and `pass-with-note:` markers.
   7. **Self-uncertainty** — in the gate-answering step itself, autopilot's confidence in the
      default answer is below the confidence threshold (AC6 `confidence` < 80, mirroring the council
      default). An honest "I'm not sure" MUST halt rather than proceed. → **halt**.
@@ -339,7 +353,11 @@ target.
   next `budget-check.sh` call. The re-mint changes `run_start_epoch` only; `run_id` stays. If the
   `budget-check.sh` call for the wait card already reports a breach, the card is a BC6 halt
   instead and no re-mint follows (resuming past BC6 stays a human decision). No wait card is
-  needed after ship-choice card #1: BC6 is not evaluated after it. `/kickoff` and `/epic` Mode A
+  needed after ship-choice card #1: BC6 is not evaluated after it. The ship step is covered on
+  both sides of card #1 (CDT-610): before it, a breach at the ship-choice gate itself warns
+  instead of halting (M6 item 6's ship-choice carve-out), and after it BC6 is not evaluated at
+  all — so no user wait around the ship step, and no overrun on already-approved work, can cost
+  a finished run its landing. `/kickoff` and `/epic` Mode A
   are unchanged. This loosens BC6 for human wait time only: BC6 stays a hard stop for active
   time, and a run that does not wait for a human keeps the old measure. It adds no card field,
   no gate value, no `type` and no ninth BC.
@@ -1630,6 +1648,37 @@ Format and rules: M14(g) and M14(h). Each ticket that ships through M14 has one
   Verify: bash skills/autopilot/test-ship-gate-guardrails.sh
 - **G.** [process] The touched suites pass on the changed tree: `bash skills/autopilot/test-ship-gate-verdict.sh`, `bash skills/autopilot/test-ship-gate-guardrails.sh`, and `bash skills/autopilot/test.sh` each exit 0.
 
+### CDT-610
+
+- **A.** The ship-choice BC6 carve-out. At the `ship-choice` gate only, a run-budget breach
+  (M6.6: iteration or wall-clock over an AC3 cap) downgrades to a **non-blocking budget
+  warning**: the gate's default answer is emitted unchanged — card #1 written with
+  `blocking_condition = null` and the gate's normal `decision`/`bump` — and card #1's
+  `rationale` MUST carry the marker phrase `budget-warning:` naming the breached cap
+  (`iteration` or `wall_clock`) with both the measured value and the cap. The recorded case:
+  WP 1-01 finished, reviewed and tested, then halted at the ship step at 81 minutes against
+  the cap. The cap gates new work, not the last push.
+  Verify: bash skills/autopilot/test-bc6-approval-wait.sh
+- **B.** Scope of the downgrade. BC6 stays a hard stop at every other gate — `scope-confirm`,
+  `plan-approve`, and the `/kickoff` / `/epic Mode A` flows keep the M6.6 halt unchanged.
+  The carve-out reuses BC6's ordinal (no ninth BC), adds no card field, no gate value, and no
+  `type`; the warning rides card #1's `rationale` like the `approval-wait:` and
+  `pass-with-note:` markers. `append-card.sh` cross-field invariant (b) is unchanged.
+  Verify: bash skills/autopilot/test-bc6-approval-wait.sh
+- **C.** User-wait coverage at the ship step (goal 1 verification). Before ship-choice card #1,
+  an approval wait is the M9a exclusion (an `approval-wait:` halt card plus a re-mint of
+  `run_start_epoch` on reply); at the ship-choice gate itself a breach warns instead of
+  halting (AC A); and after card #1 BC6 is not evaluated at all. No user wait around the ship
+  step can cost a finished run its landing.
+  Verify: bash skills/autopilot/test-bc6-approval-wait.sh
+- **D.** Docs in sync. SPEC-033 M6 item 6 and the M4 `ship-choice` checklist item 3 state the
+  carve-out; `skills/autopilot/SKILL.md` mirrors both (M12 one-operational-copy);
+  `skills/autopilot/self-answer.md` §d maps the BC6-at-ship-choice exception; the M9a
+  subsection names the two-sided ship-step coverage; SPEC-033 gains a dated CDT-610 Version
+  History row.
+  Verify: bash skills/autopilot/test-bc6-approval-wait.sh
+- **E.** [process] The touched suites pass on the changed tree: `bash skills/autopilot/test-bc6-approval-wait.sh` and `bash skills/autopilot/test.sh` each exit 0.
+
 ---
 
 ## Test
@@ -1645,6 +1694,7 @@ Format and rules: M14(g) and M14(h). Each ticket that ships through M14 has one
 
 | Date | Change |
 |------|--------|
+| 2026-11-21 | CDT-610: **BC6's ship-choice carve-out — the budget cap gates new work, not the last push.** Recorded case WP 1-01: finished, reviewed and tested, then halted at the ship step at 81 min against the cap (and WP 1-15: 38,248 s against a 10,800 s cap, ~7.5 h of it user wait). Now, at the `ship-choice` gate only, a run-budget breach downgrades to a **non-blocking budget warning**: the gate's default answer is emitted unchanged (card #1 written with `blocking_condition = null`) and card #1's `rationale` MUST carry `budget-warning:` naming the breached cap (`iteration` or `wall_clock`) with both the measured value and the cap. BC6 stays a hard stop at every other gate (`scope-confirm`, `plan-approve`, `/kickoff`, `/epic` Mode A). User-wait coverage at the ship step is two-sided: an approval wait before card #1 is the M9a exclusion, a breach at the gate itself warns (this change), and BC6 is not evaluated after card #1 — so no user wait around the ship step, and no overrun on already-approved work, can cost a finished run its landing. No ninth BC, no new card field, no gate value, no `type`; the marker rides card #1's rationale like `approval-wait:` / `pass-with-note:`. `append-card.sh`, `budget-check.sh`, and the M14 gate are unchanged. Docs synced: `skills/autopilot/SKILL.md` (M6 item 6, M4 ship-choice item 3) and `skills/autopilot/self-answer.md` §d. New `### CDT-610` AC subsection; `test-bc6-approval-wait.sh` gains the static drift-guard. Status stays ACTIVE. |
 | 2026-11-21 | CDT-609: **M14(b) step 6 — an all-criteria-pass run below 80 becomes a pass-with-note.** Recorded case WP 1-04: 16 of 16 ACs `VERIFIED`/`PARTIALLY_VERIFIED`, none failed, lowest confidence 65 → BC7 halt. Now, when every technical AC passed (no unaudited AC, no `UNVERIFIED`/`CONTRADICTED`/`FABRICATED` AC) and the lowest confidence is below 80, card #2 copies `decision` and `bump` from card #1, sets `blocking_condition = null` and `confidence` = that lowest confidence (CDT-181 floor semantics), and carries a one-line `rationale` that names every AC below 80 and the marker phrase `pass-with-note`. No halt card, no user-facing decision card, and no full-council re-run offer — (f)'s escalation offer stays tied to BC7 halts. The fail-closed set is unchanged: steps 1–4, (d), a malformed sidecar or card #1, a guard-3 stamp miss, and a card #1 decision outside `pr`/`merge` still give `halt` / 7 / `confidence = 0`; BC7 still halts whenever a criterion actually fails. No ninth BC, no auto-clear, no self-answer past BC7, no auto re-run. Supersedes the wp-1-14 "agree only if every AC claim is … at 80 or higher" rule. Mapper `skills/autopilot/ship-gate-verdict.sh` changes; its blob pin (g6) and the M14(b) golden (g7) re-pin at this commit. Docs synced: `ship-gate-council.md` §4, `ship-pipeline.md`, `skills/orchestrate/steps/11-ship.md`, `end-state.md`, and the `resume-ship` notes (they name a `CONTRADICTED` / `UNVERIFIED` / unaudited AC). `ship-gate-council.md` §5 and the M14(d) golden stay byte-identical. New `### CDT-609` AC subsection. Status stays ACTIVE. |
 | 2026-11-18 | CDT-641 (SPEC-042): **M14(m)** — the gate recipe's Phase-4 model pin. The ship-gate council run pins its Phase-4 prosecutor/advocate briefs at `sonnet` by default; the recipe may escalate them to `opus` through the exported `COUNCIL_PHASE4_MODEL` knob (closed set and grammar owned by SPEC-042 M5 — cited, not restated). When the escalation is exercised, card #2's `rationale` carries the token `phase4_model=opus`; `skills/autopilot/ship-gate-verdict.sh` stays byte-identical because the recipe composes the rationale and the mapper (M14(i)) never learns the token. The knob is an env var, so M14(a)'s "no other flag may be passed" rule is unchanged; a direct `/council` run outside the recipe never sets it. No firing rule, card schema, BC mapping, or degraded-run rule changes. Status stays ACTIVE. |
 | 2026-11-17 | CDT-649 (CDT-628 C5): **the per-model budget amendment lands** — the five inputs `docs/internal/control-plane/run-budget.md` § Amendment carried are resolved there and ruled into the run-budget precedence and the run queue's slot ledger (`control-plane/queue/`). (1) **Precedence.** The map layer of run-budget.md § Precedence (`env > map > tier`) is inserted between env and the static default: per cap, independently, a resolved-model row of the Model map beats the static M default, and env still overrides everything (`Mixed = one cap from env and one from the map` follows the § AC9 mixed rule; a frozen run keeps its frozen caps — the freeze is immutable mid-run — and the map row applies where no freeze binds). (2) **The ceiling amendment scope.** N14's two clauses stay in force: a model-keyed budget row may not exceed the L ceiling (40 / 4500), so no clause is raised, and there is no `/setup` budget store — the Model map (SPEC-037 M11) is the store the budget reads. (3) **N12 stays.** The engine never writes `AUTOPILOT_ITERATION_CAP` / `AUTOPILOT_WALLCLOCK_CAP` to apply a derived budget; the map layer is read-only. (4) **The per-Run aggregation rule.** A model-keyed cap binds per runner, not per Run: a multi-agent Run holds one slot per runner; each runner's slot is counted against the model cap of that runner's resolved model; the Run's own concurrency setting caps the total. No runner waits on another runner's model cap. (5) **The match key.** The key is the resolved model string itself — a tier token (`opus`/`sonnet`/`haiku`, SPEC-037 M12) or a full vendor slug, compared byte-exact and never truncated or prefix-matched, so a stale slug matches nothing rather than a family (the CDT-603 failure mode, applied to slots); an unnamed string takes the Tier default row (run-budget.md § Precedence, "Fallback rule"). CDT-603 (validate slugs against the host spawn list) stays open and is the write-time validation owner. No ninth blocking condition, no budget-cap flag, no seventh `parse-flags.sh` key; the decision-card schema is unchanged. The helper argv contract of § AC9 is unchanged by this amendment — the budget-check map read rides a later wiring child; the queue's slot ledger (`control-plane/queue/`) is the only reader the amendment turns on now. Status stays DRAFT. |

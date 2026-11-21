@@ -238,7 +238,13 @@ judgment.
 - **BC5** → `reroute-epic` (self-reroute; non-blocking, reversible — hand to `/epic`
   decompose and continue autonomously per M11). `blocking_condition = 5`.
 - **BC1 / BC2 / BC3 / BC4 / BC6 / BC7 / BC8** → `halt` (hard-blocking, M7).
-  `blocking_condition = <the matched ordinal>`. Escalation transport on halt is **not**
+  `blocking_condition = <the matched ordinal>`. **BC6 exception — `ship-choice` only
+  (CDT-610):** at that gate a BC6 breach is a non-blocking budget warning, not a halt. The gate
+  follows the clean path (default answer, `blocking_condition = null`, no halt card), and card
+  #1's `rationale` MUST carry the marker phrase `budget-warning:` naming the breached cap
+  (`iteration` or `wall_clock`) with both the measured value and the cap. Step (b)'s `breached`
+  flag still feeds this carve-out; the M6.6 ship-choice wording is the contract.
+  Escalation transport on halt is **not**
   this engine's job — it is deferred to **the blocking-condition handler** (the
   halt-escalation owner). This engine only writes the `halt` card and returns; it does not
   itself notify a human.

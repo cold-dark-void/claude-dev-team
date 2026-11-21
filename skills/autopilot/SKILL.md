@@ -129,7 +129,10 @@ that don't apply to this gate — so it agrees with the "8 blocking conditions" 
    it **never** exempts BC3. Force-push still BC3. Intentional baseline land under
    `=master` or a release token is authorized only when the N3a mechanical check passes
    (same safety as release land — not a false halt merely because default is protected).
-3. Budget (**BC6**) and confidence (**BC7**).
+3. Budget (**BC6**) and confidence (**BC7**). BC6 carries its M6 ship-choice carve-out here
+   (CDT-610): a breached budget downgrades to a non-blocking warning — card #1 keeps the gate's
+   default answer with `blocking_condition = null` and a `budget-warning:` rationale naming the
+   breached cap with its measured value and cap — while confidence (**BC7**) is unchanged.
 
 See `skills/autopilot/ship-gate-council.md` for the mandatory per-AC council pass that gates
 every clean ship-choice answer (SPEC-033 M14).
@@ -238,7 +241,14 @@ autopilot MUST NOT invent additional auto-halt conditions.
    **reroute to `/epic`** decompose (recording a `reroute-epic` decision card) and continue
    autonomously. → **reroute**.
 6. **BC6 — Run-budget breach.** The run exceeds a budget cap (iteration or wall-clock).
-   → **halt**.
+   → **halt**, **except at `ship-choice`**: there the breach downgrades to a **non-blocking
+   budget warning** (CDT-610) — the gate's default answer is emitted unchanged (card #1 written
+   with `blocking_condition = null`) and card #1's `rationale` MUST carry `budget-warning:`
+   naming the breached cap (`iteration` or `wall_clock`) with both the measured value and the
+   cap. The cap gates new work; at ship-choice the work is finished and approved (spec-alignment
+   passed, QA PASS), so halting abandons finished approved work and forces a manual resume
+   (the recorded WP 1-01 friction). At every other gate BC6 stays a hard stop. No new field,
+   no new gate value, no ninth BC.
 7. **BC7 — Self-uncertainty.** In the gate-answering step itself, autopilot's confidence in
    the default answer is below the threshold (`confidence` < **80**, mirroring the council
    default). An honest "I'm not sure" MUST halt rather than proceed. → **halt**.

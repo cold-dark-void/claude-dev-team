@@ -64,6 +64,39 @@ else
   fail "SKILL.md missing the M9a approval-wait exclusion (drift from SPEC-033 M9a)"
 fi
 
+# ---- Static: CDT-610 — the BC6 ship-choice carve-out is present in the
+# contract home AND the operational copy, and self-answer.md maps it. The
+# downgrade is text-only (no ninth BC, no card field): if either copy drifts,
+# an orchestrator following the stale copy halts finished, approved work. ----
+SPEC="specs/core/SPEC-033-autopilot-policy.md"
+if grep -qF 'budget-warning:' "$SPEC" \
+  && grep -qF 'non-blocking budget warning' "$SPEC" \
+  && grep -qF 'except at `ship-choice`' "$SPEC" \
+  && grep -qF 'ship-choice carve-out' "$SPEC"; then
+  pass "SPEC-033 carries the CDT-610 ship-choice BC6 carve-out (M6 + M4)"
+else
+  fail "SPEC-033 missing the CDT-610 ship-choice BC6 carve-out"
+fi
+if grep -qF 'budget-warning:' "$SKILL" \
+  && grep -qF 'non-blocking' "$SKILL" \
+  && grep -qF 'except at `ship-choice`' "$SKILL"; then
+  pass "SKILL.md mirrors the CDT-610 ship-choice BC6 carve-out (operational copy in sync)"
+else
+  fail "SKILL.md missing the CDT-610 ship-choice BC6 carve-out (drift)"
+fi
+if grep -qF 'budget-warning:' "$ROOT/skills/autopilot/self-answer.md" \
+  && grep -qF 'BC6 exception' "$ROOT/skills/autopilot/self-answer.md"; then
+  pass "self-answer.md maps the CDT-610 BC6-at-ship-choice exception"
+else
+  fail "self-answer.md missing the CDT-610 BC6-at-ship-choice exception"
+fi
+if grep -qF 'two-sided' "$SPEC" \
+  && grep -qF 'covered on' "$SPEC"; then
+  pass "SPEC-033 M9a names the two-sided ship-step user-wait coverage"
+else
+  fail "SPEC-033 M9a missing the two-sided ship-step coverage note"
+fi
+
 # ---- Extract the re-mint fence (C6) -----------------------------------------
 REMINT_FENCE=$(fence_nth "$RESOLVE_MD" "Re-mint after a human approval wait" 1) || REMINT_FENCE=""
 if [ -z "$REMINT_FENCE" ]; then
