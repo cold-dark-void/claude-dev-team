@@ -75,8 +75,9 @@ require_has "$SPEC" "Grok nest" "SPEC-033 states Grok nest rule"
 require_has "$SPEC" "### CDT-512-C6" "SPEC-033 has ### CDT-512-C6 AC subsection"
 require_has "$SPEC" "N18" "SPEC-033 N18"
 
-# resume-ship y only for real disagree
-require_has "$SPEC" "conf<80 / CONTRADICTED" "SPEC-033 resume-ship y tied to conf<80 / CONTRADICTED"
+# resume-ship y only for real disagree (CDT-609: an all-pass run below 80 is a
+# pass-with-note, so the note names the halting verdict shapes, not conf<80)
+require_has "$SPEC" "real council disagree" "SPEC-033 resume-ship y tied to real council disagree"
 
 # M14(d) still present (unchanged golden lives in guardrails suite)
 require_has "$SPEC" "(d) Degraded-run rule" "SPEC-033 M14(d) still present"

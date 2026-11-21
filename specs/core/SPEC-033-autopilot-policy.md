@@ -632,9 +632,11 @@ target.
          (`ticket_id`, ledger path, spec/AC paths) remain in the claim envelope as before —
          they are locators, not process assertions.
 
-      5. **Technical still blocks.** Stamp success does **not** pre-clear the council. A
-         technical disagree / `UNVERIFIED` / `CONTRADICTED` / `FABRICATED` / sub-80 confidence
-         still maps through **(b)** to BC7 halt. **(d)** (degraded / self-verified) is
+      5. **Technical still blocks.** Stamp success does **not** pre-clear the council. An
+         `UNVERIFIED` / `CONTRADICTED` / `FABRICATED` AC, an unaudited AC, a malformed or
+         missing report, or a stamp-shape miss still maps through **(b)** to BC7 halt. An
+         all-pass run whose lowest confidence sits below 80 is the **pass-with-note** case of
+         **(b)** step 6 (CDT-609) and does not halt. **(d)** (degraded / self-verified) is
          **unchanged**.
 
     - **Per-AC claims in one invocation (WP 1-14).** The claim envelope MUST name exactly one
@@ -685,9 +687,13 @@ target.
        verdicts, floored to an integer (CDT-181 floor semantics).
     6. **Decide.** `confidence ≥ 80` (**agree**) → `decision` = the **original** ship-choice
        card's decision (`pr` or `merge`), `bump` copied from that original card,
-       `blocking_condition = null`. `confidence < 80` (**disagree**) → `decision = halt`,
-       `blocking_condition = 7`, `bump = null`, and `confidence` stays the minimum. The
-       `rationale` MUST name every AC id below 80.
+       `blocking_condition = null`. `confidence < 80` (**pass-with-note**, CDT-609) → the
+       **same** outcome: `decision` and `bump` copied from that original card,
+       `blocking_condition = null`, and `confidence` stays the minimum. Every criterion
+       passed, so BC7 does not fire and the run proceeds to end-state. The `rationale`
+       MUST name every AC id below 80 and MUST carry the marker phrase `pass-with-note`.
+       A pass-with-note is not a halt: it produces no user-facing decision card and no
+       full-council re-run offer — (f)'s escalation offer stays tied to BC7 halts.
 
     The gate MUST NOT use `max_verdict_confidence`, a mean, a vote, or any single "overall"
     verdict. A run that has no AC-bound claims MUST halt as in step 1: the gate fails
@@ -697,9 +703,11 @@ target.
     is a **resolved-negative** (the ship claim was investigated and *not* upheld), which BC1 —
     whose own text (M6.1) says ambiguity that specs or memory *do* answer "is not a blocker" —
     would mis-classify as "resolved → proceed", the exact wrong outcome. This is the same
-    resolved-negative precedent M6.8 (BC8) invokes to stay distinct from BC1. A sub-80 council
-    confidence **is** autopilot's confidence in the ship answer falling below the M6/M13
-    threshold, so BC7 (self-uncertainty) is its correct home.
+    resolved-negative precedent M6.8 (BC8) invokes to stay distinct from BC1. A BC7 card from
+    steps 1–4 **is** autopilot's confidence in the ship answer falling below the M6/M13
+    threshold, so BC7 (self-uncertainty) is its correct home. An all-pass run whose lowest
+    confidence sits below 80 is not that card: step 6 records it as a pass-with-note
+    (**CDT-609**).
 
   - **(c) Not a ninth blocking condition.** This pass MUST NOT introduce a 9th blocking
     condition; M6's set of eight is complete. The council pass **reuses BC7** with an alternate,
@@ -993,7 +1001,9 @@ target.
       then Stage 3. B.4 exports `DEVTEAM_NEST_DEPTH=1`. Helper:
       `skills/autopilot/nest-host.sh`.
     - `resume-ship` y remains only for real council disagree
-      (`conf<80 / CONTRADICTED`). Depth-0 M14(d) self-verified / total-fail
+      (a `CONTRADICTED` / `UNVERIFIED` / `FABRICATED` AC, or an unaudited AC —
+      CDT-609: an all-pass run below 80 is a pass-with-note, not a halt).
+      Depth-0 M14(d) self-verified / total-fail
       stays BC7. Away+autopilot MUST NOT require a Telegram y solely because
       of nest depth.
     - Decision enum stays frozen. `needs-parent-M14` is a procedure outcome,
@@ -1604,6 +1614,22 @@ Format and rules: M14(g) and M14(h). Each ticket that ships through M14 has one
 - **C.** The parent walker at `nest_depth` 0 (Mode B) runs the PM + Tech Lead (+ Finder for a `/kickoff` child) blocks from `skills/orchestrate/steps/spawn-pm-tl-finder.md` with depth unset, then re-invokes the child with the outputs embedded AND `DEVTEAM_NEST_DEPTH=1` — the resume-consume guard consumes them, the child still spawns nothing, and the ship gate still defers M14. Light tier: the parent composes the scoper-planner duties and writes the short plan.
   Verify: bash skills/autopilot/test-nest-m14.sh
 
+### CDT-609
+
+- **A.** All-pass/sub-80 pass-with-note. When every technical AC verdict is `VERIFIED` or `PARTIALLY_VERIFIED` — no unaudited AC, no `UNVERIFIED`/`CONTRADICTED`/`FABRICATED` AC — and the lowest AC confidence is below 80, the M14 gate records card #2 as a **pass-with-note**: `decision` and `bump` copied from card #1, `blocking_condition = null`, `confidence` = that lowest confidence (CDT-181 floor semantics). The run proceeds to end-state on card #1's decision and bump; the BC7 halt path never fires. The suite fixture mirrors the recorded WP 1-04 shape: all 16 criteria passed or partly passed, none failed, lowest confidence 65. This amends the M14(b) step-6 disagree branch and supersedes the wp-1-14 "agree only if every AC claim is ... at 80 or higher" bullet.
+  Verify: bash skills/autopilot/test-ship-gate-verdict.sh
+- **B.** The pass-with-note rationale. Card #2's `rationale` is one line that names every AC below 80 with its confidence and carries the stable marker phrase `pass-with-note`; the card carries `council_tier` per M14(f) as today. A pass-with-note produces no halt card, no user-facing decision card, and no full-council re-run offer — the M14(f) escalation offer stays tied to BC7 halts.
+  Verify: bash skills/autopilot/test-ship-gate-verdict.sh
+- **C.** The fail-closed set is unchanged. An unaudited AC, an `UNVERIFIED`/`CONTRADICTED`/`FABRICATED` AC, a degraded (`self-verified`) run, no usable report, a malformed sidecar or card #1, or a card #1 decision other than `pr`/`merge` still produce `decision = halt`, `blocking_condition = 7`, `confidence = 0`. M14(b) steps 1–4 and M14(d) are unchanged; BC7 still halts whenever a criterion actually fails.
+  Verify: bash skills/autopilot/test-ship-gate-verdict.sh
+- **D.** No ninth BC and no auto-clear. Pass-with-note is the mapper's computed verdict from per-AC evidence — it does not clear a fired BC7, self-answer past BC7, or auto re-run the council. BC7 keeps its ordinal, and `append-card.sh` cross-field invariant (b) is unchanged (a BC7 card still always carries confidence < 80). The guardrail phrases stay in SPEC-033 and `skills/autopilot/ship-gate-council.md`: BC7 is reused with no ninth BC; no auto-clear, no self-answer past BC7 and no auto re-run.
+  Verify: bash skills/autopilot/test-ship-gate-guardrails.sh
+- **E.** Scope: M14 ship-gate only. Judgment-in-context BC7 at every other gate — and ship-choice card #1 — keeps the M6/M13 rule unchanged; no mechanically decidable all-pass input exists there.
+  Verify: bash skills/autopilot/test-ship-gate-guardrails.sh
+- **F.** Docs in sync. SPEC-033 M14(b) step 6 states the pass-with-note rule and the unchanged fail-closed set; `skills/autopilot/ship-gate-council.md` §4 passes the mapper output through without restating the aggregation; the `resume-ship` note (a `CONTRADICTED` / `UNVERIFIED` / unaudited AC) names only the still-halting real-disagree cases; SPEC-033 gains a dated CDT-609 Version History row. Sections pinned byte-equal by existing goldens (e.g. `ship-gate-council.md` §5) stay untouched.
+  Verify: bash skills/autopilot/test-ship-gate-guardrails.sh
+- **G.** [process] The touched suites pass on the changed tree: `bash skills/autopilot/test-ship-gate-verdict.sh`, `bash skills/autopilot/test-ship-gate-guardrails.sh`, and `bash skills/autopilot/test.sh` each exit 0.
+
 ---
 
 ## Test
@@ -1619,6 +1645,7 @@ Format and rules: M14(g) and M14(h). Each ticket that ships through M14 has one
 
 | Date | Change |
 |------|--------|
+| 2026-11-21 | CDT-609: **M14(b) step 6 — an all-criteria-pass run below 80 becomes a pass-with-note.** Recorded case WP 1-04: 16 of 16 ACs `VERIFIED`/`PARTIALLY_VERIFIED`, none failed, lowest confidence 65 → BC7 halt. Now, when every technical AC passed (no unaudited AC, no `UNVERIFIED`/`CONTRADICTED`/`FABRICATED` AC) and the lowest confidence is below 80, card #2 copies `decision` and `bump` from card #1, sets `blocking_condition = null` and `confidence` = that lowest confidence (CDT-181 floor semantics), and carries a one-line `rationale` that names every AC below 80 and the marker phrase `pass-with-note`. No halt card, no user-facing decision card, and no full-council re-run offer — (f)'s escalation offer stays tied to BC7 halts. The fail-closed set is unchanged: steps 1–4, (d), a malformed sidecar or card #1, a guard-3 stamp miss, and a card #1 decision outside `pr`/`merge` still give `halt` / 7 / `confidence = 0`; BC7 still halts whenever a criterion actually fails. No ninth BC, no auto-clear, no self-answer past BC7, no auto re-run. Supersedes the wp-1-14 "agree only if every AC claim is … at 80 or higher" rule. Mapper `skills/autopilot/ship-gate-verdict.sh` changes; its blob pin (g6) and the M14(b) golden (g7) re-pin at this commit. Docs synced: `ship-gate-council.md` §4, `ship-pipeline.md`, `skills/orchestrate/steps/11-ship.md`, `end-state.md`, and the `resume-ship` notes (they name a `CONTRADICTED` / `UNVERIFIED` / unaudited AC). `ship-gate-council.md` §5 and the M14(d) golden stay byte-identical. New `### CDT-609` AC subsection. Status stays ACTIVE. |
 | 2026-11-18 | CDT-641 (SPEC-042): **M14(m)** — the gate recipe's Phase-4 model pin. The ship-gate council run pins its Phase-4 prosecutor/advocate briefs at `sonnet` by default; the recipe may escalate them to `opus` through the exported `COUNCIL_PHASE4_MODEL` knob (closed set and grammar owned by SPEC-042 M5 — cited, not restated). When the escalation is exercised, card #2's `rationale` carries the token `phase4_model=opus`; `skills/autopilot/ship-gate-verdict.sh` stays byte-identical because the recipe composes the rationale and the mapper (M14(i)) never learns the token. The knob is an env var, so M14(a)'s "no other flag may be passed" rule is unchanged; a direct `/council` run outside the recipe never sets it. No firing rule, card schema, BC mapping, or degraded-run rule changes. Status stays ACTIVE. |
 | 2026-11-17 | CDT-649 (CDT-628 C5): **the per-model budget amendment lands** — the five inputs `docs/internal/control-plane/run-budget.md` § Amendment carried are resolved there and ruled into the run-budget precedence and the run queue's slot ledger (`control-plane/queue/`). (1) **Precedence.** The map layer of run-budget.md § Precedence (`env > map > tier`) is inserted between env and the static default: per cap, independently, a resolved-model row of the Model map beats the static M default, and env still overrides everything (`Mixed = one cap from env and one from the map` follows the § AC9 mixed rule; a frozen run keeps its frozen caps — the freeze is immutable mid-run — and the map row applies where no freeze binds). (2) **The ceiling amendment scope.** N14's two clauses stay in force: a model-keyed budget row may not exceed the L ceiling (40 / 4500), so no clause is raised, and there is no `/setup` budget store — the Model map (SPEC-037 M11) is the store the budget reads. (3) **N12 stays.** The engine never writes `AUTOPILOT_ITERATION_CAP` / `AUTOPILOT_WALLCLOCK_CAP` to apply a derived budget; the map layer is read-only. (4) **The per-Run aggregation rule.** A model-keyed cap binds per runner, not per Run: a multi-agent Run holds one slot per runner; each runner's slot is counted against the model cap of that runner's resolved model; the Run's own concurrency setting caps the total. No runner waits on another runner's model cap. (5) **The match key.** The key is the resolved model string itself — a tier token (`opus`/`sonnet`/`haiku`, SPEC-037 M12) or a full vendor slug, compared byte-exact and never truncated or prefix-matched, so a stale slug matches nothing rather than a family (the CDT-603 failure mode, applied to slots); an unnamed string takes the Tier default row (run-budget.md § Precedence, "Fallback rule"). CDT-603 (validate slugs against the host spawn list) stays open and is the write-time validation owner. No ninth blocking condition, no budget-cap flag, no seventh `parse-flags.sh` key; the decision-card schema is unchanged. The helper argv contract of § AC9 is unchanged by this amendment — the budget-check map read rides a later wiring child; the queue's slot ledger (`control-plane/queue/`) is the only reader the amendment turns on now. Status stays DRAFT. |
 | 2026-10-31 | CDT-589-C5: card compatibility — the Step 6c BC1 mis-fire clear card is existing-schema (`gate: plan-approve`, `decision: proceed`, `blocking_condition: null`, `decided_by: auto`, `actor: advisor`, `schema_version` 1) with an M30 advisor object carrying `trigger: "a"` + ruling `mis-fire`; `append-card.sh` trigger-a accept set gains the M24 `halt-stands\|mis-fire` (reject cases and trigger-b/c unchanged); no enum gains a member. M13 advisor bullet amended. |

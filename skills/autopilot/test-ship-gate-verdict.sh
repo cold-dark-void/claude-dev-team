@@ -8,7 +8,13 @@
 #
 # Covers plan T5 AC D/E/F cases:
 #   F(i)-(v): 7-AC agree (both merge/patch and pr/null card1), one CONTRADICTED,
-#     one missing, one at 79, self-verified at 95.
+#     one missing, one at 79 (CDT-609: all-pass sub-80 is a pass-with-note, not
+#     a halt), self-verified at 95.
+#   CDT-609 (SPEC-033 AC A/B/C): the WP 1-04 shape (16 ACs pass/partial, min 65)
+#     passes with a note on card #1's decision + bump, the rationale names every
+#     AC below 80 and carries the `pass-with-note` marker, a min of exactly 80 is
+#     a plain agree, and a failed / unaudited AC or a card #1 decision outside
+#     {pr, merge} still halts BC7 at confidence 0.
 #   [process] fail-closed: zero technical ACs (empty ac_claims), a guard-1
 #     split failure (--no-report), a stamp-shape miss (guard 3).
 #   Unreadable meta / unreadable card1 -> halt, confidence 0.
@@ -191,14 +197,15 @@ case "$(printf '%s' "$G_OUT" | jq -r '.rationale')" in
 esac
 
 # =============================================================================
-# F(iv) — one AC at 79 -> halt, confidence STAYS 79 (not forced to 0)
+# F(iv) — one AC at 79, every AC passed -> pass-with-note (CDT-609): card #1's
+# decision + bump, blocking_condition null, confidence STAYS 79 (not forced to 0)
 # =============================================================================
 run_mapper --meta "$FIX/meta-one-79.json" --card1 "$FIX/card1-merge-patch.json" --tier light
 full_check "F(iv)" light
-assert_field "F(iv)" ".decision" "halt"
-assert_field "F(iv)" ".blocking_condition" "7"
+assert_field "F(iv)" ".decision" "merge"
+assert_field "F(iv)" ".blocking_condition" "null"
 assert_field "F(iv)" ".confidence" "79"
-assert_field "F(iv)" ".bump" "null"
+assert_field "F(iv)" ".bump" "patch"
 case "$(printf '%s' "$G_OUT" | jq -r '.rationale')" in
   *"E=79"*) pass "F(iv): rationale names AC id below 80 with its confidence" ;;
   *) fail "F(iv): rationale missing E=79: $G_OUT" ;;
@@ -363,6 +370,103 @@ full_check "boundary-80" light
 assert_field "boundary-80" ".decision" "merge"
 assert_field "boundary-80" ".blocking_condition" "null"
 assert_field "boundary-80" ".confidence" "80"
+case "$(printf '%s' "$G_OUT" | jq -r '.rationale')" in
+  *pass-with-note*) fail "boundary-80: a min of exactly 80 is agree, not pass-with-note: $G_OUT" ;;
+  *) pass "boundary-80: min exactly 80 takes the agree path (no pass-with-note marker)" ;;
+esac
+
+# =============================================================================
+# CDT-609 (SPEC-033 AC A/B/C) — the recorded WP 1-04 shape: 16 ACs, every one
+# VERIFIED / PARTIALLY_VERIFIED, lowest confidence 65. The gate passes with a
+# note: card #1's decision and bump, blocking_condition null, confidence 65.
+# =============================================================================
+run_mapper --meta "$FIX/meta-wp104-all-pass-65.json" --card1 "$FIX/card1-merge-patch.json" --tier light
+full_check "wp104-all-pass" light
+assert_field "wp104-all-pass" ".decision" "merge"
+assert_field "wp104-all-pass" ".blocking_condition" "null"
+assert_field "wp104-all-pass" ".confidence" "65"
+assert_field "wp104-all-pass" ".bump" "patch"
+RATIONALE=$(printf '%s' "$G_OUT" | jq -r '.rationale')
+case "$RATIONALE" in
+  *pass-with-note*) pass "wp104-all-pass: rationale carries the pass-with-note marker" ;;
+  *) fail "wp104-all-pass: rationale missing pass-with-note marker: $RATIONALE" ;;
+esac
+for wp_id in C=79 F=65 K=76; do
+  case "$RATIONALE" in
+    *"$wp_id"*) pass "wp104-all-pass: rationale names AC below 80 with its confidence ($wp_id)" ;;
+    *) fail "wp104-all-pass: rationale missing $wp_id: $RATIONALE" ;;
+  esac
+done
+for wp_id in A=95 D=92; do
+  case "$RATIONALE" in
+    *"$wp_id"*) fail "wp104-all-pass: rationale must not name an AC at/above 80 ($wp_id): $RATIONALE" ;;
+    *) pass "wp104-all-pass: rationale omits the at/above-80 AC ($wp_id)" ;;
+  esac
+done
+
+# The note rides card #1's own decision/bump pair, so a pr/null card #1 gives
+# pr/null — the mapper copies both forward, it never invents a bump.
+run_mapper --meta "$FIX/meta-wp104-all-pass-65.json" --card1 "$FIX/card1-pr-null.json" --tier full
+full_check "wp104-pr-null" full
+assert_field "wp104-pr-null" ".decision" "pr"
+assert_field "wp104-pr-null" ".blocking_condition" "null"
+assert_field "wp104-pr-null" ".confidence" "65"
+assert_field "wp104-pr-null" ".bump" "null"
+
+# AC C — the pass-with-note path copies card #1's decision, so a card #1 outside
+# {pr, merge} still fails closed: halt, BC7, confidence 0, bump null.
+run_mapper --meta "$FIX/meta-wp104-all-pass-65.json" --card1 "$FIX/card1-decision-halt.json" --tier light
+full_check "wp104-card1-decision-halt" light
+assert_field "wp104-card1-decision-halt" ".decision" "halt"
+assert_field "wp104-card1-decision-halt" ".blocking_condition" "7"
+assert_field "wp104-card1-decision-halt" ".confidence" "0"
+assert_field "wp104-card1-decision-halt" ".bump" "null"
+
+# AC C — the same 16-AC set with ONE UNVERIFIED AC halts: BC7, confidence 0
+# (not 65), and the rationale names the failed AC, never the pass-with-note
+# marker.
+run_mapper --meta "$FIX/meta-wp104-one-unverified.json" --card1 "$FIX/card1-merge-patch.json" --tier light
+full_check "wp104-one-unverified" light
+assert_field "wp104-one-unverified" ".decision" "halt"
+assert_field "wp104-one-unverified" ".blocking_condition" "7"
+assert_field "wp104-one-unverified" ".confidence" "0"
+assert_field "wp104-one-unverified" ".bump" "null"
+RATIONALE=$(printf '%s' "$G_OUT" | jq -r '.rationale')
+case "$RATIONALE" in
+  *"F=UNVERIFIED"*) pass "wp104-one-unverified: rationale names the failed AC F=UNVERIFIED" ;;
+  *) fail "wp104-one-unverified: rationale missing F=UNVERIFIED: $RATIONALE" ;;
+esac
+case "$RATIONALE" in
+  *pass-with-note*) fail "wp104-one-unverified: a failed AC must not carry the pass-with-note marker: $RATIONALE" ;;
+  *) pass "wp104-one-unverified: a failed AC halts with no pass-with-note marker" ;;
+esac
+
+# A degraded (self-verified) run at sub-80 confidence still halts at 0 — the
+# M14(d) degraded rule outranks the pass-with-note path.
+jq '.verification_mode = "self-verified"
+    | .unstruck_verdicts = (.unstruck_verdicts | map(.confidence = 65))' \
+  "$FIX/meta-wp104-all-pass-65.json" > "$TMP/meta-wp104-selfverified.json" \
+  || fail "wp104-self-verified: could not build the mutated sidecar"
+run_mapper --meta "$TMP/meta-wp104-selfverified.json" --card1 "$FIX/card1-merge-patch.json" --tier full
+full_check "wp104-self-verified" full
+assert_field "wp104-self-verified" ".decision" "halt"
+assert_field "wp104-self-verified" ".blocking_condition" "7"
+assert_field "wp104-self-verified" ".confidence" "0"
+
+# An unaudited AC in the same all-pass-sub-80 set still halts (step order:
+# unaudited outranks the pass-with-note path).
+jq 'del(.unstruck_verdicts[] | select(.claim | startswith("[AC-F]")))' \
+  "$FIX/meta-wp104-all-pass-65.json" > "$TMP/meta-wp104-one-missing.json" \
+  || fail "wp104-one-missing: could not build the mutated sidecar"
+run_mapper --meta "$TMP/meta-wp104-one-missing.json" --card1 "$FIX/card1-merge-patch.json" --tier light
+full_check "wp104-one-missing" light
+assert_field "wp104-one-missing" ".decision" "halt"
+assert_field "wp104-one-missing" ".blocking_condition" "7"
+assert_field "wp104-one-missing" ".confidence" "0"
+case "$(printf '%s' "$G_OUT" | jq -r '.rationale')" in
+  *"unaudited AC(s): F"*) pass "wp104-one-missing: rationale names unaudited AC F" ;;
+  *) fail "wp104-one-missing: rationale missing unaudited AC F: $G_OUT" ;;
+esac
 
 # =============================================================================
 # Extra: mixed unaudited + failed -> unaudited wins (M14(b) step order),

@@ -323,7 +323,8 @@ and **not** a resume-ship y. MUST NOT ping intercom / Telegram for a nest-depth
 y. Unset `DEVTEAM_NEST_DEPTH` (or set `0`). The parent walker runs M14
 (`skills/autopilot/ship-gate-council.md` at depth 0) then Stage 3
 (`end-state.md` / `/release`) for that child. Depth-0 council disagree
-(`conf<80 / CONTRADICTED`) still BC7 + resume-ship y. There is no resident daemon.
+(`CONTRADICTED` / `UNVERIFIED` / unaudited AC) still BC7 + resume-ship y.
+There is no resident daemon.
 
 **Grok nest `needs-parent-PM-TL` (CDT-523 / SPEC-033 M14(l)):** when the child
 `/kickoff` or `/orchestrate` return contains `needs-parent-PM-TL`, this is also

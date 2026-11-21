@@ -62,7 +62,8 @@ This sequence fires **only** on a **post-council effective `merge`** decision �
 - It **never** fires on `pr` — that is the PR-stop end state (create PR, then stop; no land).
   `pr` and `merge` are mutually exclusive ship-choice terminals.
 - It **never** fires on a `halt` / `reroute-epic` answer, nor on a `merge` whose council pass
-  **disagreed / degraded / total-failed** (that pass forced `halt`/BC7; `ship-gate-council.md`
+  **halted (failed / unaudited AC), degraded, or total-failed** (that pass
+  forced `halt`/BC7; `ship-gate-council.md`
   §4–§5). No council agreement ⇒ no land.
 - It fires **exactly once** per shipped ticket — one squash-stage, one land path
   (one `/release` **or** one land-no-release commit+push).
@@ -435,7 +436,7 @@ reset where the land never created a delivery commit.
   the vocabulary.
 - **Exempt BC3.** BC3 is evaluated unconditionally and mechanically (§3, N3a); a passing check
   is a BC3-clear, never a token-based exemption.
-- **Fire when the council disagreed** or on any non-clean / halted / rerouted answer (§2).
+- **Fire when the council halted the ship** or on any non-clean / halted / rerouted answer (§2).
 - **Alter the interactive-path or autopilot-`pr` tracking-closeout ordering** — the reorder is
   scoped to the autopilot merge path (§6).
 - **Land mid-epic under release=end.** assert-release-allowed forbids **both** release and

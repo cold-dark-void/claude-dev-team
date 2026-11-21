@@ -25,7 +25,7 @@
     },
     {
       "claim": "[AC-C] evidence",
-      "verdict": "VERIFIED",
+      "verdict": "UNVERIFIED",
       "confidence": 79
     }
   ]

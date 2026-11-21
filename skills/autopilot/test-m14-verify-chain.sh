@@ -633,7 +633,9 @@ cc_assert "a Verify stub at exit 1 fails on the exit branch only" \
   "exited 1, want 0" "no VERIFY exit=0 line"
 
 # ---- ship-gate-verdict.sh on the recipe's synthetic finalize-meta:
-# every AC at >=80 -> blocking_condition null; one AC at 79 -> 7. Reuses
+# every AC at >=80 -> blocking_condition null; one AC UNVERIFIED -> 7 (the
+# all-pass 79 shape is a pass-with-note under CDT-609, so the fail fixture
+# carries a real failed AC). Reuses
 # card #1 (decision merge, bump patch) from step 4. -----------------------
 VERDICT_RX_PASS="$(bash "$MAPPER" --meta "$RECIPE_FIX/meta-pass.json" --card1 "$CARD1" --tier full)"
 RCV_RX_PASS=$?

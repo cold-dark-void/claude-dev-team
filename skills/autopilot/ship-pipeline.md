@@ -83,8 +83,10 @@ land.
 On a clean card #1, run `ship-gate-council.md`'s procedure **before any ship
 action** — on **both** `pr` and `merge`. It appends **card #2** (same
 `run_id`) and yields the post-council effective decision: council **agree**
-(conf ≥ 80, non-degraded) keeps card #1's `pr`/`merge`; **disagree / degraded
-/ total-fail** forces `halt` (BC7). Grok nest (§2b) yields `needs-parent-M14`
+(conf ≥ 80, non-degraded) and **pass-with-note** (every criterion passed with a
+confidence below 80, CDT-609) keep card #1's `pr`/`merge`; a **failed / unaudited
+AC, a degraded (self-verified) run, or a total-fail** forces `halt` (BC7). Grok
+nest (§2b) yields `needs-parent-M14`
 instead of card #2. Act on the **post-council effective decision** only.
 
 ## Stage 3 — Execute (end-state)

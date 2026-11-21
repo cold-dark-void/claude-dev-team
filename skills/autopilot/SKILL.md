@@ -151,7 +151,8 @@ the ship-choice stages, and its decided bump — not `auto` — is the
 **Grok nest (SPEC-033 M14(l) / CDT-512-C6).** Cite, do not fork. On Grok at
 `nest_depth>=1`, Stage 2 defers: `needs-parent-M14`, no BC7, no resume-ship y.
 Parent at depth 0 runs M14. `resume-ship` y remains only for real council
-disagree (`conf<80 / CONTRADICTED`). Helper: `skills/autopilot/nest-host.sh`.
+disagree (`CONTRADICTED` / `UNVERIFIED` / unaudited AC — CDT-609: an all-pass
+run below 80 is a pass-with-note, not a halt). Helper: `skills/autopilot/nest-host.sh`.
 There is no resident daemon.
 
 ---

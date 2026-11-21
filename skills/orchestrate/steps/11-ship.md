@@ -79,8 +79,10 @@ the clean answer as **card #1** (`blocking_condition = null` on a clean `pr`/`me
 **Council interposition (AC1 — SPEC-033 M14).** On a clean `pr` **or** `merge` card #1, run
 `skills/autopilot/ship-gate-council.md`'s procedure **before any ship action** — on **both**
 branches, not merge-only. That pass appends **card #2** (same `run_id`) and yields the
-**post-council effective decision**: council **agree** (conf ≥ 80, non-degraded) keeps card #1's
-`pr`/`merge`; **disagree / degraded / total-fail** forces `halt` (BC7). On a card #1 already
+**post-council effective decision**: council **agree** (conf ≥ 80, non-degraded) and
+**pass-with-note** (every criterion passed with a confidence below 80, CDT-609) keep card #1's
+`pr`/`merge`; a **failed / unaudited AC, a degraded (self-verified) run, or a total-fail**
+forces `halt` (BC7). On a card #1 already
 `halt`/`reroute-epic`, the council pass is **skipped** (ship-gate-council.md §2) and the
 effective decision is card #1's. On Grok nest (`ship-gate-council.md` §2b /
 `nest-host.sh can_spawn_council=false`), Stage 2 returns `needs-parent-M14` instead of
@@ -149,7 +151,8 @@ Wait for user choice.
 ### Resume ship after BC7 override (CDT-135; CDT-195)
 
 **When:** A prior ship-choice halt after **real council disagree**
-(`conf<80 / CONTRADICTED`) left the work ready to ship, the human has reviewed
+(`CONTRADICTED` / `UNVERIFIED` / unaudited AC — CDT-609: an all-pass run below 80 is a
+pass-with-note, not a halt) left the work ready to ship, the human has reviewed
 and **explicitly** wants to finish shipping, and re-running full PM/TL/IC is
 waste. Depth-0 M14(d) self-verified / total spawn-fail stays BC7. Grok nest
 spawn-fail is `needs-parent-M14`, not this path — resume-ship y remains only

@@ -1,0 +1,35 @@
+{
+  "ac_source": "specs/core/SPEC-999-fixture.md",
+  "ac_claims": [
+    {"claim_id": "c0", "ac_id": "A"}, {"claim_id": "c1", "ac_id": "B"},
+    {"claim_id": "c2", "ac_id": "C"}, {"claim_id": "c3", "ac_id": "D"},
+    {"claim_id": "c4", "ac_id": "E"}, {"claim_id": "c5", "ac_id": "F"},
+    {"claim_id": "c6", "ac_id": "G"}, {"claim_id": "c7", "ac_id": "H"},
+    {"claim_id": "c8", "ac_id": "I"}, {"claim_id": "c9", "ac_id": "J"},
+    {"claim_id": "c10", "ac_id": "K"}, {"claim_id": "c11", "ac_id": "L"},
+    {"claim_id": "c12", "ac_id": "M"}, {"claim_id": "c13", "ac_id": "N"},
+    {"claim_id": "c14", "ac_id": "O"}, {"claim_id": "c15", "ac_id": "P"}
+  ],
+  "process_acs": [],
+  "verification_mode": "full",
+  "min_verdict_confidence": 65,
+  "verdict_counts": {"VERIFIED": 11, "PARTIALLY_VERIFIED": 4, "UNVERIFIED": 1, "CONTRADICTED": 0, "FABRICATED": 0},
+  "unstruck_verdicts": [
+    {"claim": "[AC-A] For fixture-ticket, ... criterion A ...", "verdict": "VERIFIED", "confidence": 95},
+    {"claim": "[AC-B] For fixture-ticket, ... criterion B ...", "verdict": "VERIFIED", "confidence": 88},
+    {"claim": "[AC-C] For fixture-ticket, ... criterion C ...", "verdict": "PARTIALLY_VERIFIED", "confidence": 79},
+    {"claim": "[AC-D] For fixture-ticket, ... criterion D ...", "verdict": "VERIFIED", "confidence": 92},
+    {"claim": "[AC-E] For fixture-ticket, ... criterion E ...", "verdict": "PARTIALLY_VERIFIED", "confidence": 85},
+    {"claim": "[AC-F] For fixture-ticket, ... criterion F ...", "verdict": "UNVERIFIED", "confidence": 65},
+    {"claim": "[AC-G] For fixture-ticket, ... criterion G ...", "verdict": "VERIFIED", "confidence": 90},
+    {"claim": "[AC-H] For fixture-ticket, ... criterion H ...", "verdict": "PARTIALLY_VERIFIED", "confidence": 82},
+    {"claim": "[AC-I] For fixture-ticket, ... criterion I ...", "verdict": "VERIFIED", "confidence": 97},
+    {"claim": "[AC-J] For fixture-ticket, ... criterion J ...", "verdict": "VERIFIED", "confidence": 88},
+    {"claim": "[AC-K] For fixture-ticket, ... criterion K ...", "verdict": "PARTIALLY_VERIFIED", "confidence": 76},
+    {"claim": "[AC-L] For fixture-ticket, ... criterion L ...", "verdict": "VERIFIED", "confidence": 91},
+    {"claim": "[AC-M] For fixture-ticket, ... criterion M ...", "verdict": "VERIFIED", "confidence": 84},
+    {"claim": "[AC-N] For fixture-ticket, ... criterion N ...", "verdict": "VERIFIED", "confidence": 89},
+    {"claim": "[AC-O] For fixture-ticket, ... criterion O ...", "verdict": "VERIFIED", "confidence": 93},
+    {"claim": "[AC-P] For fixture-ticket, ... criterion P ...", "verdict": "VERIFIED", "confidence": 87}
+  ]
+}

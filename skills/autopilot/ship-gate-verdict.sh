@@ -41,20 +41,23 @@
 #   - one or more technical ACs unaudited                (M14(b) step 3)
 #   - one or more technical ACs UNVERIFIED/CONTRADICTED/
 #     FABRICATED                                          (M14(b) step 4)
-#   - every technical AC VERIFIED/PARTIALLY_VERIFIED but
-#     the lowest confidence is < 80 (confidence stays that
-#     minimum — NOT forced to 0)                          (M14(b) step 6 disagree)
-#   - on the agree path, card1.decision is not "pr" or
+#   - on a pass path, card1.decision is not "pr" or
 #     "merge" (missing/null/other)                        (malformed card #1)
 #
 # Agree outcome (M14(b) step 6): every technical AC VERIFIED/PARTIALLY_VERIFIED
 # at confidence >= 80 -> decision/bump copied from card #1, blocking_condition=null,
 # confidence = the lowest AC confidence.
 #
+# Pass-with-note outcome (M14(b) step 6, CDT-609): every technical AC
+# VERIFIED/PARTIALLY_VERIFIED and the lowest confidence < 80 -> the agree shape
+# (decision/bump from card #1, blocking_condition=null, confidence = that
+# minimum, NOT forced to 0), with a rationale that names every AC below 80 and
+# carries the marker phrase "pass-with-note". Every criterion passed, so there
+# is nothing for BC7 to halt on.
+#
 # Invariant (append-card.sh cross-field invariant (b)): this script never
 # emits blocking_condition=7 with confidence >= 80 — true by construction,
-# since every blocking_condition=7 branch above sets confidence to either 0
-# or a value already checked to be < 80.
+# since every blocking_condition=7 branch above sets confidence to 0.
 #
 # Exit codes:
 #   0   every computed outcome above (including every fail-closed halt)
@@ -308,7 +311,8 @@ RESULT=$(jq -cn \
       | if $conf >= 80 then
           {kind: "agree", confidence: $conf, decision: $card1.decision, bump: $card1.bump}
         else
-          {kind: "disagree", confidence: $conf,
+          {kind: "pass-with-note", confidence: $conf,
+           decision: $card1.decision, bump: $card1.bump,
            below: ($ok | map(select(.confidence < 80)))}
         end
     end
@@ -324,10 +328,21 @@ case "$KIND" in
     ITEMS=$(printf '%s' "$RESULT" | jq -r '[.items[] | "\(.ac_id)=\(.verdict)"] | join(", ")')
     halt0 "failed AC(s): $ITEMS"
     ;;
-  disagree)
+  pass-with-note)
+    # (CDT-609, M14(b) step 6) every technical AC VERIFIED/PARTIALLY_VERIFIED
+    # with the lowest confidence below 80: a pass with a note, not a BC7 halt.
+    # Card #1's decision and bump carry forward, so the agree path's B4b
+    # decision guard applies here too — a card #1 outside {pr, merge} fails
+    # closed rather than echoing an invalid decision/null-BC pair.
+    DECISION=$(printf '%s' "$RESULT" | jq -r '.decision')
+    case "$DECISION" in
+      pr|merge) ;;
+      *) halt0 "card #1 decision must be pr or merge for the pass-with-note path (got '$DECISION')" ;;
+    esac
     CONF=$(printf '%s' "$RESULT" | jq -r '.confidence')
+    BUMP_JSON=$(printf '%s' "$RESULT" | jq -c '.bump')
     BELOW=$(printf '%s' "$RESULT" | jq -r '[.below[] | "\(.ac_id)=\(.confidence)"] | join(", ")')
-    emit "halt" "7" "$CONF" "null" "AC(s) below 80: $BELOW"
+    emit "$DECISION" "null" "$CONF" "$BUMP_JSON" "pass-with-note: AC(s) below 80: $BELOW"
     ;;
   agree)
     # (B4b) card #1's decision MUST be "pr" or "merge" on the agree path — a

@@ -18,11 +18,13 @@
 #        extract_m14d uses, not a fixed line number; g4-bite2 re-proves that
 #        after one line is inserted above the block (AC K).
 #   g5 — `--council-tier` is the sole flag.
-#   g6 — `ship-gate-verdict.sh` is byte-identical to `cbee656` (blob-hash
-#        fixture; WP 1-15 AC G).
+#   g6 — `ship-gate-verdict.sh` is byte-identical to a committed blob-hash
+#        fixture (WP 1-15 AC G). Re-pinned at CDT-609 when the M14(b) step-6
+#        disagree branch became the all-pass pass-with-note branch.
 #   g7 — the SPEC-033 M14(b) block, extracted by its `(b)`..`(c)` markers, is
-#        byte-equal to a committed golden extracted from `cbee656` (WP 1-15
-#        AC G). The M14(d) golden (g4) is unchanged.
+#        byte-equal to a committed golden (WP 1-15
+#        AC G). Re-pinned at CDT-609 for the step-6 pass-with-note rule. The
+#        M14(d) golden (g4) is unchanged.
 #
 # WP 1-16 AC F (SPEC-033 M14(g) finder recipe): g8-g10, a6-a7.
 #   g8 — `append-card.sh` blob pin (`assert_blob_hash`, shared with g6).
@@ -630,20 +632,22 @@ fi
 
 
 # =============================================================================
-# g6 (WP 1-15 AC G) — ship-gate-verdict.sh is byte-identical to cbee656.
+# g6 (WP 1-15 AC G) — ship-gate-verdict.sh is byte-identical to the pinned
+# blob (re-pinned at CDT-609 for the M14(b) step-6 pass-with-note branch).
 # =============================================================================
 assert_blob_hash "$VERDICT_SH" "$VERDICT_BLOB" "g6 ship-gate-verdict.sh"
 
 # =============================================================================
 # g7 (WP 1-15 AC G) — SPEC-033 M14(b) block, extracted by its (b)..(c)
-# markers, is byte-equal to a committed golden extracted from cbee656. The
+# markers, is byte-equal to the committed golden (re-pinned at CDT-609 for the
+# step-6 pass-with-note rule). The
 # M14(d) golden (g4, above) is unchanged.
 # =============================================================================
 BLOCK_B=$(extract_m14b "$SPEC")
 if [ -z "$BLOCK_B" ]; then
   fail "g7 could not extract M14(b) block from SPEC-033"
 elif diff <(printf '%s\n' "$BLOCK_B") "$GOLDEN_M14B" >/dev/null 2>&1; then
-  pass "g7 SPEC-033 M14(b) block byte-equal to committed golden (base cbee656)"
+  pass "g7 SPEC-033 M14(b) block byte-equal to committed golden (re-pinned CDT-609)"
 else
   fail "g7 SPEC-033 M14(b) block differs from golden"
 fi

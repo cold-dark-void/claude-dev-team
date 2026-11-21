@@ -354,16 +354,20 @@ treatment §3a already gives a `tier-grade.sh` exit or unparseable-stdout failur
 
 That confidence feeds **BC7 only, never BC1** (M14(b) states why: a disagreeing verdict is a
 resolved-negative, and the council can only push a ship **down** to a BC7 halt, never raise
-card #1's clean answer above BC7). The `≥ 80 / < 80` agree boundary coincides exactly with
-`append-card.sh` cross-field invariant (b), so a disagree output's `confidence` is
-sub-threshold by construction — no exit-64.
+card #1's clean answer above BC7). Every BC7 output the mapper emits carries
+`confidence = 0`, so `append-card.sh` cross-field invariant (b) holds by construction — no
+exit-64. A **pass-with-note** output (M14(b) step 6, CDT-609: every criterion passed, the
+threshold not met) is a pass: card #1's `decision` and `bump`, `blocking_condition = null`,
+no halt card, and no full-council re-run offer.
 
 The mapper's `rationale` is already a single secret-scrubbed line naming the driving AC ids
 (M14(b), M14(i)); this pass passes it through to `append-card.sh` verbatim (same M13/S2
 rationale discipline as `self-answer.md` §4) — it never copies council report text itself.
+That includes the `pass-with-note` marker phrase the mapper writes on an all-pass
+sub-threshold outcome.
 
 **Tier-aware BC7 (M14(f)).** Every BC7 halt card this pass writes — from the mapper's
-disagree output **or** from §5's degraded / total-failure path — carries §3a's
+halt output **or** from §5's degraded / total-failure path — carries §3a's
 `council_tier` (§6) and its one-line `rationale` **names that tier** (e.g.
 `… ; council_tier=light`).
 
