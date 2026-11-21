@@ -147,7 +147,7 @@ Resolve the new version using these rules (first match wins):
      history); else → `git log --oneline "$LAST_TAG"..HEAD` — committed
      since tag (`LAST_TAG` from Step 0.5)
    - `git status --short` and `git diff --stat HEAD` — uncommitted work (usually the bulk)
-   - Apply the `AGENTS.md` rule verbatim: "New opt-in flags with unchanged defaults = patch; default-behavior changes or new command surfaces = minor." A `feat:` commit subject alone does **not** force minor — judge the actual change, not the prefix.
+   - Apply the `AGENTS.md` ladder verbatim: "**patch** — fixes, rule corrections, test hardening, and internal policy amendments. Nothing a user would experience as a new capability; the surface stays compatible. **minor** — a significant, "proud" change worth headlining: a new command surface, a new user-visible default, or a capability the team would announce. Still compatible with the current major line. **major** — monumental or incompatible: an arc-level rewrite (the control-plane arc, CDT-628, is the precedent), a break of install/update contracts, or anything that forces migration." The ladder's opt-in line, quoted verbatim from `AGENTS.md`: "New opt-in flags with unchanged defaults = patch." A `feat:` commit subject alone does **not** force minor — judge the actual change, not the prefix.
    - Tell the user what you chose and why (e.g. "Auto-detected **patch** — hardening, no new feature")
 
 Version format: no `v` prefix in files, `v` prefix for git tag and changelog heading.

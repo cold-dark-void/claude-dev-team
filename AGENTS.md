@@ -32,8 +32,17 @@ pin via git refs (`stable` / `master` on `source.ref`). Description sync with
 `README.md` carries only a pointer to `CHANGELOG.md` — do NOT add version
 sections to it.
 
-Versioning: semver patch (x.y.Z) for fixes, minor (x.Y.0) for features.
-New opt-in flags with unchanged defaults = patch; default-behavior changes or new command surfaces = minor.
+Versioning ladder (user-ruled 2026-11-21):
+- **patch (x.y.Z)** — fixes, rule corrections, test hardening, and internal
+  policy amendments. Nothing a user would experience as a new capability; the
+  surface stays compatible.
+- **minor (x.Y.0)** — a significant, "proud" change worth headlining: a new
+  command surface, a new user-visible default, or a capability the team would
+  announce. Still compatible with the current major line.
+- **major (X.0.0)** — monumental or incompatible: an arc-level rewrite (the
+  control-plane arc, CDT-628, is the precedent), a break of install/update
+  contracts, or anything that forces migration.
+New opt-in flags with unchanged defaults = patch.
 Enforced on `master` by `githooks/pre-commit` → `skills/release/check-bump-class.sh` (also `/release` Step 4.11 and CI). The hook fires only after a one-time `bash skills/release/install-git-hooks.sh` (or `git config core.hooksPath githooks`) — do that once per clone. A new `commands/*.md` on a patch bump MUST NOT commit.
 
 **Pre-release arc scheme (SPEC-010, CDT-633)** — prose note; no gate enforces the arc rule:
