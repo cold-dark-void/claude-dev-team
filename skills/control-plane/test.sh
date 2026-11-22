@@ -43,7 +43,7 @@ FAIL=0
 # collect the failing check labels and print them as a block at the end, so
 # every failing name lands inside the runner's 20-line failure tail (the
 # inline FAIL lines scroll far above it). Additive: checks, order and counters
-# are unchanged (141).
+# only grow (141 → 144 with the three CDT-620 BSD-date regression bites).
 FAILED_LABELS=""
 record_fail() { FAILED_LABELS="$FAILED_LABELS$1\n"; }
 ok() { PASS=$((PASS + 1)); printf 'PASS: %s\n' "$1"; }

@@ -4,6 +4,8 @@ All notable changes to **claude-dev-team**, newest first.
 Authoritative version history. Prefer **`/release`** to add `### vX.Y.Z` headings.
 Pre-written headings (release-train M5c, orchestrate version-sync tasks) are kept
 via skip-if-present when `/release` is given an explicit version — do not invent a
+section yourself.
+
 ### v2.1.10
 - **The macos lane goes green — serial keep-dir, named failing checks, the tier-grade ERR-trap race, and the BSD `date` lease parse (CDT-620)** — the required `macos` job (`--portable --platform macos`, bash 3.2.57) failed on every recent master push. Four fixes, all test hardening plus portability fixes inside the failing checks; no new surfaces, no behavior change beyond those mechanisms:
   - **Serial keep-dir (T1)** — `tools/run-all-tests.sh` kept a red suite's FULL output only on the pool path (CDT-545). The macos lane runs serially, so a red lane run kept nothing beyond the 20-line tail and the `smoke.yml` diagnosability step printed an empty glob. `keep_failed_output` now runs on the serial path too (same `${TMPDIR:-/tmp}/run-all-tests-failed.<ts>.<pid>/` layout, lazy creation, stderr `info:` line); the R10 per-suite lines stay byte-identical. SPEC-030 R10.

@@ -529,6 +529,20 @@ Resolved scope notes: OQ1 — the full rewrite is pre-committed; there is no fal
 - **AC15.** At `--jobs 2`, the release-state overlay reproduces staged removals and renames in the worker: a planted `git rm` of a tracked file is absent from the worker index and worktree; a planted `git mv` shows the new path cached and the old path gone.
   Verify: bash tools/run-all-tests-pool-test.sh
 
+### CDT-620
+
+- **A.** The serial runner keeps a red suite's full output: at `--jobs 1` a FAIL/TIMEOUT/QUARANTINED suite's `$OUTFILE` moves into the lazy `${TMPDIR:-/tmp}/run-all-tests-failed.<ts>.<pid>/` keep-dir (one per run, an `info:` line on stderr), PASS/SKIP suites keep nothing, and the R10 stdout result lines stay byte-identical at `--jobs 1` (the keep notice is stderr-only; the harness compares strip it). The `smoke.yml` diagnosability globs already match the keep-dir.
+  Verify: bash tools/run-all-tests-pool-test.sh
+- **B.** `skills/control-plane/test.sh` prints a `FAILED CHECKS:` block after its `Results:` line on red — one line per failing check label (the CDT-646 pattern), silent on green — so every failing check name lands inside the runner's 20-line failure tail on the serial macos lane. Check labels are additive only: the suite grows from 141 to 144 checks (the three BSD-date regression bites), never by weakening or deleting an assertion.
+  Verify: bash skills/control-plane/test.sh
+- **C.** `skills/council/tier-grade.sh`'s two git-probe fail-closed reads (`TOPLEVEL=$(git rev-parse --show-toplevel …)` and the fan-in `matches=$(git grep -l -F …)`) keep their exact reason strings (`git failure: not inside a work tree`, `git failure: git grep exited $rc while probing fan-in for $p`) with the ERR trap disarmed around the substitution, the rc captured explicitly, and the trap restored byte-identically; the fail-closed contract and the W3-16 JSON property are unchanged. The suite is green on Linux and on the macos lane, and the macos-scoped quarantine entry for the suite is retired once the lane measures PASS (R13): `tools/test-quarantine.txt` is header comments only after this ticket.
+  Verify: bash skills/council/test-tier-grade.sh
+- **D.** The control-plane driver's lease-heartbeat epoch is host-`date`-independent: the BSD arm of `cp_epoch_from_ts` keeps the trailing `Z` literal in both the input timestamp and the `-j -f` format (only the `+hh:mm` offset shape strips its offset), the real `date` resolves from an absolute-path list (no `command -v -p` self-recursion under a PATH shim), and the epoch derives in awk from civil fields (DST-immune). The three macOS reds — `M12 running-lease: PASS rc=0 starts=1`, `M12: the WARN row has no lease line`, `AC13: hygiene row is PASS, expected SKIP` — bite red against the pre-fix driver and green here, reproduced hermetically on Linux through the shim.
+  Verify: bash skills/control-plane/test.sh
+- **E.** No suite writes into a reused worker's scratch after its slot ends: each dispatch gets a fresh `$WORKDIR/w.<n>.<seq>.{home,tmp}` pair, superseded pairs leave with `WORKDIR` on EXIT, and the nested-runner bite (caseP16: a nested `tools/run-all-tests.sh` still writing `quarantine.tsv`/`suite.out` 3 s past its slot end while the outer pool reuses the worker) FAILs against master's runner and PASSes here — the CDT-554 orphaned-grandchild class that turned the v2.1.9 ubuntu `all-tests` red once.
+  Verify: bash tools/run-all-tests-pool-test.sh
+- **F.** [process] Docs and release hygiene: SPEC-030 R10 carries the keep-dir contract on both the serial and the pool path, R39 the per-dispatch scratch rule, R13 the retirement; SPEC-043's Version History records the T4 mechanism; the version pair (`### v2.1.10`, `"version": "2.1.10"`) rides this fold as a patch; docs-drift and spec-lint are clean on the release diff; the bump-class gate stays green (no new `commands/*.md`).
+
 ## Version History
 
 | Date | Change |
