@@ -28,11 +28,21 @@
 # gets a per-worker HOME and TMPDIR under WORKDIR, outside the clone (R39).
 #
 # CDT-545: when a pool suite comes back red (FAIL/TIMEOUT/QUARANTINED), its
-# full out.$k is moved to ${TMPDIR:-/tmp}/run-all-tests-failed.<ts>.<pid>/
+# full output is moved to ${TMPDIR:-/tmp}/run-all-tests-failed.<ts>.<pid>/
 # and the path is printed on stderr -- the failure tail is only 20 lines.
 # The keep-dir is created lazily, so a green run leaves nothing behind, and
-# it lives outside the scratch, so cleanup() never deletes it. jobs=1 is
-# unchanged.
+# it lives outside the scratch, so cleanup() never deletes it. CDT-620 T1
+# extends the same keep to the serial loop (jobs=1): the macos lane runs
+# serially, so pool-only keeping left a red macos run with no full suite
+# output for the workflow's diagnosability step. R10 result lines stay
+# byte-identical on jobs=1 (the notice goes to stderr).
+#
+# CDT-620 T6: a reused worker gets a FRESH HOME/TMPDIR per dispatch (numbered)
+# instead of an in-place `rm -rf` of the previous one. A suite's orphaned
+# grandchild (the CDT-554 class) can keep writing into the worker TMPDIR after
+# its slot ends -- tools/run-all-tests-test.sh runs the runner nested, so its
+# nested WORKDIR lives there and the wipe deleted it mid-run (v2.1.9 CI).
+# Superseded dirs live under WORKDIR, so cleanup() still removes everything.
 set -uo pipefail
 
 PROG="tools/run-all-tests.sh"
@@ -277,7 +287,8 @@ esac
 WORKDIR=$(mktemp -d "${TMPDIR:-/tmp}/run-all-tests.XXXXXX")
 SCRATCH=""
 SEED_SHA=""
-KEEP_DIR=""   # CDT-545: persistent dir holding failed pool suites' full output
+KEEP_DIR=""   # CDT-545: persistent dir holding failed suites' full output
+DISPATCH_SEQ=0  # CDT-620 T6: dispatch counter, keys each suite's HOME/TMPDIR
 
 # CDT-554: a suite's orphaned child (watchdog sleep, backgrounded fixture)
 # can hold cwd inside the scratch and keep files appearing in it, so a plain
@@ -637,16 +648,17 @@ emit_result() { # emit_result <outfile> -- one R10 line for R_STATUS/R_SUITE,
   esac
 }
 
-keep_failed_output() { # keep_failed_output <k> -- CDT-545: a red pool
-                       # suite's out.<k> dies with WORKDIR in cleanup() and
+keep_failed_output() { # keep_failed_output <src-file> -- CDT-545: a red
+                       # suite's output dies with WORKDIR in cleanup() and
                        # only the 20-line tail was printed, so a flake
                        # leaves nothing to hunt with. Move the full output
                        # into a persistent keep-dir under TMPDIR (outside
                        # the scratch, so cleanup() never touches it). The
                        # dir is created lazily on the first red suite: a
                        # green run leaves no keep-dir behind. Pool path
-                       # only -- jobs=1 must stay byte-identical (R10/AC2).
-  local k="$1" dest
+                       # (out.<k>) and serial path ($OUTFILE) alike
+                       # (CDT-620 T1).
+  local src="$1" dest
   if [ -z "$KEEP_DIR" ]; then
     KEEP_DIR="${TMPDIR:-/tmp}/run-all-tests-failed.$(date +%Y%m%d-%H%M%S).$$"
     if ! mkdir -p "$KEEP_DIR"; then
@@ -656,7 +668,7 @@ keep_failed_output() { # keep_failed_output <k> -- CDT-545: a red pool
     fi
   fi
   dest="$KEEP_DIR/${R_SUITE//\//__}.out"
-  if mv "$WORKDIR/out.$k" "$dest"; then
+  if mv "$src" "$dest"; then
     echo "$PROG: info: kept full output for $R_SUITE: $dest" >&2
   else
     echo "$PROG: warn: could not keep $R_SUITE's full output in $KEEP_DIR" >&2
@@ -697,12 +709,17 @@ if [ "$JOBS" -gt 1 ]; then
     printf '%s\n' "$worker" > "$WORKDIR/worker.for.$k"
 
     # Fresh per-suite HOME/TMPDIR under WORKDIR, outside the clone (R39):
-    # wiped per dispatch so suites sharing a worker cannot see each
-    # other's temp state. Not inside the worker worktree or its .git, so
-    # R9 snapshots stay clean without a seed exclude.
-    home="$WORKDIR/w.$worker.home"
-    tmp="$WORKDIR/w.$worker.tmp"
-    if ! rm -rf "$home" "$tmp" || ! mkdir -p "$home" "$tmp"; then
+    # unique per dispatch (CDT-620 T6) so a suite sharing a worker cannot see
+    # another's temp state, and never deleted inside the run. The old in-place
+    # `rm -rf` raced a suite's orphaned grandchild (CDT-554 class): the v2.1.9
+    # CI flake was tools/run-all-tests-test.sh's nested runner losing its
+    # WORKDIR (it lives in $TMPDIR) to this wipe. Superseded dirs stay under
+    # WORKDIR, so cleanup() removes them at exit. Not inside the worker
+    # worktree or its .git, so R9 snapshots stay clean without a seed exclude.
+    DISPATCH_SEQ=$((DISPATCH_SEQ + 1))
+    home="$WORKDIR/w.$worker.$DISPATCH_SEQ.home"
+    tmp="$WORKDIR/w.$worker.$DISPATCH_SEQ.tmp"
+    if ! mkdir -p "$home" "$tmp"; then
       : > "$WORKDIR/dispatch-failed.$k"
       : > "$WORKDIR/inflight.$k"
       return 0
@@ -819,7 +836,7 @@ if [ "$JOBS" -gt 1 ]; then
       case "$R_STATUS" in
         # CDT-545: preserve the full output of red suites (the tail above is
         # truncated); out.<k> would otherwise be deleted with the WORKDIR.
-        FAIL|TIMEOUT|QUARANTINED) keep_failed_output "$next_emit" ;;
+        FAIL|TIMEOUT|QUARANTINED) keep_failed_output "$WORKDIR/out.$next_emit" ;;
       esac
       rm -f "$WORKDIR/saved.suite.$next_emit" "$WORKDIR/saved.rc.$next_emit" \
         "$WORKDIR/saved.timed.$next_emit" "$WORKDIR/saved.dirty.$next_emit" \
@@ -934,6 +951,12 @@ else
     R_DISPATCH_FAILED=false
     finalize_result
     emit_result "$OUTFILE"
+    # CDT-620 T1: same CDT-545 keep as the pool path. The macos lane runs
+    # serially, so without this a red lane run keeps no full suite output for
+    # the workflow's diagnosability step. stdout stays R10 byte-identical.
+    case "$R_STATUS" in
+      FAIL|TIMEOUT|QUARANTINED) keep_failed_output "$OUTFILE" ;;
+    esac
   done < "$RUNLIST"
 fi
 

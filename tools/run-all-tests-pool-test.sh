@@ -438,6 +438,127 @@ if ls -d "$TMP"/run-all-tests-failed.* >/dev/null 2>&1; then
   fail "caseP13 green run created a keep-dir: $(ls -d "$TMP"/run-all-tests-failed.*)"
 else pass; fi
 
+# Case P14 (CDT-620 T1, AC A): the SERIAL path keeps a red suite's FULL output.
+# CDT-545's keep-dir was pool-only, so the macos lane (--portable --platform
+# macos, serial) printed only the 20-line tail and its diagnosability step
+# found nothing. Same contract as caseP12: exactly one keep-dir under $TMP, the
+# first failing line inside it (below the tail window), nothing for the passing
+# suite, the kept path named on stderr, and no R10 stdout leak.
+P14=$(new_root)
+cat > "$P14/z-red-test.sh" <<'EOF'
+#!/usr/bin/env bash
+echo 'ASSERT_FAIL: expected 42 got 99'
+i=1
+while [ "$i" -le 29 ]; do
+  echo "filler line $i"
+  i=$((i + 1))
+done
+exit 1
+EOF
+ok_suite > "$P14/a-ok-test.sh"
+git -C "$P14" add -A
+rm -rf "$TMP"/run-all-tests-failed.*
+
+run_runner_split --root "$P14" --jobs 1
+expect_exit 1 "caseP14 serial red run fails"
+expect_out "FAIL z-red-test.sh (exit 1)" "caseP14 serial red suite reported"
+expect_out "PASS a-ok-test.sh" "caseP14 serial passing suite reported"
+P14_KEEP=$(ls -d "$TMP"/run-all-tests-failed.* 2>/dev/null | head -1)
+if [ -n "$P14_KEEP" ] && [ "$(ls -d "$TMP"/run-all-tests-failed.* 2>/dev/null | wc -l)" -eq 1 ]; then pass; else
+  fail "caseP14 exactly one keep-dir expected on the serial path: [$P14_KEEP]"
+fi
+if [ -f "$P14_KEEP/z-red-test.sh.out" ]; then pass; else
+  fail "caseP14 kept output missing for the serial red suite: $P14_KEEP"
+fi
+if grep -qF 'ASSERT_FAIL: expected 42 got 99' "$P14_KEEP/z-red-test.sh.out" 2>/dev/null; then pass; else
+  fail "caseP14 kept output lacks the first-line failing assertion (not the full output)"
+fi
+if [ ! -e "$P14_KEEP/a-ok-test.sh.out" ] && [ "$(ls "$P14_KEEP" 2>/dev/null | wc -l)" -eq 1 ]; then pass; else
+  fail "caseP14 keep-dir holds an entry for a passing suite: $(ls "$P14_KEEP" 2>/dev/null)"
+fi
+if echo "$ERR" | grep -qF "kept full output for z-red-test.sh: $P14_KEEP/z-red-test.sh.out"; then pass; else
+  fail "caseP14 runner did not name the kept path on stderr: $ERR"
+fi
+if echo "$OUT" | grep -qF 'kept full output'; then
+  fail "caseP14 kept-output notice leaked onto stdout (breaks R10 byte-identity)"
+else pass; fi
+rm -rf "$TMP"/run-all-tests-failed.*
+
+# Case P15 (CDT-620 T1, AC A): a green serial run creates no keep-dir, a
+# QUARANTINED serial suite is kept like a FAIL, and a SKIPped suite is not.
+P15=$(new_root)
+ok_suite > "$P15/a-green-one-test.sh"
+ok_suite > "$P15/b-green-two-test.sh"
+git -C "$P15" add -A
+run_runner --root "$P15" --jobs 1
+expect_exit 0 "caseP15 green serial run passes"
+if ls -d "$TMP"/run-all-tests-failed.* >/dev/null 2>&1; then
+  fail "caseP15 green serial run created a keep-dir: $(ls -d "$TMP"/run-all-tests-failed.*)"
+else pass; fi
+
+P15B=$(new_root)
+fail_suite > "$P15B/a-red-test.sh"
+skip_suite > "$P15B/b-skip-test.sh"
+mkdir -p "$P15B/tools"
+printf 'a-red-test.sh all red on the serial path\n' > "$P15B/tools/test-quarantine.txt"
+git -C "$P15B" add -A
+rm -rf "$TMP"/run-all-tests-failed.*
+run_runner --root "$P15B" --jobs 1
+expect_exit 0 "caseP15 quarantined serial red run exits 0"
+expect_out "QUARANTINED a-red-test.sh" "caseP15 quarantined suite reported"
+P15_KEEP=$(ls -d "$TMP"/run-all-tests-failed.* 2>/dev/null | head -1)
+if [ -f "$P15_KEEP/a-red-test.sh.out" ]; then pass; else
+  fail "caseP15 QUARANTINED suite's output was not kept: $P15_KEEP"
+fi
+if ls "$TMP"/run-all-tests-failed.*/b-skip-test.sh.out >/dev/null 2>&1; then
+  fail "caseP15 keep-dir holds an entry for a SKIPped suite"
+else pass; fi
+rm -rf "$TMP"/run-all-tests-failed.*
+
+# Case P16 (CDT-620 T6, AC E): a reused worker's tmp wipe must not destroy a
+# scratch a previous suite's grandchild is still writing. The v2.1.9 CI flake:
+# tools/run-all-tests-test.sh runs the runner nested, so the nested runner's
+# WORKDIR sat in $TMPDIR (w.8.tmp); the outer dispatch_suite's `rm -rf` of the
+# reused worker's tmp deleted it mid-run and the nested run lost quarantine.tsv
+# / suite.out. a-bg plants a writer that lands 3s after its suite exits;
+# c-check runs on the SAME worker (jobs=2, three suites) and must find the
+# written file. RED against the in-place wipe, green against a per-dispatch
+# HOME/TMPDIR that is never deleted inside the run.
+P16=$(new_root)
+EVID16="$TMP/p16-nested-dir.txt"
+: > "$EVID16"
+cat > "$P16/a-bg-test.sh" <<EOF
+#!/usr/bin/env bash
+nested="\${TMPDIR:-/tmp}/p16-nested.\$\$"
+mkdir -p "\$nested" || exit 1
+printf '%s\n' "\$nested" >> "$EVID16"
+( sleep 3; printf 'late\n' > "\$nested/late.out" ) &
+exit 0
+EOF
+ok_suite > "$P16/b-ok-test.sh"
+cat > "$P16/c-check-test.sh" <<EOF
+#!/usr/bin/env bash
+nested=\$(head -n 1 "$EVID16")
+[ -n "\$nested" ] || { echo 'P16_NO_EVIDENCE'; exit 1; }
+i=0
+while [ "\$i" -lt 30 ]; do
+  [ -f "\$nested/late.out" ] && break
+  sleep 0.2
+  i=\$((i + 1))
+done
+if [ ! -f "\$nested/late.out" ]; then
+  echo 'P16_NESTED_SCRATCH_WIPED'
+  exit 1
+fi
+grep -q late "\$nested/late.out"
+EOF
+git -C "$P16" add -A
+
+run_runner --root "$P16" --jobs 2
+expect_exit 0 "caseP16 reused-worker scratch survives the next dispatch"
+expect_out "PASS a-bg-test.sh" "caseP16 background-writer suite passes"
+expect_out "PASS c-check-test.sh" "caseP16 nested scratch intact on the reused worker"
+
 # Case P7 (CDT-534 AC12): red-then-green receipt. The rm/mv/leak/restore
 # trees are re-run against the round-1 runner (9a61f6b -- has --jobs, but
 # neither the rm/mv overlay nor the full R39 restore) and must FAIL there

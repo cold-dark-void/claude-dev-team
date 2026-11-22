@@ -162,8 +162,18 @@ fi
 [ -n "${NUMSTAT//[[:space:]]/}" ] || fail_closed "empty or unresolvable diff (no numstat rows)"
 
 # ---- Repo root --------------------------------------------------------------
-TOPLEVEL="$(git rev-parse --show-toplevel 2>/dev/null)" \
-  || fail_closed "git failure: not inside a work tree"
+# CDT-620 T3: bash 3.2 (the macos lane's only bash) runs the inherited ERR trap
+# INSIDE a $(…) that `||` tests, so the trap answered with the "grader internal
+# error" reason before this line could name the git failure (SPEC-013
+# fail-closed reason mismatch). Disarm the trap around the read, take the
+# status, restore the trap string byte-identically, then decide with the
+# original reason. The fail-closed contract and the W3-16 JSON property are
+# unchanged — this removes a trap-timing race, not a check.
+_tg_err_trap="$(trap -p ERR || true)"
+trap - ERR
+TOPLEVEL="$(git rev-parse --show-toplevel 2>/dev/null)" && _tg_rc=0 || _tg_rc=$?
+eval "${_tg_err_trap:-:}"
+[ "${_tg_rc:-1}" -eq 0 ] || fail_closed "git failure: not inside a work tree"
 cd "$TOPLEVEL" || fail_closed "git failure: cannot enter work tree $TOPLEVEL"
 
 # ---- Parse `git diff --raw` -------------------------------------------------
@@ -462,7 +472,7 @@ done
 # exceed it and the cap branch cannot fire today — it is kept as the fail-closed guard
 # SPEC-013 mandates for the band retune it anticipates, NOT dead code.
 probe_fanin() {
-  local cap="$1" p matches rc n m
+  local cap="$1" p matches rc n m _tg_err_trap _tg_rc
   FANIN_PROBED=true
   if [ "$FILES" -gt "$cap" ]; then
     add_signal 3 high-fan-in '*' "fan-in probe cap exceeded ($FILES > $cap) — fail-closed"
@@ -472,7 +482,14 @@ probe_fanin() {
     rc=0
     # Full relative path, not the basename. "index.js" / "SKILL.md" as a
     # substring over-fires (W3-16).
-    matches="$(git grep -l -F -- "$p" 2>/dev/null)" || rc=$?
+    # CDT-620 T3: same ERR-trap disarm as the Repo-root read — bash 3.2 runs
+    # the trap inside this $(…) and emits the wrong fail-closed reason before
+    # the rc check below can name the git grep failure.
+    _tg_err_trap="$(trap -p ERR || true)"
+    trap - ERR
+    matches="$(git grep -l -F -- "$p" 2>/dev/null)" && _tg_rc=0 || _tg_rc=$?
+    eval "${_tg_err_trap:-:}"
+    rc="$_tg_rc"
     [ "$rc" -le 1 ] || fail_closed "git failure: git grep exited $rc while probing fan-in for $p"
     n=0
     while IFS= read -r m; do

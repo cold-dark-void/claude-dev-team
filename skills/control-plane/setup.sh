@@ -389,7 +389,12 @@ cp_probe_lease_line() {
 cp_epoch_from_ts() {
   # cp_epoch_from_ts <rfc3339> -> epoch seconds on stdout. GNU date first, then
   # the BSD/macOS form (host portability). rc 1 = this shape cannot be dated.
-  local ts="$1" base
+  # CDT-620 T4: BSD `-j -f FMT INPUT` matches INPUT against FMT literally, so the
+  # format must carry the trailing Z only when the input keeps it. The old form
+  # stripped the Z from the input and kept it in the format, so every journal
+  # timestamp read as undatable on macOS — and an undatable lease is an expired
+  # lease (cp_probe_lease_expired), which started a second probe.
+  local ts="$1" base fmt
   case "$1" in
     '' | *[!0-9T:.Z+-]*) return 1 ;;
   esac
@@ -397,15 +402,25 @@ cp_epoch_from_ts() {
     return 0
   fi
   base="$ts"
+  fmt='%Y-%m-%dT%H:%M:%SZ'
   case "$base" in
-    *.*) base=${base%%.*} ;;
-  esac
-  case "$base" in
-    *Z) base=${base%Z} ;;
-    *[+-][0-9][0-9]:[0-9][0-9]) base=${base%%[+-][0-9][0-9]:[0-9][0-9]} ;;
+    *Z)
+      base="${base%Z}"
+      case "$base" in
+        *.*) base="${base%%.*}" ;;
+      esac
+      base="$base"Z
+      ;;
+    *[+-][0-9][0-9]:[0-9][0-9])
+      base=${base%%[+-][0-9][0-9]:[0-9][0-9]}
+      case "$base" in
+        *.*) base=${base%%.*} ;;
+      esac
+      fmt='%Y-%m-%dT%H:%M:%S'
+      ;;
     *) return 1 ;;
   esac
-  if date -u -j -f '%Y-%m-%dT%H:%M:%SZ' "$base" +%s 2>/dev/null; then
+  if date -u -j -f "$fmt" "$base" +%s 2>/dev/null; then
     return 0
   fi
   return 1

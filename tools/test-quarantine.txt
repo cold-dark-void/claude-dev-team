@@ -3,4 +3,3 @@
 # is all (quarantines on every lane) or macos (quarantines only on the
 # --platform macos lane and is validated-then-ignored on the default lane).
 # An environment cause exits 77 (SPEC-030 R18-R19); it never gets an entry.
-skills/council/test-tier-grade.sh macos CDT-510: tier-grade fail-closed detection not honored on Apple git (3 fixture designs probed); see CDT-510

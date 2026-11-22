@@ -60,6 +60,15 @@ expect_not_out() { # expect_not_out <substring> <label>
   else pass; fi
 }
 
+strip_keep_notice() { # strip_keep_notice <text> -- drop the runner's
+                       # kept-full-output notice lines (CDT-545 pool path,
+                       # CDT-620 T1 serial path). Each names a unique
+                       # keep-dir path, so an R10 byte-identity compare of a
+                       # red run must filter them from BOTH sides. Prints the
+                       # rest verbatim.
+  printf '%s\n' "$1" | grep -vF 'kept full output'
+}
+
 expect_no_process() { # expect_no_process <marker> <label> -- retries pgrep
                        # for up to ~2s to absorb the sub-millisecond
                        # scheduling race between the direct child (bash,
