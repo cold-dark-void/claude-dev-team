@@ -42,7 +42,7 @@ than guessing (SPEC-033 M6/M7). It never proceeds past a hard block on its own.
   and the auto tier (M2 / CDT-195 / SPEC-041 M1).** `--autopilot=<token>` MAY carry any of:
   1. a `/release` bump token (`patch` | `minor` | `major`) — **release** ship intent; or
   2. the non-release ship-intent sentinel `master` — **land-no-release** (squash-land onto
-     the worktree baseline with **no** `/release`); or
+     a new `land/<ticket>` branch with **no** `/release`); or
   3. the auto tier token `auto` — the ship gate decides this item's concrete bump at the
      gate (`skills/autopilot/classify.md`, SPEC-041 M5). Flag-only like `master`; env
      NEVER carries it. Cards record the decided concrete bump — `auto` never appears in
@@ -51,8 +51,10 @@ than guessing (SPEC-033 M6/M7). It never proceeds past a hard block on its own.
   MUST NOT redefine those bump semantics. For (2), `master` is a **flag-only ship-intent
   sentinel**, not a `/release` version: the decision-card records `bump:"master"`; the CLI
   spelling remains `=master`; and autopilot MUST NOT pass `master` to `/release`. Land git
-  target under `master` is the worktree **baseline** (typically `origin/HEAD`), **not** a
-  hard-coded ref literally named `master`. Env (`AUTOPILOT=1`) enables autopilot only and
+  target under `master` is a new `land/<ticket>` branch cut at the worktree **baseline**,
+  pushed non-force and registered in the release-train queue (SPEC-023) — the default branch
+  never moves on this path, because its tip must equal a release tag at every pushed state
+  (SPEC-033 M2 / CDT-597). The target is never a hard-coded ref literally named `master`. Env (`AUTOPILOT=1`) enables autopilot only and
   MUST NEVER carry a bump or sentinel — tokens are **flag-only**. Absent a token, autopilot
   MUST NOT auto-release and MUST NOT auto land-no-release; the default ship action is
   bounded by the `ship-choice` checklist below (SPEC-033 M2 — cite, do not fork).
@@ -117,7 +119,7 @@ land-no-release is an **end-state branch on token class**, not a different ship-
 | Terminal | Trigger | End path |
 |---|---|---|
 | **pr** | `autopilot_bump = null` → `decision=pr` | Create PR; stop (no land) |
-| **land-no-release** | `decision=merge` + `bump=master` | N3a → squash → interactive-shape `git commit` on baseline → non-force `git push` baseline → **no** `/release` (no version/tag/CHANGELOG) → ship-history → Done |
+| **land-no-release** | `decision=merge` + `bump=master` | N3a → squash → interactive-shape `git commit` on a new `land/<ticket>` branch → non-force `git push` that branch → `train-lib.sh register` (queue-only) → **no** `/release` (no version/tag/CHANGELOG), default branch unmoved → ship-history → Done |
 | **release** | `decision=merge` + `bump ∈ {patch, minor, major}` | N3a → squash-stage → `/release <bump>` → ship-history → Done |
 
 Self-answer / ship-choice records only `pr` or `merge` (+ card `bump`); dual land path

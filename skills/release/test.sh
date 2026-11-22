@@ -317,6 +317,7 @@ make_hook_repo() {
   git -C "$d" config user.name "Test"
   mkdir -p "$d/githooks"
   printf '#!/usr/bin/env bash\nexit 0\n' >"$d/githooks/pre-commit"
+  printf '#!/usr/bin/env bash\nexit 0\n' >"$d/githooks/pre-push"
   printf '%s\n' "$d"
 }
 

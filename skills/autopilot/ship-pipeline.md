@@ -99,8 +99,10 @@ the sole commit+tag+push; never pass `master`). Under `auto`,
 `AUTOPILOT_BUMP` is Stage 0's **decided** token: it reaches
 `/release <decided bump>` explicitly and is never re-classified at fold (M5);
 `auto` and `major` never appear there. `AUTOPILOT_BUMP = master` →
-**§5-land-no-release** (interactive-shape commit + non-force push; **MUST
-NOT** touch `/release`, version files, tag, or CHANGELOG) → §5.5 ship-history
+**§5-land-no-release** (interactive-shape commit + non-force push of a new
+`land/<ticket>` branch, then `train-lib.sh register` — queue-only; **MUST
+NOT** touch `/release`, version files, tag, or CHANGELOG; the default branch
+never moves, CDT-597) → §5.5 ship-history
 clean check (SPEC-010 H) → §6 closeout. On an effective `pr`, take Step 11
 Option 1 (Create PR) and stop — no land, no `/release`.
 

@@ -166,8 +166,8 @@ Resolve autopilot **once** at run start, before any gate. `--autopilot[=<token>]
 on the invocation or `AUTOPILOT=1` in the environment enables it; the flag wins
 over the env and is the **only** channel that carries a ship-intent token
 (SPEC-033 M2 / C4 FINAL #3). Tokens: `{patch,minor,major}` (release) or `master`
-(**land-no-release** token spelling — land target is worktree baseline / origin
-default, not necessarily a branch named `master`). A malformed
+(**land-no-release** token spelling — land target is a registered `land/<ticket>`
+branch, never the default branch, CDT-597). A malformed
 `--autopilot=<token>` (token ∉ {patch,minor,major,master}, incl. empty
 `--autopilot=`) is a hard error (exit 64) — never a silent fall-through to off
 (R7). `/epic` never ships a child itself (M11 — no `/release` mid-child), so the

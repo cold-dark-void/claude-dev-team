@@ -1,0 +1,35 @@
+#!/usr/bin/env bash
+# Default-branch only: refuse a push whose new tip carries no release tag
+# (SPEC-033 CDT-597 — the master tip must equal a release tag). Every other
+# ref, every deletion, and any clone that cannot run the check pushes through.
+# Installed via `git config core.hooksPath githooks` (skills/release/install-git-hooks.sh).
+# This hook is a git subprocess hook — never source it.
+set -uo pipefail
+
+ZERO="0000000000000000000000000000000000000000"
+
+ROOT=$(git rev-parse --show-toplevel 2>/dev/null) || exit 0
+CHECK="$ROOT/skills/release/check-master-tagged.sh"
+if [ ! -f "$CHECK" ]; then
+  echo "pre-push: skills/release/check-master-tagged.sh missing — master-tag check skipped" >&2
+  exit 0
+fi
+if ! git --list-cmds=main 2>/dev/null | grep -qx describe; then
+  echo "pre-push: this git has no 'describe' command — master-tag check skipped" >&2
+  exit 0
+fi
+DEFAULT_REF=$(git symbolic-ref -q refs/remotes/origin/HEAD 2>/dev/null) || DEFAULT_REF=""
+if [ -z "$DEFAULT_REF" ]; then
+  echo "pre-push: refs/remotes/origin/HEAD is unresolvable — master-tag check skipped" >&2
+  exit 0
+fi
+DEFAULT_BRANCH=${DEFAULT_REF#refs/remotes/origin/}
+
+status=0
+while read -r local_ref local_sha remote_ref remote_sha || [ -n "${local_ref:-}" ]; do
+  [ "$remote_ref" = "refs/heads/$DEFAULT_BRANCH" ] || continue
+  # All-zeros local sha is a branch deletion — no new tip to check.
+  [ "$local_sha" = "$ZERO" ] && continue
+  bash "$CHECK" "$local_sha" </dev/null || status=1
+done
+exit "$status"

@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
-# Point this clone at committed githooks/ (bump-class pre-commit on master).
-# Safe to re-run. Subprocess only — never source.
+# Point this clone at committed githooks/ (bump-class pre-commit on master,
+# master-tag pre-push on the default branch). Safe to re-run.
+# Subprocess only — never source.
 set -euo pipefail
 
 if ! git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
@@ -9,12 +10,17 @@ if ! git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
 fi
 
 ROOT=$(git rev-parse --show-toplevel)
-HOOK="$ROOT/githooks/pre-commit"
-if [ ! -f "$HOOK" ]; then
-  echo "install-git-hooks: $HOOK missing" >&2
-  exit 1
-fi
-chmod +x "$HOOK"
+missing=0
+for name in pre-commit pre-push; do
+  HOOK="$ROOT/githooks/$name"
+  if [ ! -f "$HOOK" ]; then
+    echo "install-git-hooks: $HOOK missing" >&2
+    missing=1
+    continue
+  fi
+  chmod +x "$HOOK"
+done
+[ "$missing" -eq 0 ] || exit 1
 
 cur=$(git -C "$ROOT" config --get core.hooksPath || true)
 if [ -n "$cur" ] && [ "$cur" != "githooks" ]; then

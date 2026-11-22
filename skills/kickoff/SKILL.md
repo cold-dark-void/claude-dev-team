@@ -26,8 +26,8 @@ user-visible turn; a failed drain is logged, never aborts. Canonical protocol:
 - `[--autopilot[=<token>]]` — optional, any position: enable autopilot for this run
   (CDT-111-C4 / SPEC-033). Bare `--autopilot` or `AUTOPILOT=1` env = enabled, bump `null`;
   `--autopilot=<patch|minor|major>` = release ship intent; `--autopilot=master` =
-  **land-no-release** (token spelling only — land target is worktree baseline / origin
-  default, not necessarily a branch named `master`). Flag wins over env. See
+  **land-no-release** (token spelling only — land target is a registered
+  `land/<ticket>` branch, never the default branch, CDT-597). Flag wins over env. See
   `skills/autopilot/parse-flags.sh` + Step 0 "Autopilot detection".
 - `[--tier=<light|standard|full>]` — optional. Recorded as `KICKOFF_TIER`. Kickoff
   still runs the full planning steps (it does not apply `/orchestrate`'s light

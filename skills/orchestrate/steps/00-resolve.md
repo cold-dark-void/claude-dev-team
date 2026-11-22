@@ -8,9 +8,10 @@
   (CDT-111-C4 / SPEC-033 / CDT-195). Bare `--autopilot` or `AUTOPILOT=1` env =
   enabled, bump `null` (PR-stop default at ship-choice);
   `--autopilot=<patch|minor|major>` = release ship intent (merge → end-state
-  §5-release); `--autopilot=master` = **land-no-release** (merge → end-state §5b;
-  token spelling only — land target is worktree baseline / origin default, not
-  necessarily a branch named `master`; **MUST NOT** pass `master` to `/release`).
+  §5-release); `--autopilot=master` = **land-no-release** (merge → end-state §5-land-no-release;
+  token spelling only — land target is a new `land/<ticket>` branch cut at the worktree
+  baseline, pushed non-force and registered in the release-train queue (SPEC-023 / CDT-597),
+  and the default branch never moves; **MUST NOT** pass `master` to `/release`).
   Flag wins over env. See `skills/autopilot/parse-flags.sh` + Step 0 "Autopilot
   detection".
 - `[--council-tier=<skip|light|full>]` — optional, any position: DRI-supplied
@@ -71,8 +72,9 @@
   CDT-195): after a human overrides a BC7 ship-choice halt, run the **single
   confirmed ship sequence** (end-state land path + wrap) without re-running the
   full orchestration. Bare re-reads plan/card mode; explicit `=master|patch|minor|major`
-  overrides. `=master` resumes land-no-release (token spelling; land target is
-  worktree baseline). See Step 11 § Resume ship after BC7 override.
+  overrides. `=master` resumes land-no-release (token spelling; land target is a
+  registered `land/<ticket>` branch, never the default branch — CDT-597). See
+  Step 11 § Resume ship after BC7 override.
 
 ## Step 0: Resolve roots and load context
 

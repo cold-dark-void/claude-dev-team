@@ -86,15 +86,25 @@ target.
 - **M2 — Ship-intent tokens: borrowed release bumps + one land-no-release sentinel (CDT-195).**
   `--autopilot=<token>` MAY carry either:
   1. a `/release` bump token (`patch` | `minor` | `major`) — **release ship intent**; or
-  2. the non-release ship-intent sentinel `master` — **land-no-release** (squash-land onto the
-     worktree baseline with **no** `/release`).
+  2. the non-release ship-intent sentinel `master` — **land-no-release** (squash-land onto a
+     new `land/<ticket>` branch with **no** `/release`).
 
   For (1), autopilot MUST treat the token as a reference to the `/release` vocabulary and MUST
   NOT redefine those bump semantics. For (2), `master` is a **flag-only ship-intent sentinel**,
   not a `/release` version: the decision-card records `bump:"master"`; the CLI spelling remains
   `=master`; and autopilot MUST NOT pass `master` to `/release`. Land git target under `master`
-  is the worktree **baseline** (typically the branch named by `origin/HEAD`), **not** a
+  is a new `land/<ticket>` branch cut at the worktree **baseline** (CDT-597): the branch is
+  pushed non-force and registered in the release-train queue (`train-lib.sh register
+  land/<ticket> --bump patch`, SPEC-023), and registration is queue-only — the path runs no
+  `/release` and advances no queue entry. The target is **never** the default branch and never a
   hard-coded ref literally named `master`.
+
+  **Master-tag invariant (CDT-597).** The tip of the default branch MUST equal a release tag at
+  every pushed state, so an untagged fold commit never lands on it. `githooks/pre-push`
+  (installed by `skills/release/install-git-hooks.sh`, SPEC-010) enforces it mechanically on a
+  clone with `core.hooksPath githooks`, via `skills/release/check-master-tagged.sh`; the
+  remediation it prints is `/release-train register <branch>`. The `/release` fold commit is
+  itself the tagged tip, so the release path needs no exception.
 
   Env (`AUTOPILOT=1`) enables autopilot only and MUST NEVER carry a bump or sentinel (including
   `master`) — ship-intent tokens are **flag-only**. Absent a token, autopilot MUST NOT
@@ -155,7 +165,8 @@ target.
     is an **end-state branch on token class**, not a different ship-choice `decision`:
     - `bump ∈ {patch, minor, major}` → **release** end-state (N3a → squash-stage → `/release`);
     - `bump = master` → **land-no-release** end-state (N3a → squash → interactive-shape `git commit`
-      on the baseline → non-force `git push` of the baseline → **no** `/release` → ship-history → Done).
+      on a new `land/<ticket>` branch → non-force `git push` of that branch → `train-lib.sh register`
+      (queue-only) → **no** `/release` → ship-history → Done; the default branch never moves, CDT-597).
     The `merge` decision-card value corresponds to `/orchestrate`'s separate **"If squash merge
     requested"** branch (Step 11's later squash path), **not** a numbered option in the Step-11
     menu (which offers only Create PR / Show diff / Review manually).
@@ -165,7 +176,7 @@ target.
     2. Is the ship action more irreversible than a PR (direct merge to a protected branch,
        force-push)? → BC3. **BC3 is evaluated unconditionally, even when `--autopilot=<token>` was
        supplied** — the token only satisfies "explicit ship intent" for `decision=merge`; it
-       never exempts BC3 (force-push still BC3; intentional baseline land under `=master` is
+       never exempts BC3 (force-push still BC3; intentional land-branch push under `=master` is
        authorized only when the N3a mechanical check passes — same safety as release land).
     3. Budget (BC6) and confidence (BC7). BC6 carries its M6 ship-choice carve-out here
        (CDT-610): a breached budget downgrades to a non-blocking warning — card #1 keeps the
@@ -1361,8 +1372,9 @@ It MUST NOT add a budget-cap flag. `parse-flags.sh` stays six-key.
   non-null ship-intent token (`patch` | `minor` | `major` | `master`). The token only satisfies
   "explicit ship intent" for `decision=merge`; it **never** exempts BC3, which is evaluated
   **unconditionally** even when a token is supplied. Force-push still halts under BC3 regardless of
-  the token (BC3 never waived for force-push). Intentional baseline land under `=master` is not a
-  raw self-selected protected-branch merge — it is authorized only via N3a when the mechanical
+  the token (BC3 never waived for force-push). Intentional `land/<ticket>` land under `=master`
+  is not a raw self-selected protected-branch merge — it touches no protected ref at all, and it
+  is authorized only via N3a when the mechanical
   check passes (same safety as release land).
 - **N3a — Deterministic BC3 push-target check for autopilot land actions (CDT-111-C9; CDT-195).**
   N3's "protected-branch merge / force-push still halts under BC3, evaluated unconditionally"
@@ -1396,22 +1408,29 @@ It MUST NOT add a budget-cap flag. `parse-flags.sh` stays six-key.
     (commit + tag + push) to `/release`, the repo's single ship-of-record with its own pre-commit
     gates. Sequence: N3a clear → squash-stage (no commit) → `/release <bump>` → ship-history →
     Done.
-  - **Land-no-release** (`bump = master`, CDT-195): (iv-L) performs the interactive-shape
-    `git commit` on the **worktree baseline** (typically `origin/HEAD`'s default branch — **not**
-    a hard-coded ref named `master`), then a **non-force** `git push` of that baseline (BC3
-    already cleared force), then ship-history, then Done. **MUST NOT** invoke `/release`, touch
-    version files, tag, or CHANGELOG. Sequence: N3a clear → squash → `git commit` (interactive
-    shape) → non-force `git push` baseline → **no** `/release` → ship-history → Done. This is
+  - **Land-no-release** (`bump = master`, CDT-195; CDT-597): (iv-L) performs the interactive-shape
+    `git commit` on a **new `land/<ticket>` branch** cut at the **worktree baseline** (the squash-
+    staged index carries onto it), then a **non-force** `git push` of that branch (BC3
+    already cleared force), then `train-lib.sh register land/<ticket> --bump patch` — queue-only,
+    printing the registered order — then ship-history, then Done. **MUST NOT** invoke `/release`,
+    touch version files, tag, or CHANGELOG, and **MUST NOT** push the default branch: its tip must
+    equal a release tag at every pushed state (M2 master-tag invariant). Sequence: N3a clear →
+    squash → `git checkout -b land/<ticket>` → `git commit` (interactive
+    shape) → non-force `git push` land branch → register → **no** `/release` → ship-history → Done. This is
     the **third ship terminal** alongside PR-stop (`decision=pr`) and release-merge
     (`decision=merge` + release token).
 
   For either land action BC3 is **still evaluated unconditionally** (N3 unchanged), but its
   evaluation is **mechanical, not judgment**: before the ref-mutating step, autopilot MUST resolve
   the land/push target deterministically via `git symbolic-ref refs/remotes/origin/HEAD` (or
-  equivalent) and confirm it equals the **baseline** the action will land on (for release: the
-  branch `/release` will push; for land-no-release: the worktree baseline). BC3 **halts** iff that
-  check fails — `origin/HEAD` is unresolvable, the resolved default does not match the land
-  target, the ship would require a force-push, or the target is a protected branch **other than**
+  equivalent) and confirm the land target (for release: the
+  branch `/release` will push, which MUST equal the resolved default; for land-no-release: the
+  `land/<ticket>` branch, never the default branch). BC3 **halts** iff that
+  check fails — `origin/HEAD` is unresolvable, the release-path land target does not match the
+  resolved default branch (under the sentinel the default branch is never the land target), the
+  ship would require a force-push (the ancestry clause measures the land branch against
+  its recorded base: its own tip when the branch exists, the baseline HEAD when it does not), or the
+  target is a protected branch **other than**
   the verified origin default. A passing mechanical check is a **deterministic BC3-clear, not a
   token-based exemption**: BC3 ran, unconditionally, and returned a negative — fully consistent
   with N3's "the token never exempts BC3." The token supplies ship *intent*, the mechanical check
@@ -1728,6 +1747,54 @@ Format and rules: M14(g) and M14(h). Each ticket that ships through M14 has one
   Verify: bash skills/autopilot/test-ship-gate-guardrails.sh
 - **E.** [process] The touched suites pass on the changed tree: `bash skills/council/test-m14-split.sh`, `bash skills/council/test-verify-prompts.sh`, `bash skills/autopilot/test-ship-gate-guardrails.sh`, and `bash skills/autopilot/test.sh` each exit 0.
 
+### CDT-597
+
+- **A.** The master-tag invariant (M2 amendment). The tip of the default branch
+  (`origin/HEAD`, typically `master`) MUST carry an exact-match release tag at every pushed
+  state: a new `githooks/pre-push` fails a default-branch push whose new tip has an empty
+  `git describe --tags --exact-match`. The one exception needs no special case — the `/release`
+  fold commit is itself the tagged tip, so the same check passes it. The failure message names
+  the release-train path (`/release-train register <branch>`; the branch folds through the next
+  `/release`) as the remediation. The hook covers clones with `core.hooksPath githooks` set;
+  `install-git-hooks.sh` installs both hooks.
+  Verify: bash skills/release/test-master-tagged.sh
+- **B.** The checker CLI. `skills/release/check-master-tagged.sh <new-tip-sha>` is a pure
+  subprocess CLI (no LLM, no network, no ref mutation): exit 0 when
+  `git describe --tags --exact-match <new-tip-sha>` resolves on the default branch, exit 1 with
+  the remediation line when it does not, exit 64 on usage or an unresolvable sha. The suite
+  proves the check bites on a synthetic untagged commit in a scratch repo (tagged base, one
+  untagged commit on the default branch) and exits 0 on the tagged tip.
+  Verify: bash skills/release/test-master-tagged.sh
+- **C.** Land-no-release reroute. The `--autopilot=master` sentinel no longer lands onto the
+  worktree baseline: the squash fold commits onto a new `land/<ticket>` branch created at the
+  baseline and the branch is pushed non-force, then registered in the release-train queue
+  (`train-lib.sh register land/<ticket>`) and the registered order is printed. Master does not
+  move on this path. The `--resume-ship=master` path lands the same way. `/orchestrate`
+  Step 11 §5-land-no-release and `end-state.md` §5-land-no-release are amended to the same
+  target.
+  Verify: bash skills/autopilot/test-end-state-safety.sh
+- **D.** BC3/N3a land-target amendment. The deterministic push-target check (end-state §3)
+  accepts the `land/<ticket>` branch as the land target when the bump is the land-no-release
+  sentinel: the ancestor clause evaluates the land branch against its recorded base, and any
+  history that would need `--force` still halts fail-closed. The default branch itself never
+  satisfies the land target on this path.
+  Verify: bash skills/autopilot/test-end-state-safety.sh
+- **E.** Registration is queue-only. The land-no-release path registers the land branch and
+  stops — it MUST NOT run `/release`, MUST NOT advance the entry beyond registration, and MUST
+  NOT bypass the train's landing loop. The branch folds through the next `/release` (SPEC-023),
+  whose fold commit is tagged, so the master tip equals a tag at every observable moment after
+  the fold.
+  Verify: bash skills/autopilot/test-end-state-safety.sh
+- **F.** Docs in sync. SPEC-033 M2 states the amended land target and the master-tag invariant;
+  `end-state.md`, `skills/orchestrate/steps/11-ship.md`, `skills/orchestrate/steps/00-resolve.md`,
+  and the AGENTS.md land-no-release line match; `githooks/pre-push` joins SPEC-010's Covers
+  list; SPEC-033 gains a dated CDT-597 Version History row; docs-drift is clean.
+  Verify: bash skills/docs-drift/test.sh
+- **G.** [process] The touched suites pass on the changed tree: `bash
+  skills/release/test-master-tagged.sh`, `bash skills/release/test.sh`,
+  `bash skills/autopilot/test-end-state-safety.sh`, and `bash skills/release/test-bump-class.sh`
+  each exit 0.
+
 ---
 
 ## Test
@@ -1743,6 +1810,7 @@ Format and rules: M14(g) and M14(h). Each ticket that ships through M14 has one
 
 | Date | Change |
 |------|--------|
+| 2026-11-22 | CDT-597: **the master-fold discipline — the default-branch tip must equal a release tag, so land-no-release lands on a registered `land/<ticket>` branch.** Recorded case: a `--autopilot=master` squash fold was committed and pushed straight onto `master`, leaving the tip untagged — no version, no tag, no CHANGELOG entry, and no record of what shipped. Now (1) **M2 master-tag invariant**: the default-branch tip MUST equal a release tag at every pushed state, enforced by `githooks/pre-push` through the new `skills/release/check-master-tagged.sh` CLI (exit 0 on an exact-match tag, 1 with the `/release-train register <branch>` remediation, 64 usage); `install-git-hooks.sh` installs both hooks, and the `/release` fold commit needs no exception because it is itself the tagged tip. (2) **M2/N3a land target**: the sentinel's land target is a new `land/<ticket>` branch cut at the worktree baseline — non-force push, then `train-lib.sh register land/<ticket> --bump patch` with the registered order printed; the default branch never satisfies the land target on this path, and the ancestry clause measures the land branch against its recorded base (its own tip on a resume, baseline HEAD when new), so force-needed history still halts fail-closed. (3) **Registration is queue-only**: the path runs no `/release`, advances no queue entry, and bypasses no part of the train's landing loop (SPEC-023); the next `/release` folds the branch and its fold commit is the tag. No new BC, no card schema change, no new gate value; BC3 stays never-waived for force-push. Docs synced: `skills/autopilot/end-state.md` (§1/§3/§5-land-no-release/§6/§6.5/§7), `skills/autopilot/SKILL.md` (M2, terminal table), `skills/autopilot/ship-pipeline.md`, `skills/orchestrate/steps/11-ship.md`, `skills/orchestrate/steps/00-resolve.md`, `AGENTS.md`, SPEC-010 Covers + H note. New `### CDT-597` AC subsection. Status stays ACTIVE. |
 | 2026-11-21 | CDT-611: **the investigator tool budget scales with claim/AC count, truncated evidence beats silence, and the plan-approve card predicts the M14 budget.** Recorded case (friction audit D8): WP 1-01, 1-02 and 1-03 each halted on the same flat 5-call investigator budget and each needed a resume; one investigator that hit the cap on call 6 self-struck its evidence, leaving a claim uncovered. Now (1) an M14 per-AC claim with a `Verify:` command gets `min(8 + 2·(K−1), 16)` investigator tool calls for K technical ACs — base 8, +2 per additional AC, ceiling 16 — applied at design time in `engine-preflight.sh` beside the `M14_AC_BUDGET` constants (M14(j) precedent: named constants + hard ceiling, no env/flag/plan/spec field, no per-WP override); non-verify claims keep 5. (2) An investigator that hits its cap with bundles in hand returns the partial bundles with `"truncated": true` instead of an empty list; the judge caps confidence on it like a missing verify bundle. (3) The `plan-approve` card's rationale carries `m14-predict: acs=<K> budget=<B>` when the AC subsection holds K ≥ 1 technical ACs — informational, so a predicted M14 budget strain batches resume decisions into one user prompt instead of one per WP BC7 halt. No ninth BC, no gate value, no card field; `M14_AC_BUDGET` and the BC7 reuse are unchanged. Docs synced: `skills/autopilot/SKILL.md` (M4 plan-approve), `skills/council/engine.sh`, `engine-preflight.sh`, `prompts/investigator.md`, `flavors/paranoid-ic.md`, `flavors/skeptic-ic.md`; g10 re-pinned; new `### CDT-611` AC subsection. Status stays ACTIVE. |
 | 2026-11-21 | CDT-610: **BC6's ship-choice carve-out — the budget cap gates new work, not the last push.** Recorded case WP 1-01: finished, reviewed and tested, then halted at the ship step at 81 min against the cap (and WP 1-15: 38,248 s against a 10,800 s cap, ~7.5 h of it user wait). Now, at the `ship-choice` gate only, a run-budget breach downgrades to a **non-blocking budget warning**: the gate's default answer is emitted unchanged (card #1 written with `blocking_condition = null`) and card #1's `rationale` MUST carry `budget-warning:` naming the breached cap (`iteration` or `wall_clock`) with both the measured value and the cap. BC6 stays a hard stop at every other gate (`scope-confirm`, `plan-approve`, `/kickoff`, `/epic` Mode A). User-wait coverage at the ship step is two-sided: an approval wait before card #1 is the M9a exclusion, a breach at the gate itself warns (this change), and BC6 is not evaluated after card #1 — so no user wait around the ship step, and no overrun on already-approved work, can cost a finished run its landing. No ninth BC, no new card field, no gate value, no `type`; the marker rides card #1's rationale like `approval-wait:` / `pass-with-note:`. `append-card.sh`, `budget-check.sh`, and the M14 gate are unchanged. Docs synced: `skills/autopilot/SKILL.md` (M6 item 6, M4 ship-choice item 3) and `skills/autopilot/self-answer.md` §d. New `### CDT-610` AC subsection; `test-bc6-approval-wait.sh` gains the static drift-guard. Status stays ACTIVE. |
 | 2026-11-21 | CDT-609: **M14(b) step 6 — an all-criteria-pass run below 80 becomes a pass-with-note.** Recorded case WP 1-04: 16 of 16 ACs `VERIFIED`/`PARTIALLY_VERIFIED`, none failed, lowest confidence 65 → BC7 halt. Now, when every technical AC passed (no unaudited AC, no `UNVERIFIED`/`CONTRADICTED`/`FABRICATED` AC) and the lowest confidence is below 80, card #2 copies `decision` and `bump` from card #1, sets `blocking_condition = null` and `confidence` = that lowest confidence (CDT-181 floor semantics), and carries a one-line `rationale` that names every AC below 80 and the marker phrase `pass-with-note`. No halt card, no user-facing decision card, and no full-council re-run offer — (f)'s escalation offer stays tied to BC7 halts. The fail-closed set is unchanged: steps 1–4, (d), a malformed sidecar or card #1, a guard-3 stamp miss, and a card #1 decision outside `pr`/`merge` still give `halt` / 7 / `confidence = 0`; BC7 still halts whenever a criterion actually fails. No ninth BC, no auto-clear, no self-answer past BC7, no auto re-run. Supersedes the wp-1-14 "agree only if every AC claim is … at 80 or higher" rule. Mapper `skills/autopilot/ship-gate-verdict.sh` changes; its blob pin (g6) and the M14(b) golden (g7) re-pin at this commit. Docs synced: `ship-gate-council.md` §4, `ship-pipeline.md`, `skills/orchestrate/steps/11-ship.md`, `end-state.md`, and the `resume-ship` notes (they name a `CONTRADICTED` / `UNVERIFIED` / unaudited AC). `ship-gate-council.md` §5 and the M14(d) golden stay byte-identical. New `### CDT-609` AC subsection. Status stays ACTIVE. |

@@ -9,7 +9,7 @@
 > | Bump | Path | Ref-mutating step |
 > |------|------|-------------------|
 > | `patch` \| `minor` \| `major` | **§5-release** | stage only → `/release <bump>` (sole commit+tag+push) |
-> | `master` (sentinel) | **§5-land-no-release** | interactive-shape `git commit` → non-force `git push` baseline — **no** `/release` |
+> | `master` (sentinel) | **§5-land-no-release** | interactive-shape `git commit` on a new `land/<ticket>` branch → non-force `git push` that branch → `train-lib.sh register` — **no** `/release`, default branch unmoved |
 >
 > It wires no caller and defines no new script; `/orchestrate` Step 11 invokes it. The clean
 > triad is `self-answer.md` (answer the gate) → `ship-gate-council.md` (audit the answer) →
@@ -24,10 +24,12 @@ branch (release vs land-no-release) — cite SPEC-033 M2/M4/N3a; **do not fork**
 
 - **§5-release:** the single ship-of-record for the ref-mutating step is **`/release`**
   (`skills/release/SKILL.md`) with its own one-commit contract and pre-commit gates.
-- **§5-land-no-release (CDT-195):** this procedure itself commits (interactive squash message
-  shape) and non-force-pushes the worktree baseline — **MUST NOT** invoke `/release`, touch
-  version files, tag, or CHANGELOG. Land target = worktree baseline / `origin/HEAD` default
-  branch name — **not** a hard-coded ref named `master`.
+- **§5-land-no-release (CDT-195; CDT-597):** this procedure itself commits (interactive squash
+  message shape) and non-force-pushes a **new `land/<ticket>` branch** cut at the worktree
+  baseline, then registers it in the release-train queue — **MUST NOT** invoke `/release`, touch
+  version files, tag, or CHANGELOG. Land target = `land/<ticket>`, never the default branch: the
+  default-branch tip must equal a release tag at every pushed state (SPEC-033 M2), so an untagged
+  fold never moves it. The land target is still never a hard-coded ref named `master`.
 
 **Asymmetry (R5):** release path **stages only** before `/release` (adding a `git commit`
 here would double-commit with `/release`'s fold). Land-no-release **does** commit + push
@@ -102,9 +104,24 @@ not a token-based exemption. Applies to **both** land paths.
 ```bash
 DEFAULT_REF=$(git symbolic-ref refs/remotes/origin/HEAD 2>/dev/null) || DEFAULT_REF=""
 DEFAULT_BRANCH=${DEFAULT_REF##refs/remotes/origin/}
-# Land target: main-repo HEAD (release path: branch /release will push;
-# land-no-release: worktree baseline — typically origin/HEAD default, not hard-coded "master")
-LAND_TARGET=$(git -C "<main-repo-path>" rev-parse --abbrev-ref HEAD 2>/dev/null)
+# Baseline: main-repo HEAD. Release path — the baseline branch /release pushes.
+# Land-no-release (CDT-597) — a NEW land/<ticket> branch cut at the baseline:
+# the default branch is never the land target under the sentinel, because the
+# default-branch tip must equal a release tag (SPEC-033 M2). The branch name is
+# not hard-coded "master" on either path.
+BASELINE=$(git -C "<main-repo-path>" rev-parse --abbrev-ref HEAD 2>/dev/null)
+LAND_TARGET="$BASELINE"
+if [ "<AUTOPILOT_BUMP>" = "master" ]; then
+  LAND_TARGET="land/<ISSUE-ID>"
+fi
+# Land anchor for the ancestry clause: an existing land/<ticket> (a resume) is
+# measured on its own tip; a new one is measured at its recorded base, which is
+# the baseline HEAD it will be cut from in §5.
+LAND_ANCHOR="$LAND_TARGET"
+if [ "<AUTOPILOT_BUMP>" = "master" ] \
+  && ! git -C "<main-repo-path>" show-ref --verify --quiet "refs/heads/$LAND_TARGET"; then
+  LAND_ANCHOR=$(git -C "<main-repo-path>" rev-parse HEAD)
+fi
 # Fetch BEFORE the ancestor check so origin/$DEFAULT_BRANCH reflects the
 # remote's current tip, not a stale local cache (N3a). Empty DEFAULT_BRANCH
 # short-circuits the fetch (nothing to fetch); a fetch failure is itself a
@@ -114,17 +131,26 @@ if [ -n "$DEFAULT_BRANCH" ] && git -C "<main-repo-path>" fetch --no-tags origin 
   FETCH_OK=1
 fi
 # BC3 halt (fail-closed) iff ANY clause holds — origin/HEAD unresolvable, the
-# fetch above failed, land target != resolved default branch, OR local
-# history has diverged from origin (origin default is NOT an ancestor of the
-# target => the push would need --force):
-if [ -z "$DEFAULT_BRANCH" ] || [ "$FETCH_OK" -ne 1 ] || [ "$DEFAULT_BRANCH" != "$LAND_TARGET" ] \
-  || ! git -C "<main-repo-path>" merge-base --is-ancestor "origin/$DEFAULT_BRANCH" "$LAND_TARGET"; then
+# fetch above failed, the land target is the default branch under the sentinel
+# (release path: land target != resolved default branch), OR local history has
+# diverged from origin (origin default is NOT an ancestor of the land anchor =>
+# the push would need --force):
+if [ -z "$DEFAULT_BRANCH" ] || [ "$FETCH_OK" -ne 1 ] \
+  || { [ "<AUTOPILOT_BUMP>" = "master" ] && [ "$LAND_TARGET" = "$DEFAULT_BRANCH" ]; } \
+  || { [ "<AUTOPILOT_BUMP>" != "master" ] && [ "$DEFAULT_BRANCH" != "$LAND_TARGET" ]; } \
+  || ! git -C "<main-repo-path>" merge-base --is-ancestor "origin/$DEFAULT_BRANCH" "$LAND_ANCHOR"; then
   echo "ship-choice halt: BC3 push-target check failed — card: <card-path>"
   exit 1
 fi
 ```
 
-`LAND_TARGET` is the baseline the action will land on. The disjunction above is BC3 evaluated
+`LAND_TARGET` is the ref the action will land on: the baseline on the release path, and a new
+`land/<ticket>` branch under the `master` sentinel (CDT-597). `LAND_ANCHOR` is what the ancestry
+clause measures that target against — the land branch's own tip when it already exists (a
+`--resume-ship=master` run), and the recorded base (baseline HEAD) when it does not. A
+`land/<ticket>` branch that has fallen behind `origin/<default>` fails the same ancestry clause,
+so any history that would need `--force` still halts fail-closed; under the sentinel the default
+branch itself never satisfies the land target. The disjunction above is BC3 evaluated
 mechanically; the **semantics** of each clause — including why an unresolvable `origin/HEAD` is
 fail-closed (halt, never a network guess) and the protected-branch framing — live in **N3a** and
 are not re-derived here.
@@ -266,16 +292,31 @@ abort path.
 
 On success → §5.5.
 
-### 5-land-no-release — commit + push when `AUTOPILOT_BUMP` = `master` (CDT-195)
+### 5-land-no-release — commit + push a `land/<ticket>` branch when `AUTOPILOT_BUMP` = `master` (CDT-195; CDT-597)
 
 **Guard:** only when bump is the land-no-release sentinel `master`. **MUST NOT** invoke
 `/release`, bump version files, create a tag, or edit CHANGELOG.
+
+**Land target (CDT-597):** a new `land/<ticket>` branch cut at the baseline. The default branch
+stays put — its tip must equal a release tag at every pushed state (SPEC-033 M2), and an untagged
+fold commit is not a tag. After the push, the branch is **registered** in the release-train queue
+(`train-lib.sh register … --bump patch`) and the registered order is printed. Registration is
+**queue-only**: no `/release`, no `order`/`freeze`/`set-status`, no landing loop — the next
+`/release` folds the branch through SPEC-023 and its fold commit is the tag.
 
 After §4 squash-stage succeeds on the main-repo path:
 
 ```bash template
 cd <main-repo-path>
-# 1) Commit with interactive squash message shape (orchestrate Step 11 "If squash merge
+BASELINE_BRANCH=$(git rev-parse --abbrev-ref HEAD)
+
+# 1) Cut the land branch AT the baseline (CDT-597). The default branch does not
+#    move: its tip must equal a release tag, so an untagged fold lands on
+#    land/<ticket> and folds through the release train (SPEC-033 M2). The §4
+#    squash-staged index carries onto the new branch.
+git checkout -q -b "land/<ISSUE-ID>"
+
+# 2) Commit with interactive squash message shape (orchestrate Step 11 "If squash merge
 #    requested" — cite, do not fork). Honest Co-Authored-By identity (agent/model actually
 #    performing the commit — not hard-coded Claude when the actor is Grok/etc.).
 git commit -m "<ISSUE-ID>: <title>
@@ -284,18 +325,37 @@ git commit -m "<ISSUE-ID>: <title>
 
 Co-Authored-By: <Agent> <noreply@…>"
 
-# 2) Non-force push of the baseline (LAND_TARGET / DEFAULT_BRANCH from §3 — worktree base /
-#    origin/HEAD, NOT a hard-coded ref name "master"). BC3 already cleared force-push need.
-git push origin "<DEFAULT_BRANCH>"
+# 3) Non-force push of the land branch (LAND_TARGET from §3). BC3 already cleared
+#    the force-push need. The default branch is never pushed on this path.
+git push origin "land/<ISSUE-ID>"
 # MUST NOT: git push --force / --force-with-lease
+
+# 4) Register the land branch in the release-train queue — queue-only (CDT-597):
+#    no /release, no order/freeze/set-status, no landing loop here. The next
+#    /release folds the branch and that fold commit is the tag (SPEC-023).
+# Fresh shell — carry PDH from the stanza fence above (SPEC-021 C1)
+PDH="${PDH:-$( { [ -n "${CLAUDE_PLUGIN_ROOT:-}" ] && [ -f "$CLAUDE_PLUGIN_ROOT/skills/plugin-dir.sh" ] && printf '%s\n' "$CLAUDE_PLUGIN_ROOT"; } || { [ -f skills/plugin-dir.sh ] && [ -f agents/pm.md ] && grep -qF '"name": "dev-team"' .claude-plugin/plugin.json 2>/dev/null && pwd; } || { _pr='${CLAUDE_PLUGIN_ROOT}'; [ "${_pr#\$}" = "$_pr" ] && [ -f "$_pr/skills/plugin-dir.sh" ] && printf '%s\n' "$_pr"; } || { for _mp in "$HOME"/.claude/plugins/marketplaces/*/; do [ -f "${_mp}skills/plugin-dir.sh" ] && [ -f "${_mp}agents/pm.md" ] && grep -qF '"name": "dev-team"' "${_mp}.claude-plugin/plugin.json" 2>/dev/null && printf '%s\n' "${_mp%/}" && break; done; } || find ~/.claude/plugins/cache \( -path '*/dev-team/*/skills/plugin-dir.sh' -o -path '*/dev-team-edge/*/skills/plugin-dir.sh' \) 2>/dev/null | awk -F/ '{ver=""; for(i=1;i<=NF;i++) if(($i=="dev-team"||$i=="dev-team-edge")&&i<NF){ver=$(i+1);break}; if(ver=="") next; m=ver; gsub(/-pre\./,"~pre.",m); p=($0 ~ /\/cache\/cold-dark-void\/dev-team\//)?2:(($0 ~ /\/cache\/cold-dark-void\/dev-team-edge\//)?1:0); print m "\t" p "\t" $0}' | sort -t $'\t' -k1,1V -k2,2n -k3,3 | tail -1 | cut -f3 | xargs -r dirname | xargs -r dirname )}"
+TRAIN_LIB=$(bash "$PDH/skills/plugin-dir.sh" file skills/release-train/train-lib.sh)
+if ! bash "$TRAIN_LIB" register "land/<ISSUE-ID>" --bump patch; then
+  echo "ship-choice halt: release-train register failed for land/<ISSUE-ID> — card: <card-path>"
+  exit 1
+fi
+
+# 5) Print the registered order, then hand the main-repo path back its baseline.
+bash "$TRAIN_LIB" list | jq -r --arg b "land/<ISSUE-ID>" '
+  (.entries | map(.branch)) as $names
+  | "land-no-release: registered \($b) — queue position \(((($names | index($b)) // -1) + 1)) of \($names | length) — queue: \($names | join(", ")) — the train folds it (SPEC-023)"'
+git checkout -q "$BASELINE_BRANCH"
 ```
 
-On **commit or push failure**: write a halt card (append-card shape per `self-answer.md` §3f),
-print `ship-choice halt: <rationale> — card: <path>`, run the §6.5 block as needed,
-and return — **no** Done, **no** ship success claim. If commit succeeded but push failed, do
-**not** force-push; halt for human (history may need rewrite — SPEC-010 H).
+On **commit, push, or register failure**: write a halt card (append-card shape per
+`self-answer.md` §3f), print `ship-choice halt: <rationale> — card: <path>`, run the §6.5 block
+as needed, and return — **no** Done, **no** ship success claim. If commit succeeded but push failed, do
+**not** force-push; halt for human (history may need rewrite — SPEC-010 H). A register failure
+(already-queued branch, missing `jq`, unwritable queue) leaves the pushed land branch in place for
+a human to re-register — the queue is the only writer of the fold, so nothing ships unregistered.
 
-On success → §5.5 (same as release path).
+On success (commit + push + register) → §5.5 (same as release path).
 
 ## 5.5 Post-land ship-history re-check (SPEC-010 H5/H8/H9; CDT-188)
 
@@ -368,8 +428,9 @@ close-out (ship DoD)" block in `/orchestrate` Step 11 runs **after** the land pa
 trackers **stay open** (correct — nothing may be claimed Done). Only once the land has
 committed and pushed (and tagged, on release) **and**
 `check-ship-history.sh --since $SHIP_START_SHA` exits 0 does autopilot close the `closes:`
-trackers (local backlog write-through + Linear **Done** — this path lands on the baseline, so
-Done is correct per SPEC-009 Linear lifecycle) exactly as that block specifies.
+trackers (local backlog write-through + Linear **Done** — this path lands on a registered
+`land/<ticket>` branch that the next `/release` folds, so Done is correct per SPEC-009 Linear
+lifecycle) exactly as that block specifies.
 
 Every other path keeps the block's **before-commit** ordering for **local** backlog;
 **Linear** is path-dependent (SPEC-009 / orchestrate Step 11 lifecycle):
@@ -401,7 +462,9 @@ keep anything they recognize as their own) and re-runs; a tracked edit a user la
 run gets the same refusal and is never discarded automatically.
 
 **§5-land-no-release abort:** on commit failure (or pre-push halt with only a staged squash),
-run the §6.5 block below to discard the staged index. On push failure after a successful
+run the §6.5 block below to discard the staged index. On the land path the abort leaves the
+half-created `land/<ticket>` branch for a human to delete or re-register — this block resets the
+working tree only, it never deletes a branch. On push failure after a successful
 commit: run the §6.5 block below too — `SHIP_START_SHA` no longer equals HEAD once the delivery
 commit has moved it, so the block's own attestation check refuses instead of acting and halts
 for human; the commit is never silently discarded and no force-push follows.
@@ -447,8 +510,12 @@ reset where the land never created a delivery commit.
   fires only on a post-council effective `merge` (§2).
 - **Reuse the interactive `git commit` block.** The Step 11 "If squash merge requested" block
   is the human path and stays byte-unchanged; autopilot land-no-release lives only here (§4/§5-land-no-release).
-- **Call `/release` when bump = `master`.** Land-no-release is commit+push only (§5-land-no-release).
+- **Call `/release` when bump = `master`.** Land-no-release is commit + non-force push of the
+  `land/<ticket>` branch + queue registration only (§5-land-no-release).
   **NEVER** `/release master`.
+- **Advance the release train on the land-no-release path.** Registration is queue-only: no
+  `order`/`freeze`/`set-status`, no landing loop, no `/release` (CDT-597 AC E). The train's own
+  landing loop and the next `/release` own the fold and the tag (SPEC-023).
 - **Commit/tag/push itself on the release path.** §5-release stages only; sole ref-mutating
   step is `/release` (§5-release). Land-no-release **does** commit+push by design (asymmetric).
 - **Define the bump vocabulary or re-check the bump.** `merge` is only reachable when

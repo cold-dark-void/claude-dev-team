@@ -43,7 +43,7 @@ Versioning ladder (user-ruled 2026-11-21):
   control-plane arc, CDT-628, is the precedent), a break of install/update
   contracts, or anything that forces migration.
 New opt-in flags with unchanged defaults = patch.
-Enforced on `master` by `githooks/pre-commit` → `skills/release/check-bump-class.sh` (also `/release` Step 4.11 and CI). The hook fires only after a one-time `bash skills/release/install-git-hooks.sh` (or `git config core.hooksPath githooks`) — do that once per clone. A new `commands/*.md` on a patch bump MUST NOT commit.
+Enforced on `master` by `githooks/pre-commit` → `skills/release/check-bump-class.sh` (also `/release` Step 4.11 and CI). The default-branch tip must equal a release tag: `githooks/pre-push` → `skills/release/check-master-tagged.sh` refuses an untagged tip and names `/release-train register <branch>` (CDT-597). The hooks fire only after a one-time `bash skills/release/install-git-hooks.sh` (or `git config core.hooksPath githooks`) — do that once per clone. A new `commands/*.md` on a patch bump MUST NOT commit.
 
 **Pre-release arc scheme (SPEC-010, CDT-633)** — prose note; no gate enforces the arc rule:
 - During the Control plane arc (control plane Option C+ (CDT-626)), every release is `2.0.0-pre.N` — `plugin.json` bare, tag and CHANGELOG heading with `v`.
@@ -53,7 +53,10 @@ Enforced on `master` by `githooks/pre-commit` → `skills/release/check-bump-cla
 
 **Ship / land (plugin-wide — not personal memory):**
 - Never FF-merge epic children onto master so the next worktree can fast-forward. Epic-child work stays on `feat/<ticket>` or the epic integration branch. For epic children, master moves only at epic seal / one `/release` fold (SPEC-033).
-- A non-epic `--autopilot=master` is land-no-release (SPEC-033 M2). It squash-lands onto the worktree baseline and does not run `/release`.
+- A non-epic `--autopilot=master` is land-no-release (SPEC-033 M2). It squash-lands onto a new
+  `land/<ticket>` branch cut at the worktree baseline, pushes non-force, and registers it with
+  `/release-train register land/<ticket> --bump patch`; it does not run `/release` and never moves
+  the default branch — a `githooks/pre-push` gate refuses an untagged default-branch tip (CDT-597).
 - `--autopilot=patch|minor|major` on `/orchestrate` that **BC5-reroutes to `/epic`** is **seal-intent**. `/epic` MUST persist that bump as `release_bump` (with `--worktree`) and MUST NOT land each child. Token is not unused.
 - A new Surface shipped as a patch tag: fold into the minor, delete the patch tag, retag, force-push. Do not leave the false patch in history. Do not offer TL blockers as a "follow-up patch" when the bump was already wrong.
 - If you FF'd and **did not push**: `git reset --hard origin/master`. Leave commits on feature branches.

@@ -690,6 +690,243 @@ g2_final_passes() {
   fi
 }
 
+# ---- L cases (CDT-597): land/<ticket> reroute + queue-only registration -----
+
+blocks3="$(fence_blocks "$END_STATE" "## 3. ")"
+blocks5l="$(fence_blocks "$END_STATE" "### 5-land-no-release")"
+sec5l_text="$(md_section "$END_STATE" "### 5-land-no-release")"
+
+if [ -n "$blocks5l" ]; then
+  pass_line "structural: §5-land-no-release has at least one fenced bash block"
+else
+  fail_line "structural: §5-land-no-release has at least one fenced bash block (zero extracted)"
+fi
+
+# L structural: the land path cuts and pushes a land/<ticket> branch, registers
+# it, and touches nothing the train owns (AC C, AC D, AC E).
+l_structural() {
+  local npush
+  if printf '%s\n' "$blocks5l" | grep -qF 'git checkout -q -b "land/<ISSUE-ID>"'; then
+    pass_line "structural: §5-land-no-release cuts a land/<ticket> branch"
+  else
+    fail_line "structural: §5-land-no-release cuts a land/<ticket> branch"
+  fi
+  if printf '%s\n' "$blocks5l" | grep -qF 'git push origin "land/<ISSUE-ID>"'; then
+    pass_line "structural: §5-land-no-release non-force-pushes the land branch"
+  else
+    fail_line "structural: §5-land-no-release non-force-pushes the land branch"
+  fi
+  if printf '%s\n' "$blocks5l" | grep -qF 'register "land/<ISSUE-ID>" --bump patch'; then
+    pass_line "structural: §5-land-no-release registers the land branch (--bump patch)"
+  else
+    fail_line "structural: §5-land-no-release registers the land branch (--bump patch)"
+  fi
+  if printf '%s\n' "$blocks5l" | grep -qF 'queue position'; then
+    pass_line "structural: §5-land-no-release prints the registered order"
+  else
+    fail_line "structural: §5-land-no-release prints the registered order"
+  fi
+  npush="$(printf '%s\n' "$blocks5l" | grep -cE '^[[:space:]]*git push')"
+  if [ "$npush" -eq 1 ]; then
+    pass_line "structural: §5-land-no-release has exactly one git push (the land branch)"
+  else
+    fail_line "structural: §5-land-no-release has exactly one git push (found $npush)"
+  fi
+  # AC E — queue-only: no /release invoke, no train-advancing verb, no force.
+  # Comments state the MUST NOTs, so scan executable lines only.
+  local banned code
+  code="$(printf '%s\n' "$blocks5l" | sed -e 's/#.*//')"
+  banned=0
+  for pat in 'set-status' 'freeze' 'show-plan' '--force' 'git tag'; do
+    if printf '%s\n' "$code" | grep -qF -- "$pat"; then
+      fail_line "structural: §5-land-no-release fence is queue-only (found '$pat')"
+      banned=1
+    fi
+  done
+  if printf '%s\n' "$code" | grep -qE '(^|[;&|[:space:]])/release([[:space:]]|$)'; then
+    fail_line "structural: §5-land-no-release fence is queue-only (found a /release invoke)"
+    banned=1
+  fi
+  [ "$banned" -eq 0 ] && pass_line "structural: §5-land-no-release fence is queue-only (no /release, no train verbs, no force)"
+  if printf '%s\n' "$sec5l_text" | grep -qF 'land/<ticket>' && printf '%s\n' "$sec5l_text" | grep -qF 'CDT-597'; then
+    pass_line "structural: §5-land-no-release text names the land branch + CDT-597"
+  else
+    fail_line "structural: §5-land-no-release text names the land branch + CDT-597"
+  fi
+  # AC D — §3 accepts the land branch as target and rejects the default branch.
+  if printf '%s\n' "$blocks3" | grep -qF 'LAND_TARGET="land/<ISSUE-ID>"'; then
+    pass_line "structural: §3 sets land/<ticket> as the land target on the sentinel"
+  else
+    fail_line "structural: §3 sets land/<ticket> as the land target on the sentinel"
+  fi
+  if printf '%s\n' "$blocks3" | grep -qF 'show-ref --verify --quiet'; then
+    pass_line "structural: §3 measures an existing land branch against its recorded base"
+  else
+    fail_line "structural: §3 measures an existing land branch against its recorded base"
+  fi
+  if printf '%s\n' "$blocks3" | grep -F '"<AUTOPILOT_BUMP>" = "master"' | grep -qF '"$LAND_TARGET" = "$DEFAULT_BRANCH"'; then
+    pass_line "structural: §3 rejects the default branch as the sentinel land target"
+  else
+    fail_line "structural: §3 rejects the default branch as the sentinel land target"
+  fi
+}
+
+# build_land_fixture — build_bc3_fixture plus a feat/x branch to squash.
+# Prints "<origin-dir> <main-dir>".
+build_land_fixture() {
+  local fx origin main
+  fx="$(build_bc3_fixture)" || return 1
+  origin="${fx%% *}"; main="${fx##* }"
+  (
+    cd "$main" || exit 1
+    git checkout -q -b feat/x
+    printf 'feature change\n' >feature.txt
+    git add feature.txt
+    git commit -q -m feature
+    git checkout -q master
+  ) || return 1
+  printf '%s %s\n' "$origin" "$main"
+}
+
+# L1: fresh land branch at a baseline that contains origin -> §3 exits 0
+# on the sentinel bump (AC D).
+l1_bc3_land_clear() {
+  local fx origin main block rc out
+  fx="$(build_land_fixture)" || { fail_line "L1 setup"; return; }
+  origin="${fx%% *}"; main="${fx##* }"
+  block="$(printf '%s\n' "$blocks3" | subst_block "$main" "" "/tmp/card.json" "" "master")"
+  run_block "$main" "$block"
+  rc=$?; out="$RUN_OUT"
+  if [ "$rc" -eq 0 ]; then
+    pass_line "L1: §3 exits 0 with land/<ticket> as the target on the sentinel"
+  else
+    fail_line "L1: §3 exits 0 with land/<ticket> as the target on the sentinel (rc=$rc: $out)"
+  fi
+}
+
+# L2: an existing land/<ticket> that no longer contains origin/<default> ->
+# §3 halts fail-closed (force would be needed) on the sentinel bump (AC D).
+l2_bc3_land_diverged() {
+  local fx origin main second block rc out
+  fx="$(build_land_fixture)" || { fail_line "L2 setup"; return; }
+  origin="${fx%% *}"; main="${fx##* }"
+  git -C "$main" branch "land/<ISSUE-ID>" || { fail_line "L2 setup: land branch"; return; }
+  second="$(mktemp -d "$TMPDIR/land-second.XXXXXX")" || { fail_line "L2 setup: mktemp"; return; }
+  git clone -q "$origin" "$second" || { fail_line "L2 setup: clone"; return; }
+  (
+    cd "$second" || exit 1
+    printf 'from-elsewhere\n' >elsewhere.txt
+    git add elsewhere.txt
+    git commit -q -m elsewhere
+    git push -q origin master
+  ) || { fail_line "L2 setup: push from second clone"; return; }
+  block="$(printf '%s\n' "$blocks3" | subst_block "$main" "" "/tmp/card.json" "" "master")"
+  run_block "$main" "$block"
+  rc=$?; out="$RUN_OUT"
+  if [ "$rc" -ne 0 ]; then
+    pass_line "L2: §3 halts when the land branch fell behind origin (force needed)"
+  else
+    fail_line "L2: §3 halts when the land branch fell behind origin (rc=$rc: $out)"
+  fi
+  if printf '%s\n' "$out" | grep -qF 'ship-choice halt:'; then
+    pass_line "L2: §3 prints the ship-choice halt line"
+  else
+    fail_line "L2: §3 prints the ship-choice halt line: $out"
+  fi
+}
+
+# L5: full sentinel land — §3 clear, §4 squash, §5 lands the land branch,
+# pushes it, registers it, prints the order, and leaves master untouched
+# (AC C, AC E).
+l5_land_lands_and_registers() {
+  local fx origin main base block rc out queue
+  fx="$(build_land_fixture)" || { fail_line "L5 setup"; return; }
+  origin="${fx%% *}"; main="${fx##* }"
+  base="$(git -C "$main" rev-parse HEAD)"
+
+  block="$(printf '%s\n' "$blocks3" | subst_block "$main" "" "/tmp/card.json" "" "master")"
+  run_block "$main" "$block"
+  rc=$?; out="$RUN_OUT"
+  if [ "$rc" -ne 0 ]; then fail_line "L5 setup: §3 halt (rc=$rc: $out)"; return; fi
+
+  block="$(printf '%s\n' "$blocks4" | subst_block "$main" "feat/x" "/tmp/card.json" "" "master")"
+  run_block "$main" "$block"
+  rc=$?; out="$RUN_OUT"
+  if [ "$rc" -ne 0 ]; then fail_line "L5 setup: §4 squash halt (rc=$rc: $out)"; return; fi
+
+  block="$(printf '%s\n' "$blocks5l" | subst_block "$main" "feat/x" "/tmp/card.json" "" "master")"
+  run_block "$main" "$block"
+  rc=$?; out="$RUN_OUT"
+  if [ "$rc" -eq 0 ]; then
+    pass_line "L5: §5-land-no-release exits 0 on the sentinel path"
+  else
+    fail_line "L5: §5-land-no-release exits 0 on the sentinel path (rc=$rc: $out)"
+    return
+  fi
+  if git -C "$main" show-ref --verify --quiet refs/heads/'land/<ISSUE-ID>'; then
+    pass_line "L5: land/<ticket> branch created at the baseline"
+  else
+    fail_line "L5: land/<ticket> branch created at the baseline"
+  fi
+  if git -C "$main" ls-tree -r --name-only 'land/<ISSUE-ID>' | grep -qxF feature.txt; then
+    pass_line "L5: the fold commit on the land branch carries the squash"
+  else
+    fail_line "L5: the fold commit on the land branch carries the squash"
+  fi
+  if git -C "$origin" show-ref --verify --quiet refs/heads/'land/<ISSUE-ID>'; then
+    pass_line "L5: the land branch is pushed to origin"
+  else
+    fail_line "L5: the land branch is pushed to origin"
+  fi
+  if [ "$(git -C "$main" rev-parse master)" = "$base" ] && [ "$(git -C "$origin" rev-parse master)" = "$base" ]; then
+    pass_line "L5: master did not move (local + origin)"
+  else
+    fail_line "L5: master did not move (local=$(git -C "$main" rev-parse master) origin=$(git -C "$origin" rev-parse master) base=$base)"
+  fi
+  if [ "$(git -C "$main" rev-parse --abbrev-ref HEAD)" = "master" ]; then
+    pass_line "L5: the main-repo path is back on its baseline branch"
+  else
+    fail_line "L5: the main-repo path is back on its baseline branch ($(git -C "$main" rev-parse --abbrev-ref HEAD))"
+  fi
+  queue="$main/.claude/release-train/queue.json"
+  if [ -r "$queue" ] && jq -e --arg b 'land/<ISSUE-ID>' \
+      '.entries[] | select(.branch==$b) | select(.bump=="patch" and .status=="pending")' "$queue" >/dev/null 2>&1; then
+    pass_line "L5: the land branch is registered pending (bump patch)"
+  else
+    fail_line "L5: the land branch is registered pending (bump patch): $(cat "$queue" 2>/dev/null | head -c 300)"
+  fi
+  if printf '%s\n' "$out" | grep -qF 'queue position 1 of 1'; then
+    pass_line "L5: the registered order is printed"
+  else
+    fail_line "L5: the registered order is printed: $out"
+  fi
+}
+
+# L6: the branch is already queued -> train-lib register fails and §5 halts
+# with a ship-choice halt line (no silent success, trackers stay open).
+l6_register_failure_halts() {
+  local fx origin main block rc out
+  fx="$(build_land_fixture)" || { fail_line "L6 setup"; return; }
+  origin="${fx%% *}"; main="${fx##* }"
+  mkdir -p "$main/.claude/release-train"
+  printf '%s\n' '{"version":1,"frozen":false,"master_version_at_freeze":null,"order":[],"entries":[{"branch":"land/<ISSUE-ID>","bump":"patch","assumed_version":null,"assigned_version":null,"status":"pending","base_sha":null,"tag":null,"blocked_paths":[],"registered_at":"2026-11-22T00:00:00Z"}]}' \
+    >"$main/.claude/release-train/queue.json"
+  (cd "$main" && git merge --squash feat/x >/dev/null 2>&1) || { fail_line "L6 setup: squash-stage"; return; }
+  block="$(printf '%s\n' "$blocks5l" | subst_block "$main" "feat/x" "/tmp/card.json" "" "master")"
+  run_block "$main" "$block"
+  rc=$?; out="$RUN_OUT"
+  if [ "$rc" -ne 0 ]; then
+    pass_line "L6: §5-land-no-release halts when register fails"
+  else
+    fail_line "L6: §5-land-no-release halts when register fails (rc=$rc: $out)"
+  fi
+  if printf '%s\n' "$out" | grep -qF 'release-train register failed'; then
+    pass_line "L6: the halt names the register failure"
+  else
+    fail_line "L6: the halt names the register failure: $out"
+  fi
+}
+
 # ---- run ----------------------------------------------------------------
 
 h_structural
@@ -714,6 +951,11 @@ f7_release_authority_text
 g_structural
 g1_refuses_on_pre
 g2_final_passes
+l_structural
+l1_bc3_land_clear
+l2_bc3_land_diverged
+l5_land_lands_and_registers
+l6_register_failure_halts
 
 echo "----"
 echo "pass=$pass fail=$fail"

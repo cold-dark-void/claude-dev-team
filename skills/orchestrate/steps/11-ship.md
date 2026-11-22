@@ -105,15 +105,18 @@ Act on the **post-council effective decision**:
     `git commit` here → `/release <AUTOPILOT_BUMP>` (sole commit + tag + push).
     **NEVER** pass `master` to `/release`.
   - **`AUTOPILOT_BUMP` = master** → **§5-land-no-release:** interactive-shape
-    `git commit` + non-force `git push origin <baseline>` — **MUST NOT** invoke
-    `/release`, version files, tag, or CHANGELOG.
+    `git commit` on a new `land/<ISSUE-ID>` branch cut at the baseline + non-force
+    `git push origin land/<ISSUE-ID>` + `train-lib.sh register land/<ISSUE-ID> --bump patch`
+    (queue-only: no `order`/`freeze`/`set-status`, no landing loop) — **MUST NOT** invoke
+    `/release`, version files, tag, or CHANGELOG, and the default branch never moves
+    (SPEC-033 M2 master-tag invariant, CDT-597).
   Then §5.5 ship-history clean check (SPEC-010 H; cite, do not restate D1–D4)
   and §6 closeout. Does **not** route through the interactive "If squash merge
   requested" block below (`autopilot_bump != null` is engine-guaranteed).
   On land success **and** end-state §5.5 clean (§6 closeout done), emit
   `task_complete` via **Passive notifications → Tier B** (fail-open; § in `cross-cutting.md`):
   - release path: detail = `released <bump>/<tag>`
-  - land-no-release: detail = `landed master (no release)`
+  - land-no-release: detail = `landed land/<ISSUE-ID> (no release, registered)`
   On dirty ship-history (H8): halt with exact `history dirty — rewrite needed`;
   **MUST NOT** Linear/backlog Done, **MUST NOT** print Orchestration complete /
   ship success.
@@ -188,8 +191,8 @@ is `master` (or force land-no-release when token is a release bump).
 2. Ask once with **path-aware** confirm (**required**; autopilot MUST NOT
    self-answer this confirmation — human override of a safety halt):
    - release token: `Proceed with release <bump> + wrap-ticket <ISSUE-ID>? (y/n)`
-   - `master`: `Proceed with land-no-release (commit+push baseline, no /release)
-     + wrap-ticket <ISSUE-ID>? (y/n)`
+   - `master`: `Proceed with land-no-release (commit+push land/<ISSUE-ID>,
+     register it, no /release) + wrap-ticket <ISSUE-ID>? (y/n)`
 3. On `n` / empty: stop; no side effects.
 4. On `y`:
    - If worktree still present: run `skills/autopilot/end-state.md` for the
@@ -198,13 +201,15 @@ is `master` (or force land-no-release when token is a release bump).
    - Else if already on baseline with clean tree after a prior partial land:
      - release token: run `/release <bump>` only if version files still need
        the bump; otherwise skip to wrap.
-     - `master`: **MUST NOT** run `/release`; if commit already pushed, skip
-       to wrap; if staged-only leftover, halt for human.
+     - `master`: **MUST NOT** run `/release`; if the land branch is already
+       pushed and registered, skip to wrap; if it is pushed but unregistered,
+       run `train-lib.sh register land/<ISSUE-ID> --bump patch`; if a staged-only
+       leftover remains, halt for human.
    - Then `/wrap-ticket <ISSUE-ID>` (idempotent close-out + worktree release).
 5. Emit `task_complete` via **Passive notifications → Tier B** (fail-open;
    § in `cross-cutting.md`):
    - release: detail = `resume-ship released <bump>`
-   - land-no-release: detail = `resume-ship landed master (no release)`
+   - land-no-release: detail = `resume-ship landed land/<ISSUE-ID> (no release, registered)`
 6. Append one decision card to the ticket ledger if append-card is available:
    `gate=ship-choice`, `decision=merge`, `decided_by=user`,
    `blocking_condition=null`, `bump=<resolved token>`, rationale notes path
@@ -247,7 +252,7 @@ finished in a worktree”:
 |-------|---------------|------|
 | Work started | **In Progress** | Step 3 (already) |
 | PR open / not on master | **In Review** | PR-stop, draft/ready PR, release=end child left on integration branch |
-| Landed on master + close-out | **Done** (or team Released) | Squash/merge to baseline succeeds (interactive, release `/release`, **or** land-no-release commit+push), **and** ship-history clean (SPEC-010 H), **or** `/wrap-ticket` after land |
+| Landed + close-out | **Done** (or team Released) | Landing succeeds (interactive squash/merge to baseline, release `/release` to the default branch, **or** land-no-release commit+push+register of `land/<ticket>`), **and** ship-history clean (SPEC-010 H), **or** `/wrap-ticket` after land |
 
 **MUST NOT** set Linear to **Done** when the only ship action was open a PR,
 push a feature branch, or finish IC/QA while changes are still off master.
