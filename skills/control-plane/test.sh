@@ -39,8 +39,15 @@ hermetic_init
 
 PASS=0
 FAIL=0
+# CDT-620 T2 (CDT-646 pattern, as skills/council/test-tier-grade.sh does it):
+# collect the failing check labels and print them as a block at the end, so
+# every failing name lands inside the runner's 20-line failure tail (the
+# inline FAIL lines scroll far above it). Additive: checks, order and counters
+# only grow (141 → 144 with the three CDT-620 BSD-date regression bites).
+FAILED_LABELS=""
+record_fail() { FAILED_LABELS="$FAILED_LABELS$1\n"; }
 ok() { PASS=$((PASS + 1)); printf 'PASS: %s\n' "$1"; }
-bad() { FAIL=$((FAIL + 1)); printf 'FAIL: %s\n' "$1" >&2; }
+bad() { FAIL=$((FAIL + 1)); printf 'FAIL: %s\n' "$1" >&2; record_fail "$1"; }
 
 OUT=''
 RC=0
@@ -1196,6 +1203,128 @@ if [ "$(status_of controlplane.probe.hygiene)" = 'SKIP' ]; then
 else
   bad "AC13: hygiene row is $(status_of controlplane.probe.hygiene), expected SKIP"
 fi
+# BSD-date arm of the same live-lease case (CDT-620 T4 — the three macOS reds).
+# On macOS `date` is BSD: `-d` is a Daylight-Savings spec (never a date string)
+# and `-j -f FMT INPUT` matches INPUT against FMT literally, so a Z-stripped
+# input cannot be dated by a format that ends in a literal Z. An undatable lease
+# reads as EXPIRED (SPEC-043 M12 mirrors run.Lease.Expired), which turned this
+# WARN into a takeover start: probe PASS, one start, hygiene PASS. The shim
+# below is the hermetic macOS `date` (real `date` answers everything else).
+BSD_BIN="$SCRATCH/bsd-bin"
+mkdir -p "$BSD_BIN"
+cat >"$BSD_BIN/date" <<'SHIM'
+#!/usr/bin/env bash
+# fake BSD/macOS date (CDT-620 T4): -d is a DST spec, -j -f needs a literal
+# format match, -r takes seconds since the epoch. Everything else delegates.
+# REAL is an absolute path off a fixed list: `command -v -p date` answers from
+# $PATH under bash 3.2, which resolves back to this shim and self-execs forever
+# (the CDT-620 macOS lane timeout). Epoch output is computed by bsd_epoch below
+# rather than by REAL: delegating it made the arm lane-dependent, and the
+# ubuntu lane reads the ISO-Z form through GNU `-d` differently from this box.
+SELF_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" 2>/dev/null && pwd || true)
+REAL=''
+for _cand in /bin/date /usr/bin/date /usr/local/bin/date /opt/homebrew/bin/date; do
+  [ "$_cand" = "$SELF_DIR/date" ] && continue
+  if [ -x "$_cand" ]; then REAL=$_cand; break; fi
+done
+if [ -z "$REAL" ]; then
+  printf 'bsd-date shim: no real date binary found\n' >&2
+  exit 127
+fi
+bsd_epoch() { # bsd_epoch <YYYY-MM-DDTHH:MM:SS[Z]> -> UTC epoch seconds, by
+              # days-from-civil in awk. The conversion is computed here so the
+              # shim is lane-independent (the format check is the BSD part).
+  local ts="${1%Z}" y rest mo d h mi s
+  y=${ts%%-*}; rest=${ts#*-}
+  mo=${rest%%-*}; rest=${rest#*-}
+  d=${rest%%T*}; rest=${rest#*T}
+  h=${rest%%:*}; rest=${rest#*:}
+  mi=${rest%%:*}; s=${rest##*:}
+  awk -v y="$y" -v mo="$mo" -v d="$d" -v h="$h" -v mi="$mi" -v s="$s" '
+    function fl(a, b,  q) { q = int(a / b); if (q * b > a) q--; return q }
+    BEGIN {
+      yy = y - (mo <= 2 ? 1 : 0)
+      era = fl(yy, 400)
+      yoe = yy - era * 400
+      mp = mo + (mo > 2 ? -3 : 9)
+      doy = fl(153 * mp + 2, 5) + d - 1
+      doe = yoe * 365 + fl(yoe, 4) - fl(yoe, 100) + doy
+      printf "%d\n", (era * 146097 + doe - 719468) * 86400 + h * 3600 + mi * 60 + s
+    }'
+}
+BSD_UTC=''
+[ "${1:-}" = "-u" ] && { BSD_UTC=1; shift; }
+case "${1:-}" in
+  -d)
+    case "${2:-}" in
+      yes | on | 1 | no | off | 0 | summer | winter)
+        if [ -n "$BSD_UTC" ]; then exec "$REAL" -u "$@"; fi
+        exec "$REAL" "$@" ;;
+    esac
+    printf 'date: %s: Invalid date/offset argument\n' "${2:-}" >&2
+    exit 1 ;;
+  -j)
+    shift
+    [ "${1:-}" = "-f" ] || { printf 'date: illegal option -- j\n' >&2; exit 1; }
+    fmt="${2:-}"; inp="${3:-}"; shift 3
+    outfmt="${1:-+%s}"
+    case "$fmt" in
+      '%Y-%m-%dT%H:%M:%SZ')
+        case "$inp" in
+          [0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]T[0-9][0-9]:[0-9][0-9]:[0-9][0-9]Z) ;;
+          *) printf 'date: %s: illegal input format\n' "$inp" >&2; exit 1 ;;
+        esac ;;
+      '%Y-%m-%dT%H:%M:%S')
+        case "$inp" in
+          [0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]T[0-9][0-9]:[0-9][0-9]:[0-9][0-9]) ;;
+          *) printf 'date: %s: illegal input format\n' "$inp" >&2; exit 1 ;;
+        esac ;;
+      *) printf 'date: unsupported format %s\n' "$fmt" >&2; exit 1 ;;
+    esac
+    if [ "$outfmt" = '+%s' ]; then
+      # UTC seconds computed here, not by the host date: the shim runs on both
+      # lanes and only its FORMAT check is BSD-specific (CDT-620 T4).
+      printf '%s\n' "$(bsd_epoch "$inp")"
+      exit 0
+    fi
+    if [ -n "$BSD_UTC" ]; then exec "$REAL" -u -j -f "$fmt" "$inp" "$outfmt"; fi
+    exec "$REAL" -j -f "$fmt" "$inp" "$outfmt" ;;
+  -r)
+    shift
+    sec="${1:-0}"; outfmt="${2:-+%s}"
+    if [ "$outfmt" = '+%s' ]; then
+      printf '%s\n' "$sec"
+      exit 0
+    fi
+    if [ -n "$BSD_UTC" ]; then exec "$REAL" -u -r "$sec" "$outfmt"; fi
+    exec "$REAL" -r "$sec" "$outfmt" ;;
+esac
+if [ -n "$BSD_UTC" ]; then exec "$REAL" -u "$@"; fi
+exec "$REAL" "$@"
+SHIM
+chmod +x "$BSD_BIN/date"
+reset_state
+set_journal "{\"run_id\":\"devteam-setup-probe\",\"status\":\"running\",\"terminal\":false,\"owner\":\"host:4242\",\"token\":1,\"stall_limit_s\":108,\"last_heartbeat_ts\":\"$(fmt_ts -20)\"}"
+PATH_SAVE=$PATH
+PATH="$BSD_BIN:$PATH"
+run_setup
+PATH=$PATH_SAVE
+if [ "$(status_of controlplane.probe)" = 'WARN' ] && [ "$RC" -eq 0 ] &&
+  ! grep -qF -e ' start ' "$AGENT_LOG"; then
+  ok "M12 BSD date: a live lease is a WARN under BSD date, never a takeover start"
+else
+  bad "M12 BSD date running-lease: $(status_of controlplane.probe) rc=$RC starts=$(count_lines ' start ' "$AGENT_LOG")"
+fi
+case "$(row_of controlplane.probe)" in
+  *'retry after lease expiry ~108 s'*) ok "M12 BSD date: the WARN row quotes the lease expiry" ;;
+  *) bad "M12 BSD date: the WARN row has no lease line: $(row_of controlplane.probe)" ;;
+esac
+if [ "$(status_of controlplane.probe.hygiene)" = 'SKIP' ]; then
+  ok "AC13 BSD date: hygiene stays SKIPped under BSD date"
+else
+  bad "AC13 BSD date: hygiene row is $(status_of controlplane.probe.hygiene), expected SKIP"
+fi
+reset_state
 # M12 arm 2: the lease is past last heartbeat + stall_limit_s, so its owner is
 # dead — the driver runs exactly one takeover start and the run closes
 # (spec § Q1a: the takeover start exits 0 and writes one run, not two).
@@ -1413,6 +1542,9 @@ esac
 
 echo
 echo "Results: $PASS passed, $FAIL failed"
+# The labels print last so a red run is self-diagnosing inside the runner's
+# 20-line tail (CDT-620 T2). Nothing prints on a green run.
+if [ "$FAIL" -ne 0 ]; then printf 'FAILED CHECKS:\n%b' "$FAILED_LABELS"; fi
 [ "$FAIL" -eq 0 ]
 RC=$?
 echo "VERIFY exit=$RC"

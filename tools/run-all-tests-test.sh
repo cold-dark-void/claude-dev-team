@@ -396,7 +396,9 @@ NOFLAG_RC=$RC
 NOFLAG_OUT=$OUT
 run_runner --root "$R14" --platform linux
 expect_exit 1 "case14 --platform linux exits 1"
-if [ "$RC" -eq "$NOFLAG_RC" ] && [ "$OUT" = "$NOFLAG_OUT" ]; then pass; else
+# CDT-620 T1: both runs print the keep-dir notice (stderr) for the red suite
+# and it names a per-run path, so the identity compare drops that line.
+if [ "$RC" -eq "$NOFLAG_RC" ] && [ "$(strip_keep_notice "$OUT")" = "$(strip_keep_notice "$NOFLAG_OUT")" ]; then pass; else
   fail "case14 --platform linux output differs from no-flag run"
 fi
 expect_out "FAIL zred-test.sh (exit 1)" "case14 macos entry ignored: real FAIL"
@@ -703,7 +705,7 @@ NOFLAG_RC_26=$RC
 NOFLAG_OUT_26=$OUT
 run_runner --root "$R26" --jobs 1
 expect_exit 1 "case26 --jobs 1 fails the failing suite"
-if [ "$RC" -eq "$NOFLAG_RC_26" ] && [ "$OUT" = "$NOFLAG_OUT_26" ]; then pass; else
+if [ "$RC" -eq "$NOFLAG_RC_26" ] && [ "$(strip_keep_notice "$OUT")" = "$(strip_keep_notice "$NOFLAG_OUT_26")" ]; then pass; else  # CDT-620 T1: keep-dir notice carries a per-run path
   fail "case26 --jobs 1 output differs from the no-flag run"
 fi
 if [ -s "$EVID26" ]; then
@@ -791,8 +793,13 @@ run_runner --root "$R29" --jobs 2
 J2_RC_29=$RC
 J2_OUT_29=$OUT
 expect_exit 1 "case29 --jobs 2 fails the failing suite"
-if [ "$J1_RC_29" = "$J2_RC_29" ] && [ "$J1_OUT_29" = "$(printf '%s\n' "$J2_OUT_29" | grep -vF 'kept full output')" ]; then pass; else  # CDT-545: the pool path adds one kept-output info line (stderr) the serial path never prints
-  fail "case29 --jobs 2 output differs from --jobs 1: [$J2_OUT_29] vs [$J1_OUT_29]"
+# CDT-545 added the kept-output info line (stderr); CDT-620 T1 prints it on
+# both paths, so it is filtered from both sides of the R10 byte-identity
+# compare. Everything above it stays byte-identical.
+J1_29_F=$(strip_keep_notice "$J1_OUT_29")
+J2_29_F=$(strip_keep_notice "$J2_OUT_29")
+if [ "$J1_RC_29" = "$J2_RC_29" ] && [ "$J1_29_F" = "$J2_29_F" ]; then pass; else
+  fail "case29 --jobs 2 output differs from --jobs 1: [$J2_29_F] vs [$J1_29_F]"
 fi
 if printf '%s\n' "$J2_OUT_29" | grep -qF 'FAIL a-fail-test.sh (exit 4)'; then pass; else
   fail "case29 FAIL line missing"
@@ -871,7 +878,7 @@ NOFLAG_RC_33=$RC
 NOFLAG_OUT_33=$OUT
 RUN_ALL_TESTS_JOBS=1 run_runner --root "$R26"
 expect_exit 1 "case33 env jobs=1 fails the failing suite"
-if [ "$RC" -eq "$NOFLAG_RC_33" ] && [ "$OUT" = "$NOFLAG_OUT_33" ]; then pass; else
+if [ "$RC" -eq "$NOFLAG_RC_33" ] && [ "$(strip_keep_notice "$OUT")" = "$(strip_keep_notice "$NOFLAG_OUT_33")" ]; then pass; else  # CDT-620 T1: keep-dir notice carries a per-run path
   fail "case33 env jobs=1 output differs from the omitted-flag run"
 fi
 RUN_ALL_TESTS_JOBS= run_runner --root "$R26" --list
@@ -1000,6 +1007,7 @@ MAX38=$(awk '$1 == "start" { s[++n] = $2 }
 if [ "$MAX38" -eq 4 ]; then pass; else
   fail "case38 max suites in flight $MAX38, want exactly 4 (never 5)"
 fi
+
 
 echo "---"
 echo "run-all-tests bite-test: $PASS passed, $FAIL failed"

@@ -468,8 +468,11 @@ expect "fail-closed: C-quoted path -> full" '.tier=="full" and .band=="fail-clos
 printf 'gitdir: /nonexistent\n' > "$NOTREPO/.git"
 OUT="$(cd "$NOTREPO" && bash "$TG" --numstat "$FIX/clear-low.numstat" 2>/dev/null)"; RC=$?
 expect_rc0 "fail-closed git failure"
+# CDT-620 T3: the reason is pinned in full. The macos lane's bash 3.2 answered
+# with the "grader internal error" family here, which the loose "^fail-closed:
+# git failure" prefix did not catch.
 expect "fail-closed: outside a work tree -> full" '.tier=="full" and .band=="fail-closed"
-  and (.grading_reason|test("^fail-closed: git failure"))'
+  and (.grading_reason|test("^fail-closed: git failure: not inside a work tree"))'
 
 OUT="$(cd "$REPO" && PATH= "${BASH:-/bin/bash}" "$TG" --numstat "$FIX/clear-low.numstat" 2>/dev/null)"; RC=$?
 expect_rc0 "fail-closed missing jq"
