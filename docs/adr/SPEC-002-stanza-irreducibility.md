@@ -24,6 +24,39 @@ CDT-233 re-examined the per-site duplication this document already rejects under
   - **Correcting the record.** The SPEC-002 § "Caller integration" section previously claimed every site emits "one comment line + one `PDH=` assignment." That claim is already false and no gate checks it. Verified at `7957ee4`: `grep -rn '^ *# Locate the dev-team plugin root (PDH)\.' commands skills agents docs | wc -l` → `22`, against `209` real stanza emissions (`grep -rn 'PDH=\$( {' commands skills agents docs | wc -l` → `215` raw, minus 3 prose mentions in `skills/plugin-dir-test.sh`, 1 decoy in `skills/skill-lint/test.sh`, and 2 deliberately drifted copies in `skills/skill-lint/fixtures/` → `209`; C3-lint-visible count over the same tree, `bash skills/skill-lint/check-skill-bash.sh --json | tr '{' '\n{' | grep -c '"check": "C3"'` → `204`). 22 of 209 is not "every site"; the sentence is corrected below to state that the comment is not required at every site and to point at the retention rule above, rather than restate the false universal.
 - **Q4 — this section is the anti-re-litigation record itself.** Filed against CDT-232, which rejected the `--self`-mode and shipped-bootstrap-file escapes on circularity — restated verbatim as Q1(a)/(b) above — and CDT-233, which raised and rejected the stanza-version-tag escape (Q1(c)) and re-examined Q2 and Q3. A future ticket proposing a fourth escape from per-site stanza duplication, re-opening `CLAUDE_PLUGIN_ROOT` as a general solution, or arguing the comment/waiver asymmetry is inconsistent, MUST read Q1–Q3 above — and CDT-232 itself for the two mechanisms Q1(a)/(b) restate — before re-deriving the same reasoning. The counts under Q2 and Q3 are dated measurements at `7957ee4`; the mechanisms and the rules they support are not.
 
+- **Q5 — executable form of this record (CDT-239): harness MUSTs.** The verdicts
+  above are dated forensics; this bullet is the contract that keeps them
+  executable, in the shape of SPEC-002 § Cache-resolver coverage gate's
+  "Permanent negative proof" MUST — named harness, named mechanism, named
+  assertion. The executable form of this record is the **T7 block** of
+  `skills/plugin-dir-test.sh` (the last block of that file, per its in-file
+  ordering constraint).
+  - **The harness MUST run the T7 V1 stale-cache delegation falsification** — the
+    pre-CDT-166 build (its body is the forbidden full-path
+    `find | sed | sort -V | tail -1` arm) planted at a lexically-higher slug
+    carrying a stale lower version, against a higher-versioned
+    `cold-dark-void` root — and MUST assert **V1.1** (the stale copy answers
+    itself with the wrong root), **V1.2** (a find-any-then-delegate bootstrap —
+    `sort | tail -1`, never `head -1` — reaches the same stale root), **V1.3**
+    (the canonical stanza extracted from SPEC-002 resolves the correct root), and
+    **V1.4** (a modern copy planted at the stale path self-corrects — the honest
+    counter-nuance this record keeps, not hides).
+  - **The harness MUST run the T7 V2 re-open tripwire**: `plugin-dir.sh root
+    --pdh-contract=2` MUST exit 0 with a non-empty root while the Q1(c) verdict
+    stands. A non-zero exit means argv hardening landed without re-opening the
+    versioned-bootstrap-contract question; the tripwire MUST fail the harness in
+    that case and name the verdict it contradicts.
+  - **Boundary.** The Q1–Q3 verdicts and every count under them stay dated ticket
+    forensics at `7957ee4`. The two MUSTs above are a contract, not a measurement.
+  - **Enforcement is documentation-only, stated plainly.** No gate reads this
+    MUST text: with the T7 block deleted from a copy of the harness, both
+    `bash skills/plugin-dir-test.sh` and `bash skills/docs-drift/check-docs-drift.sh`
+    still exit 0 (measured at `3cfc0e3`, PASS 308 → 303; re-confirmed at the
+    landed CDT-239 HEAD). This MUST binds review — the `/release` spec-coherence
+    read, `/council` refuters, and any future re-litigation under Q4 — not a gate.
+    SPEC-002 § Test lists both assertions as the CDT-233 entries and its § Stanza
+    irreducibility pointer names this section.
+
 **Scope note (2026-10-03, WP 7-02 / CDT-288):** the once-per-file dedup that WP 7-02 shipped is **not** a fourth escape of the kind rejected above. Q1 addresses a *cold-start* caller that must locate the plugin before it can resolve anything, by delegation to a located copy; WP 7-02 keeps the full canonical stanza as each caller file's first `$PDH` fence and removes only *within-invocation* re-emission, the host carrying the already-resolved root as session state (SPEC-002 § Caller integration). No stale copy is ever consulted, no delegation occurs, and the verdicts above stand unchanged.
 
 **Scope note (2026-10-05, CDT-502-C5):** the later-fence managed partial
