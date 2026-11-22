@@ -56,6 +56,22 @@ run() {
   OUT="$out"; ERR="$err"; RC="$rc"
 }
 
+# --- CDT-241: the suite must leave $ROOT byte-identical. Capture the working
+# tree state before the first run; compare before the summary. Graceful skip
+# (recorded pass) when $ROOT is not a git working tree.
+if git -C "$ROOT" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+  TREE_CHECK=1
+  TREE_BEFORE=$(git -C "$ROOT" status --porcelain)
+else
+  TREE_CHECK=0
+  TREE_BEFORE=""
+fi
+
+# Fixture root so no test writes inside the repo tree (CDT-241: created before
+# the first subtest; every write-side test, apply included, targets this root).
+FIX=$(mktemp -d "${TMPDIR:-/tmp}/sync-includes-fix.XXXXXX")
+trap 'rm -rf "$FIX"' EXIT
+
 # --- unknown mode: table-driven over AC1's "any other unrecognised mode",
 # not two literals. Covers flag-like, near-misses (case/whitespace/prefix),
 # empty string, leading-dash, embedded-space, and path-like shapes.
@@ -92,10 +108,23 @@ run
 assert_eq "bare: exit 0" "0" "$RC"
 assert_contains "bare: unchanged message" "$OUT" "All managed include regions match their partials."
 
-# --- apply still reports correctly ---
-run apply
+# --- apply still reports correctly (CDT-241: sandboxed to a fixture root) ----
+# This subtest used to be a bare `run apply`: with no --root, sync-includes.py
+# defaults root '.' and rewrote every drifted managed region in the real tree
+# — a silent heal that masked drift from every later check (and from the CI
+# standalone check that ran after the suite). The fixture root is the only
+# apply target now; no subtest runs apply against $ROOT.
+mkdir -p "$FIX/applyroot/agents" "$FIX/applyroot/skills/lib"
+printf '%s\n' '<!--' 'fixture partial' '-->' 'APPLIED BODY' > "$FIX/applyroot/skills/lib/part.md"
+printf '%s\n' '<!-- include: skills/lib/part.md agent=qa -->' 'stale body' '<!-- /include -->' \
+  > "$FIX/applyroot/agents/dummy.md"
+run --root "$FIX/applyroot" apply
 assert_eq "apply: exit 0" "0" "$RC"
-assert_contains "apply: reports rewrite count" "$OUT" "apply: rewrote"
+assert_contains "apply: reports rewrite count" "$OUT" "apply: rewrote 1 region(s)."
+assert_contains "apply: region body rewritten" "$(cat "$FIX/applyroot/agents/dummy.md")" "APPLIED BODY"
+assert_not_contains "apply: stale body gone" "$(cat "$FIX/applyroot/agents/dummy.md")" "stale body"
+run --root "$FIX/applyroot" check
+assert_eq "apply: fixture clean after apply" "0" "$RC"
 
 # --- -h / --help: usage, exit 0 ---
 run --help
@@ -120,9 +149,7 @@ assert_empty "--root missing value: stdout is empty" "$OUT"
 assert_not_contains "--root missing value: no traceback" "$ERR" "Traceback"
 
 # --- rv-w3-25 hardening: containment, missing partial, pairing ---------------
-# Fixture root so no test writes inside the repo tree.
-FIX=$(mktemp -d "${TMPDIR:-/tmp}/sync-includes-fix.XXXXXX")
-trap 'rm -rf "$FIX"' EXIT
+# FIX (fixture root + EXIT trap) is created above, before the apply subtest.
 mkdir -p "$FIX/skills/p"
 printf '%s\n' '<!--' 'fixture partial' '-->' 'BODY' > "$FIX/skills/p/part.md"
 
@@ -176,9 +203,9 @@ if ln -s "$OUTSIDE/target.md" "$FIX/skills/p/outside.md" 2>/dev/null; then
   assert_eq "symlink escape: check exit 1" "1" "$RC"
   assert_contains "symlink escape: friendly error" "$ERR" "outside"
   assert_not_contains "symlink escape: no traceback" "$ERR" "Traceback"
-  ok "symlink escape fixture created"
+  pass "symlink escape fixture created"
 else
-  ok "symlink escape: ln -s unsupported on this host — skipped"
+  pass "symlink escape: ln -s unsupported on this host — skipped"
 fi
 
 # 4. Valid region still resolves from the fixture root (correct body → clean).
@@ -223,6 +250,15 @@ assert_contains "two regions: reports 2 rewrites" "$OUT" "apply: rewrote 2 regio
 assert_contains "two regions: second region rewritten" "$(cat "$FIX/two.md")" "BODY"
 run --root "$FIX" check "$FIX/two.md"
 assert_eq "two regions: check clean after apply" "0" "$RC"
+
+# --- CDT-241: no subtest may mutate $ROOT. A real-tree `apply` healed drift as
+# a side effect; the identity assertion catches any regression.
+if [ "$TREE_CHECK" = "1" ]; then
+  TREE_AFTER=$(git -C "$ROOT" status --porcelain)
+  assert_eq "suite: working tree unchanged" "$TREE_BEFORE" "$TREE_AFTER"
+else
+  pass "suite: working tree unchanged — skipped (not a git working tree)"
+fi
 
 echo
 echo "PASS=$PASS FAIL=$FAIL"

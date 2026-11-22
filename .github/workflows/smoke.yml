@@ -124,8 +124,13 @@ jobs:
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      # CDT-241: the standalone `sync-includes.py check` step was removed. It
+      # ran after the suite, whose apply subtest (pre-fix) ran against the
+      # checkout and healed any drift first — so the step only ever re-confirmed
+      # a clean tree. The suite's apply subtest is now sandboxed to a scratch
+      # root, and its own full-tree check subtest runs that same check against
+      # the checkout and fails the job on drift. One step is now the whole gate.
       - run: bash skills/agent-memory/sync-includes-test.sh
-      - run: python3 skills/agent-memory/sync-includes.py check
 
   # CDT-269 — SPEC-030 R14 all-suites runner (quarantine: tools/test-quarantine.txt)
   all-tests:

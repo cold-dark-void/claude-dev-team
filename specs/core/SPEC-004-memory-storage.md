@@ -98,6 +98,27 @@ The write-path persistence layer for agent memories. Handles dual-mode storage (
 
 ## Validation
 
+## Acceptance criteria
+
+Format and rules: SPEC-033 M14(g) and M14(h). Each ticket that ships through M14
+appends its `### <ticket_id>` subsection here.
+
+### CDT-241
+
+- **A.** The `apply` subtest of `skills/agent-memory/sync-includes-test.sh` operates on a scratch copy under `${TMPDIR:-/tmp}` (the suite's existing `FIX` root), never on `$ROOT`: every `apply`-mode invocation in the suite carries `--root`, and the only `$ROOT` invocations are read-only modes (`check`, bare usage, `--help`, unknown-mode). Running the suite leaves the working tree byte-identical — the suite asserts it itself (`git status --porcelain` captured before the first subtest and compared after the last, graceful skip outside a git tree).
+  Verify: bash skills/agent-memory/sync-includes-test.sh
+- **B.** The drift-masking behavior is fixed: with drift injected into a managed region, running the suite does not heal it — the tree stays dirty and the suite's full-tree `check` subtest reports the drift (`DRIFT: <file> (agent=<X>, partial=<partial>)`) and fails, so a standalone `check` after the suite still sees the drift (the behavior the pre-fix `apply` subtest masked).
+  Verify: bash skills/agent-memory/sync-includes-test.sh
+- **C.** The `include-drift` CI job in `.github/workflows/smoke.yml` is one step — the suite alone — with a comment naming CDT-241 and the redundancy reason (the pre-fix suite healed the checkout before the standalone check could see drift; post-fix the suite's own full-tree check fails the job on drift).
+  Verify: bash skills/agent-memory/sync-includes-test.sh
+- **D.** The no-side-effect assertion was watched failing first (RED): with drift injected into `agents/qa.md` and the apply subtest still un-sandboxed, the tree-identity assertion FAILs because the real-tree apply heals the file mid-run (`PASS=88 FAIL=5`); the GREEN run at the fixed suite shows the tree untouched and the drift surviving (`PASS=97 FAIL=0` clean; drifted clone fails loudly with `M agents/qa.md` intact).
+  Verify: bash skills/agent-memory/sync-includes-test.sh
+- **E.** The suite passes clean: `bash skills/agent-memory/sync-includes-test.sh` exits 0 (`PASS=97 FAIL=0`) and the smoke harness gate exits 0 (`bash tools/smoke/run.sh`, 601 checked / 0 failed).
+  Verify: bash tools/smoke/test.sh
+- **F.** [process] The release gates pass (`bash tools/run-all-tests.sh` exits 0; every `/release` gate green), and the release notes record the CDT-241 test-isolation fix (apply sandboxed into the suite's FIX scratch root, tree-identity assertion, include-drift job simplified to one step) while the suite code and this subsection stay coherent (`PASS=97`, the RED/GREEN evidence recorded).
+
+## Validation
+
 - `sqlite3 .claude/memory/memory.db "SELECT value FROM config WHERE key='schema_version'"` returns `"4"` after fresh `schema.sql` apply
 - v3 fixture + migrate → `"4"` with no data loss on pre-seeded rows
 - Migrated memories have tier=0, archived=false (v1→v2 path)
