@@ -1414,16 +1414,60 @@ assert_eq "WP11 _pr precedence: a CLAUDE_PLUGIN_ROOT without plugin-dir.sh falls
 
 # CDT-238: the stanza must run under set -u (CLAUDE_PLUGIN_ROOT unset, no
 # unguarded expansion). Branches: cwd identity, decoy -> cache, _pr, none.
+#
+# Scope decision (AC3): set -u coverage is THIS block's five branch executions,
+# not all caller sites in the tree (measured 2026-11-17, CDT-646: 92 caller
+# files, 106 first-fence emissions). The five runs collectively exercise
+# every stanza branch (0, the `_pr` branch substituted and unsubstituted, cwd
+# identity, fall-through) once under -u, so they are the union of what any other
+# call site could prove about the shell option. (A sixth `-u` run of the
+# canonical text — the CDT-265 literal-dir negative above — re-bites branch 1
+# under -u; it is extra coverage, not part of the five-branch set.) The
+# remaining bare-`bash` runs
+# assert branch *semantics*; re-running each of them under -u would duplicate
+# the shell-option property without adding bite.
 pdh=$( cd "$S11_DEV" && env -u CLAUDE_PLUGIN_ROOT HOME="$S11_HOME_CACHE" bash -u "$STANZA_SH" 2>&1 )
 assert_eq "WP11 set -u: cwd identity branch" "$pdh" "$S11_DEV"
-pdh=$( cd "$S11_DECOY" && env -u CLAUDE_PLUGIN_ROOT HOME="$S11_HOME_CACHE" bash -u "$STANZA_SH" 2>&1 )
+pdh=$( cd "$S11_DECOY" && env -u CLAUDE_PLUGIN_ROOT HOME="$S11_HOME_CACHE" bash -u "$STANZA_SH" 2>"$S11/err-m5-green" )
 assert_eq "WP11 set -u: decoy cwd falls through to the cache" "$pdh" "$S11_CACHE"
+# GREEN control for mutant M5 (mutants block below): this same scenario on the
+# unmutated text resolves the cache tier and stays quiet on stderr.
+assert_eq "WP11 set -u: the unmutated branch-0 run adds no stderr" "$(cat "$S11/err-m5-green")" ""
 pdh=$( cd "$S11_EMPTY" && env -u CLAUDE_PLUGIN_ROOT HOME="$S11_HOME_MP" bash -u "$S11_SUB" 2>&1 )
 assert_eq "WP11 set -u: substituted _pr branch" "$pdh" "$S11_ROOT"
 pdh=$( cd "$S11_EMPTY" && env -u CLAUDE_PLUGIN_ROOT HOME="$S11_HOME_MP" bash -u "$STANZA_SH" 2>&1 )
 assert_eq "WP11 set -u: unsubstituted _pr falls through to the marketplace" "$pdh" "$S11_MP"
 pdh=$( cd "$S11_EMPTY" && env CLAUDE_PLUGIN_ROOT="$S11_ROOT" HOME="$S11_HOME_MP" bash -u "$STANZA_SH" 2>&1 )
 assert_eq "WP11 set -u: branch 0 (CLAUDE_PLUGIN_ROOT set)" "$pdh" "$S11_ROOT"
+
+# CDT-238 AC4 — set -e is pinned, pipefail is declined with the evidence.
+# set -e green pin: SPEC-002 § "Locating `plugin-dir.sh` itself" (the "no new
+# failure path" claim) says the no-plugin-anywhere path must yield an empty PDH,
+# not a new failure. A `set -e` host takes the
+# assignment's exit status, so an empty PDH that exits non-zero would abort an
+# embed script. This pins the empty-PDH path against future stanza edits.
+S11_HOME_NONE="$S11/home-none"
+mkdir -p "$S11_HOME_NONE"
+pdh=$( cd "$S11_EMPTY" && env -u CLAUDE_PLUGIN_ROOT HOME="$S11_HOME_NONE" bash -e "$STANZA_SH" 2>"$S11/err-sete" )
+rc_sete=$?
+assert_eq "WP11 set -e: empty-PDH scenario yields empty PDH" "$pdh" ""
+assert_eq "WP11 set -e: empty-PDH scenario exits 0 (no-new-failure-path)" "$rc_sete" "0"
+assert_eq "WP11 set -e: empty-PDH scenario adds no stderr" "$(cat "$S11/err-sete")" ""
+# pipefail: DECLINED, not asserted. No stanza-carrying site runs the stanza
+# under `set -o pipefail` today — the transcript-mirror embeds (compact-,
+# summarize-, transcript-*.sh, hook-shim.sh) are plain `set -u`
+# (`skills/transcript-mirror/transcript-mirror.sh` itself is `set -uo pipefail`
+# but carries no stanza), and the `set -uo pipefail` fence in
+# skills/init-orchestration/SKILL.md:773 is a different fence from the one that
+# carries the stanza (:124 carries neither -e nor pipefail). The probe: under
+# pipefail, the final `find … | awk | sort | tail | cut | xargs | xargs`
+# pipeline exits 1 when the cache tier matches nothing (`find` exits 1 on a
+# nonexistent path even with 2>/dev/null); without pipefail the trailing
+# `xargs -r` masks it with 0 — which is why the `set -e`-only pin is green. So
+# under `set -eo pipefail` the stanza would abort an embed
+# script on the intentional empty-PDH path instead of yielding an empty PDH.
+# Watch item, not an assertion: if an embed site ever adopts pipefail, that is a
+# stanza defect to fix in the stanza, not a harness assertion to add here.
 
 # zsh: the same canonical text, run as a zsh script. Skipped when zsh is absent.
 if command -v zsh >/dev/null 2>&1; then
@@ -1476,6 +1520,20 @@ mk_plugin_identity "$S11_DECOY" "dev-team" 0
 rm -f "$S11_DECOY/agents/pm.md"
 pdh=$( cd "$S11_DECOY" && env -u CLAUDE_PLUGIN_ROOT HOME="$S11_HOME_CACHE" bash "$S11_M4" )
 assert_mutant_ne "WP11 mutant M4: the no-agents/pm.md control assertion bites" "$pdh" "$S11_CACHE"
+# M5 (CDT-238 AC2): branch 0 drops the `:-` default. This is the RED/GREEN pair
+# for the set -u block above — M1..M4 mutate the `_pr` and cwd branches only, so
+# without M5 a refactor of that block could delete the `:-` bite silently.
+# RED: under `bash -u` with CLAUDE_PLUGIN_ROOT unset, the bare `${CLAUDE_PLUGIN_ROOT}`
+# is an unbound-variable error inside the command substitution, so PDH is empty
+# and stderr names the variable. GREEN: the unmutated text resolves $S11_CACHE
+# with an empty stderr (asserted in the set -u block above).
+S11_M5="$S11/mutant-b0no-n.sh"
+stanza_subst "$S11_M5" '${CLAUDE_PLUGIN_ROOT:-}' '${CLAUDE_PLUGIN_ROOT}'
+assert_rc "WP11 mutant M5 (branch-0 :- default dropped) applied" "$?" 0
+pdh=$( cd "$S11_DECOY" && env -u CLAUDE_PLUGIN_ROOT HOME="$S11_HOME_CACHE" bash -u "$S11_M5" 2>"$S11/err-m5" )
+assert_mutant_ne "WP11 mutant M5: the set -u branch-0 guard assertion bites" "$pdh" "$S11_CACHE"
+assert_eq "WP11 mutant M5: the mutated run resolves empty, not merely different" "$pdh" ""
+assert_contains "WP11 mutant M5: the failure names the unbound variable" "$(cat "$S11/err-m5")" "CLAUDE_PLUGIN_ROOT: unbound variable"
 
 # --- WP 1-11 / CDT-265: hook-runtime bootstraps (same cwd hole, other text) ---
 # The three hook-runtime bootstraps (transcript-mirror/hook-shim.sh, and the
