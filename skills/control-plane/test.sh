@@ -1203,6 +1203,83 @@ if [ "$(status_of controlplane.probe.hygiene)" = 'SKIP' ]; then
 else
   bad "AC13: hygiene row is $(status_of controlplane.probe.hygiene), expected SKIP"
 fi
+# BSD-date arm of the same live-lease case (CDT-620 T4 — the three macOS reds).
+# On macOS `date` is BSD: `-d` is a Daylight-Savings spec (never a date string)
+# and `-j -f FMT INPUT` matches INPUT against FMT literally, so a Z-stripped
+# input cannot be dated by a format that ends in a literal Z. An undatable lease
+# reads as EXPIRED (SPEC-043 M12 mirrors run.Lease.Expired), which turned this
+# WARN into a takeover start: probe PASS, one start, hygiene PASS. The shim
+# below is the hermetic macOS `date` (real `date` answers everything else).
+BSD_BIN="$SCRATCH/bsd-bin"
+mkdir -p "$BSD_BIN"
+cat >"$BSD_BIN/date" <<'SHIM'
+#!/usr/bin/env bash
+# fake BSD/macOS date (CDT-620 T4): -d is a DST spec, -j -f needs a literal
+# format match, -r takes seconds since the epoch. Everything else delegates.
+REAL=$(command -v -p date 2>/dev/null || true)
+[ -n "$REAL" ] || REAL=/bin/date
+BSD_UTC=''
+[ "${1:-}" = "-u" ] && { BSD_UTC=1; shift; }
+case "${1:-}" in
+  -d)
+    case "${2:-}" in
+      yes | on | 1 | no | off | 0 | summer | winter)
+        if [ -n "$BSD_UTC" ]; then exec "$REAL" -u "$@"; fi
+        exec "$REAL" "$@" ;;
+    esac
+    printf 'date: %s: Invalid date/offset argument\n' "${2:-}" >&2
+    exit 1 ;;
+  -j)
+    shift
+    [ "${1:-}" = "-f" ] || { printf 'date: illegal option -- j\n' >&2; exit 1; }
+    fmt="${2:-}"; inp="${3:-}"; shift 3
+    case "$fmt" in
+      '%Y-%m-%dT%H:%M:%SZ')
+        case "$inp" in
+          [0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]T[0-9][0-9]:[0-9][0-9]:[0-9][0-9]Z) ;;
+          *) printf 'date: %s: illegal input format\n' "$inp" >&2; exit 1 ;;
+        esac ;;
+      '%Y-%m-%dT%H:%M:%S')
+        case "$inp" in
+          [0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]T[0-9][0-9]:[0-9][0-9]:[0-9][0-9]) ;;
+          *) printf 'date: %s: illegal input format\n' "$inp" >&2; exit 1 ;;
+        esac ;;
+      *) printf 'date: unsupported format %s\n' "$fmt" >&2; exit 1 ;;
+    esac
+    src="$inp"
+    case "$src" in *Z) ;; *) src="$src+00:00" ;; esac
+    if [ -n "$BSD_UTC" ]; then exec "$REAL" -u -d "$src" "${1:-+%s}"; fi
+    exec "$REAL" -u -d "$src" "${1:-+%s}" ;;
+  -r)
+    shift
+    exec "$REAL" -u -d "@${1:-0}" "${2:-+%s}" ;;
+esac
+if [ -n "$BSD_UTC" ]; then exec "$REAL" -u "$@"; fi
+exec "$REAL" "$@"
+SHIM
+chmod +x "$BSD_BIN/date"
+reset_state
+set_journal "{\"run_id\":\"devteam-setup-probe\",\"status\":\"running\",\"terminal\":false,\"owner\":\"host:4242\",\"token\":1,\"stall_limit_s\":108,\"last_heartbeat_ts\":\"$(fmt_ts -20)\"}"
+PATH_SAVE=$PATH
+PATH="$BSD_BIN:$PATH"
+run_setup
+PATH=$PATH_SAVE
+if [ "$(status_of controlplane.probe)" = 'WARN' ] && [ "$RC" -eq 0 ] &&
+  ! grep -qF -e ' start ' "$AGENT_LOG"; then
+  ok "M12 BSD date: a live lease is a WARN under BSD date, never a takeover start"
+else
+  bad "M12 BSD date running-lease: $(status_of controlplane.probe) rc=$RC starts=$(count_lines ' start ' "$AGENT_LOG")"
+fi
+case "$(row_of controlplane.probe)" in
+  *'retry after lease expiry ~108 s'*) ok "M12 BSD date: the WARN row quotes the lease expiry" ;;
+  *) bad "M12 BSD date: the WARN row has no lease line: $(row_of controlplane.probe)" ;;
+esac
+if [ "$(status_of controlplane.probe.hygiene)" = 'SKIP' ]; then
+  ok "AC13 BSD date: hygiene stays SKIPped under BSD date"
+else
+  bad "AC13 BSD date: hygiene row is $(status_of controlplane.probe.hygiene), expected SKIP"
+fi
+reset_state
 # M12 arm 2: the lease is past last heartbeat + stall_limit_s, so its owner is
 # dead — the driver runs exactly one takeover start and the run closes
 # (spec § Q1a: the takeover start exits 0 and writes one run, not two).
