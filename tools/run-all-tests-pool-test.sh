@@ -515,6 +515,50 @@ if ls "$TMP"/run-all-tests-failed.*/b-skip-test.sh.out >/dev/null 2>&1; then
 else pass; fi
 rm -rf "$TMP"/run-all-tests-failed.*
 
+# Case P16 (CDT-620 T6, AC E): a reused worker's tmp wipe must not destroy a
+# scratch a previous suite's grandchild is still writing. The v2.1.9 CI flake:
+# tools/run-all-tests-test.sh runs the runner nested, so the nested runner's
+# WORKDIR sat in $TMPDIR (w.8.tmp); the outer dispatch_suite's `rm -rf` of the
+# reused worker's tmp deleted it mid-run and the nested run lost quarantine.tsv
+# / suite.out. a-bg plants a writer that lands 3s after its suite exits;
+# c-check runs on the SAME worker (jobs=2, three suites) and must find the
+# written file. RED against the in-place wipe, green against a per-dispatch
+# HOME/TMPDIR that is never deleted inside the run.
+P16=$(new_root)
+EVID16="$TMP/p16-nested-dir.txt"
+: > "$EVID16"
+cat > "$P16/a-bg-test.sh" <<EOF
+#!/usr/bin/env bash
+nested="\${TMPDIR:-/tmp}/p16-nested.\$\$"
+mkdir -p "\$nested" || exit 1
+printf '%s\n' "\$nested" >> "$EVID16"
+( sleep 3; printf 'late\n' > "\$nested/late.out" ) &
+exit 0
+EOF
+ok_suite > "$P16/b-ok-test.sh"
+cat > "$P16/c-check-test.sh" <<EOF
+#!/usr/bin/env bash
+nested=\$(head -n 1 "$EVID16")
+[ -n "\$nested" ] || { echo 'P16_NO_EVIDENCE'; exit 1; }
+i=0
+while [ "\$i" -lt 30 ]; do
+  [ -f "\$nested/late.out" ] && break
+  sleep 0.2
+  i=\$((i + 1))
+done
+if [ ! -f "\$nested/late.out" ]; then
+  echo 'P16_NESTED_SCRATCH_WIPED'
+  exit 1
+fi
+grep -q late "\$nested/late.out"
+EOF
+git -C "$P16" add -A
+
+run_runner --root "$P16" --jobs 2
+expect_exit 0 "caseP16 reused-worker scratch survives the next dispatch"
+expect_out "PASS a-bg-test.sh" "caseP16 background-writer suite passes"
+expect_out "PASS c-check-test.sh" "caseP16 nested scratch intact on the reused worker"
+
 # Case P7 (CDT-534 AC12): red-then-green receipt. The rm/mv/leak/restore
 # trees are re-run against the round-1 runner (9a61f6b -- has --jobs, but
 # neither the rm/mv overlay nor the full R39 restore) and must FAIL there

@@ -36,6 +36,13 @@
 # serially, so pool-only keeping left a red macos run with no full suite
 # output for the workflow's diagnosability step. R10 result lines stay
 # byte-identical on jobs=1 (the notice goes to stderr).
+#
+# CDT-620 T6: a reused worker gets a FRESH HOME/TMPDIR per dispatch (numbered)
+# instead of an in-place `rm -rf` of the previous one. A suite's orphaned
+# grandchild (the CDT-554 class) can keep writing into the worker TMPDIR after
+# its slot ends -- tools/run-all-tests-test.sh runs the runner nested, so its
+# nested WORKDIR lives there and the wipe deleted it mid-run (v2.1.9 CI).
+# Superseded dirs live under WORKDIR, so cleanup() still removes everything.
 set -uo pipefail
 
 PROG="tools/run-all-tests.sh"
@@ -281,6 +288,7 @@ WORKDIR=$(mktemp -d "${TMPDIR:-/tmp}/run-all-tests.XXXXXX")
 SCRATCH=""
 SEED_SHA=""
 KEEP_DIR=""   # CDT-545: persistent dir holding failed suites' full output
+DISPATCH_SEQ=0  # CDT-620 T6: dispatch counter, keys each suite's HOME/TMPDIR
 
 # CDT-554: a suite's orphaned child (watchdog sleep, backgrounded fixture)
 # can hold cwd inside the scratch and keep files appearing in it, so a plain
@@ -701,12 +709,17 @@ if [ "$JOBS" -gt 1 ]; then
     printf '%s\n' "$worker" > "$WORKDIR/worker.for.$k"
 
     # Fresh per-suite HOME/TMPDIR under WORKDIR, outside the clone (R39):
-    # wiped per dispatch so suites sharing a worker cannot see each
-    # other's temp state. Not inside the worker worktree or its .git, so
-    # R9 snapshots stay clean without a seed exclude.
-    home="$WORKDIR/w.$worker.home"
-    tmp="$WORKDIR/w.$worker.tmp"
-    if ! rm -rf "$home" "$tmp" || ! mkdir -p "$home" "$tmp"; then
+    # unique per dispatch (CDT-620 T6) so a suite sharing a worker cannot see
+    # another's temp state, and never deleted inside the run. The old in-place
+    # `rm -rf` raced a suite's orphaned grandchild (CDT-554 class): the v2.1.9
+    # CI flake was tools/run-all-tests-test.sh's nested runner losing its
+    # WORKDIR (it lives in $TMPDIR) to this wipe. Superseded dirs stay under
+    # WORKDIR, so cleanup() removes them at exit. Not inside the worker
+    # worktree or its .git, so R9 snapshots stay clean without a seed exclude.
+    DISPATCH_SEQ=$((DISPATCH_SEQ + 1))
+    home="$WORKDIR/w.$worker.$DISPATCH_SEQ.home"
+    tmp="$WORKDIR/w.$worker.$DISPATCH_SEQ.tmp"
+    if ! mkdir -p "$home" "$tmp"; then
       : > "$WORKDIR/dispatch-failed.$k"
       : > "$WORKDIR/inflight.$k"
       return 0
