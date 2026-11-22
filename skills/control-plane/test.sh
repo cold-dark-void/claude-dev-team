@@ -1218,8 +1218,9 @@ cat >"$BSD_BIN/date" <<'SHIM'
 # format match, -r takes seconds since the epoch. Everything else delegates.
 # REAL is an absolute path off a fixed list: `command -v -p date` answers from
 # $PATH under bash 3.2, which resolves back to this shim and self-execs forever
-# (the CDT-620 macOS lane timeout). Conversion follows REAL's own grammar —
-# GNU `-d`, BSD `-j -f` / `-r` — so the shim works on both lanes.
+# (the CDT-620 macOS lane timeout). Epoch output is computed by bsd_epoch below
+# rather than by REAL: delegating it made the arm lane-dependent, and the
+# ubuntu lane reads the ISO-Z form through GNU `-d` differently from this box.
 SELF_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" 2>/dev/null && pwd || true)
 REAL=''
 for _cand in /bin/date /usr/bin/date /usr/local/bin/date /opt/homebrew/bin/date; do
@@ -1230,8 +1231,27 @@ if [ -z "$REAL" ]; then
   printf 'bsd-date shim: no real date binary found\n' >&2
   exit 127
 fi
-IS_GNU=''
-if "$REAL" --version 2>/dev/null | grep -q 'GNU coreutils'; then IS_GNU=1; fi
+bsd_epoch() { # bsd_epoch <YYYY-MM-DDTHH:MM:SS[Z]> -> UTC epoch seconds, by
+              # days-from-civil in awk. The conversion is computed here so the
+              # shim is lane-independent (the format check is the BSD part).
+  local ts="${1%Z}" y rest mo d h mi s
+  y=${ts%%-*}; rest=${ts#*-}
+  mo=${rest%%-*}; rest=${rest#*-}
+  d=${rest%%T*}; rest=${rest#*T}
+  h=${rest%%:*}; rest=${rest#*:}
+  mi=${rest%%:*}; s=${rest##*:}
+  awk -v y="$y" -v mo="$mo" -v d="$d" -v h="$h" -v mi="$mi" -v s="$s" '
+    function fl(a, b,  q) { q = int(a / b); if (q * b > a) q--; return q }
+    BEGIN {
+      yy = y - (mo <= 2 ? 1 : 0)
+      era = fl(yy, 400)
+      yoe = yy - era * 400
+      mp = mo + (mo > 2 ? -3 : 9)
+      doy = fl(153 * mp + 2, 5) + d - 1
+      doe = yoe * 365 + fl(yoe, 4) - fl(yoe, 100) + doy
+      printf "%d\n", (era * 146097 + doe - 719468) * 86400 + h * 3600 + mi * 60 + s
+    }'
+}
 BSD_UTC=''
 [ "${1:-}" = "-u" ] && { BSD_UTC=1; shift; }
 case "${1:-}" in
@@ -1261,20 +1281,20 @@ case "${1:-}" in
         esac ;;
       *) printf 'date: unsupported format %s\n' "$fmt" >&2; exit 1 ;;
     esac
-    if [ -n "$IS_GNU" ]; then
-      src="$inp"
-      case "$src" in *Z) ;; *) src="$src+00:00" ;; esac
-      if [ -n "$BSD_UTC" ]; then exec "$REAL" -u -d "$src" "$outfmt"; fi
-      exec "$REAL" -d "$src" "$outfmt"
+    if [ "$outfmt" = '+%s' ]; then
+      # UTC seconds computed here, not by the host date: the shim runs on both
+      # lanes and only its FORMAT check is BSD-specific (CDT-620 T4).
+      printf '%s\n' "$(bsd_epoch "$inp")"
+      exit 0
     fi
     if [ -n "$BSD_UTC" ]; then exec "$REAL" -u -j -f "$fmt" "$inp" "$outfmt"; fi
     exec "$REAL" -j -f "$fmt" "$inp" "$outfmt" ;;
   -r)
     shift
     sec="${1:-0}"; outfmt="${2:-+%s}"
-    if [ -n "$IS_GNU" ]; then
-      if [ -n "$BSD_UTC" ]; then exec "$REAL" -u -d "@$sec" "$outfmt"; fi
-      exec "$REAL" -d "@$sec" "$outfmt"
+    if [ "$outfmt" = '+%s' ]; then
+      printf '%s\n' "$sec"
+      exit 0
     fi
     if [ -n "$BSD_UTC" ]; then exec "$REAL" -u -r "$sec" "$outfmt"; fi
     exec "$REAL" -r "$sec" "$outfmt" ;;
