@@ -1216,8 +1216,22 @@ cat >"$BSD_BIN/date" <<'SHIM'
 #!/usr/bin/env bash
 # fake BSD/macOS date (CDT-620 T4): -d is a DST spec, -j -f needs a literal
 # format match, -r takes seconds since the epoch. Everything else delegates.
-REAL=$(command -v -p date 2>/dev/null || true)
-[ -n "$REAL" ] || REAL=/bin/date
+# REAL is an absolute path off a fixed list: `command -v -p date` answers from
+# $PATH under bash 3.2, which resolves back to this shim and self-execs forever
+# (the CDT-620 macOS lane timeout). Conversion follows REAL's own grammar —
+# GNU `-d`, BSD `-j -f` / `-r` — so the shim works on both lanes.
+SELF_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" 2>/dev/null && pwd || true)
+REAL=''
+for _cand in /bin/date /usr/bin/date /usr/local/bin/date /opt/homebrew/bin/date; do
+  [ "$_cand" = "$SELF_DIR/date" ] && continue
+  if [ -x "$_cand" ]; then REAL=$_cand; break; fi
+done
+if [ -z "$REAL" ]; then
+  printf 'bsd-date shim: no real date binary found\n' >&2
+  exit 127
+fi
+IS_GNU=''
+if "$REAL" --version 2>/dev/null | grep -q 'GNU coreutils'; then IS_GNU=1; fi
 BSD_UTC=''
 [ "${1:-}" = "-u" ] && { BSD_UTC=1; shift; }
 case "${1:-}" in
@@ -1233,6 +1247,7 @@ case "${1:-}" in
     shift
     [ "${1:-}" = "-f" ] || { printf 'date: illegal option -- j\n' >&2; exit 1; }
     fmt="${2:-}"; inp="${3:-}"; shift 3
+    outfmt="${1:-+%s}"
     case "$fmt" in
       '%Y-%m-%dT%H:%M:%SZ')
         case "$inp" in
@@ -1246,13 +1261,23 @@ case "${1:-}" in
         esac ;;
       *) printf 'date: unsupported format %s\n' "$fmt" >&2; exit 1 ;;
     esac
-    src="$inp"
-    case "$src" in *Z) ;; *) src="$src+00:00" ;; esac
-    if [ -n "$BSD_UTC" ]; then exec "$REAL" -u -d "$src" "${1:-+%s}"; fi
-    exec "$REAL" -u -d "$src" "${1:-+%s}" ;;
+    if [ -n "$IS_GNU" ]; then
+      src="$inp"
+      case "$src" in *Z) ;; *) src="$src+00:00" ;; esac
+      if [ -n "$BSD_UTC" ]; then exec "$REAL" -u -d "$src" "$outfmt"; fi
+      exec "$REAL" -d "$src" "$outfmt"
+    fi
+    if [ -n "$BSD_UTC" ]; then exec "$REAL" -u -j -f "$fmt" "$inp" "$outfmt"; fi
+    exec "$REAL" -j -f "$fmt" "$inp" "$outfmt" ;;
   -r)
     shift
-    exec "$REAL" -u -d "@${1:-0}" "${2:-+%s}" ;;
+    sec="${1:-0}"; outfmt="${2:-+%s}"
+    if [ -n "$IS_GNU" ]; then
+      if [ -n "$BSD_UTC" ]; then exec "$REAL" -u -d "@$sec" "$outfmt"; fi
+      exec "$REAL" -d "@$sec" "$outfmt"
+    fi
+    if [ -n "$BSD_UTC" ]; then exec "$REAL" -u -r "$sec" "$outfmt"; fi
+    exec "$REAL" -r "$sec" "$outfmt" ;;
 esac
 if [ -n "$BSD_UTC" ]; then exec "$REAL" -u "$@"; fi
 exec "$REAL" "$@"
