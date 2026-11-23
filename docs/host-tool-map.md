@@ -51,8 +51,22 @@ return, then run batch k+1.
   fewer than X spawns in flight is compliant, and a plan's X is a ceiling,
   never a floor. QA MUST NOT hard-fail a wave-plan-enforced run on an observed
   in-flight spawn count (SPEC-013 `### CDT-594` AC16).
+- **Mechanical enforcement on the Grok host: the spawn tripwire (CDT-607).**
+  The ceiling is enforced outside the plugin by two host files:
+  `~/.grok/hooks/spawn-tripwire.json` runs
+  `~/.claude/hooks/spawn-tripwire.sh` as a `PreToolUse` gate on
+  `spawn_subagent`, fed by `SubagentStart` and `SubagentStop`. The gate keeps
+  a per-host ledger of in-flight subagents, shared across sessions, and denies
+  a spawn at 4 in flight (default cap; `SPAWN_TRIPWIRE_MAX` overrides it). It
+  fails open: a broken, corrupt, or jq-less tripwire never blocks a spawn. An
+  entry older than the 6h TTL is pruned on the next read, so a wedged
+  subagent self-heals and releases its slot. The plugin reads nothing from the
+  ledger — the deny reason reaches the model only, and `waves[]` stays the
+  plan-side fix. The config half runs beside it: `[subagents]` in
+  `~/.grok/config.toml` sets `max_concurrent = 3` with
+  `limit_behavior = "queue"`.
 
-SPEC-013 § Spawn concurrency cap owns the normative text for both points.
+SPEC-013 § Spawn concurrency cap owns the normative text for these points.
 This map carries the per-host note only.
 
 ## Scope

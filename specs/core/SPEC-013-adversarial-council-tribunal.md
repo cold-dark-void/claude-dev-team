@@ -1040,6 +1040,12 @@ Format and rules: SPEC-033 M14(g) and M14(h).
 - **AC18.** Finalize runs the Phase-2-only count check: with a `phase2` wave present it compares, per claim group, the intended investigator slot count against the bundles that carry that claim. A shortfall with `verification_mode: full` exits 7 and names the claim ids on stderr. A shortfall the caller declares through `--verification-mode self-verified` proceeds and writes an Audit Trail line starting `phase2-wave-shortfall:`. An equal count writes no line. A plan with no `phase2` wave is not checked, and no wave other than Phase 2 is counted. The report templates gain no frontmatter key.
   Verify: bash skills/council/test-waves.sh
 
+### CDT-607
+
+- **A.** The per-host note under the Spawn concurrency cap fan-out records mechanical host-ceiling enforcement on this host: `~/.grok/hooks/spawn-tripwire.json` wires a `PreToolUse` gate on `spawn_subagent` (matcher) plus `SubagentStart`/`SubagentStop` counters, and `~/.claude/hooks/spawn-tripwire.sh` implements them — a flock-guarded per-host ledger at `~/.grok/hooks/.spawn-count` (one `epoch|sessionId|subagentType` line per in-flight spawn), deny at 4 in flight (env-overridable), 6-hour TTL self-heal pruned under the lock on every read, and fail-open on every error path (empty stdin, missing state, corrupt lines, jq unreachable) so the tripwire can never block a spawn because it is broken. The "no host-ceiling API" statement stays true for the plugin contract and names the tripwire as the host-side backstop, with the config half (`subagents.max_concurrent` + `limit_behavior = "queue"`) cited as already active.
+  Verify: bash skills/docs-drift/test.sh
+- **B.** [process] The tripwire self-heals and self-tests: the script's `self-test` mode exercises deny-on-5th, the TTL prune boundary, the fail-open matrix, and real-ledger isolation (it never writes the real ledger) against a state-dir override, and exits nonzero on any failure; the docs bullet names both host paths, the cap, fail-open, and the TTL so a future host can re-derive the wiring from the map alone.
+
 ---
 
 ## Version History
