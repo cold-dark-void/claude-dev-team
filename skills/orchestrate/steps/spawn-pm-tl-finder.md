@@ -3,6 +3,7 @@
 # Shared spawn block
 
 Substitute `<ISSUE-ID>` (kickoff may say `<TICKET-ID>` for the same id) and the ticket text before sending. Model-map fences stay in the caller. Return each result as that agent's final message. Do not SendMessage the orchestrator.
+If the host later delivers an `idle_notification` echoing a result you already received in-turn, skip it: it adds nothing new, so do not spend a turn re-stating it.
 
 Orchestrate Step 4 (standard / full) sends the PM block and the Tech Lead block only. It does not send the finder block. Kickoff Step 2 sends all three, in parallel.
 

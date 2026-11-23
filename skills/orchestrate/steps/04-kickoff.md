@@ -93,6 +93,10 @@ Return your output as this agent's final message — do NOT SendMessage to the
 orchestrator; there is no addressable parent.
 ```
 
+If the host later delivers an `idle_notification` echoing a result you already
+received in-turn, skip it: it adds nothing new, so do not spend a turn
+re-stating it.
+
 Collect one output. Continue to Step 5.
 
 Otherwise (omit / `standard` / `full`):

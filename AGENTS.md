@@ -233,7 +233,7 @@ When working as a native Agent Team teammate:
 - Communicate with teammates via `SendMessage` (DM) or broadcast sparingly
 - `SendMessage` is for **peer-to-peer** DMs only. Spawned sub-agents have NO addressable parent — there is no agent named `main` or `orchestrator`. Return work to the orchestrator as your final message; the orchestrator reads it from your spawn-return value, not from an inbound SendMessage.
 - Do NOT edit files another teammate is actively working on
-- When idle, send a status update to the team lead
+- Single delivery: your final message (spawn-return value) is the one delivery of your result. When idle with nothing new, send nothing — never re-deliver or re-state work the orchestrator already received.
 
 ### Terse Communication
 

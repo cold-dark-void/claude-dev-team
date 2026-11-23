@@ -220,6 +220,14 @@ Everything needed to get the dev-team running in a new or existing project. Incl
   Verify: bash skills/init-orchestration/test-orch-allowlist.sh
 - **D.** [process] The live probe of AC C has passed once in a real host session on this repo (or the fallback is recorded as the operative path in the release output) before the CDT-608 ticket closes.
 
+### CDT-613
+
+- **A.** The single-delivery contract replaces the idle-status-update rule everywhere the coordination guidance is emitted: this repo's `AGENTS.md` Team Coordination bullet and both consumer-template copies in `skills/init-orchestration/SKILL.md` (new-file template + append-only merge block — the SPEC-005 § "one shared rule body … reconcile the other by hand" rule applied) now carry the identical sentence: the final message (spawn-return value) is the one delivery of a result, and when idle with nothing new a teammate sends nothing — never re-deliver or re-state work the orchestrator already received. The old "send a status update to the team lead" line is gone from the repo (the only remaining "status update" hits are the intercom test fixtures and the orchestrator-to-user milestone-update guidance, both out of scope).
+  Verify: bash skills/init-orchestration/test-orch-allowlist.sh
+- **B.** The orchestrator half absorbs the residue: `skills/orchestrate/steps/spawn-pm-tl-finder.md` and `skills/orchestrate/steps/04-kickoff.md` each carry one skip note telling the orchestrator that an `idle_notification` echo of a result already received in-turn adds nothing — skip it, never re-state it. The final-message contract lines in both step files are byte-unchanged (the note is orchestrator-facing; it sits outside the agent fences so it never routes into a spawned prompt).
+  Verify: bash skills/init-orchestration/test-orch-allowlist.sh
+- **C.** [process] The change is a rule correction with no gate surface: the full Linux suite set stays green (`bash tools/run-all-tests.sh` exits 0), docs-drift stays at the waived baseline (`bash skills/docs-drift/test.sh`), the agent-blocks include regions stay intact (`bash skills/agent-memory/agent-blocks-test.sh` PASS=62), and the release lands as a patch fold (`### v2.1.17` + the version pair) whose notes state the intent change (the final message IS the status update; the idle ping rule is removed) and record the residual honestly — the host may still emit the echo uninvited; the observed rate is recorded post-fold, with no zero promised. The local ticket record's Goal is reconciled to the ruling (content-hash dedupe at the orchestrator boundary rejected — the delivery path is host LLM turns, not a script boundary the plugin owns).
+
 ## Version History
 
 | Date | Change |
