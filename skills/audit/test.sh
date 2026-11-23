@@ -203,17 +203,21 @@ write_finding() {
   case "$mode" in
     none) ev='{}' ;;
     passages-only)
-      ev=$(cat <<EOF
+      # bash 3.2 misparses a heredoc inside $() — capture via a function.
+      ev_passages_text() { cat <<EOF
 {"passages":[{"path":"$path","quote":"$old","line":1},{"path":"$path","quote":"layer","line":1}]}
 EOF
-      )
+}
+      ev=$(ev_passages_text)
       ;;
     full)
       bytes=$(wc -c < "$path" | tr -d ' ')
-      ev=$(cat <<EOF
+      # bash 3.2 misparses a heredoc inside $() — capture via a function.
+      ev_full_text() { cat <<EOF
 {"passages":[{"path":"$path","quote":"$old","line":1},{"path":"$SPEC","quote":"Mechanical evidence"}],"counts":{"bytes":$bytes,"lines":1},"mtime":"2026-08-16T00:00:00Z","tag":{"name":"v1.0.0","date":"2026-07-01"},"spec":{"id":"SPEC-035","path":"$SPEC","quote":"Mechanical evidence"}}
 EOF
-      )
+}
+      ev=$(ev_full_text)
       ;;
     *) ev='{}' ;;
   esac
@@ -391,11 +395,13 @@ if [ -f "$AUDIT" ] && [ -f "$FROM_SESS" ]; then
   SESS_ROOT="$TMP/grok-sessions"
   # Canon exactly like hosts.py urlencode_cwd (abspath kills the // from a
   # trailing-slash TMPDIR on macOS); encoding the raw string splits the bucket.
-  ENC=$(CWD_RAW="$PROJ" python3 - <<'PY'
+  # bash 3.2 misparses a heredoc inside $() — capture via a function.
+  enc_py() { CWD_RAW="$PROJ" python3 - <<'PY'
 import os, urllib.parse
 print(urllib.parse.quote(os.path.abspath(os.environ["CWD_RAW"]), safe=""), end="")
 PY
-)
+}
+  ENC=$(enc_py)
   SID="cdt201-json-only"
   mkdir -p "$SESS_ROOT/$ENC/$SID"
   printf '%s\n' '{"type":"user","text":"hi"}' > "$SESS_ROOT/$ENC/$SID/chat_history.jsonl"

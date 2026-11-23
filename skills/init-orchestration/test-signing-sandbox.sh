@@ -401,7 +401,7 @@ else
 fi
 
 # Greenfield template (defaultMode auto + excludedCommands) must not contain ~/.gnupg
-GF=$(python3 - "$SKILL" <<'PY'
+gf_py() { python3 - "$SKILL" <<'PY'
 import re, sys
 text = open(sys.argv[1], encoding="utf-8").read()
 blocks = re.findall(r"```json\n(.*?)```", text, flags=re.S)
@@ -415,7 +415,8 @@ if not chosen:
     sys.exit(0)
 print(chosen)
 PY
-)
+}
+GF=$(gf_py)
 assert_not_contains "greenfield template has no ~/.gnupg" "$GF" "~/.gnupg"
 assert_contains "greenfield still has docker excludedCommands" "$GF" "docker"
 assert_not_contains "greenfield excludedCommands has no git" "$GF" '"git"'

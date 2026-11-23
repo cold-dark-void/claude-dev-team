@@ -1547,12 +1547,14 @@ done
 exec "$REAL_GIT" "\$@"
 WRAP
 chmod +x "$GITWRAP/git"
-FILTER_OUT=$(PATH="$GITWRAP:$PATH" bash "$LOC_EXCLUDE" filter <<'EOF'
+# bash 3.2 misparses a heredoc inside $() — capture via a function.
+loc_filter_in() { PATH="$GITWRAP:$PATH" bash "$LOC_EXCLUDE" filter <<'EOF'
 gen.go
 plain.go
 src/other.go
 EOF
-)
+}
+FILTER_OUT=$(loc_filter_in)
 FILTER_RC=$?
 ATTR_N=$(wc -l < "$ATTR_COUNT" | tr -d ' ')
 if [ "$FILTER_RC" -eq 0 ] && [ "$ATTR_N" -eq 1 ] \

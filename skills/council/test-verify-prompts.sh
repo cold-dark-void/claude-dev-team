@@ -202,10 +202,11 @@ JS
       ok "L1 bite: removing RECIPE STEP 2 fails the order check"
     fi
 
-    C1_EXPECTED="$(cat <<'C1EOF'
+    c1_expected_text() { cat <<'C1EOF'
     awk -v n=<N> 'NR==n{p=1} p&&NR>n&&!/^  /{exit} p{print NR": "$0}' <PATH>
 C1EOF
-)"
+}
+    C1_EXPECTED="$(c1_expected_text)"
     if grep -qF -- "$C1_EXPECTED" "$RENDER_M14"; then
       ok "AC A: exact C1 quote-command line present"
     else
@@ -222,10 +223,11 @@ C1EOF
       ok "L1 bite: mutating the C1 awk script fails the exact-match check"
     fi
 
-    PATHN_EXPECTED="$(cat <<'PNEOF'
+    pathn_expected_text() { cat <<'PNEOF'
     awk 'NR==<N>{print FILENAME":"NR": "$0}' <PATH>
 PNEOF
-)"
+}
+    PATHN_EXPECTED="$(pathn_expected_text)"
     if grep -qF -- "$PATHN_EXPECTED" "$RENDER_M14"; then
       ok "AC A: exact path:N locator command present (H1)"
     else
@@ -397,10 +399,11 @@ PNEOF
   fi
 
   # ---- WP 1-16 M3 (TL review): C2 is pinned and executed, not just implied --
-  C2_EXPECTED="$(cat <<'C2EOF'
+  c2_expected_text() { cat <<'C2EOF'
     base="/tmp/cache"; d=$(mktemp -d "${base:-${TMPDIR:-/tmp}}/verify.XXXXXX") && cd "$(git rev-parse --show-toplevel)" && { TMPDIR="$d" bash skills/fx/test-a.sh >"$d.log" 2>&1; echo "VERIFY exit=$?" | tee -a "$d.log"; echo "VERIFY log=$d.log"; grep -E '^(FAIL|SKIP)|(FAIL|SKIP):|PASS=|FAIL=|[Pp]ass=|[Ff]ail=|^PASS:|[0-9]+ passed|[0-9]+ failed' "$d.log" || true; }
 C2EOF
-)"
+}
+  C2_EXPECTED="$(c2_expected_text)"
   C2_LINE="$(grep -m1 '^    base="' "$RENDER_M14")"
   if [ "$C2_LINE" = "$C2_EXPECTED" ]; then
     ok "M3: exact C2 verify-run line present (pinned, not just implied)"
@@ -466,13 +469,14 @@ C2EOF
       C1_CMD="${C1_LINE//<N>/$N}"
       C1_CMD="${C1_CMD//<PATH>/$SPEC_FIX}"
       ACTUAL_QUOTE="$(eval "$C1_CMD" 2>"$TMP/c1.err")"
-      EXPECTED_QUOTE="$(cat <<QEOF
+      expected_quote_text() { cat <<QEOF
 12: - **A.** Second subsection's AC A bullet is the true target: its own
 13:   two lines of continuation text belong in the quote output and
 14:   nothing from the next bullet.
 15:   Verify: bash skills/fx/test-a2.sh
 QEOF
-)"
+}
+      EXPECTED_QUOTE="$(expected_quote_text)"
       if [ "$ACTUAL_QUOTE" = "$EXPECTED_QUOTE" ]; then
         ok "AC C: C1 quote command prints only the second AC A bullet + continuation"
       else

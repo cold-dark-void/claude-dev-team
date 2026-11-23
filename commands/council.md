@@ -124,10 +124,12 @@ This fence is its own shell. Set the workflow flag here. Step 2.5 parses the
 same words again. Do not read this variable from a later fence.
 
 ```bash
-ARGS=$(cat <<'__A__'
+read_args() {
+  cat <<'__A__'
 $ARGUMENTS
 __A__
-)
+}
+ARGS=$(read_args)
 set -f; set -- $ARGS; set +f
 _COUNCIL_WORKFLOW_FLAG=0
 for _a in "$@"; do
@@ -151,10 +153,12 @@ grammar is NOT re-implemented here: the value is validated by
 engine state-dir write, no spawn.
 
 ```bash
-ARGS=$(cat <<'__A__'
+read_args() {
+  cat <<'__A__'
 $ARGUMENTS
 __A__
-)
+}
+ARGS=$(read_args)
 set -f; set -- $ARGS; set +f
 CONCURRENCY=""
 _conc_given=0
@@ -436,10 +440,12 @@ omitted):
 ```bash
 # This fence is a new shell. Read --council-tier from the user's words.
 # Empty means no flag. Step 2.5 parses the same words again.
-ARGS=$(cat <<'__A__'
+read_args() {
+  cat <<'__A__'
 $ARGUMENTS
 __A__
-)
+}
+ARGS=$(read_args)
 set -f; set -- $ARGS; set +f
 COUNCIL_TIER=""
 for _a in "$@"; do
@@ -569,10 +575,12 @@ available and only the tier is unsupported.
 PDH="${PDH:-$( { [ -n "${CLAUDE_PLUGIN_ROOT:-}" ] && [ -f "$CLAUDE_PLUGIN_ROOT/skills/plugin-dir.sh" ] && printf '%s\n' "$CLAUDE_PLUGIN_ROOT"; } || { [ -f skills/plugin-dir.sh ] && [ -f agents/pm.md ] && grep -qF '"name": "dev-team"' .claude-plugin/plugin.json 2>/dev/null && pwd; } || { _pr='${CLAUDE_PLUGIN_ROOT}'; [ "${_pr#\$}" = "$_pr" ] && [ -f "$_pr/skills/plugin-dir.sh" ] && printf '%s\n' "$_pr"; } || { for _mp in "$HOME"/.claude/plugins/marketplaces/*/; do [ -f "${_mp}skills/plugin-dir.sh" ] && [ -f "${_mp}agents/pm.md" ] && grep -qF '"name": "dev-team"' "${_mp}.claude-plugin/plugin.json" 2>/dev/null && printf '%s\n' "${_mp%/}" && break; done; } || find ~/.claude/plugins/cache \( -path '*/dev-team/*/skills/plugin-dir.sh' -o -path '*/dev-team-edge/*/skills/plugin-dir.sh' \) 2>/dev/null | awk -F/ '{ver=""; for(i=1;i<=NF;i++) if(($i=="dev-team"||$i=="dev-team-edge")&&i<NF){ver=$(i+1);break}; if(ver=="") next; m=ver; gsub(/-pre\./,"~pre.",m); p=($0 ~ /\/cache\/cold-dark-void\/dev-team\//)?2:(($0 ~ /\/cache\/cold-dark-void\/dev-team-edge\//)?1:0); print m "\t" p "\t" $0}' | sort -t $'\t' -k1,1V -k2,2n -k3,3 | tail -1 | cut -f3 | xargs -r dirname | xargs -r dirname )}"
 USE_WORKFLOW=0
 # This fence is a new shell. Parse --workflow and --council-tier here.
-ARGS=$(cat <<'__A__'
+read_args() {
+  cat <<'__A__'
 $ARGUMENTS
 __A__
-)
+}
+ARGS=$(read_args)
 set -f; set -- $ARGS; set +f
 _COUNCIL_WORKFLOW_FLAG=0
 COUNCIL_TIER=""

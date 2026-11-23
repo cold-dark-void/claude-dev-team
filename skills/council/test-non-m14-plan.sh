@@ -345,7 +345,7 @@ fi
 M14_PLAN_JSON="$TMP/m14-plan.json"
 printf '%s' "$M14_OUT" > "$M14_PLAN_JSON"
 if ( require_cmd node ); then
-  NOOP_JS="$(COUNCIL_WF="$WORKFLOW_JS" COUNCIL_M14_PLAN="$M14_PLAN_JSON" node --input-type=module <<'JS'
+  noop_js() { COUNCIL_WF="$WORKFLOW_JS" COUNCIL_M14_PLAN="$M14_PLAN_JSON" node --input-type=module <<'JS'
 import { readFileSync } from 'node:fs'
 import { pathToFileURL } from 'node:url'
 const { composeRawArtifacts } = await import(pathToFileURL(process.env.COUNCIL_WF).href)
@@ -375,7 +375,8 @@ for (const scope of ['diff', 'session', 'from-retro']) {
 if (bad === 0) console.log('OK: composeRawArtifacts is a no-op at scope=claim')
 process.exit(bad === 0 ? 0 : 1)
 JS
-)"
+}
+  NOOP_JS="$(noop_js)"
   if [ $? -eq 0 ] && printf '%s\n' "$NOOP_JS" | grep -q '^OK: composeRawArtifacts is a no-op at scope=claim'; then
     ok "composeRawArtifacts is a no-op at scope=claim (M14 ship-gate, AC6)"
   else

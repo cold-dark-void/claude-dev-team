@@ -54,10 +54,12 @@ Parse flags from arguments:
 - `--compress` -- set `COMPRESS=true`. Also set it when `MEMORY_COMPRESS=1`. `MEMORY_COMPRESS=0` forces `COMPRESS` off.
 
 ```bash
-ARGS=$(cat <<'__A__'
+read_args() {
+  cat <<'__A__'
 $ARGUMENTS
 __A__
-)
+}
+ARGS=$(read_args)
 set -f; set -- $ARGS; set +f
 [ "${1:-}" = "distill" ] && shift
 COMPRESS=false

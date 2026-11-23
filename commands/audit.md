@@ -49,10 +49,12 @@ if [ -z "$AUDIT_SH" ] || [ ! -f "$AUDIT_SH" ]; then
 fi
 # A Bash-tool fence has no positional arguments: read the user's text through a
 # quoted heredoc, then split it with globbing off (skill-lint C9).
-ARGS=$(cat <<'__A__'
+read_args() {
+  cat <<'__A__'
 $ARGUMENTS
 __A__
-)
+}
+ARGS=$(read_args)
 set -f; set -- $ARGS; set +f
 bash "$AUDIT_SH" "$@"
 ```

@@ -6,7 +6,7 @@ ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 cd "$ROOT"
 fail=0
 
-out="$(node --input-type=module <<'JS'
+flavor_js() { node --input-type=module <<'JS'
 import { flavorDelta, loadFlavor } from './skills/council/workflow.js'
 
 const md = `---
@@ -52,7 +52,8 @@ if (!injected.includes('PARANOID prior')) {
 console.log('OK: flavorDelta strips authoring notes')
 console.log('OK: loadFlavor(paranoid-ic) omits the authoring note')
 JS
-)" || { echo "FAIL: flavor authoring"; echo "$out"; exit 1; }
+}
+out="$(flavor_js)" || { echo "FAIL: flavor authoring"; echo "$out"; exit 1; }
 
 printf '%s\n' "$out"
 printf '%s\n' "$out" | grep -q 'OK: flavorDelta strips authoring notes' || fail=1

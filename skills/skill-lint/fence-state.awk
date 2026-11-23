@@ -492,7 +492,7 @@ function note_dollar(line, i, ln,    nx, p, name, after) {
 # C9 (a): a positional-parameter read at the top level of a command fence.
 function pos_read(ln, tok) {
   if (!is_cmd || nf > 0 || has_set) return
-  add_sub(ln, "C9", "a", tok " is read at the top level of a command fence, where it is empty: a Bash-tool fence is a fresh shell with no arguments, and Claude Code puts the user text in only at $ARGUMENTS — read the text through a quoted heredoc (ARGS=$(cat <<'__A__'  $ARGUMENTS  __A__), then set -f; set -- $ARGS; set +f)")
+  add_sub(ln, "C9", "a", tok " is read at the top level of a command fence, where it is empty: a Bash-tool fence is a fresh shell with no arguments, and Claude Code puts the user text in only at $ARGUMENTS — read the text through a quoted heredoc inside a function (read_args() { cat <<'__A__'  $ARGUMENTS  __A__ } then ARGS=$(read_args)), then set -f; set -- $ARGS; set +f")
 }
 
 # C9 (b): $ARGUMENTS outside a quoted heredoc and outside double quotes.
@@ -502,7 +502,7 @@ function args_ref(ln) {
 }
 
 function args_unquoted(ln, where) {
-  add_sub(ln, "C9", "b", "$ARGUMENTS in " where " is word-split, glob-expanded or executed by the shell — read it through a quoted heredoc (ARGS=$(cat <<'__A__'  $ARGUMENTS  __A__), then set -f; set -- $ARGS; set +f)")
+  add_sub(ln, "C9", "b", "$ARGUMENTS in " where " is word-split, glob-expanded or executed by the shell — read it through a quoted heredoc inside a function (read_args() { cat <<'__A__'  $ARGUMENTS  __A__ } then ARGS=$(read_args)), then set -f; set -- $ARGS; set +f)")
 }
 
 # C8 (e): a "# Stop here" comment whose next command is not exit or return.

@@ -11,7 +11,8 @@ parse_expected_hooks() {
   fi
   if have_cmd python3; then
     local out
-    out=$(INIT_ORCH_SKILL="$INIT_ORCH_SKILL" python3 - <<'PY' 2>/dev/null || true
+    # bash 3.2 misparses a heredoc inside $() — capture via a function.
+    expected_hooks_py() { INIT_ORCH_SKILL="$INIT_ORCH_SKILL" python3 - <<'PY' 2>/dev/null || true
 import os, re, json
 skill = open(os.environ["INIT_ORCH_SKILL"], encoding="utf-8").read()
 # Find the create-settings JSON fence containing "hooks"
@@ -61,7 +62,8 @@ for _ev, entries in hooks.items():
 print("EVENTS=" + " ".join(events))
 print("SCRIPTS=" + " ".join(scripts))
 PY
-)
+}
+    out=$(expected_hooks_py)
     local line
     while IFS= read -r line || [ -n "$line" ]; do
       case "$line" in

@@ -86,10 +86,12 @@ if [ -z "$WRITE_MODEL" ] || [ ! -f "$WRITE_MODEL" ]; then
 fi
 # A Bash-tool fence has no positional arguments: read the user's text through a
 # quoted heredoc, then split it with globbing off (skill-lint C9).
-ARGS=$(cat <<'__A__'
+read_args() {
+  cat <<'__A__'
 $ARGUMENTS
 __A__
-)
+}
+ARGS=$(read_args)
 set -f; set -- $ARGS; set +f
 AGENT="${1:-}"
 shift || true
@@ -193,10 +195,12 @@ Check if the agent has a definition file in the plugin:
 ```bash
 PDH="${PDH:-$( { [ -n "${CLAUDE_PLUGIN_ROOT:-}" ] && [ -f "$CLAUDE_PLUGIN_ROOT/skills/plugin-dir.sh" ] && printf '%s\n' "$CLAUDE_PLUGIN_ROOT"; } || { [ -f skills/plugin-dir.sh ] && [ -f agents/pm.md ] && grep -qF '"name": "dev-team"' .claude-plugin/plugin.json 2>/dev/null && pwd; } || { _pr='${CLAUDE_PLUGIN_ROOT}'; [ "${_pr#\$}" = "$_pr" ] && [ -f "$_pr/skills/plugin-dir.sh" ] && printf '%s\n' "$_pr"; } || { for _mp in "$HOME"/.claude/plugins/marketplaces/*/; do [ -f "${_mp}skills/plugin-dir.sh" ] && [ -f "${_mp}agents/pm.md" ] && grep -qF '"name": "dev-team"' "${_mp}.claude-plugin/plugin.json" 2>/dev/null && printf '%s\n' "${_mp%/}" && break; done; } || find ~/.claude/plugins/cache \( -path '*/dev-team/*/skills/plugin-dir.sh' -o -path '*/dev-team-edge/*/skills/plugin-dir.sh' \) 2>/dev/null | awk -F/ '{ver=""; for(i=1;i<=NF;i++) if(($i=="dev-team"||$i=="dev-team-edge")&&i<NF){ver=$(i+1);break}; if(ver=="") next; m=ver; gsub(/-pre\./,"~pre.",m); p=($0 ~ /\/cache\/cold-dark-void\/dev-team\//)?2:(($0 ~ /\/cache\/cold-dark-void\/dev-team-edge\//)?1:0); print m "\t" p "\t" $0}' | sort -t $'\t' -k1,1V -k2,2n -k3,3 | tail -1 | cut -f3 | xargs -r dirname | xargs -r dirname )}"
 PLUGIN_AGENTS=$(bash "$PDH/skills/plugin-dir.sh" dir agents/pm.md)
-ARGS=$(cat <<'__A__'
+read_args() {
+  cat <<'__A__'
 $ARGUMENTS
 __A__
-)
+}
+ARGS=$(read_args)
 set -f; set -- $ARGS; set +f
 AGENT="${1:-}"
 if [ -n "$PLUGIN_AGENTS" ] && [ ! -f "$PLUGIN_AGENTS/$AGENT.md" ]; then
@@ -216,10 +220,12 @@ _gc=$(git rev-parse --git-common-dir 2>/dev/null) \
   && MROOT=$(cd "$(dirname "$_gc")" && pwd) \
   || MROOT=$(pwd)
 DIRECTIVES_BASE="$MROOT/.claude/memory"
-ARGS=$(cat <<'__A__'
+read_args() {
+  cat <<'__A__'
 $ARGUMENTS
 __A__
-)
+}
+ARGS=$(read_args)
 set -f; set -- $ARGS; set +f
 AGENT="${1:-}"
 FILE="$DIRECTIVES_BASE/$AGENT/directives.md"
@@ -247,10 +253,12 @@ _gc=$(git rev-parse --git-common-dir 2>/dev/null) \
   && MROOT=$(cd "$(dirname "$_gc")" && pwd) \
   || MROOT=$(pwd)
 DIRECTIVES_BASE="$MROOT/.claude/memory"
-ARGS=$(cat <<'__A__'
+read_args() {
+  cat <<'__A__'
 $ARGUMENTS
 __A__
-)
+}
+ARGS=$(read_args)
 set -f; set -- $ARGS; set +f
 AGENT="${1:-}"
 FILE="$DIRECTIVES_BASE/$AGENT/directives.md"
@@ -353,10 +361,12 @@ _gc=$(git rev-parse --git-common-dir 2>/dev/null) \
   && MROOT=$(cd "$(dirname "$_gc")" && pwd) \
   || MROOT=$(pwd)
 DIRECTIVES_BASE="$MROOT/.claude/memory"
-ARGS=$(cat <<'__A__'
+read_args() {
+  cat <<'__A__'
 $ARGUMENTS
 __A__
-)
+}
+ARGS=$(read_args)
 set -f; set -- $ARGS; set +f
 AGENT="${1:-}"
 mkdir -p "$DIRECTIVES_BASE/$AGENT"

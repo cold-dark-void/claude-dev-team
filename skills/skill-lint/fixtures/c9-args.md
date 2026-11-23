@@ -57,11 +57,13 @@ EOF
 ```
 
 ```bash
-# negatives: the heredoc convention and double-quoted words
-ARGS=$(cat <<'__A__'
+# negatives: the heredoc-convention wrapper and double-quoted words
+read_args() {
+  cat <<'__A__'
 $ARGUMENTS
 __A__
-)
+}
+ARGS=$(read_args)
 set -f; set -- $ARGS; set +f
 while [ $# -gt 0 ]; do
   case "$1" in

@@ -37,10 +37,12 @@ PARSE_ARGS=$(bash "$PDH/skills/plugin-dir.sh" file skills/retro-gate/parse-args.
 # quoted heredoc, split it with globbing off (skill-lint C9), and let the one
 # parser set MODE, AUTO, WHY, EXPLICIT_SID, HOST and HOST_EXPLICIT. Step 2 runs
 # the same lines again (each fence is a fresh shell).
-ARGS=$(cat <<'__A__'
+read_args() {
+  cat <<'__A__'
 $ARGUMENTS
 __A__
-)
+}
+ARGS=$(read_args)
 set -f; set -- $ARGS; set +f
 PARSED=$(bash "$PARSE_ARGS" "$@") || exit 1
 eval "$PARSED"
@@ -115,10 +117,12 @@ PLUGIN_ROOT=${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:-}}  # lint-ok: C1
 if [ -z "$PLUGIN_ROOT" ] && [ -f skills/retro-gate/discover.sh ]; then
   PLUGIN_ROOT=$(pwd)
 fi
-ARGS=$(cat <<'__A__'
+read_args() {
+  cat <<'__A__'
 $ARGUMENTS
 __A__
-)
+}
+ARGS=$(read_args)
 set -f; set -- $ARGS; set +f
 PARSED=$(bash "$PLUGIN_ROOT/skills/retro-gate/parse-args.sh" "$@") || exit 1
 eval "$PARSED"

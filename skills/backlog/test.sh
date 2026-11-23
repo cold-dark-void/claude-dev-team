@@ -723,14 +723,15 @@ y
 
 *Added: 2026-07-01*
 EOF
-printf '%s' "$(cat <<'IDXEOF'
+final_row_index_text() { cat <<'IDXEOF'
 # Backlog
 
 ## Pending
 
 - [Something Neutral](backlog/final-row.md) - quirkytext-marker description [PENDING]
 IDXEOF
-)" > "$Ry/.claude/backlog.md"
+}
+printf '%s' "$(final_row_index_text)" > "$Ry/.claude/backlog.md"
 
 set +e
 out_y=$(bash "$CLOSE" quirkytext-marker --root "$Ry" 2>&1)

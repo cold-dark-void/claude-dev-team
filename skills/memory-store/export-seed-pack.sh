@@ -200,7 +200,8 @@ export_sqlite() {
     TOTAL_OMITTED=$((TOTAL_OMITTED + total_for_agent - LIMIT))
   fi
 
-  jsonl=$(python3 - "$MEMDB" "$agent" "$LIMIT" <<'PY'
+  # bash 3.2 misparses a heredoc inside $() — capture via a function.
+  tier2_jsonl_py() { python3 - "$MEMDB" "$agent" "$LIMIT" <<'PY'
 import sqlite3, sys, json
 db_path, agent, limit = sys.argv[1], sys.argv[2], int(sys.argv[3])
 con = sqlite3.connect(db_path)
@@ -218,7 +219,8 @@ for r in rows:
         "tier": r["tier"], "updated_at": r["updated_at"],
     }, ensure_ascii=False))
 PY
-)
+}
+  jsonl=$(tier2_jsonl_py)
 
   mkdir -p "$WORK/$agent"
   while IFS= read -r line; do

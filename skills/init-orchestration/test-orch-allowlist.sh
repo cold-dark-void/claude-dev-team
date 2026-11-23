@@ -44,7 +44,7 @@ assert_file "project-init.md exists" "$PROJECT_INIT"
 # and collect quoted allow entries between "allow": [ and the closing ].
 echo "-- greenfield template ⊇ matrix set"
 
-TEMPLATE_ALLOW=$(python3 - "$SKILL" <<'PY'
+template_allow_py() { python3 - "$SKILL" <<'PY'
 import re, sys
 text = open(sys.argv[1], encoding="utf-8").read()
 # Find json fence containing auto defaultMode (greenfield orch template, CDT-75)
@@ -66,7 +66,8 @@ entries = re.findall(r'"([^"]+)"', m.group(1))
 for e in entries:
     print(e)
 PY
-)
+}
+TEMPLATE_ALLOW=$(template_allow_py)
 RC=$?
 if [ "$RC" -ne 0 ] || [ -z "$TEMPLATE_ALLOW" ]; then
   FAIL=$((FAIL + 1)); echo "  FAIL extract greenfield allow from SKILL.md"

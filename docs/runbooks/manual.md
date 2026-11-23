@@ -175,9 +175,10 @@ Co-Authored-By: Claude <model> <noreply@anthropic.com>"
 ```bash
 git push -u origin feat/ENG-123-short-description
 
-gh pr create \
-  --title "feat: ENG-123 — <short description>" \
-  --body "$(cat <<'EOF'
+# The PR body is written text: build it in a function so bash 3.2 (macOS)
+# never parses a quoted heredoc inside $().
+pr_body() {
+  cat <<'EOF'
 ## Linear ticket
 ENG-123: <title>
 
@@ -192,7 +193,10 @@ ENG-123: <title>
 - [ ] Integration tests pass
 - [ ] Manual smoke test on staging
 EOF
-)"
+}
+gh pr create \
+  --title "feat: ENG-123 — <short description>" \
+  --body "$(pr_body)"
 ```
 
 In Linear: attach the PR URL, move ticket to **In Review**.

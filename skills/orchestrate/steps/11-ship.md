@@ -331,7 +331,10 @@ cd <worktree-path>
 # Tracking close-out already applied on this worktree (above) — status only; do NOT git add .claude/backlog*
 git status --short
 git push -u origin <branch>
-gh pr create --title "<ISSUE-ID>: <title>" --body "$(cat <<'EOF'
+# The PR body is agent-written text: build it in a function so bash 3.2
+# (macOS /bin/bash) never parses the quoted heredoc inside $().
+pr_body() {
+  cat <<'EOF'
 ## Summary
 <bullet points from plan>
 
@@ -349,7 +352,8 @@ Closes <ISSUE-ID>
 
 🤖 Generated with [Claude Code](https://claude.com/claude-code)
 EOF
-)"
+}
+gh pr create --title "<ISSUE-ID>: <title>" --body "$(pr_body)"
 ```
 
 If `gh` is not available, fall back to `git push -u origin <branch>` and print the

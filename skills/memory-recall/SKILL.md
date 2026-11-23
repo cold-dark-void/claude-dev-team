@@ -326,10 +326,14 @@ USE_DB=false
 if [ -f "$MEMDB" ] && command -v sqlite3 &>/dev/null; then
   USE_DB=true
 fi
-QUERY=$(cat <<'QUERY_EOF'
+# bash 3.2 (macOS /bin/bash) misparses a heredoc inside $() when the body
+# holds an unmatched quote. Capture the quoted heredoc via a function.
+query_text() {
+  cat <<'QUERY_EOF'
 <QUERY>
 QUERY_EOF
-)
+}
+QUERY=$(query_text)
 if [ "$USE_DB" = "false" ]; then
   {
     find "$MROOT/.claude/memory" -mindepth 2 -maxdepth 2 -name '*.md' -type f 2>/dev/null
@@ -391,10 +395,14 @@ _gc=$(git rev-parse --git-common-dir 2>/dev/null) \
   || MROOT=$(pwd)
 WTROOT=$(git rev-parse --show-toplevel 2>/dev/null || pwd)
 MEMDB="$MROOT/.claude/memory/memory.db"
-QUERY=$(cat <<'QUERY_EOF'
+# bash 3.2 (macOS /bin/bash) misparses a heredoc inside $() when the body
+# holds an unmatched quote. Capture the quoted heredoc via a function.
+query_text() {
+  cat <<'QUERY_EOF'
 <QUERY>
 QUERY_EOF
-)
+}
+QUERY=$(query_text)
 # Append unembedded memories (keyword match) after semantic results.
 # Bind the model name from config. Do not paste a placeholder into SQL.
 CURRENT_MODEL=$(sqlite3 -cmd ".timeout 5000" "$MEMDB" "SELECT value FROM config WHERE key='embedding_model';")

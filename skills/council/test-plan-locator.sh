@@ -48,7 +48,7 @@ prose_ok() {
   fi
 }
 
-out="$(node --input-type=module <<'JS'
+locator_js() { node --input-type=module <<'JS'
 import { readFileSync } from 'node:fs'
 import { buildPlanExtractorInput, planClaimLine, loadPrompt } from './skills/council/workflow.js'
 
@@ -97,7 +97,8 @@ console.log('OK: locator line 53 contains the claim')
 console.log('OK: rendered prompt does not shift the line')
 console.log('OK: a prepended header would miss the claim')
 JS
-)" || { echo "FAIL: plan locator"; echo "$out"; exit 1; }
+}
+out="$(locator_js)" || { echo "FAIL: plan locator"; echo "$out"; exit 1; }
 printf '%s\n' "$out"
 
 # ---- CDT-589-C4 (AC1/AC2/AC4): a [forward] claim keeps its locator ---------
@@ -105,7 +106,7 @@ printf '%s\n' "$out"
 # planClaimLine strips `[forward] ` before the line search. The plan-scope
 # artifacts seam (composeRawArtifacts) MUST be the identity for every untagged
 # claim, so a plan-scope render stays byte-exact (AC3, SPEC-013 Phase 2).
-out2="$(node --input-type=module <<'JS'
+locator2_js() { node --input-type=module <<'JS'
 import { readFileSync } from 'node:fs'
 import { buildPlanExtractorInput, planClaimLine, composeRawArtifacts } from './skills/council/workflow.js'
 
@@ -161,7 +162,8 @@ console.log('OK: composeRawArtifacts is the identity for an untagged claim')
 console.log('OK: composeRawArtifacts appends the addendum for a tagged claim')
 console.log('OK: composeRawArtifacts is a no-op outside plan scope')
 JS
-)" || { echo "FAIL: forward-claim locator + compose"; echo "$out2"; exit 1; }
+}
+out2="$(locator2_js)" || { echo "FAIL: forward-claim locator + compose"; echo "$out2"; exit 1; }
 printf '%s\n' "$out2"
 
 # =============================================================================

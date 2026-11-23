@@ -106,11 +106,13 @@ claude_pdir() {
   printf '%s/.claude/projects/%s\n' "$HOME" "$enc"
 }
 
-ENC="$(CWD_RAW="$(cd "$PROJ" && pwd)" python3 - <<'PY'
+# bash 3.2 misparses a heredoc inside $() — capture via a function.
+enc_proj_py() { CWD_RAW="$(cd "$PROJ" && pwd)" python3 - <<'PY'
 import os, urllib.parse
 print(urllib.parse.quote(os.environ["CWD_RAW"], safe=""), end="")
 PY
-)"
+}
+ENC="$(enc_proj_py)"
 PROJ_ABS="$(cd "$PROJ" && pwd)"
 BUCKET="$SESS/$ENC"
 
@@ -233,12 +235,13 @@ fi
 # ---------------------------------------------------------------------------
 UJSON='{"type":"user","content":"café 日本語 🎉"}'
 JQ_OUT=$(printf '%s\n' "$UJSON" | jq -S -c .)
-DUMPS_NL=$(UJSON="$UJSON" python3 - <<'PY'
+dumps_nl_py() { UJSON="$UJSON" python3 - <<'PY'
 import json, os
 obj = json.loads(os.environ["UJSON"])
 print(json.dumps(obj, sort_keys=True, separators=(",", ":"), ensure_ascii=False), end="\n")
 PY
-)
+}
+DUMPS_NL=$(dumps_nl_py)
 if [ "$JQ_OUT" = "$DUMPS_NL" ]; then
   pass "M11 json.dumps+NL byte-identical to jq -S -c (unicode)"
 else
@@ -246,7 +249,7 @@ else
 fi
 
 RAW_HASH=$(printf '%s\n' "$UJSON" | portable_sha256)
-PY_HASH=$(UJSON="$UJSON" SYNC_PY="$HERE/transcript-sync.py" python3 - <<'PY'
+py_hash_py() { UJSON="$UJSON" SYNC_PY="$HERE/transcript-sync.py" python3 - <<'PY'
 import importlib.util, os
 path = os.environ["SYNC_PY"]
 spec = importlib.util.spec_from_file_location("tsync", path)
@@ -255,7 +258,8 @@ spec.loader.exec_module(mod)
 ident = mod.record_ident(os.environ["UJSON"])
 print(ident[2:] if ident.startswith("h:") else ident, end="")
 PY
-)
+}
+PY_HASH=$(py_hash_py)
 if [ "$RAW_HASH" = "$PY_HASH" ]; then
   pass "M11 record_ident matches sha256 of the raw line (unicode)"
 else
@@ -702,7 +706,7 @@ else
 fi
 
 set +e
-PY_T42="$(SYNC_PY="$HERE/transcript-sync.py" python3 - <<'PY'
+t42_py() { SYNC_PY="$HERE/transcript-sync.py" python3 - <<'PY'
 import importlib.util, os, sys
 path = os.environ["SYNC_PY"]
 spec = importlib.util.spec_from_file_location("tsync", path)
@@ -712,7 +716,8 @@ args = mod.parse_args(["--sid", "tm-217-parent", "--agent", "worker-1", "--bogus
 print("sid=%s has_agent=%s agent=%r" % (
     args.sid, hasattr(args, "agent"), getattr(args, "agent", None)))
 PY
-)"
+}
+PY_T42="$(t42_py)"
 RC_T42=$?
 set -e
 if [ "$RC_T42" -eq 0 ] \
@@ -771,7 +776,7 @@ fi
 mkdir -p "$STORE_FAN/fan-a.bak.999"
 printf 'seed\n' >"$STORE_FAN/fan-a.bak.999/cursor"
 set +e
-PY_PH="$(SYNC_PY="$HERE/transcript-sync.py" STORE_FAN="$STORE_FAN" python3 - <<'PY'
+phantom_py() { SYNC_PY="$HERE/transcript-sync.py" STORE_FAN="$STORE_FAN" python3 - <<'PY'
 import importlib.util, os
 path = os.environ["SYNC_PY"]
 spec = importlib.util.spec_from_file_location("tsync", path)
@@ -780,7 +785,8 @@ spec.loader.exec_module(mod)
 names = mod.existing_sids(os.environ["STORE_FAN"])
 print("\n".join(names))
 PY
-)"
+}
+PY_PH="$(phantom_py)"
 set -e
 if printf '%s\n' "$PY_PH" | grep -qx 'fan-a' \
    && ! printf '%s\n' "$PY_PH" | grep -q 'bak'; then

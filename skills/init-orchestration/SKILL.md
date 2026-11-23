@@ -1467,7 +1467,8 @@ except Exception:
     d = {}
 print(d.get("hook_event_name", "") if isinstance(d, dict) else "")' 2>/dev/null)
 
-LINE=$(MARKER_FILE="$MARKER" python3 - <<'PYEOF' 2>/dev/null
+# bash 3.2 (macOS /bin/bash) misparses a heredoc inside $() — capture via a function.
+rescue_line_py() { MARKER_FILE="$MARKER" python3 - <<'PYEOF' 2>/dev/null
 import datetime, json, os, sys
 try:
     with open(os.environ["MARKER_FILE"], encoding="utf-8") as fh:
@@ -1490,7 +1491,8 @@ print(f"A pre-compaction rescue artifact exists for session {sid}: {art} — "
       f"run `/handoff {sid}` to rebuild the full brief (the artifact is raw "
       f"material, not the brief).")
 PYEOF
-)
+}
+LINE=$(rescue_line_py)
 RC=$?
 if [ "$RC" -eq 2 ]; then
   rm -f -- "$MARKER"

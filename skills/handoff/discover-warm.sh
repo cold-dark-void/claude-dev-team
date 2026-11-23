@@ -95,7 +95,8 @@ read_bridge() {
   bp=$(bridge_path 2>/dev/null) || return 1
   [ -f "$bp" ] || return 1
   command -v python3 >/dev/null 2>&1 || return 1
-  out=$(BRIDGE_FILE="$bp" python3 - <<'PY'
+  # bash 3.2 misparses a heredoc inside $() — capture via a function.
+  bridge_py() { BRIDGE_FILE="$bp" python3 - <<'PY'
 import json, os, re, sys
 try:
     with open(os.environ["BRIDGE_FILE"], encoding="utf-8") as fh:
@@ -136,7 +137,8 @@ if age < -300 or age > max_age:
 # Two lines; path may be empty.
 sys.stdout.write(sid + "\n" + tp + "\n")
 PY
-) || return 1
+}
+  out=$(bridge_py) || return 1
   [ -n "$out" ] || return 1
   printf '%s' "$out"
   # ensure trailing newline if python omitted last
@@ -288,7 +290,8 @@ grok_cwd_bucket() {
   hosts_py="$HERE/../transcript-parse/hosts.py"
   [ -f "$hosts_py" ] || return 0
   command -v python3 >/dev/null 2>&1 || return 0
-  bucket=$(python3 - "$hosts_py" "$cwd" "$GROK_SESSIONS_DIR" <<'PY'
+  # bash 3.2 misparses a heredoc inside $() — capture via a function.
+  grok_bucket_py() { python3 - "$hosts_py" "$cwd" "$GROK_SESSIONS_DIR" <<'PY'
 import importlib.util, sys
 path, cwd, sessions = sys.argv[1], sys.argv[2], sys.argv[3]
 spec = importlib.util.spec_from_file_location("handoff_hosts", path)
@@ -296,7 +299,8 @@ mod = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(mod)
 sys.stdout.write(mod.grok_cwd_bucket(cwd, sessions_dir=sessions))
 PY
-) || return 0
+}
+  bucket=$(grok_bucket_py) || return 0
   printf '%s' "$bucket"
 }
 

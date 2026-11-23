@@ -944,7 +944,7 @@ fi
 # No-drop fixture: never rewritten -> keeps its inode and its missing trailing newline.
 Ru2="$TMP/u2"
 mkdir -p "$Ru2/.claude/backlog"
-printf '%s' "$(cat <<'EOF'
+u2_index_text() { cat <<'EOF'
 # Backlog
 
 ## Pending
@@ -953,7 +953,8 @@ printf '%s' "$(cat <<'EOF'
 
 ## Completed
 EOF
-)" > "$Ru2/.claude/backlog.md"
+}
+printf '%s' "$(u2_index_text)" > "$Ru2/.claude/backlog.md"
 item_file "$Ru2/.claude/backlog/solo-u2.md" "PENDING"
 cp "$Ru2/.claude/backlog.md" "$Ru2/idx.snap"
 ino_before=$(ls -i "$Ru2/.claude/backlog.md" | awk '{print $1}')
@@ -1009,7 +1010,7 @@ fi
 # reported the still-PENDING item as a false ORPHAN. ---
 Rw="$TMP/w"
 mkdir -p "$Rw/.claude/backlog"
-printf '%s' "$(cat <<'EOF'
+w_index_text() { cat <<'EOF'
 # Backlog
 
 ## Pending
@@ -1018,7 +1019,8 @@ printf '%s' "$(cat <<'EOF'
 - [B item](backlog/b-nl.md) - will prune [PENDING]
 - [C item](backlog/c-nl.md) - last row, file has no trailing newline [PENDING]
 EOF
-)" > "$Rw/.claude/backlog.md"
+}
+printf '%s' "$(w_index_text)" > "$Rw/.claude/backlog.md"
 item_file "$Rw/.claude/backlog/a-nl.md" "PENDING"
 item_file "$Rw/.claude/backlog/b-nl.md" "COMPLETED"
 item_file "$Rw/.claude/backlog/c-nl.md" "PENDING"

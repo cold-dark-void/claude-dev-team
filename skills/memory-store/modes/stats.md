@@ -35,10 +35,12 @@ _gc=$(git rev-parse --git-common-dir 2>/dev/null) \
 WTROOT=$(git rev-parse --show-toplevel 2>/dev/null || pwd)
 MEMDB="$MROOT/.claude/memory/memory.db"
 # This fence is a new shell. Read --agent from the user's words.
-ARGS=$(cat <<'__A__'
+read_args() {
+  cat <<'__A__'
 $ARGUMENTS
 __A__
-)
+}
+ARGS=$(read_args)
 set -f; set -- $ARGS; set +f
 [ "${1:-}" = "stats" ] && shift
 STATS_AGENT=""

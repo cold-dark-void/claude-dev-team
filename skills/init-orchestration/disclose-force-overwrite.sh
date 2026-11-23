@@ -72,7 +72,8 @@ if [ "$MODE" = "settings" ]; then
     echo "disclose-force-overwrite: python3 required for --settings mode" >&2
     exit 2
   fi
-  OLD=$(SETTINGS_FILE="$SETTINGS" KEY_PATH="$KEY" python3 - <<'PY'
+  # bash 3.2 misparses a heredoc inside $() — capture via a function.
+  old_value_py() { SETTINGS_FILE="$SETTINGS" KEY_PATH="$KEY" python3 - <<'PY'
 import json, os, sys
 path = os.environ["SETTINGS_FILE"]
 key = os.environ["KEY_PATH"]
@@ -98,7 +99,8 @@ elif isinstance(cur, (dict, list)):
 else:
     print(cur)
 PY
-)
+}
+  OLD=$(old_value_py)
   _py_rc=$?
   if [ "$_py_rc" -eq 3 ]; then
     # Missing key: adding a key is not a force-overwrite. No output, no backup.

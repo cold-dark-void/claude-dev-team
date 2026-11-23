@@ -159,10 +159,12 @@ PDH="${PDH:-$( { [ -n "${CLAUDE_PLUGIN_ROOT:-}" ] && [ -f "$CLAUDE_PLUGIN_ROOT/s
 ROLLUP_SH=$(bash "$PDH/skills/plugin-dir.sh" file skills/metrics/rollup.sh)
 # A Bash-tool fence has no positional arguments: read the user's text through a
 # quoted heredoc, then split it with globbing off (skill-lint C9).
-ARGS=$(cat <<'__A__'
+read_args() {
+  cat <<'__A__'
 $ARGUMENTS
 __A__
-)
+}
+ARGS=$(read_args)
 set -f; set -- $ARGS; set +f
 bash "$ROLLUP_SH" "$@"
 ```

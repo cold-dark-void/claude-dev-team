@@ -36,11 +36,12 @@ mkdir -p "$CWD"
 CWD="$(cd "$CWD" && pwd)"
 
 # Encode cwd the same way hosts.py does (quote safe='').
-ENC="$(CWD_RAW="$CWD" python3 - <<'PY'
+enc_py() { CWD_RAW="$CWD" python3 - <<'PY'
 import os, urllib.parse
 print(urllib.parse.quote(os.environ["CWD_RAW"], safe=""), end="")
 PY
-)"
+}
+ENC="$(enc_py)"
 BUCKET="$SESS/$ENC"
 mkdir -p "$BUCKET/sid-old" "$BUCKET/sid-new" "$BUCKET/sid-target"
 
@@ -57,11 +58,12 @@ touch_when "$BUCKET/sid-new/chat_history.jsonl" "2022-12-31 23:59:59"
 OTHER_CWD="$WORK/other"
 mkdir -p "$OTHER_CWD"
 OTHER_CWD="$(cd "$OTHER_CWD" && pwd)"
-OTHER_ENC="$(CWD_RAW="$OTHER_CWD" python3 - <<'PY'
+other_enc_py() { CWD_RAW="$OTHER_CWD" python3 - <<'PY'
 import os, urllib.parse
 print(urllib.parse.quote(os.environ["CWD_RAW"], safe=""), end="")
 PY
-)"
+}
+OTHER_ENC="$(other_enc_py)"
 mkdir -p "$SESS/$OTHER_ENC/sid-other"
 printf 'other\n' >"$SESS/$OTHER_ENC/sid-other/chat_history.jsonl"
 touch_when "$SESS/$OTHER_ENC/sid-other/chat_history.jsonl" "2030-01-01 00:00:00"
@@ -207,11 +209,12 @@ LONG_CWD="$WORK/p/$PAD"
 mkdir -p "$LONG_CWD"
 LONG_CWD="$(cd "$LONG_CWD" && pwd)"
 LONG_ENC="$(jq -rn --arg s "$LONG_CWD" '$s|@uri')"
-LONG_ENC_PY="$(CWD_RAW="$LONG_CWD" python3 - <<'PY'
+long_enc_py() { CWD_RAW="$LONG_CWD" python3 - <<'PY'
 import os, urllib.parse
 print(urllib.parse.quote(os.environ["CWD_RAW"], safe=""), end="")
 PY
-)"
+}
+LONG_ENC_PY="$(long_enc_py)"
 if [ "$LONG_ENC" = "$LONG_ENC_PY" ] && [ "${#LONG_ENC}" -gt 255 ]; then
   pass "AC1 cwd jq @uri length ${#LONG_ENC} >255 and quote match"
 else
@@ -310,11 +313,12 @@ fi
 GHOST_CWD="$WORK/ghost-cwd"
 mkdir -p "$GHOST_CWD"
 GHOST_CWD="$(cd "$GHOST_CWD" && pwd)"
-GHOST_ENC="$(CWD_RAW="$GHOST_CWD" python3 - <<'PY'
+ghost_enc_py() { CWD_RAW="$GHOST_CWD" python3 - <<'PY'
 import os, urllib.parse
 print(urllib.parse.quote(os.environ["CWD_RAW"], safe=""), end="")
 PY
-)"
+}
+GHOST_ENC="$(ghost_enc_py)"
 set +e
 OUT="$("${HOSTS_PY[@]}" locate --host grok --cwd "$GHOST_CWD" --session-id sid-long --sessions-dir "$SESS" 2>"$WORK/ghost.err")"
 RC=$?
@@ -415,11 +419,12 @@ then pass "AC6 grok_cwd_bucket lexical-min + marker sort"; else bad "AC6 import"
 FB_CWD="$WORK/fb-cwd"
 mkdir -p "$FB_CWD"
 FB_CWD="$(cd "$FB_CWD" && pwd)"
-FB_ENC="$(CWD_RAW="$FB_CWD" python3 - <<'PY'
+fb_enc_py() { CWD_RAW="$FB_CWD" python3 - <<'PY'
 import os, urllib.parse
 print(urllib.parse.quote(os.environ["CWD_RAW"], safe=""), end="")
 PY
-)"
+}
+FB_ENC="$(fb_enc_py)"
 mkdir -p "$SESS/$FB_ENC" "$SESS/marker-fb/sid-fb"
 printf '%s\n' "$FB_CWD" >"$SESS/marker-fb/.cwd"
 printf 't14-marker-file\n' >"$SESS/marker-fb/sid-fb/chat_history.jsonl"

@@ -31,11 +31,12 @@ dash_enc() {
   python3 "$HERE/hosts.py" encode-project --cwd "$1"
 }
 CLAUDE_ENC="$(dash_enc "$CWD")"
-GROK_ENC="$(CWD_RAW="$CWD" python3 - <<'PY'
+grok_enc_py() { CWD_RAW="$CWD" python3 - <<'PY'
 import os, urllib.parse
 print(urllib.parse.quote(os.environ["CWD_RAW"], safe=""), end="")
 PY
-)"
+}
+GROK_ENC="$(grok_enc_py)"
 CLAUDE_PDIR="$CLAUDE_ROOT/$CLAUDE_ENC"
 GROK_BUCKET="$GROK_ROOT/$GROK_ENC"
 mkdir -p "$CLAUDE_PDIR" "$GROK_BUCKET/gsid-old" "$GROK_BUCKET/gsid-new"

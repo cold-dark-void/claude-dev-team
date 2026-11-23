@@ -198,7 +198,8 @@ clear_prior_on_miss() {
   PRIOR_EVENTS_FILE="$prior"
   FINALIZE_PRIOR_EVENTS="$prior"
   PRIOR_LEAF="stale-leaf"
-  _SLA_CLEAR=$(PLAN_JSON="$plan" python3 - <<'PYSLA'
+  # bash 3.2 misparses a heredoc inside $() — capture via a function.
+  sla_clear_py() { PLAN_JSON="$plan" python3 - <<'PYSLA'
 import json, os, sys
 try:
     st = json.load(open(os.environ["PLAN_JSON"], encoding="utf-8")).get("stats") or {}
@@ -210,7 +211,8 @@ if st.get("since_leaf_applied") is True:
     sys.exit(0)
 print("clear")
 PYSLA
-)
+}
+  _SLA_CLEAR=$(sla_clear_py)
   if [ "$_SLA_CLEAR" = "clear" ]; then
     PRIOR_EVENTS_FILE=""
     PRIOR_LEAF=""

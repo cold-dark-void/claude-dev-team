@@ -27,10 +27,12 @@ The word `audit` is a keyword, not a spec id. `/spec check audit` is Mode 1,
 the same audit as `/spec check` with no id. Do not open a file named `audit`.
 
 ```bash
-ARGS=$(cat <<'__A__'
+read_args() {
+  cat <<'__A__'
 $ARGUMENTS
 __A__
-)
+}
+ARGS=$(read_args)
 set -f; set -- $ARGS; set +f
 [ "${1:-}" = "check" ] && shift
 MODE="audit"

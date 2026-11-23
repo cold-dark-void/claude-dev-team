@@ -28,10 +28,12 @@ fi
 # [--dry-run]`: read it through a quoted heredoc, split it with globbing off
 # (skill-lint C9), and drop the leading `export` word so MROOT is the only
 # positional argument the script sees.
-ARGS=$(cat <<'__A__'
+read_args() {
+  cat <<'__A__'
 $ARGUMENTS
 __A__
-)
+}
+ARGS=$(read_args)
 set -f; set -- $ARGS; set +f
 [ "${1:-}" = "export" ] && shift
 bash "$EXPORT_SH" "$@" "$MROOT"

@@ -484,7 +484,7 @@ Child of `### CDT-502` M3.1/M3.2/C3.3/C3.4 (Linear CDT-507; CDT-508 closes via t
   Verify: `bash skills/plugin-dir-test.sh` — audit-chain output printed, count gate green.
 - **AC8.** `skills/review-and-commit/SKILL.md:134,196,198` drop the mktemp suffix-after-X (create-then-`mv` or `mktemp -d` plus a file inside); `skills/review-and-commit/test-fences.sh`'s 3 failing checks pass on macOS bash 3.2; Linux behavior is unchanged.
   Verify: `bash skills/review-and-commit/test-fences.sh` on Linux; macOS CI evidence on the wave run.
-- **AC9.** The `skills/memory-recall/SKILL.md` construct bash 3.2 cannot parse (the `QUERY=$(cat <<'QUERY_EOF' …)` heredoc-in-`$( )` family in the Step 3 and Step 4 fences — confirmed by reproducing the generated `s4lembed.sh` body) is replaced with bash-3.2-parseable code; `skills/memory-recall/test-fences.sh`'s 8 failing checks pass on macOS bash 3.2; the behavior assertions are unchanged.
+- **AC9.** The `skills/memory-recall/SKILL.md` construct bash 3.2 cannot parse (the heredoc-in-`$( )` query-capture family in the Step 3 and Step 4 fences — a `QUERY=` capture of a quoted `QUERY_EOF` heredoc — confirmed by reproducing the generated `s4lembed.sh` body) is replaced with bash-3.2-parseable code; `skills/memory-recall/test-fences.sh`'s 8 failing checks pass on macOS bash 3.2; the behavior assertions are unchanged.
   Verify: `bash skills/memory-recall/test-fences.sh` on Linux; macOS CI evidence on the wave run.
 - **AC10.** The 2 C5 `macos`-scoped quarantine entries are NOT removed by this child — they go stale-`warn:` on the lane (R13); removal is the epic wrap's. No new entries land.
   Verify: `tools/test-quarantine.txt` diff keeps exactly the 3 C4 entries; the macOS lane log shows `PASS` + `warn:` for the 2 C5 suites.

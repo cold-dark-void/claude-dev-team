@@ -282,11 +282,15 @@ APPEND_CARD=$(bash "$PDH/skills/plugin-dir.sh" file skills/autopilot/append-card
 # rationale is model-written free text (SPEC-033 M13); load it through a
 # quoted heredoc so backticks or $(...) inside it are data, never executed
 # (the quoted 'RATIONALE_EOF' terminator disables every shell expansion in
-# the body). Use "$RATIONALE" below, never a bare "<rationale>" placeholder.
-RATIONALE=$(cat <<'RATIONALE_EOF'
+# the body). The heredoc sits in a function: bash 3.2 (macOS /bin/bash)
+# misparses a heredoc inside $() when the body holds an unmatched quote.
+# Use "$RATIONALE" below, never a bare "<rationale>" placeholder.
+rationale_text() {
+  cat <<'RATIONALE_EOF'
 <rationale>
 RATIONALE_EOF
-)
+}
+RATIONALE=$(rationale_text)
 
 CARDS=$(bash "$READ_CARDS" "<ticket_id>" 2>/dev/null) || CARDS='[]'
 FREEZE=$(printf '%s' "$CARDS" | jq -c --arg rid "<run_id>" --arg res "<RESUMING>" '
@@ -439,10 +443,14 @@ APPEND_CARD=$(bash "$PDH/skills/plugin-dir.sh" file skills/autopilot/append-card
 
 case "<mode>" in refuse|cap|timeout|spawn-fail) ;; *) exit 64 ;; esac
 case "<trigger>" in a|b|c) ;; *) exit 64 ;; esac
-REASON=$(cat <<'ADVISOR_REASON_EOF'
+# <reason> is model-written free text: quoted heredoc in a function, so the
+# body is data and bash 3.2 (macOS) never parses a heredoc inside $().
+advisor_reason() {
+  cat <<'ADVISOR_REASON_EOF'
 <reason>
 ADVISOR_REASON_EOF
-)
+}
+REASON=$(advisor_reason)
 
 if BC_OUT=$(bash "$BUDGET_CHECK" "<iteration>" "<run_start_epoch>"); then BC_RC=0; else BC_RC=$?; fi
 if [ "$BC_RC" -eq 64 ]; then

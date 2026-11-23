@@ -372,7 +372,8 @@ cmd_apply() {
 
   if [ "$OPTION" = "1" ] && [ "$PLATFORM" = "linux" ]; then
     echo "NOTE: Linux/WSL2 sandbox.network.allowAllUnixSockets=true allows ALL unix sockets (seccomp cannot path-filter)." >&2
-    _old_all=$(SETTINGS_FILE="$SETTINGS" python3 - <<'PY'
+    # bash 3.2 misparses a heredoc inside $() — capture via a function.
+    old_all_py() { SETTINGS_FILE="$SETTINGS" python3 - <<'PY'
 import json, os, sys
 path = os.environ["SETTINGS_FILE"]
 try:
@@ -390,7 +391,8 @@ elif v is False:
 else:
     print("")
 PY
-)
+}
+    _old_all=$(old_all_py)
     if [ "$_old_all" = "false" ]; then
       if [ -n "$DISCLOSE" ] && [ -f "$DISCLOSE" ]; then
         bash "$DISCLOSE" \

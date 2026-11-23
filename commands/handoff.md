@@ -15,10 +15,11 @@ Parent stub (M19). One-turn lag. Parent stays session tier.
 UUID=""; SLUG=""; SHOW_USAGE=0; WARM=0; LIGHT=0
 MINER_MODEL_FLAG=""; UNKNOWN=""; POSITIONAL=()
 : "${HANDOFF_FULL:=0}"; : "${HANDOFF_LIGHT:=0}"
-ARGS=$(cat <<'HANDOFF_ARGS'
+read_args() { cat <<'HANDOFF_ARGS'
 $ARGUMENTS
 HANDOFF_ARGS
-)
+}
+ARGS=$(read_args)
 set -f; set -- $ARGS; set +f
 if [ "$#" -eq 0 ]; then WARM=1
 else
@@ -132,7 +133,7 @@ if [ "$HANDOFF_MODE" = "warm" ] && [ "$HANDOFF_FULL" != "1" ] \
    && [ -n "$HANDOFF_DIR" ] && [ -n "$UUID" ]; then
   _CACHE_FILE="$HANDOFF_DIR/cache/${UUID}.json"
   if [ -f "$_CACHE_FILE" ]; then
-    PRIOR_LEAF=$(PRIOR_CACHE="$_CACHE_FILE" python3 - <<'PYDELTA'
+    _leaf() { PRIOR_CACHE="$_CACHE_FILE" python3 - <<'PYDELTA'
 import json,os,sys
 try:
     data=json.load(open(os.environ["PRIOR_CACHE"],encoding="utf-8"))
@@ -147,7 +148,8 @@ if not isinstance(ev,dict) or not ev: sys.exit(0)
 if data.get("light") in (True,1,"true","1"): sys.exit(0)
 if any(isinstance(v,list) and v for v in ev.values()): print(leaf.strip())
 PYDELTA
-)
+}
+    PRIOR_LEAF=$(_leaf)
     [ -n "${PRIOR_LEAF:-}" ] && { PREPARE_EXTRA+=(--since-leaf "$PRIOR_LEAF"); PRIOR_EVENTS_FILE="$_CACHE_FILE"; }
   fi
 fi
