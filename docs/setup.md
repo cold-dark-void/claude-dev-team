@@ -49,6 +49,39 @@ for Claude Code marketplace installs; nothing rewrites `memory.db`.
 | `Output mode: ultra` in agent prompts | `terse` for agent-to-agent | Stronger output compression |
 | `/brainstorm --grill` | default batched mode | One-question interview with recommended answers |
 
+### Running from a checkout: `--plugin-dir` semantics
+
+The installed plugin works on its own. You do not need `--plugin-dir` for
+normal use.
+
+`--plugin-dir` pins the checkout version for one session:
+
+```bash
+claude --plugin-dir /path/to/claude-dev-team
+```
+
+When both exist, Claude Code loads the checkout copy and replaces the
+installed plugin. The replacement is silent and applies to that session only:
+
+- You do not need to uninstall or disable the installed plugin.
+- Only the loaded copy's hooks, commands, and agents run. Nothing loads twice.
+- `claude plugin list` still shows the marketplace row as enabled. The list
+  reflects your settings, not the session.
+- The `--debug` log records the swap. Start with `--debug` and search
+  `~/.claude/debug/` for
+  `Plugin "dev-team" from --plugin-dir overrides installed version`.
+- Other sessions keep using the installed plugin.
+- To run the installed copy instead, set `"enabledPlugins":
+  {"dev-team@inline": false}` in any settings file.
+
+Precedence compares the manifest name, not the marketplace entry name. The
+manifest name is `"name"` in `.claude-plugin/plugin.json`. This repo's
+manifest name is `dev-team`. The marketplace entries are `dev-team` and
+`dev-team-edge`. Both manifests carry the name `dev-team`, so `--plugin-dir`
+on this checkout shadows either install.
+
+Source: [Plugin loading reference, "Name conflicts"](https://code.claude.com/docs/en/plugins/loading.md).
+
 ### Optional companion tools (not dependencies)
 
 dev-team does **not** bundle these. Install only if you want them; everything

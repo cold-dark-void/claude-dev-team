@@ -12,7 +12,7 @@ when one exists; skills-backed Surfaces without a page still appear here.
 
 | Guide | What's in it |
 |-------|--------------|
-| [Setup & Configuration](setup.md) | Prerequisites, **upgrading**, optional tools, `/setup`, memory config |
+| [Setup & Configuration](setup.md) | Prerequisites, **upgrading**, **`--plugin-dir` semantics**, optional tools, `/setup`, memory config |
 | [Onboarding](runbooks/onboarding.md) | "Just cloned the repo" → agents ready (glossary + optional Graphify) |
 | [Telegram Intercom setup](runbooks/setup-telegram.md) | Per-dev BotFather bot, pairing, Topics on/off, host poller |
 | [Migrate to v1.0.0](runbooks/migrate-to-v1.md) | 0.x → 1.0.0 consumer checklist (doctor, schema, hooks, stubs) |
