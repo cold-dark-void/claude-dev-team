@@ -131,7 +131,7 @@ else
 fi
 
 # ---- 4. CDT-594 AC-block grammar (SPEC-033 M14(g); the claim budget) --------
-sec=$(awk '/^### CDT-594$/{f=1;next} f&&/^---$/{exit} f&&/^## /{exit} f' "$SPEC")
+sec=$(awk '/^### CDT-594$/{f=1;next} f&&/^### /{exit} f&&/^---$/{exit} f&&/^## /{exit} f' "$SPEC")
 bullets=$(printf '%s\n' "$sec" | grep -cE '^- \*\*AC[0-9]+\.\*\* ')
 procn=$(printf '%s\n' "$sec" | grep -cE '^- \*\*AC[0-9]+\.\*\* \[process\] ')
 verify=$(printf '%s\n' "$sec" | grep -cE '^  Verify: bash [A-Za-z0-9._/=:@%+,-]+( [A-Za-z0-9._/=:@%+,-]+)*$')
