@@ -23,7 +23,8 @@
 #     it, and call index-writer.sh for the atomic index update.
 #
 # Utility subcommands: resolve-task-id, report-path (pure helpers), waves
-#   (the waves[] wave-plan emitter — SPEC-013 CDT-594).
+#   (the waves[] wave-plan emitter — SPEC-013 CDT-594), span-audit (the
+#   pre-judge-wave CDT-537 span audit — SPEC-013 CDT-605).
 
 set -euo pipefail
 
@@ -37,6 +38,7 @@ COUNCIL_DIR="$MROOT/.claude/council"
 TEMPLATE_DIR="$SCRIPT_DIR/templates"
 INDEX_WRITER="$SCRIPT_DIR/index-writer.sh"
 M14_AC_SPLIT="$SCRIPT_DIR/m14-ac-split.sh"
+SPAN_VERIFY="$SCRIPT_DIR/verify-span-coverage.sh"
 
 # ---- M14 claim budget (normative; SPEC-033 M14(j), WP 1-14) -----------------
 # The maximum technical AC count an M14 per-AC split (SPEC-013 Phase 1 "M14
@@ -86,6 +88,7 @@ case "$SUBCMD" in
   resolve-task-id) cmd_resolve_task_id "$@" ;;
   report-path)     cmd_report_path "$@" ;;
   m14-check)       cmd_m14_check "$@" ;;
+  span-audit)      cmd_span_audit "$@" ;;
   -h|--help|help)  usage; exit 0 ;;
   *)
     echo "engine.sh: unknown subcommand: $SUBCMD" >&2

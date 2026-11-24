@@ -1073,6 +1073,38 @@ export async function runCouncil(runtime) {
     if (aRes?.struck_lines) struck.push(...aRes.struck_lines)
   }
 
+  // --- Span audit (CDT-605, SPEC-013) ---------------------------------------
+  // Strict CDT-537 span audit at Phase-5 entry: a token of a verify-claim's
+  // Step-1 quote with no bundle line caps that claim at <=79, and the judge
+  // spawn is already billed by the time it surfaces (CDT-589 C5 cost three
+  // judge rounds on this gap). Same implementation as the hand-run fence in
+  // skills/council/phases-4-5.md § Phase 5 — engine.sh span-audit is the only
+  // copy. Fail closed like the zero-bundles exit 5 above: no judge spawn.
+  const spanClaims = join(handoff.dir, 'span-audit-claims.json')
+  const spanBundles = join(handoff.dir, 'span-audit-bundles.json')
+  writeFileSync(
+    spanClaims,
+    JSON.stringify(claims.map((c, i) => ({ ...c, claim_id: c.claim_id || `c${i}` })), null, 2),
+  )
+  writeFileSync(spanBundles, JSON.stringify(orderedBundles, null, 2))
+  const spanAudit = runEngine('span-audit', [
+    '--claims',
+    spanClaims,
+    '--bundles',
+    spanBundles,
+  ])
+  if (spanAudit.status !== 0) {
+    return {
+      ok: false,
+      error:
+        `span-audit: ${spanAudit.stderr.split('\n')[0] || `exit ${spanAudit.status}`}`,
+      exit_code: spanAudit.status,
+      uncovered: spanAudit.stdout.trim() || null,
+      degraded,
+      handoff,
+    }
+  }
+
   // --- Judge ----------------------------------------------------------------
   if (typeof phase === 'function') phase('Judge')
 

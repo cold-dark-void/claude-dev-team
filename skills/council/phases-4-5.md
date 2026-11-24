@@ -117,6 +117,40 @@ fence in § Model pins of `skills/council/model-map.md`); empty stdout → `opus
 bundle-cap split carries that same pinned value (SPEC-042 M1). Mapping its
 model MUST NOT add tools.
 
+**Span audit preflight (CDT-605).** Before the FIRST judge part spawns, run the
+strict CDT-537 span audit over the run's claims and bundles:
+
+```bash
+ENGINE_SH=$(bash "$PDH/skills/plugin-dir.sh" file skills/council/engine.sh)
+STDERR_FILE=$(mktemp)
+UNCOVERED=$(bash "$ENGINE_SH" span-audit --claims "<claims.json>" \
+  --bundles "<bundles.json>" --head "$(git rev-parse HEAD)" 2>"$STDERR_FILE")
+rc=$?
+STDERR=$(cat -- "$STDERR_FILE")
+rm -f -- "$STDERR_FILE"
+```
+
+`<claims.json>` is the Phase 1 claims array as emitted (the audit reads
+`claim_id`, `ac_id`, `source_locator`, `verify`) and `<bundles.json>` is the
+evidence-bundle array (the audit reads `tool_use_id`, `claim_id`, `file_line`,
+`raw_blob`). Only claims with `verify != null` are audited. Run
+`engine.sh m14-check` first: its case 11 gate is what proves the worktree
+matches the audited HEAD, which is where the audit reads the quote text.
+
+- `rc` 0 → every audited token has bundle coverage; spawn the judge wave.
+- `rc` 8 → do NOT spawn a judge. `$STDERR`'s first line is
+  `span-audit: case N: …` and `$UNCOVERED` is the JSON array of uncovered
+  records (`claim_id`, `ac_id`, `token_class`, `token`). Route those claims
+  back to Phase 2 re-collection — the judge caps each at ≤79 on the same
+  missing coverage (SPEC-013 § Output Shapes), so a wave now buys a capped
+  verdict nobody checks. Re-run the audit after re-collection.
+- `rc` 64 → argv misuse or unusable input; fix the inputs, never a claim.
+
+`engine.sh span-audit` is the one implementation (it wraps
+`skills/council/verify-span-coverage.sh`); the Workflow path calls the same
+subcommand before its judge parts (`workflow.js`). Never re-derive the checks
+here.
+
 **Engine passes to the Judge** (plan key `phases.5_judgment.inputs` is the
 authoritative per-run list):
 1. Original claims (the list from Phase 1, not narrative summaries) — **always**

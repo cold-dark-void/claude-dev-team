@@ -212,7 +212,10 @@ verdict-mapping policy rather than restating them; see `skills/council/
 m14-ac-split.sh` and `skills/autopilot/ship-gate-verdict.sh`. In a
 hand-rendered run every judge dispatch MUST also pass
 `skills/council/verify-verbatim-dispatch.sh` per dispatch (the Phase 5 fence,
-CDT-602), and finalize self-heals the judge output shape via
+CDT-602), every such run MUST pass the Phase 5 span audit
+`engine.sh span-audit` before its first judge part (CDT-605 — the ≤79 caps its
+uncovered records name are the CDT-537 caps the verdicts carry into this
+report), and finalize self-heals the judge output shape via
 `skills/council/verify-judge-shape.sh`.
 
 **Index writer (task-bound runs only):**

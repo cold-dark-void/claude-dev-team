@@ -48,9 +48,21 @@ Subcommands:
                    wave, writes no file. Defaults: --teams 3, --lenses
                    security,contributor,spec.
 
+  span-audit --claims C --bundles B [--head SHA]
+                   CDT-605 pre-judge-wave CDT-537 span audit (SPEC-013): the
+                   strict pre-wave token-coverage check the CDT-589 C5 lesson
+                   left manual. Wraps verify-span-coverage.sh -- one
+                   implementation, no copy. Exit 0: covered, one summary line.
+                   Exit 8: uncovered -- "span-audit: case N: <cause>" lines on
+                   stderr (case 1 quote presence, 2 token coverage, 3 HEAD
+                   admissibility, 4 elision line) plus the uncovered JSON array
+                   on stdout for per-claim re-collection. Exit 64: argv misuse
+                   or unusable input.
+
 Exit codes: 0 ok | 1 jq required but not found | 2 usage/no-scope | 3 reserved (unused; no deferred scopes)
             4 unknown preset | 5 empty evidence | 6 index-writer failure | 7 schema mismatch
             8 M14 per-AC split fails closed (SPEC-033 M14(g)) | m14-ac-split: <cause>
+            8 span-audit: uncovered tokens (CDT-605) | span-audit: case N: <cause>
             9 report no-overwrite: every candidate up to -99 is taken
             64 m14-check: argv misuse
             64 preflight: invalid --concurrency (Spawn concurrency cap, CDT-573)

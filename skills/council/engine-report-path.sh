@@ -1,4 +1,4 @@
-# council/engine-report-path.sh — resolve-task-id + report-path + m14-check, sourced by engine.sh (L-10).
+# council/engine-report-path.sh — resolve-task-id + report-path + m14-check + span-audit, sourced by engine.sh (L-10).
 
 # ---- resolve-task-id --------------------------------------------------------
 # Fallback: --task-id flag → CLAUDE_TASK_ID env → empty. Never errors.
@@ -184,5 +184,18 @@ cmd_m14_check() {
     exit 64
   fi
   m14_check "$1" "$2"
+}
+
+# ---- span-audit subcommand ---------------------------------------------
+# CLI entry point for the CDT-605 pre-judge-wave CDT-537 span audit: an argv
+# wrapper that delegates to skills/council/verify-span-coverage.sh. The four
+# caps (quote presence, token coverage excluding the Step-1 quote bundle, HEAD
+# admissibility, elision lines) live in that script alone -- this function
+# re-derives none of them, so the hand-run fence (skills/council/phases-4-5.md
+# Phase 5) and the workflow path (workflow.js) share one implementation.
+# The verifier's exits propagate unchanged: 0 covered, 8 uncovered, 64 argv
+# misuse (C1, uniform with m14-check).
+cmd_span_audit() {
+  bash "$SPAN_VERIFY" "$@"
 }
 
