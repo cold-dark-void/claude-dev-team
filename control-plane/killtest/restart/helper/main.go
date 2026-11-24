@@ -116,8 +116,11 @@ func superviseRun(ctx context.Context, eng *journal.Engine, a *agent.Agent,
 }
 
 // waitMidRun blocks until the journal proves the run is mid-flight: running,
-// with the spawn outcome recorded (so a runner process exists) and its first
-// stint journaled. That is the point the harness kills at.
+// with the spawn outcome recorded (so a runner process exists), its first
+// stint journaled, and the captured session id journaled (SPEC-044 CDT-661
+// AC5 — the harness kills only after the closed agent.session row, so the
+// takeover's resume rides an id the journal named before the crash). That is
+// the point the harness kills at.
 func waitMidRun(ctx context.Context, m *run.Machine, errc <-chan error) error {
 	deadline := time.Now().Add(killtest.RestartReadyWait)
 	for {
@@ -127,7 +130,9 @@ func waitMidRun(ctx context.Context, m *run.Machine, errc <-chan error) error {
 		}
 		if st.Status == journal.StatusRunning && st.Stint >= 1 {
 			if e, ok := st.EffectByKey(killtest.RestartStartKey(1)); ok && !e.Pending() {
-				return nil
+				if se, ok := st.EffectByKey(killtest.RestartSessionKey(1)); ok && !se.Pending() {
+					return nil
+				}
 			}
 		}
 		select {

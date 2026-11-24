@@ -330,7 +330,58 @@ func (c *Chief) takeoverOne(ctx context.Context, cand takeoverCandidate) Takeove
 		return line
 	}
 	line.Host = string(host)
+	sessionID, err := c.takeoverSessionID(ctx, cand.RunID)
+	if err != nil {
+		line.Outcome = TakeoverRefused
+		line.Reason = err.Error()
+		return line
+	}
+	if sessionID != "" && hostadapter.ResumeRoute(host) {
+		// SPEC-044 CDT-661 AC3: the journal names the host session and the
+		// host names a supported resume cell, so the same host session
+		// continues across the crash. The reason line tells the operator
+		// resume from re-spawn on first reading (S1).
+		line.Reason = fmt.Sprintf("resumed host session %s", sessionID)
+		return c.takeoverResume(ctx, cand, host, sessionID, line)
+	}
+	// CDT-661 AC4: no captured id (before-capture hosts, capture-less
+	// starts) or no resume cell (mini-swe) — CDT-660's fresh re-spawn,
+	// byte-identical.
 	return c.takeoverSpawn(ctx, cand, host, line)
+}
+
+// takeoverSessionID reads the run's journaled host session id (SPEC-044
+// CDT-661 AC3): the newest agent.session row that names one, its outcome
+// payload first and its intent payload after — a pending intent is the crash
+// window between two back-to-back appends, and the id must survive it. The
+// newest row wins: a resumed attempt supersedes its predecessor. Empty means
+// the run carries no captured id — the CDT-660 fresh re-spawn fallback.
+func (c *Chief) takeoverSessionID(ctx context.Context, runID string) (string, error) {
+	events, err := c.eng.Events(ctx, runID)
+	if err != nil {
+		return "", err
+	}
+	id := ""
+	for _, ev := range events {
+		if ev.Kind != journal.KindSideEffect {
+			continue
+		}
+		var ef journal.Effect
+		if err := jsonUnmarshal(ev.Payload, &ef); err != nil || ef.Effect != agent.EffectSession {
+			continue
+		}
+		raw := ef.Outcome
+		if len(raw) == 0 {
+			raw = ef.Intent
+		}
+		var payload struct {
+			SessionID string `json:"session_id"`
+		}
+		if err := jsonUnmarshal(raw, &payload); err == nil && payload.SessionID != "" {
+			id = payload.SessionID
+		}
+	}
+	return id, nil
 }
 
 // takeoverStartCommand reads the command of the run's newest recorded
@@ -384,7 +435,37 @@ func (c *Chief) takeoverSpawn(ctx context.Context, cand takeoverCandidate,
 		RunID: cand.RunID, Ticket: cand.Ticket, Workflow: cand.Workflow,
 		Model: cand.Model, Host: host,
 	})
+	return c.takeoverWatch(ctx, cand, since, errc, line)
+}
 
+// takeoverResume re-supervises one run through chief.startSupervisedResume
+// — the by-id resume of the journaled host session (SPEC-044 CDT-661 AC3).
+// The resume rides the node agent's Supervise unchanged (the stalled resume
+// for halted:stalled, the lease takeover for an expired-lease running run)
+// and journals the spawn intent with the host's resume argv at attempt
+// N+1: intent-then-outcome exactly like a start, no new verb, no new effect
+// name for the resume itself. The proof loop is takeoverSpawn's.
+func (c *Chief) takeoverResume(ctx context.Context, cand takeoverCandidate,
+	host hostadapter.Host, sessionID string, line TakeoverRun) TakeoverRun {
+	since, err := c.takeoverSeq(ctx, cand.RunID)
+	if err != nil {
+		line.Outcome = TakeoverRefused
+		line.Reason = err.Error()
+		return line
+	}
+	errc := c.startSupervisedResume(cand.RunID, hostadapter.ResumeRequest{
+		RunID: cand.RunID, Ticket: cand.Ticket, Workflow: cand.Workflow,
+		Model: cand.Model, Host: host, SessionID: sessionID,
+	})
+	return c.takeoverWatch(ctx, cand, since, errc, line)
+}
+
+// takeoverWatch is the takeover's proof loop, shared by the fresh re-spawn
+// and the resume: it answers taken when the journal proves the takeover,
+// refused when the start refuses, and unconfirmed when the pass ends or the
+// wait expires before the proof lands.
+func (c *Chief) takeoverWatch(ctx context.Context, cand takeoverCandidate,
+	since int64, errc <-chan error, line TakeoverRun) TakeoverRun {
 	wait := c.startWait()
 	timer := time.NewTimer(wait)
 	defer timer.Stop()

@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/cold-dark-void/claude-dev-team/control-plane/agent"
 	"github.com/cold-dark-void/claude-dev-team/control-plane/journal"
 	"github.com/cold-dark-void/claude-dev-team/control-plane/run"
 )
@@ -427,8 +428,24 @@ func (p *pass) effects(runID string) error {
 
 // effectEvidence asks reality whether the effect behind an intent landed. The
 // intent names its subject in a path or a branch field; anything else has no
-// evidence a reconciler may read.
+// evidence a reconciler may read. One effect is self-evidencing and needs no
+// reality at all: agent.session.
 func (p *pass) effectEvidence(e journal.RecordedEffect) (string, bool) {
+	if e.Effect == agent.EffectSession {
+		// SPEC-044 CDT-661 AC1: the session-id row IS the record — the
+		// intent payload carries the captured id, and no external reality
+		// re-proves it. The pending intent is the crash window between two
+		// back-to-back appends; halting for it would cost a microsecond
+		// window the whole run (the takeover refuses halted:reconcile_failed).
+		fields := intentFields(e.Intent)
+		if fields == nil {
+			return "", false
+		}
+		if id := firstString(fields, "session_id"); id != "" {
+			return "the journal row names host session " + id, true
+		}
+		return "", false
+	}
 	if !p.realityOK {
 		return "", false
 	}

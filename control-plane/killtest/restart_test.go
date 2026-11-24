@@ -115,6 +115,10 @@ func TestRestartTakeoverCompletesTheRunOnce(t *testing.T) {
 		t.Errorf("taken run = %+v, want found in `running` on host %s (the host the "+
 			"run's own start record names)", got, RestartHost)
 	}
+	if want := "resumed host session " + RestartHostSessionID; rep.Taken[0].Reason != want {
+		t.Errorf("taken reason = %q, want %q: the takeover resumes the journaled "+
+			"session and names it (SPEC-044 CDT-661 AC3/AC5)", rep.Taken[0].Reason, want)
+	}
 	if len(rep.Skipped) != 0 || len(rep.Refused) != 0 || len(rep.Unconfirmed) != 0 {
 		t.Errorf("skipped/refused/unconfirmed = %+v / %+v / %+v, want none",
 			rep.Skipped, rep.Refused, rep.Unconfirmed)
@@ -151,6 +155,12 @@ func TestRestartTakeoverCompletesTheRunOnce(t *testing.T) {
 			"re-spawn. Any other count is a double spawn or a run that never restarted",
 			launches)
 	}
+	if argv := c.runnerArgv(t); len(argv) != 2 ||
+		argv[1] != "-p --resume "+RestartHostSessionID {
+		t.Errorf("runner argv = %q, want launch 2 to be the by-id resume of the "+
+			"journaled session (SPEC-044 CDT-661 AC5, the falsification gate: no "+
+			"fresh re-spawn and no duplicate turn when the row exists)", argv)
+	}
 	if processAlive(attempt1.pid) {
 		t.Errorf("orphan runner pid %d is still alive after the takeover's orphan stop",
 			attempt1.pid)
@@ -171,6 +181,7 @@ type restartCase struct {
 	dir        string
 	dbPath     string
 	countPath  string
+	argsPath   string
 	readyPath  string
 	reportPath string
 }
@@ -182,6 +193,7 @@ func newRestartCase(t *testing.T) *restartCase {
 		dir:        dir,
 		dbPath:     filepath.Join(dir, "run.db"),
 		countPath:  filepath.Join(dir, "runner-launches"),
+		argsPath:   filepath.Join(dir, "runner-argv"),
 		readyPath:  filepath.Join(dir, "supervisor-ready"),
 		reportPath: filepath.Join(dir, "restart-report.json"),
 	}
@@ -216,20 +228,27 @@ func newRestartCase(t *testing.T) *restartCase {
 // (chief.hostByCommand), and it is a shell script so the test needs no host CLI
 // installed on the lane.
 //
-// Launch 1 stays alive: it must outlive its SIGKILLed supervisor so the
-// takeover's orphan probe finds it live and stops it. SIGTERM ends it, which is
-// what the orphan stop waits for. Launch 2 exits clean, and the node agent's
-// terminal step completes the run.
+// Launch 1 names a session id on stdout — a claude stream-json init line the
+// capture reads — so the takeover owes its resume to a journaled id
+// (SPEC-044 CDT-661 AC5). It stays alive: it must outlive its SIGKILLed
+// supervisor so the takeover's orphan probe finds it live and stops it.
+// SIGTERM ends it, which is what the orphan stop waits for.
+// Launch 2 is the resume: it exits clean, and the node agent's terminal step
+// completes the run. Every launch appends its argv to the args record — the
+// external proof of which invocation the takeover re-spawned.
 const hostSessionCLI = `#!/bin/sh
 # Host-session stand-in of the CDT-660 restart kill test. The count file is the
-# external record of how many runner processes spawned.
+# external record of how many runner processes spawned; the args file is the
+# record of each launch's argv.
 n=0
 if [ -f "$` + EnvRestartHostCount + `" ]; then
 	n=$(cat "$` + EnvRestartHostCount + `")
 fi
 n=$((n + 1))
 printf '%s\n' "$n" > "$` + EnvRestartHostCount + `"
+printf '%s\n' "$*" >> "$` + EnvRestartHostArgs + `"
 if [ "$n" -le 1 ]; then
+	printf '{"type":"system","subtype":"init","session_id":"` + RestartHostSessionID + `"}\n'
 	trap 'exit 0' TERM
 	while :; do sleep 1; done
 fi
@@ -246,6 +265,7 @@ func (c *restartCase) command(mode string) *exec.Cmd {
 		EnvRestartMode+"="+mode,
 		EnvRestartRunID+"="+RestartRunID,
 		EnvRestartHostCount+"="+c.countPath,
+		EnvRestartHostArgs+"="+c.argsPath,
 		"DEVTEAM_RUN_DB="+c.dbPath,
 		"DEVTEAM_MROOT="+c.dir,
 		"DEVTEAM_STALL_LIMIT="+RestartStallLimitSeconds,
@@ -393,6 +413,23 @@ func (c *restartCase) runnerLaunches(t *testing.T) int {
 	return n
 }
 
+// runnerArgv is the external record of every launch's argv, one line per
+// launch: the invocation the takeover's re-spawn really carried.
+func (c *restartCase) runnerArgv(t *testing.T) []string {
+	t.Helper()
+	raw, err := os.ReadFile(c.argsPath)
+	if err != nil {
+		t.Fatalf("read the runner-argv record: %v", err)
+	}
+	var out []string
+	for _, line := range strings.Split(string(raw), "\n") {
+		if line = strings.TrimSpace(line); line != "" {
+			out = append(out, line)
+		}
+	}
+	return out
+}
+
 func (c *restartCase) openEngine(t *testing.T) *journal.Engine {
 	t.Helper()
 	eng, err := journal.OpenPath(context.Background(), c.dbPath)
@@ -428,6 +465,7 @@ type runnerLaunch struct {
 	outcomeSeq int64
 	key        string
 	command    string
+	args       []string
 	attempt    int
 	pid        int
 }
@@ -443,14 +481,15 @@ func startLaunches(t *testing.T, eng *journal.Engine) []runnerLaunch {
 		}
 		if ev.IntentRow() {
 			var intent struct {
-				Command string `json:"command"`
-				Attempt int    `json:"attempt"`
+				Command string   `json:"command"`
+				Args    []string `json:"args"`
+				Attempt int      `json:"attempt"`
 			}
 			if err := json.Unmarshal(ef.Intent, &intent); err != nil {
 				t.Fatalf("spawn intent %d: %v", ev.Seq, err)
 			}
 			out = append(out, runnerLaunch{seq: ev.Seq, key: ev.IdempotencyKey,
-				command: intent.Command, attempt: intent.Attempt})
+				command: intent.Command, args: intent.Args, attempt: intent.Attempt})
 			continue
 		}
 		var outcome struct {
@@ -521,6 +560,42 @@ func assertRestartTrail(t *testing.T, eng *journal.Engine, first runnerLaunch) {
 			kill[1].ef.IntentSeq, kill[0].seq)
 	}
 
+	// CDT-661 AC1 + AC5: the capture-time row pair landed, closed, before
+	// the takeover — the id the resume rides is the journal's, named while
+	// the run ran.
+	sess := sideEffects(t, all, agent.EffectSession)
+	if len(sess) != 2 {
+		t.Fatalf("agent.session rows = %d, want the intent and the outcome of the "+
+			"capture-time journaling (SPEC-044 CDT-661 AC1/AC5)", len(sess))
+	}
+	var sessIntent struct {
+		SessionID string `json:"session_id"`
+		Attempt   int    `json:"attempt"`
+	}
+	if err := json.Unmarshal(sess[0].ef.Intent, &sessIntent); err != nil {
+		t.Fatalf("agent.session intent: %v", err)
+	}
+	if sessIntent.SessionID != RestartHostSessionID || sessIntent.Attempt != 1 {
+		t.Errorf("agent.session intent = %+v, want the captured id at attempt 1", sessIntent)
+	}
+	var sessOutcome struct {
+		SessionID string `json:"session_id"`
+	}
+	if err := json.Unmarshal(sess[1].ef.Outcome, &sessOutcome); err != nil ||
+		sessOutcome.SessionID != RestartHostSessionID {
+		t.Errorf("agent.session outcome %s does not close the pair with the id (err %v)",
+			sess[1].ef.Outcome, err)
+	}
+	if sess[1].ef.IntentSeq != sess[0].seq {
+		t.Errorf("the agent.session outcome closes intent %d, want %d",
+			sess[1].ef.IntentSeq, sess[0].seq)
+	}
+	if sess[0].seq <= first.seq || sess[1].seq >= takeoverSeq {
+		t.Errorf("the closed agent.session pair (seq %d, %d) is not between the spawn "+
+			"(seq %d) and the takeover (seq %d): the id must be journaled before the kill",
+			sess[0].seq, sess[1].seq, first.seq, takeoverSeq)
+	}
+
 	launches := startLaunches(t, eng)
 	if len(launches) != 2 {
 		t.Fatalf("spawn records = %d, want 2 (attempt 1 and the takeover's re-spawn)",
@@ -536,6 +611,10 @@ func assertRestartTrail(t *testing.T, eng *journal.Engine, first runnerLaunch) {
 	if base := filepath.Base(second.command); base != RestartHostCLI {
 		t.Errorf("re-spawn command = %q, want the journaled host command %q",
 			second.command, RestartHostCLI)
+	}
+	if got := strings.Join(second.args, " "); got != "-p --resume "+RestartHostSessionID {
+		t.Errorf("the journal's re-spawn intent argv = %q, want the by-id resume of "+
+			"the journaled session (SPEC-044 CDT-661 AC5)", got)
 	}
 	if second.pid <= 0 || second.pid == first.pid {
 		t.Errorf("re-spawn pid = %d, want a new live pid (attempt 1 was %d)",

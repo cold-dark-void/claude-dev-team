@@ -211,6 +211,33 @@ func TestSessionIDCapturedAtStartPerHost(t *testing.T) {
 			},
 			"01a1ddda-7a27-760e-bd6c-a123b85f0b5e",
 		},
+		{
+			"grok ACP session/new response result.sessionId",
+			HostGrok,
+			[]string{
+				// The initialize response names no session id: its result is
+				// protocolVersion, agentCapabilities, authMethods, and
+				// _meta.agentId (probe P-GK-ACP-1).
+				`{"jsonrpc":"2.0","id":0,"result":{"protocolVersion":1,"agentCapabilities":{"loadSession":true},"authMethods":[{"id":"cached_token"}],"_meta":{"agentId":"a32eae6f-b14e-5efc-ab66-98d09818a14e","agentVersion":"1.0.92"}}}`,
+				// A setup notification carries the id field before the
+				// session exists: null is no id.
+				`{"jsonrpc":"2.0","method":"_x.ai/session/setup","params":{"method":"session/new","phase":"auth","sessionId":null}}`,
+				`{"jsonrpc":"2.0","id":1,"result":{"sessionId":"01a20e68-d7e1-7bc0-9eb8-915deef0e64b","models":{"currentModelId":"sonnet"}}}`,
+			},
+			"01a20e68-d7e1-7bc0-9eb8-915deef0e64b",
+		},
+		{
+			"grok ACP frames before the response name no id",
+			HostGrok,
+			[]string{
+				`{"jsonrpc":"2.0","id":0,"result":{"protocolVersion":1,"_meta":{"agentId":"a32eae6f-b14e-5efc-ab66-98d09818a14e"}}}`,
+				`{"jsonrpc":"2.0","method":"_x.ai/session/setup","params":{"method":"session/new","phase":"auth","sessionId":null}}`,
+				`{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"01a20e68-d7e1-7bc0-9eb8-915deef0e64b","update":{"sessionUpdate":"agent_thought_chunk"}}}`,
+			},
+			// The response frame is the ACP source (launch.go § acpSessionID):
+			// a notification's params.sessionId is not read.
+			"",
+		},
 	}
 	for _, tc := range cases {
 		tc := tc
@@ -241,6 +268,71 @@ func TestCaptureSurvivesSplitWrites(t *testing.T) {
 	want := "01a1de1d-bd76-7712-9628-d9aebeda8dc1"
 	if got := cap.SessionID(); got != want {
 		t.Errorf("SessionID = %q, want %q", got, want)
+	}
+}
+
+// AC2 + AC7: the Grok ACP capture is pinned to a live probe transcript.
+// testdata/grok-acp-session-frames.jsonl is the recorded stdout of the ACP
+// handshake run 2026-11-24 against grok 1.0.92 from a scratch working
+// directory (probe P-GK-ACP-1, reproduced by probe P-GK-ACP-2 the same day):
+//
+//	printf '<initialize>\n<initialized>\n<session/new>\n' \
+//	  | grok agent --always-approve stdio
+//
+// It carries the initialize response (no session id), two session/setup
+// notifications, and the session/new response (id 1) that names the id as
+// result.sessionId. The reproduction's full 29-frame transcript shows the
+// notifications naming the id as params.sessionId from frame 7 — ten frames
+// before the response answers — and the capture reads none of them.
+func TestGrokACPCaptureReadsTheProbeTranscript(t *testing.T) {
+	const want = "01a20e68-d7e1-7bc0-9eb8-915deef0e64b"
+	raw, err := os.ReadFile(filepath.Join("testdata", "grok-acp-session-frames.jsonl"))
+	if err != nil {
+		t.Fatalf("read the recorded probe transcript: %v", err)
+	}
+	lines := strings.Split(string(raw), "\n")
+	if len(lines) < 4 {
+		t.Fatalf("the transcript carries %d lines, want the four recorded frames", len(lines))
+	}
+	// The frame that opens the session is the response, not the initialize
+	// answer: the probe's initialize result names no session id.
+	if id := specs[HostGrok].SessionIDFromLine(lines[0]); id != "" {
+		t.Errorf("the initialize response names %q, want no session id", id)
+	}
+	// The setup notifications carry params.sessionId; the matcher reads
+	// response frames only, so a progress frame never stands in for the id.
+	for i := 1; i <= 2; i++ {
+		if id := specs[HostGrok].SessionIDFromLine(lines[i]); id != "" {
+			t.Errorf("the session/setup notification %d names %q, want no session id", i, id)
+		}
+	}
+	cap := NewCapture(HostGrok)
+	for _, l := range lines {
+		if l == "" {
+			continue
+		}
+		if _, err := io.WriteString(cap, l+"\n"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if got := cap.SessionID(); got != want {
+		t.Errorf("SessionID = %q, want the session/new response's id %q", got, want)
+	}
+}
+
+// AC4 (CDT-661): the resume-route predicate is the matrix resume cell — the
+// three hosts that name an AC-4 path route, the documentation-only mini-swe
+// row does not, and an unknown host routes nowhere.
+func TestResumeRoutePredicate(t *testing.T) {
+	for _, h := range []Host{HostClaudeCode, HostGrok, HostOmp} {
+		if !ResumeRoute(h) {
+			t.Errorf("ResumeRoute(%s) = false, want the matrix's supported resume cell", h)
+		}
+	}
+	for _, h := range []Host{HostMiniSwe, Host("codex")} {
+		if ResumeRoute(h) {
+			t.Errorf("ResumeRoute(%s) = true, want no route", h)
+		}
 	}
 }
 

@@ -76,6 +76,17 @@ type Native struct {
 // Name is the runner's selection token.
 func (Native) Name() RunnerType { return RunnerNative }
 
+// CapturedSessionID reports the session id the runner's stdout sink has
+// captured (SPEC-044 CDT-661 AC1): the sink read through SessionSource. A
+// nil sink, io.Discard, and any plain writer carry no capture and report "".
+func (n Native) CapturedSessionID() string {
+	src, ok := n.Stdout.(SessionSource)
+	if !ok {
+		return ""
+	}
+	return src.SessionID()
+}
+
 // Start spawns spec.Command as a child process of this agent. The child
 // inherits the agent's environment — its logins, its PATH, its credential
 // files (docs/internal/control-plane/credentials.md § AC-9 native rows).

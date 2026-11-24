@@ -2,6 +2,7 @@ package agent
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -10,6 +11,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -792,5 +794,235 @@ func TestRunIDShape(t *testing.T) {
 		if got := err == nil; got != tc.want {
 			t.Errorf("validRunID(%q) err = %v, want valid=%v", tc.runID, err, tc.want)
 		}
+	}
+}
+
+// ---------------------------------------------------------------------------
+// SPEC-044 CDT-661 AC1 — capture-time journaling of the host session id
+// ---------------------------------------------------------------------------
+
+// sessionCapture is the test shape of hostadapter.Capture: an io.Writer the
+// runner's stdout drains into that records the first stream line as the
+// session id. It satisfies SessionSource exactly the way the real capture
+// does.
+type sessionCapture struct {
+	mu sync.Mutex
+	id string
+}
+
+func (c *sessionCapture) Write(p []byte) (int, error) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.id == "" {
+		for _, line := range strings.Split(string(p), "\n") {
+			if line = strings.TrimSpace(line); line != "" {
+				c.id = line
+				break
+			}
+		}
+	}
+	return len(p), nil
+}
+
+func (c *sessionCapture) SessionID() string {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.id
+}
+
+// lateSessionRunner reports its capture id only after a delay: the poll
+// loop must retry on the tick that names the id and treat the earlier
+// unnamed ticks as nothing at all.
+type lateSessionRunner struct {
+	Native
+	mu    sync.Mutex
+	id    string
+	since time.Time
+	late  time.Duration
+}
+
+func (r *lateSessionRunner) CapturedSessionID() string {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if time.Since(r.since) < r.late {
+		return ""
+	}
+	return r.id
+}
+
+// effectByKey is the record of one effect key on the replayed state.
+func effectByKey(t *testing.T, eng *journal.Engine, runID, key string) journal.RecordedEffect {
+	t.Helper()
+	for _, e := range state(t, eng, runID).Effects {
+		if e.Key == key {
+			return e
+		}
+	}
+	t.Fatalf("run %s carries no effect keyed %s", runID, key)
+	return journal.RecordedEffect{}
+}
+
+// countKeyRows counts the journal rows carrying one idempotency key. Only
+// the intent half of a side effect carries the key, so this is the count of
+// times the intent landed: a replay answers with the recorded row, never a
+// second one.
+func countKeyRows(t *testing.T, eng *journal.Engine, runID, key string) int {
+	t.Helper()
+	rows, err := eng.Events(context.Background(), runID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	n := 0
+	for _, r := range rows {
+		if r.IdempotencyKey == key {
+			n++
+		}
+	}
+	return n
+}
+
+// countEffectRows counts one run's side_effect rows of one effect name,
+// both halves.
+func countEffectRows(t *testing.T, eng *journal.Engine, runID, effect string) int {
+	t.Helper()
+	rows, err := eng.Events(context.Background(), runID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	n := 0
+	for _, r := range rows {
+		if r.Kind != journal.KindSideEffect {
+			continue
+		}
+		var ef journal.Effect
+		if json.Unmarshal(r.Payload, &ef) == nil && ef.Effect == effect {
+			n++
+		}
+	}
+	return n
+}
+
+// AC1: a supervised run whose runner's capture names a session id lands
+// exactly one closed agent.session row pair keyed to the live attempt, both
+// rows carrying the id, and the run rides on unchanged.
+func TestSuperviseJournalsTheCapturedSessionID(t *testing.T) {
+	eng := newEngine(t)
+	runID := "CDT-661"
+	sc := &sessionCapture{}
+	a := &Agent{Runner: Native{Stdout: sc, Stderr: io.Discard}}
+
+	// The host CLI names its session, then lives across several poll ticks.
+	req := startReq(runID, `printf 'sess-abc\n'; sleep 1`)
+	if err := a.Supervise(context.Background(), eng, req); err != nil {
+		t.Fatalf("supervise: %v", err)
+	}
+	if sc.SessionID() != "sess-abc" {
+		t.Fatalf("capture = %q, want sess-abc: the sink must pass the stream through",
+			sc.SessionID())
+	}
+	key := "agent:session:" + runID + "#1"
+	e := effectByKey(t, eng, runID, key)
+	if e.Effect != EffectSession || e.Pending() {
+		t.Fatalf("session effect = %+v, want a closed agent.session row pair", e)
+	}
+	for _, raw := range [][]byte{e.Intent, e.Outcome} {
+		if !strings.Contains(string(raw), `"session_id":"sess-abc"`) ||
+			!strings.Contains(string(raw), `"attempt":1`) {
+			t.Errorf("row %s does not carry the id and the attempt", raw)
+		}
+	}
+	if n := countKeyRows(t, eng, runID, key); n != 1 {
+		t.Errorf("rows keyed %s = %d, want the one intent", key, n)
+	}
+	if n := countEffectRows(t, eng, runID, EffectSession); n != 2 {
+		t.Errorf("agent.session rows = %d, want the intent and its outcome", n)
+	}
+	if st := state(t, eng, runID); st.Name() != "completed" {
+		t.Errorf("state = %s, want completed", st.Name())
+	}
+}
+
+// AC1 boundary: a start whose runner carries no capture journals no session
+// row — the adoption fallback covers that run.
+func TestSuperviseWithNoCaptureJournalsNoSessionRow(t *testing.T) {
+	eng := newEngine(t)
+	runID := "CDT-661"
+	a := nativeAgent() // Stdout is io.Discard: no SessionSource behind it
+
+	if err := a.Supervise(context.Background(), eng,
+		startReq(runID, `printf 'sess-abc\n'; sleep 0.3`)); err != nil {
+		t.Fatalf("supervise: %v", err)
+	}
+	if n := countEffectRows(t, eng, runID, EffectSession); n != 0 {
+		t.Errorf("agent.session rows = %d, want 0: a capture-less start journals none", n)
+	}
+}
+
+// The retry rule: the id named late is journaled when it lands, the run is
+// never harmed by the earlier unnamed ticks, and the pair lands exactly
+// once.
+func TestSuperviseSessionJournalRetriesUntilTheIDIsNamed(t *testing.T) {
+	eng := newEngine(t)
+	runID := "CDT-661"
+	r := &lateSessionRunner{
+		Native: Native{Stdout: io.Discard, Stderr: io.Discard},
+		id:     "sess-late", since: time.Now(), late: 350 * time.Millisecond,
+	}
+	a := &Agent{Runner: r}
+
+	if err := a.Supervise(context.Background(), eng, startReq(runID, `sleep 1`)); err != nil {
+		t.Fatalf("supervise: %v", err)
+	}
+	key := "agent:session:" + runID + "#1"
+	e := effectByKey(t, eng, runID, key)
+	if e.Effect != EffectSession || e.Pending() {
+		t.Fatalf("session effect = %+v, want the closed pair the retry landed", e)
+	}
+	if !strings.Contains(string(e.Outcome), `"session_id":"sess-late"`) {
+		t.Errorf("outcome %s does not carry the late id", e.Outcome)
+	}
+	if n := countEffectRows(t, eng, runID, EffectSession); n != 2 {
+		t.Errorf("agent.session rows = %d, want one closed pair", n)
+	}
+}
+
+// The crash-window shape a failed half of the pair leaves — a session
+// intent with no outcome: the next write replays the intent under the same
+// idempotency key and closes it, never a second row.
+func TestJournalSessionIDReplaysThePendingIntent(t *testing.T) {
+	eng := newEngine(t)
+	runID := "CDT-661"
+	ctx := context.Background()
+	a := &Agent{Runner: &lateSessionRunner{
+		Native: Native{Stdout: io.Discard}, id: "sess-x", late: -time.Second,
+	}}
+	m := run.New(eng, runID)
+	owner, model := a.owner(), "sonnet"
+	token, err := m.Claim(ctx, owner, "CDT-661", "debug", model)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := m.Start(ctx, owner, token, model); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := m.Intent(ctx, owner, token, "agent:start:"+runID+"#1",
+		EffectStart, map[string]any{"attempt": 1}); err != nil {
+		t.Fatal(err)
+	}
+	key := "agent:session:" + runID + "#1"
+	if _, _, err := m.Intent(ctx, owner, token, key, EffectSession,
+		map[string]any{"session_id": "sess-x", "attempt": 1}); err != nil {
+		t.Fatal(err)
+	}
+
+	if got := a.journalSessionID(ctx, m, token, runID); got != "sess-x" {
+		t.Fatalf("journalSessionID = %q, want sess-x", got)
+	}
+	e := effectByKey(t, eng, runID, key)
+	if e.Pending() {
+		t.Errorf("the pending intent survived the write: %+v", e)
+	}
+	if n := countKeyRows(t, eng, runID, key); n != 1 {
+		t.Errorf("rows keyed %s = %d, want the replayed intent, never a duplicate", key, n)
 	}
 }

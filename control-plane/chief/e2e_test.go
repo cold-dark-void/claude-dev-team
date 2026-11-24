@@ -22,7 +22,10 @@ import (
 // exactly the step boundary a steer delivers at. Nothing touches a
 // terminal.
 func TestABoardRunIsStartedSteeredAndClosedFromTheUI(t *testing.T) {
-	eng := newEngine(t)
+	// The steer seam supervises a real child, so it runs on the wide stall
+	// limit (newEngineWideStall): a loaded runner must not race newEngine's
+	// 1 s limit into a stall answer on the correction.
+	eng := newEngineWideStall(t)
 	out := filepath.Join(t.TempDir(), "steered.txt")
 	t.Setenv("CDT650_TEST_STEER_OUT", out)
 

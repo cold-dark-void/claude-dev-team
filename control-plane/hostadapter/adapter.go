@@ -215,6 +215,13 @@ func (a *Adapter) Resume(ctx context.Context, eng *journal.Engine,
 	return cap, err
 }
 
+// ResumeRoute reports whether the matrix names a supported resume cell for a
+// host (CDT-661 AC4). It is the pre-check a caller runs before it asks for a
+// resume — the takeover's adoption path uses it to choose between
+// Adapter.Resume and a fresh Start. A false answer is the cell's verdict, never
+// an error: an unknown host has no route either.
+func ResumeRoute(h Host) bool { return route(h, CapResume) == nil }
+
 // SteerRequest is one correction for one running host session.
 type SteerRequest struct {
 	RunID string

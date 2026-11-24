@@ -42,6 +42,13 @@ const (
 	// EffectKill is the takeover's orphan kill: a live runner recorded by a
 	// dead supervisor, stopped before the re-spawn (the adoption policy).
 	EffectKill = "agent.kill"
+	// EffectSession is the capture-time record of the host session id
+	// (SPEC-044 CDT-661 AC1): the id the runner's session capture holds,
+	// journaled once per attempt as an intent row and its outcome row, both
+	// carrying the id. The row IS the record — no external reality re-proves
+	// it — so control-plane/reconcile closes a pending one from its own
+	// payload, and the chief's takeover reads the id from either row.
+	EffectSession = "agent.session"
 )
 
 // agentRunsRelPath is where the agent records its live processes, under the
@@ -389,6 +396,9 @@ func (a *Agent) supervise(ctx context.Context, m *run.Machine, token int64,
 	defer beat.Stop()
 	poll := time.NewTicker(pollInterval)
 	defer poll.Stop()
+	// sessionID names the capture id this attempt has already journaled
+	// (SPEC-044 CDT-661 AC1); the empty string means nothing has landed.
+	sessionID := ""
 
 	for {
 		select {
@@ -438,10 +448,72 @@ func (a *Agent) supervise(ctx context.Context, m *run.Machine, token int64,
 				a.stopQuiet(proc, 0)
 				return err
 			}
+			if sessionID == "" {
+				sessionID = a.journalSessionID(ctx, m, token, runID)
+			}
 		case exitErr := <-proc.Done():
 			return a.runnerExit(ctx, m, token, runID, proc, exitErr)
 		}
 	}
+}
+
+// SessionSource is the capture contract the agent asks its runner's stdout
+// sink through (SPEC-044 CDT-661 AC1): the capture records the session id
+// from the host's output, the agent only asks for the id and journals it —
+// it never parses host output (adapter seam, AC1). hostadapter.Capture
+// satisfies it import-free: the agent package never imports hostadapter
+// (hostadapter imports the agent).
+type SessionSource interface {
+	SessionID() string
+}
+
+// capturedRunner is the runner shape that carries a session-id capture: the
+// native runner over a SessionSource stdout sink. The container runner and a
+// capture-less start carry none and journal nothing.
+type capturedRunner interface {
+	CapturedSessionID() string
+}
+
+// journalSessionID journals the session id the runner's capture holds —
+// once per attempt (SPEC-044 CDT-661 AC1): the intent row and its outcome
+// row, both carrying the id and the attempt number, keyed
+// "agent:session:<run>#<attempt>" under the live token. A crash between the
+// two back-to-back appends leaves the one pending intent the reconciler
+// closes from the row's own payload (control-plane/reconcile § effects), and
+// the takeover reads the id from either row.
+//
+// It answers the id it journaled, and "" for the poll loop to retry on the
+// next tick: no capture, no id yet, and a failed write (the idempotency key
+// replays the intent safely) are never a new failure mode for the run — the
+// adoption fallback covers a run whose host never named an id.
+func (a *Agent) journalSessionID(ctx context.Context, m *run.Machine, token int64,
+	runID string) string {
+	src, ok := a.Runner.(capturedRunner)
+	if !ok {
+		return ""
+	}
+	id := src.CapturedSessionID()
+	if id == "" {
+		return ""
+	}
+	st, err := m.State(ctx)
+	if err != nil {
+		return ""
+	}
+	attempt := countEffects(st, EffectStart)
+	if attempt < 1 {
+		return ""
+	}
+	payload := map[string]any{"session_id": id, "attempt": attempt}
+	key := fmt.Sprintf("agent:session:%s#%d", runID, attempt)
+	seq, _, err := m.Intent(ctx, a.owner(), token, key, EffectSession, payload)
+	if err != nil {
+		return ""
+	}
+	if _, err := m.Outcome(ctx, a.owner(), token, seq, EffectSession, payload); err != nil {
+		return ""
+	}
+	return id
 }
 
 // runnerExit is the terminal step: the host CLI exited on its own. A clean

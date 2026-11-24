@@ -24,6 +24,10 @@ const (
 	// EnvRestartHostCount is the launch counter the host-session stand-in
 	// writes: the external record of how many runner processes spawned.
 	EnvRestartHostCount = "CDT660_RESTART_HOST_COUNT"
+	// EnvRestartHostArgs is the file the host-session stand-in appends its
+	// own argv to on every launch: the external record of the re-spawn
+	// invocation (the CDT-661 AC5 resume assertion reads it).
+	EnvRestartHostArgs = "CDT660_RESTART_HOST_ARGS"
 )
 
 // The two modes of ./restart/helper: the supervisor that gets killed, and the
@@ -48,6 +52,11 @@ const (
 	// (hostadapter/launch.go) — the name the harness's host-session stand-in
 	// carries on disk.
 	RestartHostCLI = "claude"
+	// RestartHostSessionID is the session id the host-session stand-in names
+	// on launch 1 — the id the takeover's resume argv must carry
+	// (SPEC-044 CDT-661 AC5: the same host session continues across the
+	// crash).
+	RestartHostSessionID = "killtest-session-1"
 )
 
 // RestartStallLimitSeconds is DEVTEAM_STALL_LIMIT for the restart case: the
@@ -76,4 +85,10 @@ const (
 // (agent.spawn writes "agent:start:<run>#<attempt>").
 func RestartStartKey(attempt int) string {
 	return fmt.Sprintf("agent:start:%s#%d", RestartRunID, attempt)
+}
+
+// RestartSessionKey is the node agent's session-id intent key of one attempt
+// ("agent:session:<run>#<attempt>", SPEC-044 CDT-661 AC1).
+func RestartSessionKey(attempt int) string {
+	return fmt.Sprintf("agent:session:%s#%d", RestartRunID, attempt)
 }

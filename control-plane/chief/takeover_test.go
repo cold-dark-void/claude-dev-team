@@ -1052,3 +1052,186 @@ func TestTakeoverScanLeavesALiveLeaseAlone(t *testing.T) {
 		t.Errorf("the live run gained rows (last seq %d, was %d)", seq, before)
 	}
 }
+
+// ---------------------------------------------------------------------------
+// SPEC-044 CDT-661 AC3/AC4 — adoption resumes the journaled host session
+// ---------------------------------------------------------------------------
+
+// seedSessionRow records the run's agent.session row: the intent and, when
+// closed, its outcome — the shape the node agent's capture-time journaling
+// writes (CDT-661 AC1). closed=false is the crash window between the two
+// back-to-back appends.
+func seedSessionRow(t *testing.T, eng *journal.Engine, runID, id string, closed bool) {
+	t.Helper()
+	ctx := context.Background()
+	raw, err := json.Marshal(map[string]any{"session_id": id, "attempt": 1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ev, err := journal.NewEvent(runID, journal.KindSideEffect, journal.Effect{
+		Effect: agent.EffectSession, Intent: raw})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ev.IdempotencyKey = fmt.Sprintf("agent:session:%s#1", runID)
+	seq, _, err := eng.AppendChecked(ctx, ev)
+	if err != nil {
+		t.Fatalf("append %s session intent: %v", runID, err)
+	}
+	if !closed {
+		return
+	}
+	out, err := journal.NewEvent(runID, journal.KindSideEffect, journal.Effect{
+		Effect: agent.EffectSession, Intent: raw, Outcome: raw, IntentSeq: seq})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := eng.AppendChecked(ctx, out); err != nil {
+		t.Fatalf("append %s session outcome: %v", runID, err)
+	}
+}
+
+// lastStartIntentArgs is the argv of the run's newest agent.start intent.
+func lastStartIntentArgs(t *testing.T, eng *journal.Engine, runID string) []string {
+	t.Helper()
+	events, err := eng.Events(context.Background(), runID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var args []string
+	for _, ev := range events {
+		if ev.Kind != journal.KindSideEffect || !ev.IntentRow() {
+			continue
+		}
+		var ef journal.Effect
+		if err := jsonUnmarshal(ev.Payload, &ef); err != nil || ef.Effect != agent.EffectStart {
+			continue
+		}
+		var intent struct {
+			Args []string `json:"args"`
+		}
+		if err := jsonUnmarshal(ef.Intent, &intent); err == nil {
+			args = intent.Args
+		}
+	}
+	return args
+}
+
+// AC3: a selected run whose journal carries a closed captured session id is
+// re-supervised through Adapter.Resume — the host's by-id invocation rides
+// the one takeover path, the newest spawn intent carries the resume argv at
+// attempt N+1, and the report names the resumed session (S1).
+func TestTakeoverScanResumesTheJournaledSession(t *testing.T) {
+	_ = captureTakeoverLog(t)
+	eng := newEngine(t)
+	seedTakeoverRunning(t, eng, "r-run", takeoverOwner, "claude")
+	seedSessionRow(t, eng, "r-run", "sess-1", true)
+
+	ag := &takeoverAgent{now: takeoverClock(30 * time.Second)}
+	c := newTakeoverChief(t, eng, ag, &fakePhone{})
+	c.Now = takeoverClock(30 * time.Second)
+
+	rep, err := c.TakeoverScan(context.Background())
+	if err != nil {
+		t.Fatalf("TakeoverScan: %v", err)
+	}
+	if got := runIDsOf(rep.Taken); strings.Join(got, ",") != "r-run" {
+		t.Fatalf("taken = %v, want r-run (%s)", got, joinReport(rep))
+	}
+	if !strings.Contains(joinReport(rep), "resumed host session sess-1") {
+		t.Errorf("the report does not name the resumed session: %s", joinReport(rep))
+	}
+	calls := ag.recorded()
+	if len(calls) != 1 {
+		t.Fatalf("starts = %d, want one", len(calls))
+	}
+	call := calls[0]
+	if call.Request.Command != "claude" {
+		t.Errorf("resume command = %q, want the host CLI", call.Request.Command)
+	}
+	if got := strings.Join(call.Request.Args, " "); got != "-p --resume sess-1" {
+		t.Errorf("resume argv = %q, want the host's by-id invocation", got)
+	}
+	if !call.BaseCtx {
+		t.Errorf("the resume does not ride the chief's base context")
+	}
+	if got := strings.Join(lastStartIntentArgs(t, eng, "r-run"), " "); got != "-p --resume sess-1" {
+		t.Errorf("the newest spawn intent carries %q, want the resume argv", got)
+	}
+	if n := startIntents(t, eng, "r-run"); n != 2 {
+		t.Errorf("start intents = %d, want the recorded start plus the resume at attempt N+1", n)
+	}
+	st, err := eng.RunState(context.Background(), "r-run")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if st.Name() != "running" {
+		t.Errorf("state after the resumed takeover = %s, want running", st.Name())
+	}
+}
+
+// AC3 + the reconciler landmine's twin: a pending agent.session intent — the
+// crash window between the two back-to-back appends — carries the id too,
+// so the resume rides it.
+func TestTakeoverScanResumesFromAPendingSessionIntent(t *testing.T) {
+	_ = captureTakeoverLog(t)
+	eng := newEngine(t)
+	seedTakeoverRunning(t, eng, "r-run", takeoverOwner, "grok")
+	seedSessionRow(t, eng, "r-run", "sess-pending", false)
+
+	ag := &takeoverAgent{now: takeoverClock(30 * time.Second)}
+	c := newTakeoverChief(t, eng, ag, &fakePhone{})
+	c.Now = takeoverClock(30 * time.Second)
+
+	rep, err := c.TakeoverScan(context.Background())
+	if err != nil {
+		t.Fatalf("TakeoverScan: %v", err)
+	}
+	if got := runIDsOf(rep.Taken); strings.Join(got, ",") != "r-run" {
+		t.Fatalf("taken = %v, want r-run (%s)", got, joinReport(rep))
+	}
+	calls := ag.recorded()
+	if len(calls) != 1 {
+		t.Fatalf("starts = %d, want one", len(calls))
+	}
+	want := "-p --output-format json --resume sess-pending"
+	if got := strings.Join(calls[0].Request.Args, " "); got != want {
+		t.Errorf("resume argv = %q, want %q", got, want)
+	}
+}
+
+// AC4: with no journaled session id the scan re-spawns fresh — CDT-660's
+// path, the host's headless launch argv, no resume flag, unchanged.
+func TestTakeoverScanSpawnsFreshWhenNoSessionIsJournaled(t *testing.T) {
+	_ = captureTakeoverLog(t)
+	eng := newEngine(t)
+	seedTakeoverRunning(t, eng, "r-run", takeoverOwner, "claude")
+
+	ag := &takeoverAgent{now: takeoverClock(30 * time.Second)}
+	c := newTakeoverChief(t, eng, ag, &fakePhone{})
+	c.Now = takeoverClock(30 * time.Second)
+
+	rep, err := c.TakeoverScan(context.Background())
+	if err != nil {
+		t.Fatalf("TakeoverScan: %v", err)
+	}
+	if got := runIDsOf(rep.Taken); strings.Join(got, ",") != "r-run" {
+		t.Fatalf("taken = %v, want r-run (%s)", got, joinReport(rep))
+	}
+	if strings.Contains(joinReport(rep), "resumed") {
+		t.Errorf("a fresh re-spawn names a resume in the report: %s", joinReport(rep))
+	}
+	calls := ag.recorded()
+	if len(calls) != 1 {
+		t.Fatalf("starts = %d, want one", len(calls))
+	}
+	for _, a := range calls[0].Request.Args {
+		if a == "--resume" || a == "-r" {
+			t.Fatalf("a run with no journaled id re-spawned with the resume flag %q", a)
+		}
+	}
+	if !strings.Contains(strings.Join(calls[0].Request.Args, " "), "--verbose") {
+		t.Errorf("the fresh re-spawn argv = %v, want claude's headless launch",
+			calls[0].Request.Args)
+	}
+}

@@ -371,11 +371,32 @@ func (c *Chief) Route(ctx context.Context, req RouteRequest) (*RouteResult, erro
 // when the supervision is running, a refusal when the start wrote no row.
 // Proving the start is the caller's read of the journal.
 func (c *Chief) startSupervised(runID string, req hostadapter.StartRequest) <-chan error {
+	return c.superviseRun(runID, req.Host, func(ctx context.Context) (*hostadapter.Capture, error) {
+		return c.Adapter.Start(ctx, c.eng, req)
+	})
+}
+
+// startSupervisedResume is startSupervised's resume twin (SPEC-044 CDT-661
+// AC3): the run's capture is recorded exactly like a start's, so Correct
+// keeps steering the resumed session, and the spawn rides Adapter.Resume —
+// the host's by-id resume invocation — on the chief's base context.
+func (c *Chief) startSupervisedResume(runID string, req hostadapter.ResumeRequest) <-chan error {
+	return c.superviseRun(runID, req.Host, func(ctx context.Context) (*hostadapter.Capture, error) {
+		return c.Adapter.Resume(ctx, c.eng, req)
+	})
+}
+
+// superviseRun is the body of both: record the run, run the adapter verb on
+// the base context, store the returned capture so Correct can steer it, and
+// answer on the start's channel. A refused start wrote no row: the chief's
+// record of the run goes with it.
+func (c *Chief) superviseRun(runID string, host hostadapter.Host,
+	spawn func(ctx context.Context) (*hostadapter.Capture, error)) <-chan error {
 	c.mu.Lock()
 	if c.runs == nil {
 		c.runs = map[string]*runRecord{}
 	}
-	c.runs[runID] = &runRecord{Host: req.Host}
+	c.runs[runID] = &runRecord{Host: host}
 	c.mu.Unlock()
 
 	base := c.baseCtx
@@ -384,7 +405,7 @@ func (c *Chief) startSupervised(runID string, req hostadapter.StartRequest) <-ch
 	}
 	errc := make(chan error, 1)
 	go func() {
-		cap, err := c.Adapter.Start(base, c.eng, req)
+		cap, err := spawn(base)
 		if cap != nil {
 			c.mu.Lock()
 			if rec, ok := c.runs[runID]; ok {
@@ -393,7 +414,6 @@ func (c *Chief) startSupervised(runID string, req hostadapter.StartRequest) <-ch
 			c.mu.Unlock()
 		}
 		if err != nil {
-			// A refused start wrote no row: the chief's record of the run goes.
 			c.mu.Lock()
 			delete(c.runs, runID)
 			c.mu.Unlock()

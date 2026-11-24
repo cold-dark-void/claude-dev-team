@@ -12,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/cold-dark-void/claude-dev-team/control-plane/agent"
 	"github.com/cold-dark-void/claude-dev-team/control-plane/journal"
 	"github.com/cold-dark-void/claude-dev-team/control-plane/run"
 )
@@ -769,4 +770,96 @@ func hasActionTarget(rep *Report, action, target string) bool {
 		}
 	}
 	return false
+}
+
+// SPEC-044 CDT-661 AC1: a pending agent.session intent is self-evidencing —
+// the row IS the record, the intent payload names the id. The pass adopts
+// and closes it from its own payload and the run never halts:
+// halted:reconcile_failed is a state the takeover refuses, so a microsecond
+// crash window between two back-to-back appends must not cost the run.
+func TestPendingSessionIntentIsSelfEvidencing(t *testing.T) {
+	f := newFixture(t)
+	owner := "runner-a"
+	token := f.claimStart("CDT-661", owner, "sonnet")
+
+	m := f.machine("CDT-661")
+	key := "agent:session:CDT-661#1"
+	if _, _, err := m.Intent(context.Background(), owner, token, key,
+		agent.EffectSession,
+		map[string]any{"session_id": "sess-abc", "attempt": 1}); err != nil {
+		t.Fatal(err)
+	}
+	if st := f.state("CDT-661"); len(st.PendingEffects()) != 1 {
+		t.Fatalf("the intent is not pending: %+v", st.Effects)
+	}
+
+	rep := f.reconcile(aliveProbe)
+	if !hasActionTarget(rep, ActionAdopt, key) {
+		t.Fatalf("no adopt repair for %s; findings %+v", key, rep.Findings)
+	}
+	st := f.state("CDT-661")
+	if st.Name() != "running" {
+		t.Fatalf("state = %s, want running: a self-evidencing intent must not "+
+			"halt the run (the takeover refuses halted:reconcile_failed)", st.Name())
+	}
+	if len(st.PendingEffects()) != 0 {
+		t.Fatalf("the intent is still pending: %+v", st.Effects)
+	}
+	if len(st.Effects) != 1 || !strings.Contains(string(st.Effects[0].Outcome), "sess-abc") {
+		t.Fatalf("outcome row does not adopt the id from the intent payload: %+v", st.Effects)
+	}
+	if second := f.reconcile(aliveProbe); second.EventsAppended != 0 {
+		t.Fatalf("second pass journaled %d events", second.EventsAppended)
+	}
+}
+
+// Self-evidencing means no reality: even a pass whose reality scan failed
+// closes a pending agent.session intent from the row's own payload.
+func TestPendingSessionIntentClosesWithNoReality(t *testing.T) {
+	tmp := t.TempDir()
+	db := filepath.Join(tmp, "run.db")
+	eng, err := journal.OpenPath(context.Background(), db)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = eng.Close() })
+
+	owner := "runner-a"
+	clk := &clock{t: time.Date(2026, 11, 16, 12, 0, 0, 0, time.UTC)}
+	m := run.New(eng, "CDT-661")
+	m.Now = clk.now
+	token, err := m.Claim(context.Background(), owner, "CDT-661", "orchestrate", "sonnet")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := m.Start(context.Background(), owner, token, "sonnet"); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := m.Intent(context.Background(), owner, token,
+		"agent:session:CDT-661#1", agent.EffectSession,
+		map[string]any{"session_id": "sess-abc", "attempt": 1}); err != nil {
+		t.Fatal(err)
+	}
+
+	rep, err := Run(context.Background(), eng, Paths{
+		MROOT: tmp,
+		Now:   clk.now,
+		Probe: aliveProbe,
+	})
+	if err != nil {
+		t.Fatalf("Run with no repository: %v", err)
+	}
+	if rep.RealityError == "" {
+		t.Fatal("RealityError is empty; the scan failure is unreported")
+	}
+	st, err := eng.RunState(context.Background(), "CDT-661")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if st.Name() != "running" {
+		t.Fatalf("state = %s, want running with the reality scan failed", st.Name())
+	}
+	if len(st.PendingEffects()) != 0 {
+		t.Fatalf("the session intent survived the pass: %+v", st.PendingEffects())
+	}
 }

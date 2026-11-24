@@ -124,19 +124,21 @@ var specs = map[Host]spec{
 		},
 	},
 
-	// Grok 1.0.77 — ACP transport (`grok agent stdio`) is the streaming
-	// conversational route the steer probes ran on (P-GK native +
+	// Grok 1.0.92 — ACP transport (`grok agent --always-approve stdio`) is the
+	// streaming conversational route the steer probes ran on (P-GK native +
 	// P-GK-CTR-3c); the single-turn `-p` route has no mid-run injection
 	// surface (matrix (b)). AC-4 resume rides the headless route, not the
 	// steerable one — `grok agent stdio --help` accepts no resume flags
 	// (review B1): `grok -p --output-format json --resume <id>` is the
 	// P-GK probe invocation, `-c/--continue` resumes the newest session in
 	// the cwd, and `--fork-session` resumes into a new session id; the
-	// session id comes from the headless json result's `sessionId` field.
+	// session id comes from the headless json result's `sessionId` field or,
+	// over the ACP transport, the `session/new` response frame
+	// (`acpSessionID`, probe P-GK-ACP-1).
 	HostGrok: {
 		LaunchCommand:     "grok",
 		LaunchArgs:        []string{"agent", "--always-approve", "stdio"},
-		SessionIDFromLine: sessionIDField("sessionId"),
+		SessionIDFromLine: acpSessionID(),
 		Resume: resumeSpec{
 			Command:  "grok",
 			ByID:     func(id string) []string { return []string{"-p", "--output-format", "json", "--resume", id} },
@@ -151,10 +153,10 @@ var specs = map[Host]spec{
 			// boundary, never a separate turn.
 			//
 			// C8 wiring scope (review N3): over the ACP transport the
-			// session id arrives in the initialize/session/new response
-			// frames, not in a line the headless-json parser matches. A
-			// live Grok session therefore needs an ACP-aware capture wired
-			// before a steer can name the session.
+			// session id arrives in the session/new response frame, which
+			// `acpSessionID` reads (CDT-661), so a live ACP session is
+			// capture-named and a steer can name it. Delivering the initial
+			// prompt over ACP is CDT-665's.
 			return omniJSON(
 				"jsonrpc", "2.0",
 				"id", seq,
@@ -224,6 +226,47 @@ func sessionIDField(field string) func(string) string {
 			return ""
 		}
 		return id
+	}
+}
+
+// acpSessionID returns the Grok session-id source of both Grok routes: the
+// headless json result's top-level "sessionId", and the ACP transport's
+// response frame, where the id rides the result object
+// (`{"jsonrpc":"2.0","id":…,"result":{"sessionId":"…"}}`).
+//
+// The ACP half is probe P-GK-ACP-1 (grok 1.0.92, 2026-11-24), reproduced by
+// probe P-GK-ACP-2 the same day: the session/new response is the frame that
+// names the id, and the initialize response carries none (its result is
+// protocolVersion, agentCapabilities, authMethods, and `_meta.agentId` only) —
+// so the matcher reads `result.sessionId` from any response frame and needs no
+// method-name match. ACP notification frames carry the id as
+// `params.sessionId`, and the probe names it in a `session/setup` notification
+// (frame 7) before the response answers (frame 17, `id: 1`); reading
+// notifications stays out of scope — a frame with an `id` is the answer the
+// session is opened by, a notification is progress.
+//
+// Recorded transcript: testdata/grok-acp-session-frames.jsonl — the probe's
+// first four frames (initialize response, two session/setup notifications, the
+// session/new response).
+func acpSessionID() func(string) string {
+	field := sessionIDField("sessionId")
+	return func(line string) string {
+		if id := field(line); id != "" {
+			return id
+		}
+		trimmed := strings.TrimSpace(line)
+		if trimmed == "" || trimmed[0] != '{' {
+			return ""
+		}
+		var frame map[string]json.RawMessage
+		if json.Unmarshal([]byte(trimmed), &frame) != nil {
+			return ""
+		}
+		raw, ok := frame["result"]
+		if !ok {
+			return ""
+		}
+		return field(string(raw))
 	}
 }
 

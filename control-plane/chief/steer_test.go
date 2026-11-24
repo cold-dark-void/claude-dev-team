@@ -49,7 +49,10 @@ func (s *shAgent) Status(ctx context.Context, eng *journal.Engine,
 // end-to-end on a live run: route → run → correction → the host frame the
 // child consumed.
 func TestCorrectionRidesTheSteerPathEndToEnd(t *testing.T) {
-	eng := newEngine(t)
+	// Real-child supervision: the wide stall limit keeps a loaded runner from
+	// racing newEngine's 1 s limit into a stall answer on the correction
+	// (newEngineWideStall, the SPEC-044 ### CDT-656 AC A class).
+	eng := newEngineWideStall(t)
 	out := filepath.Join(t.TempDir(), "steered.txt")
 	t.Setenv("CDT650_TEST_STEER_OUT", out)
 

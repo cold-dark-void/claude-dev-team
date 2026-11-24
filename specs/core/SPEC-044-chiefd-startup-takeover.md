@@ -420,6 +420,62 @@ ticket and ACs). Code identifiers use `takeover`.
   and it runs `go test ./... -count=1` green from the repo root.
   Verify: bash control-plane/test.sh
 
+### CDT-661
+
+- **AC1.** The host session id is journaled at capture time: the node agent
+  journals the id its runner's session capture holds as a `side_effect` of
+  the effect name `agent.session` — an intent row and its outcome row, both
+  carrying the captured id and the attempt number, written under the live
+  lease token while the run runs. The event-kind set of
+  `control-plane/journal/schema.sql` is unchanged,
+  `journal_meta.schema_version` stays `1`, and no new record exists
+  (ADR 0001 § "The narrow-interface boundary"): the field rides the row-12
+  journal's existing payload shape. A crash between the two appends leaves
+  one pending intent, which the reconciler adopts and closes from the row's
+  own payload — never `halted:reconcile_failed`, a state the takeover
+  refuses.
+  Verify: bash control-plane/test.sh
+- **AC2.** Every captured host names its id: the claude-code stream-json
+  init line and the omp session frame capture as today, and the Grok ACP
+  transport (`grok agent --always-approve stdio`) captures the session id
+  the `session/new` response frame carries, so a live ACP session is
+  journal-named at capture time. The initial prompt delivery over ACP stays
+  CDT-665's.
+  Verify: bash control-plane/test.sh
+- **AC3.** Adoption resumes the host session: the takeover scan, for a
+  selected run whose journal carries a captured session id (the newest
+  `agent.session` row — a pending intent's payload carries the id too) and
+  whose host names a supported resume cell, re-supervises the run through
+  `hostadapter.Adapter.Resume` — the host's by-id resume invocation rides
+  the one takeover path (`Adapter.Resume` → the node agent's `Supervise`),
+  the spawn intent carries the resume argv and attempt N+1, and the trail
+  is journaled intent-then-outcome exactly like a start. The resumed path
+  records the run's capture so `Correct` keeps steering it.
+  Verify: bash control-plane/test.sh
+- **AC4.** The fallback is CDT-660's fresh re-spawn, unchanged: a selected
+  run whose journal carries no captured session id (before-capture hosts
+  and capture-less starts), or whose host names no supported resume cell
+  (mini-swe, pre-checked through `hostadapter.ResumeRoute`), re-spawns
+  fresh through `hostadapter.Adapter.Start` with byte-identical trail,
+  report, and budget behaviour.
+  Verify: bash control-plane/test.sh
+- **AC5.** The kill test proves true resume: the restart kill test's host
+  stand-in emits a captureable session id, the closed `agent.session` row
+  lands before the SIGKILL, the takeover's re-spawn argv is the host's
+  resume invocation naming that same session id — the same host session
+  continues across the crash — and the run still completes exactly once.
+  Verify: bash control-plane/test.sh
+- **AC6.** Version: `control-plane/VERSION` reads `0.2.1` in the same
+  change; `.claude-plugin/plugin.json` and `CHANGELOG.md` are untouched.
+- **AC7.** [process] The Grok ACP session-id frame shape is verified against a
+  live `grok agent --always-approve stdio` probe before the extractor's
+  citation lands in the capability-matrix comment, and the extractor ships
+  only against a recorded-transcript fixture that the suite reads: probe
+  P-GK-ACP-1 (grok 1.0.92, 2026-11-24) named the id as `result.sessionId` on
+  the `session/new` response, and probe P-GK-ACP-2 reproduced that shape the
+  same day. A probe that cannot run on the lane is recorded as an open gap in
+  this spec's Validation record.
+
 ## Validation
 
 - Spec reviewed and promoted to ACTIVE
@@ -450,6 +506,32 @@ ticket and ACs). Code identifiers use `takeover`.
   shutdown (`control-plane/cmd/chiefd/main_test.go`), and the standalone
   `node-agent start` signal path still lands `halted:operator_halt`
   (`control-plane/cmd/node-agent/main_test.go`)
+- Session-id journaling and adoption resume (CDT-661 AC1–AC6): the capture-time
+  `agent.session` intent/outcome pair lands once per attempt under the live
+  lease token, retries a failed write, and is absent for a capture-less runner
+  (`control-plane/agent/agent_test.go`); a pending `agent.session` intent is
+  adopted from its own payload and never lands `halted:reconcile_failed`
+  (`control-plane/reconcile/reconcile_test.go`); the Grok ACP capture reads the
+  session id off the recorded probe transcript and `ResumeRoute` splits the
+  three real hosts from mini-swe (`control-plane/hostadapter/hostadapter_test.go`,
+  `TestGrokACPCaptureReadsTheProbeTranscript`, `TestResumeRoutePredicate`); the
+  takeover resumes a journaled id through `Adapter.Resume`, re-spawns fresh
+  without one, and falls back on mini-swe
+  (`control-plane/chief/takeover_test.go`); the restart kill test asserts the
+  closed row lands before the SIGKILL and the re-spawn argv is
+  `-p --resume killtest-session-1` — the same host session, completed exactly
+  once (`control-plane/killtest/restart_test.go`). `control-plane/VERSION`
+  reads `0.2.1` (AC6).
+- Grok ACP probe (AC7): probes P-GK-ACP-1 and P-GK-ACP-2 ran live on
+  2026-11-24 against grok 1.0.92 from scratch dirs under `/tmp`, sending
+  `initialize`, `notifications/initialized`, and `session/new` on the stdio
+  transport. The `session/new` response (`id: 1`) is the frame that names the
+  id, as `result.sessionId`; the `initialize` response names none, and the
+  notification frames carry it as `params.sessionId` from frame 7 of 29 —
+  frames the capture deliberately does not read. The probe's first four frames
+  are pinned as
+  `control-plane/hostadapter/testdata/grok-acp-session-frames.jsonl` and read
+  by the suite. No open gap.
 - `go build ./... && go vet ./... && go test ./...` green in the
   digest-pinned G-02 image (`golang:1.27-bookworm@sha256:4fa7c968…`): all 13
   packages ok
@@ -459,6 +541,7 @@ ticket and ACs). Code identifiers use `takeover`.
 
 | Date | Change |
 |------|--------|
+| 2026-11-24 | CDT-661: the host session id is journaled and adoption resumes it — the node agent journals the id its runner's capture holds as an `agent.session` `side_effect` intent/outcome pair under the live lease token (AC1), the Grok ACP transport joins the captured hosts by reading `result.sessionId` off the `session/new` response frame pinned to a recorded probe transcript (AC2, AC7), the takeover resumes the journaled session through `hostadapter.Adapter.Resume` with `hostadapter.ResumeRoute` gating CDT-660's fresh re-spawn fallback (AC3/AC4), `effectEvidence` treats a pending `agent.session` intent as self-evidencing so the two-append crash window never halts the run `halted:reconcile_failed` (a state the takeover refuses), and the restart kill test proves the same host session survives the crash (AC5). `control-plane/VERSION` `0.2.0` → `0.2.1` (AC6). `### CDT-661` AC1–AC7. |
 | 2026-11-21 | CDT-656: clock- and environment-independent control-plane tests — `TestSuperviseSteerThenOperatorStop` pins a wide `DEVTEAM_STALL_LIMIT` (270) so a loaded CI runner can no longer race the 1 s default limit into `ErrSteerLost` between `waitRunner` and the steer; the chief model-map seam subtest execs the real `resolve-model.sh` against a layer-free fixture checkout (its own git root + pinned `HOME`/cwd) instead of the live worktree, whose shared store may carry a DRI's local Model map layer; new `control-plane/test.sh` runs `go test ./... -count=1` and restores the ship-gate Verify binding the spec-lint pass dropped. `### CDT-656` ACs A–C. |
 | 2026-11-20 | Spec-lint pass (CDT-660): added the `## Validation` record — the landed proofs per AC, incl. the AC13 restart kill test inside the control-plane CI job and the digest-pinned G-02 image run. Every AC bullet now carries the M14(g) bullet form `- **ACn.** …`; the 14 `Verify:` lines that named Go `_test.go` files are dropped, because M14(g) admits a suite script basename (`test.sh`, `test-*.sh`, `*-test.sh`) only and no suite script covers the Go lane — the proofs are named in `## Validation` instead (a `control-plane/test.sh` suite is the follow-up that restores the ship-gate Verify binding). AC13 is a `[process]` AC, so it holds no Verify line by rule. Registered in `specs/TDD.md`. No MUST, Test, or AC requirement text changed. |
 | 2026-11-20 | SPEC-044 created (CDT-660): chiefd startup takeover of in-flight runs — the chiefd half of the CDT-626 reboot contract. Premises P1–P4 accepted per the DRI rulings of 2026-11-20; AC1–AC14 from the PM's revised scope review, plus AC15 (shutdown contract) and AC16 (version) from the rulings. |

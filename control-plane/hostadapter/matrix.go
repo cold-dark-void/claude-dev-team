@@ -112,7 +112,7 @@ var matrix = map[Host]map[Capability]Cell{
 		CapHeadlessStream: {HostGrok, CapHeadlessStream, VerdictSupported,
 			"matrix (b) — grok agent stdio (ACP) streams session/update both ways (grok 1.0.77, probed 2026-11-15)"},
 		CapResume: {HostGrok, CapResume, VerdictSupported,
-			"matrix AC-4 Grok — --resume <SESSION_ID_OR_TITLE>, -c/--continue for the newest session in the cwd, --fork-session resumes into a new session id; session id from the headless --output-format json result sessionId (probe P-GK-CTR-2)"},
+			"matrix AC-4 Grok — --resume <SESSION_ID_OR_TITLE>, -c/--continue for the newest session in the cwd, --fork-session resumes into a new session id; session id from the headless --output-format json result sessionId (probe P-GK-CTR-2) or, over the ACP transport, the session/new response frame's result.sessionId (probe P-GK-ACP-1, grok 1.0.92, probed 2026-11-24)"},
 		CapSteer: {HostGrok, CapSteer, VerdictSupported,
 			"matrix (c), probes P-GK native + P-GK-CTR-3c — ACP session/prompt mid-turn merges into the running turn and is consumed at the next step boundary"},
 	},

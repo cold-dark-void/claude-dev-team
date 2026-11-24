@@ -37,6 +37,20 @@ func newEngine(t *testing.T) *journal.Engine {
 	return eng
 }
 
+// newEngineWideStall is newEngine with a stall limit a loaded runner cannot
+// race. The steer-seam tests (shAgent) supervise a real child, and the 1 s
+// limit newEngine pins for the lease-staleness fixtures can go stale between
+// the supervisor's heartbeat ticks (limit/2, heartbeatFloor-clamped) and the
+// steer, which answers the stall instead of the correction. SPEC-044
+// ### CDT-656 AC A is the precedent: pin the wide limit in the racing test,
+// never in newEngine — the takeover fixtures need a 1 s stale lease.
+func newEngineWideStall(t *testing.T) *journal.Engine {
+	t.Helper()
+	eng := newEngine(t)
+	t.Setenv("DEVTEAM_STALL_LIMIT", "270")
+	return eng
+}
+
 // fakeTickets records what the routes wrote and hands out deterministic
 // slugs.
 type fakeTickets struct {
