@@ -305,6 +305,25 @@ cmd_finalize() {
     exit 7
   fi
 
+  # CDT-602 (D2): judge-shape self-heal before render — duplicate top-level
+  # keys (kept LAST), stray-headed evidence_blob suffix rebuilds, [AC-<id>]
+  # tag re-attach. Clean files are byte-unchanged. Unhealable defects land in
+  # the strikes file and merge into engine_strikes in the render block below
+  # (append, never replace). Verifier exit codes pass through: 7 is the
+  # existing judge-failure path, 2 a usage/structural error.
+  local shape_strikes vjs_rc=0
+  shape_strikes=$(mktemp)
+  bash "$SCRIPT_DIR/verify-judge-shape.sh" \
+    --judge-output "$judge_output" \
+    --evidence-file "$evidence_file" \
+    --plan-file "$plan_file" \
+    --output-shape "$output_shape" \
+    --strikes-file "$shape_strikes" || vjs_rc=$?
+  if [ "$vjs_rc" -ne 0 ]; then
+    rm -f -- "$shape_strikes"
+    exit "$vjs_rc"
+  fi
+
   # max_*_confidence + struck_count come from finalize-meta.json after render
   # (unstruck-only; CDT-178). Pre-python all-items max would desync the index.
   # Confidence ints via Python int() (floor-compatible with CDT-181 index-writer).
@@ -323,7 +342,7 @@ cmd_finalize() {
     "$task_id" "$cross_review_status" "$cross_review_rankings" \
     "$cross_review_scores" "$verification_mode" "${tokens_file:-}" \
     "$council_tier" "$grading_reason" "$degradation_reason" "$concurrency" \
-    "$phase2_shortfall_note" <<'PYEOF'
+    "$phase2_shortfall_note" "$shape_strikes" <<'PYEOF'
 import json, sys, os, re, math
 from collections import Counter
 
@@ -360,6 +379,9 @@ if not re.fullmatch(r"[1-9][0-9]*", concurrency or ""):
 # it only after it has already exited 7 on the verification_mode full path, so a
 # non-empty value here is the self-verified declaration.
 phase2_shortfall_note = sys.argv[20] if len(sys.argv) > 20 else ""
+# CDT-602 (D2): verify-judge-shape.sh strike reasons (unhealable judge-shape
+# defects). Path in argv[21]; the file is a JSON array of strings.
+shape_strikes_file = sys.argv[21] if len(sys.argv) > 21 else ""
 if verification_mode not in ("full", "self-verified"):
     verification_mode = "full"
 
@@ -456,6 +478,14 @@ engine_strikes = []
 # same way an engine strike does — one line, merged, never a replacement.
 if isinstance(phase2_shortfall_note, str) and phase2_shortfall_note.strip():
     engine_strikes.append(phase2_shortfall_note.strip())
+
+# CDT-602 (D2): merge the verify-judge-shape.sh strike reasons (unhealable
+# judge-shape defects) into the audit trail — append, never replace.
+if shape_strikes_file and os.path.exists(shape_strikes_file):
+    with open(shape_strikes_file) as _ss:
+        _shape_strikes = json.load(_ss)
+    if isinstance(_shape_strikes, list):
+        engine_strikes.extend(str(s) for s in _shape_strikes)
 
 # --- Plan metadata ---
 flavors = plan.get("flavors", [])
@@ -1116,6 +1146,9 @@ with open(meta_path, "w") as mf:
     json.dump(meta, mf)
     mf.write("\n")
 PYEOF
+
+  # CDT-602: the strikes file is consumed by the render block above.
+  rm -f -- "$shape_strikes"
 
   # Read finalize-meta for index conf + struck count (unstruck-only; CDT-178)
   local max_verdict_confidence="null" max_finding_confidence="null"

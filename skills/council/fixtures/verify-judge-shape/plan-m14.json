@@ -1,0 +1,34 @@
+{
+  "output_shape": "verdict[]",
+  "scope": "diff",
+  "preset": "generic",
+  "slug": "cdt602-shape",
+  "task_id": "",
+  "flavors": [],
+  "claim_budget": 10,
+  "completion_time": "0s",
+  "council_tier": "full",
+  "grading_reason": "fixture: CDT-602 D2 judge-shape self-heal matrix",
+  "ac_source": "specs/core/SPEC-FIX.md",
+  "process_acs": [],
+  "claims": [
+    {
+      "claim_id": "c0",
+      "ac_id": "A",
+      "claim": "[AC-A] For CDT-602, the verifier keeps the LAST duplicate key.",
+      "source_locator": "specs/core/SPEC-FIX.md:12",
+      "claim_type": "factual",
+      "verify": null,
+      "tool_budget": 5
+    },
+    {
+      "claim_id": "c1",
+      "ac_id": "B",
+      "claim": "[AC-B] For CDT-602, the verifier rebuilds a stray-headed blob.",
+      "source_locator": "specs/core/SPEC-FIX.md:20",
+      "claim_type": "factual",
+      "verify": null,
+      "tool_budget": 5
+    }
+  ]
+}

@@ -147,6 +147,21 @@ fleet wave. When `plan.concurrency` is set, append the contract line in
 `skills/council/spawn-contract.md` once, after the fleet instruction that
 spawns the parts. Unset: no line; the parts fan out as one wave.
 
+**Verbatim dispatch verification (CDT-602):** when the run is hand-rendered
+(the host has no Workflow path and the orchestrator renders prompts itself
+from `prompts/*.md` + a vardump), EVERY judge dispatch — each part of a
+bundle-cap split is its own dispatch — MUST pass
+`bash skills/council/verify-verbatim-dispatch.sh --mode judge --template
+<prompts/X.md> --vars <vardump-file> --rendered <rendered-prompt>` before
+the spawn. Exit 0 → dispatch. Exit 1 → re-render from the template + vardump
+from scratch (never hand-patch the rendered copy) and re-verify, bounded at
+two re-render attempts; on persistent mismatch record the dispatch failure
+through the spawn-failure/degraded path. Never dispatch an unverified
+render; never edit the template to make a bad render pass. Workflow-path
+runs (rendered by `workflow.js`) are exempt — that render is already
+deterministic code. The render semantics stay single-sourced in `workflow.js`;
+this fence verifies bytes only.
+
 **Engine expects from the Judge:**
 
 The verdict / finding / evidence schema below is the operational copy; the

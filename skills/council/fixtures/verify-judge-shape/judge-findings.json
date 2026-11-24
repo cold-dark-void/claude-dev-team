@@ -1,0 +1,15 @@
+{
+  "findings": [
+    {
+      "file": "skills/council/verify-judge-shape.sh",
+      "line": 20,
+      "severity": "warning",
+      "category": "correctness",
+      "description": "fixture finding for the finding[] no-op path",
+      "suggestion": "none",
+      "confidence": 85,
+      "tool_use_id": "t2"
+    }
+  ],
+  "struck_lines": []
+}

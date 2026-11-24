@@ -1,0 +1,6 @@
+{
+  "A": "alpha",
+  "B": "kept",
+  "C": "see",
+  "D": "delta {{A}}"
+}

@@ -1,0 +1,12 @@
+{
+  "verdicts": [
+    {
+      "claim": "For CDT-602, the verifier rebuilds a stray-headed blob.",
+      "verdict": "VERIFIED",
+      "confidence": 85,
+      "evidence_blob": "evidence for B",
+      "tool_use_id": "t2"
+    }
+  ],
+  "struck_lines": []
+}

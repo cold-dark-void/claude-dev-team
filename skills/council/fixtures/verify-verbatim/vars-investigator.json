@@ -1,0 +1,8 @@
+{
+  "CLAIM_TEXT": "[AC-A] For CDT-602, the dispatch verifier catches every live failure mode.",
+  "SOURCE_LOCATOR": "specs/core/SPEC-013-adversarial-council-tribunal.md:42",
+  "RAW_ARTIFACTS": "diff --git a/skills/council/engine.sh b/skills/council/engine.sh\n+  echo \"content quotes \"must\" survive the render\"\n+  # a fenced payload inside a value:\n+  ```\n+  {\"verdicts\": [{\"claim\": \"c0\"}]}\n+  ```",
+  "CACHE_DIR": "/tmp/cache",
+  "TOOL_BUDGET": 8,
+  "VERIFY_COMMAND": "bash skills/council/test-verify-verbatim-dispatch.sh"
+}

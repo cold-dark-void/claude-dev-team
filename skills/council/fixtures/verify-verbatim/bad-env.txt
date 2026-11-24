@@ -1,0 +1,2 @@
+CLAIM_TEXT = a line with spaces and no equals after the first
+BROKEN

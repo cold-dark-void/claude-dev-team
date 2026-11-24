@@ -1,0 +1,14 @@
+[
+  {
+    "tool_use_id": "t1",
+    "raw_blob": "line one of alpha\nevidence beta\ngamma tail",
+    "file_line": "skills/council/verify-judge-shape.sh:1",
+    "reproducible_command": ""
+  },
+  {
+    "tool_use_id": "t2",
+    "raw_blob": "delta block\nevidence for B",
+    "file_line": "skills/council/verify-judge-shape.sh:20",
+    "reproducible_command": ""
+  }
+]

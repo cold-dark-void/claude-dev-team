@@ -209,7 +209,11 @@ keys — `claims` (one record per technical AC, `ac_id` + `claim_id: c<i>`),
 top of the fields above. `claim_budget` becomes the SPEC-033 M14(j) value
 instead of `10`. This SKILL cites those specs for the split and the
 verdict-mapping policy rather than restating them; see `skills/council/
-m14-ac-split.sh` and `skills/autopilot/ship-gate-verdict.sh`.
+m14-ac-split.sh` and `skills/autopilot/ship-gate-verdict.sh`. In a
+hand-rendered run every judge dispatch MUST also pass
+`skills/council/verify-verbatim-dispatch.sh` per dispatch (the Phase 5 fence,
+CDT-602), and finalize self-heals the judge output shape via
+`skills/council/verify-judge-shape.sh`.
 
 **Index writer (task-bound runs only):**
 

@@ -136,6 +136,20 @@ prior verdicts. **Model pin:** the extractor is a tool-less
   explicit instruction to return the required JSON as the **final message**
   (not only via SendMessage/mailbox). Re-request at most twice on empty output
   before treating as spawn failure (degradation protocol).
+- **Verbatim dispatch verification (CDT-602):** when the run is hand-rendered
+  (the host has no Workflow path and the orchestrator renders prompts itself
+  from `prompts/*.md` + flavors + a vardump), EVERY investigator dispatch
+  MUST pass `bash skills/council/verify-verbatim-dispatch.sh --mode
+  investigator --template <prompts/X.md> --flavor <flavors/Y.md> --vars
+  <vardump-file> --rendered <rendered-prompt>` before the spawn. Exit 0 →
+  dispatch. Exit 1 → re-render from the template + vardump from scratch
+  (never hand-patch the rendered copy) and re-verify, bounded at two
+  re-render attempts; on persistent mismatch record the dispatch failure
+  through the spawn-failure/degraded path. Never dispatch an unverified
+  render; never edit the template to make a bad render pass. Workflow-path
+  runs (rendered by `workflow.js`) are exempt — that render is already
+  deterministic code. The render semantics stay single-sourced in
+  `workflow.js`; this fence verifies bytes only.
 
 **Tool allowlist (read-only):**
 `Read`, `Grep`, `Glob`, `Bash` for read commands only, MCP query tools.

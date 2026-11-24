@@ -1,0 +1,12 @@
+{
+  "verdicts": [
+    {
+      "claim": "[AC-A] For CDT-602, the verifier keeps the LAST duplicate key.",
+      "verdict": "UNVERIFIED",
+      "confidence": 40,
+      "evidence_blob": "evidence",
+      "tool_use_id": "t1"
+    }
+  ],
+  "struck_lines": []
+}

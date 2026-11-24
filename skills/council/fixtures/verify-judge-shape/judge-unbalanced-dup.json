@@ -1,0 +1,2 @@
+{"verdicts": [{"claim": "[AC-A] For CDT-602, the verifier keeps the LAST duplicate key.", "verdict": "VERIFIED", "confidence": 90, "evidence_blob": "evidence beta", "tool_use_id": "t1"}]}
+{"verdicts": [{"claim": "[AC-A] For CDT-602, the verifier keeps the LAST duplicate key.", "verdict": "VERIFIED", "confidence": 90

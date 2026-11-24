@@ -1,0 +1,7 @@
+{
+  "ORIGINAL_CLAIMS": "[AC-A] For CDT-602, the dispatch verifier catches every live failure mode.\n[AC-B] For CDT-602, the finalize self-heal repairs the three CDT-614 defect classes.",
+  "EVIDENCE_BUNDLES": "### `t1` — skills/council/engine-finalize.sh:303\n\n```\n  if ! normalize_judge_shape \"$judge_output\" \"$output_shape\"; then\n    echo \"engine.sh: failed to normalize judge output shape\" >&2\n```\n\n### `t2` — skills/council/engine-finalize.sh:670\n\n```\n{\"verdicts\": [{\"claim\": \"c0\", \"verdict\": \"VERIFIED\", \"confidence\": 90}]}\n```\n",
+  "PROSECUTOR_BRIEF": "Prosecutor: the heal has no byte-identity guard (evidence `t1`).",
+  "ADVOCATE_BRIEF": "Advocate: the suite pins byte identity across the four finalize goldens (evidence `t2`).",
+  "OUTPUT_SHAPE": "verdict[]"
+}
