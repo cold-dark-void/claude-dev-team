@@ -16,6 +16,8 @@
 #     empty-evidence ruling 64
 #   CDT-562 (C9): doc-bite greps — M31/M32 memory content rules and the
 #     --memory write-path gate in skills/agent-memory/advisor-protocol.md
+#   CDT-663 (M43): the finalize card mirrors the run's frozen budget — the
+#     freeze comes from the ticket ledger, never from ambient env (t41)
 
 set -u
 
@@ -566,6 +568,98 @@ if [ ! -f "$TSTATE/runs/r23/advisor-object.json" ]; then
 else
   pass "t23-advisor-object-file"
 fi
+
+# =============================================================================
+# CDT-663 (SPEC-039 M43) — the finalize card mirrors the run's FROZEN budget.
+# The freeze is the LAST plan-approve card on the ticket whose nested
+# budget.{tier,source,signals} are non-null and whose actor is not "advisor".
+# Fixture ticket CDT-663 keeps its own ledger, so card indices never collide
+# with the CDT-565 cards above; the advisor card is selected as the LAST
+# actor=="advisor" entry.
+# =============================================================================
+check_adv() { # check_adv <id> <ticket> <jq-expr on the LAST advisor card>
+  local id="$1" ticket="$2" expr="$3" got
+  got=$(card_read "$ticket" | jq -c "map(select(.actor == \"advisor\")) | last | $expr" 2>/dev/null)
+  if [ "$got" = "true" ]; then pass "$id"; else fail "$id: got $got"; fi
+}
+FREEZE_META='{"iteration_cap":40,"wall_clock_cap_s":10800,"tier":"L","source":"mixed","signals":{"tasks":8,"projected_loc":600,"waves":3}}'
+plant_advisor
+rule r41.json '{"ruling":"AGREE","confidence":85,"evidence":[{"cmd":"true","exit":0,"sha256":"x","locator":"a:1"}]}'
+
+# ---- t41a: a seeded freeze mirrors verbatim onto the advisor card ------------
+(cd "$FXM" && CLAUDE_PLUGIN_ROOT="$ROOT" AUTOPILOT_BUDGET_META="$FREEZE_META" \
+  bash "$ROOT/skills/autopilot/append-card.sh" \
+  orchestrate CDT-663 plan-approve approve auto null 90 null "orch-freeze-1" 1 100 \
+  orchestrator "freeze fixture (CDT-663)") >/dev/null 2>&1
+RC=$?
+if [ "$RC" -eq 0 ]; then pass "t41a-freeze-card-seeded"; else fail "t41a-freeze-card-seeded: rc=$RC"; fi
+run_probe --trigger b --question "freeze mirror" --run-id r41a >/dev/null
+fin_card --run-id r41a --ruling-file "$TMP/r41.json" \
+  --card-workflow orchestrate --card-ticket CDT-663 --card-gate plan-approve \
+  --card-iteration 2 --card-run-start-epoch "$(date +%s)"
+RC=$?
+if [ "$RC" -eq 0 ]; then pass "t41a-finalize-ok"; else fail "t41a-finalize-ok: rc=$RC err=$(cat "$TMP/fin.err")"; fi
+check_adv "t41a-freeze-caps-verbatim" CDT-663 \
+  '.budget.iteration_cap == 40 and .budget.wall_clock_cap_s == 10800'
+check_adv "t41a-freeze-nested-snapshot" CDT-663 \
+  '.budget.tier == "L" and .budget.source == "mixed" and .budget.signals.tasks == 8'
+
+# ---- t41b: unset ambient caps — the card never re-derives from env ------------
+# The regression core (CDT-660 ledger card 6: wall_clock_cap_s 2700 post-freeze).
+run_probe --trigger b --question "freeze mirror no env" --run-id r41b >/dev/null
+(cd "$FXM" && env -u AUTOPILOT_WALLCLOCK_CAP -u AUTOPILOT_ITERATION_CAP \
+  CLAUDE_PLUGIN_ROOT="$ROOT" ADVISOR_STATE_ROOT="$TSTATE" \
+  bash "$ASK" finalize --run-id r41b --ruling-file "$TMP/r41.json" \
+  --card-workflow orchestrate --card-ticket CDT-663 --card-gate plan-approve \
+  --card-iteration 3 --card-run-start-epoch "$(date +%s)") >/dev/null 2>"$TMP/fin.err"
+RC=$?
+if [ "$RC" -eq 0 ]; then pass "t41b-finalize-ok"; else fail "t41b-finalize-ok: rc=$RC err=$(cat "$TMP/fin.err")"; fi
+check_adv "t41b-no-env-rederivation-of-frozen-caps" CDT-663 \
+  '.budget.iteration_cap == 40 and .budget.wall_clock_cap_s == 10800'
+
+# ---- t41c: no ledger cards at all -> Path 3 (nested keys null) ----------------
+run_probe --trigger b --question "no freeze path three" --run-id r41c >/dev/null
+fin_card --run-id r41c --ruling-file "$TMP/r41.json" \
+  --card-workflow orchestrate --card-ticket CDT-999 --card-gate plan-approve \
+  --card-iteration 2 --card-run-start-epoch "$(date +%s)"
+check_adv "t41c-no-ledger-nested-keys-null" CDT-999 \
+  '.budget.tier == null and .budget.source == null and .budget.signals == null'
+
+# ---- t41d: a pre-CDT-224 card (null nested budget) is NOT a freeze ------------
+(cd "$FXM" && CLAUDE_PLUGIN_ROOT="$ROOT" env -u AUTOPILOT_BUDGET_META \
+  bash "$ROOT/skills/autopilot/append-card.sh" \
+  orchestrate CDT-663D plan-approve approve auto null 90 null "orch-663d-1" 1 100 \
+  orchestrator "pre-CDT-224 card (null nested budget)") >/dev/null 2>&1
+run_probe --trigger b --question "pre cdt-224 not a freeze" --run-id r41d >/dev/null
+fin_card --run-id r41d --ruling-file "$TMP/r41.json" \
+  --card-workflow orchestrate --card-ticket CDT-663D --card-gate plan-approve \
+  --card-iteration 2 --card-run-start-epoch "$(date +%s)"
+check_adv "t41d-null-nested-card-is-not-a-freeze" CDT-663D \
+  '.budget.tier == null and .budget.source == null and .budget.signals == null'
+
+# ---- t41e: the actor guard — an advisor card is never a freeze source ---------
+# Its own budget is the post-fix mirrored shape (non-null nested); with no run
+# freeze card on the ticket, the new card must stay Path 3.
+(cd "$FXM" && CLAUDE_PLUGIN_ROOT="$ROOT" AUTOPILOT_BUDGET_META="$FREEZE_META" \
+  bash "$ROOT/skills/autopilot/append-card.sh" \
+  orchestrate CDT-663E plan-approve proceed auto null 85 null "adv-663e-1" 1 100 \
+  advisor "advisor card carrying the mirrored budget") >/dev/null 2>&1
+run_probe --trigger b --question "advisor card is not a freeze" --run-id r41e >/dev/null
+fin_card --run-id r41e --ruling-file "$TMP/r41.json" \
+  --card-workflow orchestrate --card-ticket CDT-663E --card-gate plan-approve \
+  --card-iteration 2 --card-run-start-epoch "$(date +%s)"
+check_adv "t41e-actor-guard-blocks-advisor-freeze" CDT-663E \
+  '.budget.tier == null and .budget.source == null and .budget.signals == null'
+
+# ---- t41f: the freeze mirrors onto a ship-choice finalize (CDT-660 card 9) ----
+run_probe --trigger b --question "freeze mirrors at ship-choice" --run-id r41f >/dev/null
+fin_card --run-id r41f --ruling-file "$TMP/r41.json" \
+  --card-workflow orchestrate --card-ticket CDT-663 --card-gate ship-choice \
+  --card-iteration 2 --card-run-start-epoch "$(date +%s)"
+check_card "t41f-ship-choice-card-mirrors-freeze" CDT-663 '
+  (map(select(.actor == "advisor" and .gate == "ship-choice")) | last | .budget) as $b
+  | $b.iteration_cap == 40 and $b.wall_clock_cap_s == 10800 and $b.tier == "L"
+    and $b.source == "mixed" and $b.signals.tasks == 8'
 
 # ---- t24: CONTRADICT @ 92 -> halt/BC7, fail-closed confidence 0 ---------------
 # (M29's "confidence is the ruling's" collides with append-card invariant (b):

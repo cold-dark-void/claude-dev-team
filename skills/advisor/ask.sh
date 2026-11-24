@@ -61,8 +61,12 @@
 # map and writes the advisor card via skills/autopilot/append-card.sh
 # --advisor-json (actor advisor, decided_by auto, bump null, rationale
 # `trigger=<t> ruling=<r> model=<m>`); the M30 advisor object is written to
-# runs/<run_id>/advisor-object.json and handed over as a file path. A card
-# write failure exits 64 BEFORE the ruling is cached, so a retry re-spawns
+# runs/<run_id>/advisor-object.json and handed over as a file path. The card
+# budget mirrors the run's freeze (M43): the latest non-advisor plan-approve
+# card with non-null nested budget, copied verbatim into process-local
+# AUTOPILOT_BUDGET_META with budget-check argc=4; absent a freeze, argc=2 and
+# the nested keys stay null. A card write failure exits 64 BEFORE the ruling is
+# cached, so a retry re-spawns
 # instead of silently losing the card. Without card context, finalize records
 # outcomes under runs/<run_id>/ and the cache and writes no card. A
 # trigger-d (class-verify) finalize applies the M40 demotion map instead of
@@ -335,12 +339,44 @@ if [ "$CMD" = "finalize" ]; then
         esac
       fi
       if [ -n "$CARD_DECISION" ]; then
-        # wall_clock_s measured at write time via budget-check.sh argc=2 (the
-        # self-answer §3f C5 discipline); a breach (6) is an outcome — only a
-        # validation failure (64) aborts the card.
+        # wall_clock_s measured at write time via budget-check.sh (the self-answer
+        # §3f C5 discipline); a breach (6) is an outcome — only a validation
+        # failure (64) aborts the card.
+        # CDT-663 / SPEC-039 M43: freeze-aware, self-answer §3b Path 1 / Path 3.
+        # The freeze is the LAST plan-approve card on this ticket whose nested
+        # budget.{tier,source,signals} are non-null and whose actor is not
+        # "advisor" (the guard keeps a prior advisor card from being the run's
+        # freeze). A freeze copies its snapshot verbatim into process-local
+        # AUTOPILOT_BUDGET_META and calls argc=4 with the copied caps — the caps
+        # are never re-derived from env. No freeze: argc=2, no META, nested
+        # keys null.
         BUDGET_CHECK=$(bash "$PDH/skills/plugin-dir.sh" file skills/autopilot/budget-check.sh)
+        READ_CARDS=$(bash "$PDH/skills/plugin-dir.sh" file skills/autopilot/read-cards.sh)
+        CARDS=$(bash "$READ_CARDS" "$CARD_TICKET" 2>/dev/null) || CARDS='[]'
+        FR_META=$(printf '%s' "$CARDS" | jq -c '
+          [.[] | select(.gate == "plan-approve"
+                        and .budget.tier != null and .budget.source != null
+                        and .budget.signals != null and .actor != "advisor")]
+          | last
+          | if . == null then empty
+            else .budget | {iteration_cap, wall_clock_cap_s, tier, source, signals} end
+        ' 2>/dev/null)
+        FR_ITER=""
+        FR_WALL=""
+        if [ -n "$FR_META" ]; then
+          FR_ITER=$(printf '%s' "$FR_META" | jq -r '.iteration_cap')
+          FR_WALL=$(printf '%s' "$FR_META" | jq -r '.wall_clock_cap_s')
+          # AC9: ledger-sourced caps are external input — validated by pattern
+          # before they reach budget-check argv (a junk freeze is 64, no card).
+          require_nnint "freeze iteration_cap" "$FR_ITER"
+          require_nnint "freeze wall_clock_cap_s" "$FR_WALL"
+        fi
         BC_RC=0
-        BC_OUT=$(bash "$BUDGET_CHECK" "$CARD_ITERATION" "$CARD_RUN_START_EPOCH" 2>/dev/null)
+        if [ -n "$FR_META" ]; then
+          BC_OUT=$(bash "$BUDGET_CHECK" "$CARD_ITERATION" "$CARD_RUN_START_EPOCH" "$FR_ITER" "$FR_WALL" 2>/dev/null)
+        else
+          BC_OUT=$(bash "$BUDGET_CHECK" "$CARD_ITERATION" "$CARD_RUN_START_EPOCH" 2>/dev/null)
+        fi
         BC_RC=$?
         # CDT-568 fix: $? after `!` is always 0 - capture the raw rc instead.
         if [ "$BC_RC" != 0 ] && [ "$BC_RC" != 6 ]; then
@@ -365,11 +401,22 @@ if [ "$CMD" = "finalize" ]; then
           || die64 "finalize: cannot write the advisor object to $ADVISOR_OBJ"
         RATIONALE="trigger=$SRP_TRIGGER ruling=$RULING model=$SRP_MODEL"
         APPEND_CARD=$(bash "$PDH/skills/plugin-dir.sh" file skills/autopilot/append-card.sh)
-        bash "$APPEND_CARD" "$CARD_WORKFLOW" "$CARD_TICKET" "$CARD_GATE" \
-          "$CARD_DECISION" auto null "$CARD_CONF" "$CARD_BC" "$RUN_ID" \
-          "$CARD_ITERATION" "$WALL_CLOCK_S" advisor "$RATIONALE" \
-          --advisor-json "$ADVISOR_OBJ" \
-          || die64 "finalize: append-card.sh rejected the decision card — ruling not cached"
+        # META is process-local on the writer invocation (never exported, M43).
+        if [ -n "$FR_META" ]; then
+          AUTOPILOT_BUDGET_META="$FR_META" bash "$APPEND_CARD" \
+            "$CARD_WORKFLOW" "$CARD_TICKET" "$CARD_GATE" \
+            "$CARD_DECISION" auto null "$CARD_CONF" "$CARD_BC" "$RUN_ID" \
+            "$CARD_ITERATION" "$WALL_CLOCK_S" advisor "$RATIONALE" \
+            --advisor-json "$ADVISOR_OBJ" \
+            || die64 "finalize: append-card.sh rejected the decision card — ruling not cached"
+        else
+          env -u AUTOPILOT_BUDGET_META bash "$APPEND_CARD" \
+            "$CARD_WORKFLOW" "$CARD_TICKET" "$CARD_GATE" \
+            "$CARD_DECISION" auto null "$CARD_CONF" "$CARD_BC" "$RUN_ID" \
+            "$CARD_ITERATION" "$WALL_CLOCK_S" advisor "$RATIONALE" \
+            --advisor-json "$ADVISOR_OBJ" \
+            || die64 "finalize: append-card.sh rejected the decision card — ruling not cached"
+        fi
       fi
     fi
     if [ "$SRP_TRIGGER" = "d" ]; then

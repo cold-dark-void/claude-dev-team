@@ -207,6 +207,19 @@ Glossary term: Advisor (`CONTEXT.md`).
   mis-fire clear and a CDT-589-C3 class-verify demotion are distinct paths
   with distinct provenance (trigger `a` vs `d`; no `class-verify.jsonl` row).
 
+- **M43 — The advisor card mirrors the run's frozen budget.** `ask.sh
+  finalize` reads the freeze from the decision ledger — the latest
+  `plan-approve` card on the card's `ticket_id` whose nested
+  `budget.{tier,source,signals}` are non-null and whose `actor` is not
+  `advisor` — copies that snapshot verbatim into process-local
+  `AUTOPILOT_BUDGET_META`, calls `budget-check.sh` argc=4 with the copied
+  caps, and MUST NOT re-derive the caps from env (a mid-run env change never
+  retunes a frozen run). Absent a freeze — no ledger, a pre-CDT-224 card with
+  null nested keys, or a reader failure — argc=2 with null nested keys (Path
+  3). A breach (exit 6) stays an outcome; only a validation failure (exit 64)
+  aborts the card. The advisor guard keeps the freeze the run's: an advisor
+  card is never a freeze source.
+
 ### Trigger (d) — class verify (CDT-589-C3)
 
 - **M38 — Seam.** `ask.sh probe --trigger d` is accepted (the `a|b|c` set
@@ -488,6 +501,7 @@ Glossary term: Advisor (`CONTEXT.md`).
 
 | Date | Change |
 |------|--------|
+| 2026-11-24 | CDT-663: M43 added — the advisor finalize card mirrors the run's frozen budget (the freeze is the latest non-`advisor` `plan-approve` card with non-null nested `budget.{tier,source,signals}`; the snapshot travels as process-local `AUTOPILOT_BUDGET_META` and `budget-check.sh` runs argc=4, so the caps are never re-derived from env; absent a freeze, argc=2 with null nested keys); `### CDT-663` ACs; the `t41` freeze-mirror family in `skills/advisor/test.sh`. |
 | 2026-11-24 | CDT-662: M26 amended — a probe increments only its own trigger's counter plus the run total (the `ask.sh` § Increment block wrote all four counters per probe, so one b-probe spent the trigger-d reserve); `### CDT-662` ACs; the `t2e` counter-scope checks in `skills/advisor/test.sh`. |
 | 2026-10-31 | CDT-589-C5: `### CDT-589-C5` ACs for the opt-in Step 6c BC1 mis-fire enforce clear — M42 (`ADVISOR_ENFORCE` human config, default off; `gates.sh mode` reports `enforce`; `gates.sh apply` clears a `bc1-mis-fire` `mis-fire` ruling at confidence ≥ 80 on a `plan-approve` halt only, fail-closed otherwise); `append-card.sh` M30 shape accepts trigger-a `halt-stands\|mis-fire`; §3g enforce fence + `06-design.md` 6c exception; one auto/advisor clear card, distinct from the C3 demotion. |
 | 2026-10-31 | CDT-589-C3: `### CDT-589-C3` ACs for trigger (d) class verify — M38 seam (`a|b|c|d`, reserve d=1, question home in the SKILL trigger table), M39 vocabulary (`auth-relevant`/`not-auth-relevant`, `gates.sh allow`/`ruling` fence), M40 demotion card (`gate: plan-approve`, proceed/null) + `class-verify.jsonl` precision log, M41 demotion-only fail-closed (never BC8); M18/M26/M29/M30 amended; `append-card.sh` M30 shape accepts trigger d. |
@@ -744,6 +758,14 @@ Format and rules: SPEC-033 M14(g) and M14(h).
 - **AC2.** A trigger-(d) probe in a run that already holds one b-probe returns `action: spawn`, not `action: cap`; the regression case runs in the advisor suite as the `t2e` counter-scope checks (b-probe counter state, then the d-probe action and its counters).
   Verify: bash skills/advisor/test.sh
 - **AC3.** [process] The counter-scope case lives in the hermetic engine-side suite `skills/advisor/test.sh` (no live LLM, scratch `ADVISOR_STATE_ROOT`, `$TSTATE/runs/<run>/counters.json`), and the gate for this change is that suite plus `tools/spec-lint.sh`.
+
+### CDT-663
+
+- **AC1.** `ask.sh finalize` with card context mirrors the run's frozen budget onto the advisor card (M43): it reads the freeze — the latest `plan-approve` card on the card ticket with non-null nested `budget.{tier,source,signals}` and `actor` not `advisor` — passes that snapshot verbatim as process-local `AUTOPILOT_BUDGET_META` to `append-card.sh`, and measures `wall_clock_s` with `budget-check.sh` argc=4 on the copied caps. With a seeded L-tier 40/10800 `mixed` freeze the card records `iteration_cap` 40, `wall_clock_cap_s` 10800, `tier` `L`, `source` `mixed`, `signals.tasks` 8, on both a `plan-approve` and a `ship-choice` finalize. A breach (exit 6) stays an outcome; only exit 64 aborts the card.
+  Verify: bash skills/advisor/test.sh
+- **AC2.** The caps are never re-derived from env, and a non-freeze is never a freeze: with `AUTOPILOT_ITERATION_CAP` and `AUTOPILOT_WALLCLOCK_CAP` unset the card still records 40/10800; with no ledger cards, a pre-CDT-224 card (null nested keys), or an `actor: advisor` card carrying non-null nested keys, the advisor card's nested `budget.{tier,source,signals}` are null (Path 3). These are the `t41` checks in `skills/advisor/test.sh`.
+  Verify: bash skills/advisor/test.sh
+- **AC3.** [process] The regression family lives in the hermetic engine-side suite `skills/advisor/test.sh` (no live LLM, scratch `ADVISOR_STATE_ROOT`, fixture-ledger MROOT `$FXM`, separate fixture tickets `CDT-663`, `CDT-663D`, `CDT-663E`, `CDT-999`), and the gate for this change is that suite plus `tools/spec-lint.sh`.
 
 ## Alternatives considered
 
