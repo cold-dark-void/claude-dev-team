@@ -30,15 +30,18 @@ alias** below. MUST NOT pass `""`; MUST NOT omit. That alias is also the role's
 
 The suite asserts this column equals SPEC-003 § Tier table (SPEC-042 M7).
 
-**P2 — scribe-class role.** A tool-less, non-mappable `council-scribe`-class
-role (Phase 1 extractor, Phase 2.5 cross-reviewer, Phase 3 classifier, Phase 4
+**P2 — scribe-class role.** A tool-less `council-scribe`-class role (Phase 1
+extractor, Phase 2.5 cross-reviewer, Phase 3 classifier, Phase 4
 prosecutor/advocate, and the `--blind` reviewers plus quorum analyst) pins the
-literal `model: sonnet`. That literal is the **P2 pin constant** — this
-sentence is its one home (maintainer ruling 2026-11-18; CDT-654 swaps it for a
-map resolve). No `resolve-model.sh` call, no map key, no `models.local.json`
-write: `council-scribe` stays out of `mappable-names.sh` (SPEC-042 M8) and is
-exempt from the alias table above. The unnamed Phase 2 fallbacks
-`general-purpose` / `"Explore"` have no Tier row and take the same P2 value.
+literal `model: sonnet` on the Task path. That literal is the **P2 policy
+value** — this sentence is its one home (maintainer ruling 2026-11-18). As of
+CDT-654 `council-scribe` is mappable (SPEC-037 M8): the Workflow-path scribe
+sites in `skills/council/workflow.js` resolve through the P1 fence, and this
+`sonnet` is their floor (a map key wins; the plugin ships none). The Task-path
+scribe spawns keep the literal `model: sonnet` — no `resolve-model.sh` call at
+that spawn. The role stays exempt from the alias table above. The unnamed Phase
+2 fallbacks `general-purpose` / `"Explore"` have no Tier row and take the same
+P2 value.
 
 Effort stays on the map path: `resolve-model.sh --effort` — non-empty →
 Agent/Workflow `effort` param; empty → omit (**inherited effort**; MUST NOT

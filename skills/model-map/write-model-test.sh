@@ -552,8 +552,9 @@ else
   pass "control: the .gitignore match is false for an absent line"
 fi
 # adjust-agent names every mappable internal agent (write-model.sh is_mappable;
-# rv-w1-20): finder and debugger are mappable like council-judge.
-for a in council-judge finder debugger; do
+# rv-w1-20): finder and debugger are mappable like council-judge; council-scribe
+# joins under CDT-654.
+for a in council-judge finder debugger council-scribe; do
   if grep -qF "\`$a\`" "$ROOT/commands/adjust-agent.md" && grep -qE "\`finder\` and \`debugger\` (are|is) (mappable|omitted|allowed)|\`finder\` and \`debugger\` are (mappable|omitted|allowed)" "$ROOT/commands/adjust-agent.md"; then
     pass "adjust-agent-mappable-$a"
   else

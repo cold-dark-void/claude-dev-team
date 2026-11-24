@@ -109,8 +109,11 @@ Two pin classes cover every spawn there (SPEC-042 M2):
   (Phase 1 extractor, Phase 2.5 cross-reviewer, Phase 3 classifier,
   Phase 4 prosecutor/advocate, the `--blind` reviewers and quorum analyst)
   pins the literal `model: sonnet` by policy (maintainer ruling
-  2026-11-18). No resolver call, no map key, no `models.local.json` write:
-  `council-scribe` stays outside the mappable set (CDT-654 owns that join).
+  2026-11-18). The Task-path scribe spawn keeps this literal — no resolver
+  call at that spawn. As of CDT-654 `council-scribe` is mappable: the
+  Workflow-path scribe sites in `skills/council/workflow.js` resolve through
+  the P1 fence, and this `sonnet` is their floor (a map key wins; the plugin
+  ships none).
   This pin is exempt from the Tier-table equality — it deliberately differs
   from the `agents/council-scribe.md` frontmatter value (`opus`).
 
@@ -262,7 +265,7 @@ write-model.sh set-concurrency <N>
 write-model.sh unset-concurrency
 ```
 
-- `list` — print the 11 mappable agents with the winning resolved model
+- `list` — print the 12 mappable agents with the winning resolved model
   (calls `resolve-model.sh`; empty → `Tier default`) and the winning
   resolved effort (calls `resolve-model.sh --effort`; empty → `inherited`)
   plus the local path. Prints one `concurrency: <N>` line (or

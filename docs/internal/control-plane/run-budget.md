@@ -39,7 +39,7 @@ A per-model budget rides the Model map. The map is three JSON layers plus the Ti
 Facts that bound the table:
 
 - The match key is the resolved model string: `bash skills/model-map/resolve-model.sh <agent>` (SPEC-037).
-- The map can carry only the 11 mappable names in `skills/model-map/mappable-names.sh` (SPEC-037 M8, admitted `advisor` under SPEC-039 M36). `distiller` and `project-init` always resolve empty (SPEC-037 M8).
+- The map can carry only the 12 mappable names in `skills/model-map/mappable-names.sh` (SPEC-037 M8; `advisor` admitted under SPEC-039 M36, `council-scribe` under CDT-654). `distiller` and `project-init` always resolve empty (SPEC-037 M8).
 - Empty stdout means Tier default (SPEC-037 Overview). The three shipped model tiers are the `Model` column values of the SPEC-003 § Tier table: `opus`, `sonnet`, `haiku`.
 
 ## Precedence
@@ -63,7 +63,7 @@ Every cap cell is a verbatim cell from SPEC-033: the § AC3 M9 static defaults, 
 | `opus` | `tech-lead`, `pm`, `ds`, `council-judge`, `debugger`, `advisor` (6) | 10 stints | 2700 s | SPEC-033 § AC9 M9b **S** row (iteration), **M** row (wall-clock) | Phase-0 proposal, env-only. Mapping is an analogy, not a derivation — see § M9b boundary. Unmeasured → phase-1 input. |
 | `sonnet` | `ic5`, `ic4`, `qa`, `devops`, `finder` (5) | 25 stints | 2700 s | SPEC-033 § AC3 M9 static defaults = § AC9 M9b **M** row | No change proposed. The AC3 rationale baseline is tuned against this population. |
 | `haiku` | none — `distiller` only, and it always resolves empty (SPEC-037 M8) | no proposal | no proposal | no source row | Out of the map's reach in phase 0. `distiller` runs under `/memory distill` (SPEC-007), not as an autopilot stint. |
-| **Tier default** (fallback) | all 11 mappable names whose resolution is empty, plus any string outside the three tokens above | 25 stints | 2700 s | SPEC-033 § AC3 M9 static defaults | Fallback rule (§ Precedence). |
+| **Tier default** (fallback) | all 12 mappable names whose resolution is empty, plus any string outside the three tokens above | 25 stints | 2700 s | SPEC-033 § AC3 M9 static defaults | Fallback rule (§ Precedence). |
 
 `project-init` (`sonnet`, SPEC-003 § Tier table) is an always-empty internal (SPEC-037 M8), so it is not a map row. `sonnet` coverage above lists the mappable five.
 

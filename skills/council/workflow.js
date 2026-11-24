@@ -18,10 +18,12 @@
  * unset = one wave as before.
  *
  * Model pins (SPEC-042): every safeAgent opts carries `model`. Map-resolved
- * roles (finder, council-judge) resolve through skills/model-map/resolve-model.sh
- * as a subprocess with the role's Tier alias as the floor; scribe-class sites
- * use the single-site SCRIBE_MODEL_PIN. A model-attributed host reject retries
- * once with the sibling alias. No `effort` on this path (SPEC-037 F1).
+ * roles (finder, council-judge) and the scribe-class sites (council-scribe,
+ * CDT-654) resolve through skills/model-map/resolve-model.sh as a subprocess,
+ * each with its pin-time alias as the floor: the Tier alias for finder /
+ * council-judge, the P2 `sonnet` policy alias for council-scribe (a map value
+ * wins over it). A model-attributed host reject retries once with the sibling
+ * alias. No `effort` on this path (SPEC-037 F1).
  *
  * Host globals (Workflow runtime): args, agent, phase, parallel, budget (opt).
  * Pure helpers exported for node unit checks.
@@ -303,12 +305,6 @@ export const PIN_ALIAS = {
   'council-judge': 'opus',
   'council-scribe': 'sonnet',
 }
-
-/**
- * Scribe-class pin (SPEC-042 M3). Single site: CDT-654 swaps this constant for
- * a map resolve without touching the three scribe spawn sites.
- */
-export const SCRIBE_MODEL_PIN = PIN_ALIAS['council-scribe']
 
 // The plugin root is two levels above skills/council (the dir that carries
 // skills/plugin-dir.sh).
@@ -792,7 +788,7 @@ export async function runCouncil(runtime) {
     const extracted = await safeAgent(extractPrompt, {
       schema: ClaimsSchema,
       agentType: 'dev-team:council-scribe',
-      model: SCRIBE_MODEL_PIN,
+      model: mapModel('council-scribe'),
       phase: 'Extract',
       label: extractPromptName,
     })
@@ -968,7 +964,7 @@ export async function runCouncil(runtime) {
       const res = await safeAgent(prompt, {
         schema: RankingSchema,
         agentType: 'dev-team:council-scribe',
-        model: SCRIBE_MODEL_PIN,
+        model: mapModel('council-scribe'),
         phase: 'Cross-review',
         label: `cross:${key}:${ri}`,
       })
@@ -1036,7 +1032,7 @@ export async function runCouncil(runtime) {
       const res = await safeAgent(prompt, {
         schema: BriefSchema,
         agentType: 'dev-team:council-scribe',
-        model: SCRIBE_MODEL_PIN,
+        model: mapModel('council-scribe'),
         phase: 'Phase4',
         label: role,
       })

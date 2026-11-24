@@ -422,7 +422,10 @@ function scan_block(a, b,   i, l, nsp, npin, oos, cls, role, v) {
         if (!has_waiver("M2", pl[i])) printf "FIND|M2|%d|%s: literal council-site pin %s is outside the P2 policy value (scribe-class pins the literal sonnet, SPEC-042 M2)\n", pl[i], rel, v
         continue
       }
-      if (role != "" && (role in MAPPABLE)) {
+      # CDT-654: council-scribe is now mappable, but the Task-path scribe spawn
+      # keeps the P2 literal sonnet (the map fence is the Workflow path only), so
+      # the scribe is exempt from the "mappable role uses the P1 fence" rule here.
+      if (role != "" && (role in MAPPABLE) && role != "council-scribe") {
         if (!has_waiver("M2", pl[i])) printf "FIND|M2|%d|%s: literal pin on map-resolved role %s — a mappable role uses the P1 fence (SPEC-042 M2)\n", pl[i], rel, role
         continue
       }
@@ -891,14 +894,14 @@ else
   fi
 fi
 
-# ---- AC6 / M8 boundary: council-scribe stays out of the mappable set ----
+# ---- AC6 / M8 boundary: council-scribe joins the mappable set (CDT-654) ----
 if [ ! -f "$MAPPABLE_SH" ]; then
   bad "M8 mappable-names.sh missing"
 else
   if printf '%s\n' "$MAPPABLE_LIST" | tr ' ' '\n' | grep -qx 'council-scribe'; then
-    bad "M8 mappable-names.sh --list contains council-scribe (SPEC-042 M8; CDT-654 owns the join)"
-  else
     ok
+  else
+    bad "M8 mappable-names.sh --list omits council-scribe (SPEC-042 M8; CDT-654 landed the join)"
   fi
 fi
 if grep -qF 'council-scribe' "$RESOLVE" 2>/dev/null; then
@@ -1023,12 +1026,12 @@ else
   # Scribe policy pin stays exempt from the Tier equality (M7 exemption).
   bite_clean "$(alias_parity_findings "$(pin_alias_rows "$WFF")" fixture-alias)" 'scribe pin exemption'
 
-  # AC6 / M8 boundary: council-scribe joining the mappable set.
-  sed 's/^MAPPABLE="pm/MAPPABLE="council-scribe pm/' "$MAPPABLE_SH" > "$BITE_DIR/mappable.sh"
-  if printf '%s\n' "$(mappable_list_of "$BITE_DIR/mappable.sh")" | tr ' ' '\n' | grep -qx 'council-scribe'; then
+  # AC6 / M8 boundary: a name added to the mappable set resolves as mappable.
+  sed 's/^MAPPABLE="pm/MAPPABLE="council-nobody pm/' "$MAPPABLE_SH" > "$BITE_DIR/mappable.sh"
+  if printf '%s\n' "$(mappable_list_of "$BITE_DIR/mappable.sh")" | tr ' ' '\n' | grep -qx 'council-nobody'; then
     ok
   else
-    bad "M6 bite M8: council-scribe in the mappable set did not bite"
+    bad "M6 bite M8: a name added to the mappable set did not resolve as mappable"
   fi
 
   # Covered-site manifest: a prose section whose literal pin was stripped, and a

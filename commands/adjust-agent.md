@@ -59,8 +59,9 @@ directive conversation and MUST NOT fall through to Step 6.
 - If agent name + prompt (no `--apply`): go to **Step 6** (Adjustment mode)
 - If agent name + `--apply` + prompt: go to **Step 7** (Non-interactive apply mode)
 
-`council-judge`, `finder` and `debugger` are mappable (Step 3) even though they
-are not in the 7-agent dashboard roster.
+`council-judge`, `finder` and `debugger` are mappable (Step 3), as is
+`council-scribe` (CDT-654), even though they are not in the 7-agent dashboard
+roster.
 
 ## Step 3: Model map (`--model` / `--model-unset` / `--effort` / `--effort-unset`)
 
@@ -73,7 +74,8 @@ local Model map via `write-model.sh` (never repo/global, never `directives.md`).
 `--effort-unset` → `write-model.sh unset-effort <agent>`
 
 `--model` and `--effort` MAY appear together; each write touches only its
-field. `council-judge`, `finder` and `debugger` are allowed (M8). `qa` / `council-judge` emit the M9
+field. `council-judge`, `finder` and `debugger` are allowed (M8), as is
+`council-scribe` (CDT-654). `qa` / `council-judge` emit the M9
 warn on stderr; still write. Unknown agent / empty string / invalid token:
 CLI exits 64 (print stderr).
 

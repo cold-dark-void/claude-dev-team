@@ -371,6 +371,9 @@ run_helper() {
 run_helper --is advisor
 check "M36-helper-is-advisor" 0 "" ""
 
+run_helper --is council-scribe
+check "M36-helper-is-council-scribe" 0 "" ""
+
 run_helper --is pm
 check "M36-helper-is-pm" 0 "" ""
 
@@ -385,13 +388,14 @@ check "M36-helper-is-missing-arg" 64 "" "usage: mappable-names.sh --is <name>"
 
 run_helper --list
 LIST_OUT=$(cat "$OUTF")
-if [ "$(printf '%s\n' "$LIST_OUT" | grep -c .)" = "11" ] \
+if [ "$(printf '%s\n' "$LIST_OUT" | grep -c .)" = "12" ] \
   && printf '%s\n' "$LIST_OUT" | grep -qx advisor \
+  && printf '%s\n' "$LIST_OUT" | grep -qx council-scribe \
   && ! printf '%s\n' "$LIST_OUT" | grep -qx distiller \
   && ! printf '%s\n' "$LIST_OUT" | grep -qx project-init; then
-  pass "M36-helper-list-11-no-internals"
+  pass "M36-helper-list-12-no-internals"
 else
-  fail "M36-helper-list-11-no-internals: got '$LIST_OUT'"
+  fail "M36-helper-list-12-no-internals: got '$LIST_OUT'"
 fi
 
 run_helper --internal-empty
@@ -422,6 +426,21 @@ write_repo <<'EOF'
 EOF
 run --mapped advisor
 check "M36-mapped-repo" 0 "mapped" ""
+
+# council-scribe joins the mappable set (CDT-654): a carried key is mapped,
+# mirroring the advisor cases above.
+write_map <<'EOF'
+{"version":1,"agents":{"council-scribe":"scribe-model"}}
+EOF
+run --mapped council-scribe
+check "M36-mapped-scribe-local" 0 "mapped" ""
+
+rm_map
+write_repo <<'EOF'
+{"version":1,"agents":{"council-scribe":"repo-scribe"}}
+EOF
+run --mapped council-scribe
+check "M36-mapped-scribe-repo" 0 "mapped" ""
 
 # Internals are always unmapped; unknown agents too.
 run --mapped distiller

@@ -74,9 +74,9 @@ Full procedure: [Setup → `/setup team`](../setup.md#setup-team--bootstrap-agen
 
 ## Sub: `models`
 
-Local Model map (SPEC-037). Bare `/setup models` lists the 11 mappable agents
+Local Model map (SPEC-037). Bare `/setup models` lists the 12 mappable agents
 (`pm`, `tech-lead`, `ic5`, `ic4`, `devops`, `qa`, `ds`, `council-judge`,
-`finder`, `debugger`, `advisor`) with the winning model or `Tier default`, the
+`finder`, `debugger`, `advisor`, `council-scribe`) with the winning model or `Tier default`, the
 winning effort or `inherited`, the spawn concurrency cap, and the local path.
 `set` / `unset` / `set-effort` / `unset-effort` /
 `set-concurrency` / `unset-concurrency` write only

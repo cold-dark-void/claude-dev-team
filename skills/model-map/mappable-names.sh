@@ -9,13 +9,15 @@
 #   mappable-names.sh --internal-empty  print the always-empty internal names, one per line
 #
 # Read-only. No jq. No filesystem access. Exit 64 on unknown flag or missing
-# argument. The 11-name set is SPEC-037 M8 plus `advisor` (SPEC-039 M36);
+# argument. The 12-name set is SPEC-037 M8 plus `advisor` (SPEC-039 M36) and
+# `council-scribe` (CDT-654): the workflow-path scribe sites resolve through the
+# model-map fence, and the P2 `sonnet` policy value survives as the fence floor.
 # `distiller` and `project-init` stay always-empty internals (resolve to empty
 # stdout, never emit).
 
 set -euo pipefail
 
-MAPPABLE="pm tech-lead ic5 ic4 devops qa ds council-judge finder debugger advisor"
+MAPPABLE="pm tech-lead ic5 ic4 devops qa ds council-judge finder debugger advisor council-scribe"
 INTERNAL_EMPTY="distiller project-init"
 
 case "${1:-}" in

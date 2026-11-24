@@ -910,12 +910,12 @@ if [ "$pin_sites" = "5 5" ]; then
 else
   echo "FAIL: safeAgent model pins '$pin_sites' (want '5 5' — five sites, all pinned)"; fail=1
 fi
-if grep -qF "export const SCRIBE_MODEL_PIN = PIN_ALIAS['council-scribe']" skills/council/workflow.js \
-  && [ "$(grep -c 'model: SCRIBE_MODEL_PIN' skills/council/workflow.js)" -eq 3 ] \
+if [ "$(grep -c "model: mapModel('council-scribe')" skills/council/workflow.js)" -eq 3 ] \
+  && ! grep -qF 'SCRIBE_MODEL_PIN' skills/council/workflow.js \
   && ! grep -qE "model:[[:space:]]*'" skills/council/workflow.js; then
-  echo "OK: scribe-class pin is single-site (one constant, three sites, no literal value)"
+  echo "OK: scribe-class sites resolve through the model-map fence (three mapModel sites, no pin constant, no literal value)"
 else
-  echo "FAIL: scribe-class pin is not single-site"; fail=1
+  echo "FAIL: scribe-class sites are not on the model-map fence"; fail=1
 fi
 # Map-resolved roles go through the resolver subprocess, plugin-dir-relative,
 # never sourced (SPEC-002 PDH; SPEC-037 M5).

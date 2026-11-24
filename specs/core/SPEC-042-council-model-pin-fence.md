@@ -20,11 +20,11 @@ instead. Tool-less scribe-class roles pin the literal `sonnet` by policy
 once with the sibling alias — never by omitting `model`. A fail-closed,
 LLM-free lint asserts the fence on the committed text.
 
-Two boundaries bound this spec. CDT-654 owns `council-scribe` joining the
-mappable set (SPEC-037 M8) and converting the scribe-class literal pins plus
-the Workflow-path effort half to the unified map fence; until that lands,
-the scribe pin is a policy constant adjacent to the map, not a map key. The
-never-omit host-reject rule covers council/workflow sites only; a
+Two boundaries bound this spec. CDT-654 lands `council-scribe` joining the
+mappable set (SPEC-037 M8) and converts the Workflow-path scribe sites to the
+unified map fence; the P2 `sonnet` policy value survives as the fence floor
+there and as the Task-path scribe literal. The plugin ships no scribe map key.
+The never-omit host-reject rule covers council/workflow sites only; a
 fleet-wide never-omit rule for non-council Grok-host spawns is future work.
 
 ## MUST
@@ -53,12 +53,14 @@ fleet-wide never-omit rule for non-council Grok-host spawns is future work.
     opus-tier roles → `opus`). MUST NOT pass `""`. This deliberately
     overrides the SPEC-037 M13/M16 omit path at council sites only; the
     M16/MUST-NOT amendments recording that override land in SPEC-037.
-  - **P2 — scribe-class roles.** A tool-less, non-mappable
-    `council-scribe`-class role (Phase 1 extractor, Phase 2.5
-    cross-reviewer, Phase 4 prosecutor/advocate, `--blind` reviewers and
-    quorum analyst) pins the literal `sonnet` per the 2026-11-18
-    maintainer ruling. No map key, no `models.local.json` write,
-    no `resolve-model.sh` call.
+  - **P2 — scribe-class roles.** A tool-less `council-scribe`-class role
+    (Phase 1 extractor, Phase 2.5 cross-reviewer, Phase 4 prosecutor/advocate,
+    `--blind` reviewers and quorum analyst) pins the literal `sonnet` per the
+    2026-11-18 maintainer ruling. On the Task path this stays a literal — no
+    `resolve-model.sh` call at that spawn. As of CDT-654 `council-scribe` is
+    mappable (SPEC-037 M8): the Workflow-path scribe sites resolve through the
+    P1 fence, and this `sonnet` is their floor. The plugin ships no scribe
+    `models.local.json` key.
   - **P1 fallback chain.** `dev-team:ic5` map-resolves `ic5` (empty stdout
     → `sonnet`, ic5's Tier alias). The unnamed `general-purpose` and
     `"Explore"` fallbacks have no Tier row and pin `sonnet` (P2 policy
@@ -70,10 +72,11 @@ fleet-wide never-omit rule for non-council Grok-host spawns is future work.
   Cross-review, Phase4, Judge) under the M2 policy: map-resolved roles
   (`dev-team:finder`, `dev-team:council-judge`) resolve through
   `resolve-model.sh` as a subprocess; scribe-class sites
-  (`dev-team:council-scribe`) use one single-site constant so CDT-654 can
-  swap the constant for a map resolve without re-touching spawn sites.
-  On resolve failure (helper missing, non-zero exit, unparseable layer)
-  the site passes the role's Tier-default alias — never omits. The
+  (`dev-team:council-scribe`) resolve through the same fence (CDT-654), with
+  the P2 `sonnet` alias as the floor. On resolve failure (helper missing,
+  non-zero exit, unparseable layer) the site passes the role's alias — the
+  Tier-default for finder / council-judge, `sonnet` for council-scribe — never
+  omits. The
   Workflow-path model value MUST equal the Task-path value for the same
   role and run (parity; SPEC-013 § Workflow execution path).
 
@@ -135,14 +138,14 @@ fleet-wide never-omit rule for non-council Grok-host spawns is future work.
 
 - **M8 — Boundary with CDT-654 (AC6).** CDT-641 owns: the explicit pins
   at all covered sites, the never-omit host-reject rewrite, the lint, and
-  the Workflow-path seam that passes `model`. CDT-654 owns:
+  the Workflow-path seam that passes `model`. CDT-654 lands:
   `council-scribe` joining `skills/model-map/mappable-names.sh` (M8) with
   the SPEC-037 M8 amendment, dashboard listings, `resolve-model.sh`
-  support, and converting the scribe-class literal pins plus the
-  Workflow-path effort half to the unified model-map fence. CDT-641
-  MUST NOT add `council-scribe` to the mappable set and MUST NOT wire
+  support (delegated to the helper, no literal name), and converting the
+  Workflow-path scribe sites to the map fence. The join does NOT wire
   `--effort` on the Workflow path (SPEC-037 F1: no Agent `effort` param;
-  workflow `opts.effort` untested — out of scope).
+  workflow `opts.effort` untested — out of scope), which stays the CDT-641
+  boundary.
 
 ## MUST NOT
 
@@ -155,9 +158,10 @@ fleet-wide never-omit rule for non-council Grok-host spawns is future work.
   or retry any non-model-attributed spawn failure as a model fallback.
 - MUST NOT probe the host for model validity beyond the single
   host-reject retry (M4).
-- MUST NOT add `council-scribe` to the mappable set, add a
-  `council-scribe` key to any map layer, or write `models.local.json`
-  from the scribe pin (M8; CDT-654 owns the map join).
+- MUST NOT ship a Model map layer that carries a `council-scribe` key,
+  hard-code a literal `council-scribe` name in `resolve-model.sh` (it delegates
+  to `mappable-names.sh`), or write `models.local.json` from a dedicated scribe
+  path (the scribe resolves through the map fence; M8; CDT-654).
 - MUST NOT wire `--effort` on the Workflow path, or pass `effort` from
   `workflow.js` (M8; F1).
 - MUST NOT wire `skills/fix-ticket/workflow.js` — the `/debug ticket`
@@ -174,8 +178,9 @@ fleet-wide never-omit rule for non-council Grok-host spawns is future work.
 
 ## SHOULD
 
-- SHOULD keep the scribe-class pin single-site in `workflow.js` (one
-  constant), so the CDT-654 conversion is a one-line swap.
+- VOID (CDT-654): the single-site scribe constant is gone — the scribe
+  sites take the model-map fence; the P2 sonnet value survives as the fence
+  floor and the M4 sibling alias.
 - SHOULD record the fleet-wide never-omit follow-up (non-council Grok-host
   spawns) and the `skills/fix-ticket/workflow.js` premise-spawn fence as
   backlog candidates in the CDT-641 plan — noted here as future work, not
@@ -191,10 +196,14 @@ fleet-wide never-omit rule for non-council Grok-host spawns is future work.
   or line above (M6)
 - `spawn-site-test.sh` asserts the alias table equals the SPEC-003
   § Tier table for every mappable role, and that `council-scribe` is
-  absent from `mappable-names.sh --list` (M7, M8)
+  present in `mappable-names.sh --list` (M7, M8; CDT-654)
 - `test-workflow-static.sh` asserts all five `safeAgent` sites pass
-  `model`, the scribe constant is single-site, and the host-reject retry
-  carries the sibling alias — never an omitted model (M3, M4)
+  `model`, the three scribe sites take `mapModel('council-scribe')` and the
+  single-site `SCRIBE_MODEL_PIN` constant is absent (M3, M4; CDT-654), and
+  the host-reject retry carries the sibling alias — never an omitted model
+- `test-workflow-f21.sh` asserts the map-wins case for a scribe key
+  (Extract carries the map value over the P2 sonnet floor) alongside the
+  unmapped-floor and degrade cases (M3; CDT-654)
 - `test-workflow-f21.sh` fake-runtime fixtures cover a model-attributed
   host-reject retry once with the sibling alias (M4), and the pin==sibling
   carve-out: a scribe-class `sonnet` reject retries nothing, warns nothing,
@@ -229,17 +238,17 @@ Format and rules: SPEC-033 M14(g) and M14(h).
   SPEC-003 Tier-default alias is passed instead, never `""`. This
   deliberately overrides SPEC-037 M13/M16's omit path at council sites
   only (M16/MUST-NOT amendments). Scribe-class roles pin the literal
-  `sonnet` per the 2026-11-18 maintainer ruling — no map key, no
-  `models.local.json` write. Fallback spawns in the Phase 2 chain
+  `sonnet` on the Task path per the 2026-11-18 maintainer ruling (the plugin
+  ships no scribe map key). Fallback spawns in the Phase 2 chain
   (`dev-team:ic5` → `general-purpose` → `"Explore"`) each carry an
   explicit pin too.
   Verify: bash skills/model-map/spawn-site-test.sh
 - **AC2.** Workflow path pins `model` on every `agent()`/`parallel()`
   entry: `skills/council/workflow.js` resolves and passes `model` at all
   five `safeAgent` sites under the AC1 policy, amending SPEC-037 M27 and
-  SPEC-013 § Workflow execution path. The scribe-class pin stays
-  single-site (one constant) so CDT-654 can swap it to map-resolve
-  without re-touching spawn sites.
+  SPEC-013 § Workflow execution path. As of CDT-654 the scribe-class sites
+  resolve through the map fence (the P2 `sonnet` is their floor), the same
+  fence the finder and council-judge sites use.
   Verify: bash skills/council/test-workflow-static.sh
 - **AC3.** Gate recipe Phase-4 pin: the M14 ship-gate brief dispatch pins
   prosecutor/advocate at `sonnet` by default (maintainer ruling
@@ -268,12 +277,12 @@ Format and rules: SPEC-033 M14(g) and M14(h).
 - **AC6.** Boundary with CDT-654: CDT-641 owns the explicit pins at all
   covered sites (map-resolve for mappable names, literal `sonnet` for
   scribe-class), the never-omit host-reject rewrite, the lint, and the
-  Workflow-path model seam. CDT-654 owns `council-scribe` joining
+  Workflow-path model seam. CDT-654 lands `council-scribe` joining
   `mappable-names.sh` (M8) with the SPEC-037 M8 amendment, dashboard
-  listings, `resolve-model.sh` support, and converting the scribe-class
-  literal pins plus the Workflow-path effort half to the unified
-  model-map fence. `council-scribe` stays out of the mappable set and the
-  Workflow path stays `--effort`-free.
+  listings, `resolve-model.sh` support, and converting the Workflow-path
+  scribe sites to the map fence with the P2 `sonnet` as the floor.
+  `council-scribe` is now in the mappable set; the Workflow path stays
+  `--effort`-free and the plugin ships no scribe map key.
   Verify: bash skills/model-map/test.sh
 - **AC7.** [process] Spec/doc coherence: SPEC-037 (M14 host-reject scope,
   M16 site list + omit list, M17 omit-list prose), SPEC-013 § Workflow
@@ -292,6 +301,7 @@ Format and rules: SPEC-033 M14(g) and M14(h).
 
 | Date | Change |
 |------|--------|
+| 2026-11-24 | CDT-654 — the CDT-654 boundary fold-in lands: `council-scribe` joins `mappable-names.sh` (M8, 12 names), the Workflow-path scribe sites convert to the map fence (P2 `sonnet` floor), and `resolve-model.sh` support is delegated to the helper. The Task-path scribe keeps the P2 literal; the plugin ships no scribe map key. Stays MUST NOT: a shipped scribe map key, a literal `council-scribe` in `resolve-model.sh`, and any `effort` on the Workflow path. Boundary intro, M2/M3/M8, the Test bullet, AC1/AC2/AC6, and the MUST NOT list amended. Status DRAFT. |
 | 2026-11-18 | M4 pin==sibling carve-out (TL review): a P2 pin whose value already equals its sibling alias performs no retry and no warn, and degrades per the site's existing failure path. AC4 and the `test-workflow-f21.sh` Test bullet carry the same rule; AC7 guard-1 wording. Status DRAFT. |
 | 2026-11-18 | Initial DRAFT — CDT-641: explicit model pins on every covered council/workflow spawn (map-resolve with Tier-alias floor for mappable roles, literal `sonnet` policy pin for scribe-class), never-omit sibling-alias host-reject retry, M14 gate Phase-4 pin + escalation recording, fail-closed spawn-site lint, CDT-654 boundary. Status DRAFT. |
 

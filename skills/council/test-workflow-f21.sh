@@ -290,6 +290,21 @@ if (warnErrs.some(rejectWarn)) throw new Error('scribe reject emitted a retry wa
 if (scribeRun.degraded !== true) throw new Error('scribe reject did not fall through to degradation')
 console.log('OK: a pin at its own sibling degrades without a second, unpinned spawn')
 
+// 4. council-scribe joins the map (CDT-654): a council-scribe key wins over
+// the P2 sonnet floor — the Workflow Extract site carries the map value.
+warnErrs.length = 0
+for (const k of Object.keys(seen)) seen[k].length = 0
+writeFileSync(
+  mapDir + '/models.local.json',
+  JSON.stringify({ agents: { 'council-scribe': 'scribe-map-value' } }),
+)
+const scribeMap = await runWf(baseFleet(okVerdicts), { scope: 'session', claim: 'scribe map wins' })
+if (!scribeMap.ok) throw new Error('scribe map run failed: ' + JSON.stringify(scribeMap))
+if (seen.Extract.length !== 1 || seen.Extract[0] !== 'scribe-map-value') {
+  throw new Error('Extract site did not take the map value: ' + seen.Extract.join(','))
+}
+console.log('OK: a council-scribe map key overrides the P2 sonnet floor at the Extract site')
+
 console.error = origErr
 
 const after = wfDirs().filter((n) => !before.has(n))

@@ -149,7 +149,7 @@ amendment, and the surface retirement land as separate tickets.
 
 - **M8 — Mappable set (AC12).** Exact lowercase names that MAY emit:
   `pm`, `tech-lead`, `ic5`, `ic4`, `devops`, `qa`, `ds`, `council-judge`,
-  `finder`, `debugger`. `finder` and `debugger` join the set under CDT-230:
+  `finder`, `debugger`, `council-scribe`. `finder` and `debugger` join the set under CDT-230:
   both are named-roster spawn targets at M16 sites, so both MUST be mappable
   on the same terms as `council-judge` (mappable without being one of the 7
   behavioral agents). `resolve-model.sh distiller` and
@@ -164,7 +164,10 @@ amendment, and the surface retirement land as separate tickets.
   `write-model.sh` (guard plus `list` loop), and
   `skills/doctor/checks/models.sh` (`models.map` key validation) call that
   helper; a hand-copied case list anywhere else is a spec violation, not a
-  cosmetic drift. `advisor` joins the set under SPEC-039 M36 (11 names).
+  cosmetic drift. `advisor` joins the set under SPEC-039 M36;
+  `council-scribe` joins under CDT-654 (12 names) — the Workflow-path scribe
+  sites resolve through the map fence and the P2 `sonnet` policy value survives
+  as the fence floor (SPEC-042 M8).
 
 - **M9 — Adversarial (AC13).** A valid string for `qa` or `council-judge` MUST
   be emitted. The resolver MUST also warn once
@@ -293,9 +296,11 @@ amendment, and the surface retirement land as separate tickets.
      rule of this MUST is replaced (SPEC-042 M2): a map-resolved role passes its
      SPEC-003 § Tier-default alias when the resolve prints empty, and a
      tool-less `council-scribe`-class role pins the literal `sonnet` (maintainer
-     ruling 2026-11-18). `council-scribe` stays outside the M8 mappable set — no
-     map key, no `resolve-model.sh` call, no `models.local.json` write;
-     CDT-654 owns that join (SPEC-042 M8). M14's omit retry is replaced here by
+     ruling 2026-11-18). The M8 exclusion ends with CDT-654: `council-scribe`
+     joins the mappable set, so a Workflow-path scribe site resolves through the
+     map fence (a map key wins; the P2 `sonnet` survives as the fence floor),
+     while the Task-path scribe spawn keeps the P2 literal `sonnet`. The plugin
+     ships no scribe map key (SPEC-042 M8). M14's omit retry is replaced here by
      the SPEC-042 M4 sibling-alias retry.
   5. `/bug-hunt` (`skills/bug-hunt/SKILL.md`) — S1 unconstrained / lens /
      quorum `finder` and S2 investigators `finder` (CDT-230; both were
@@ -331,7 +336,7 @@ amendment, and the surface retirement land as separate tickets.
   subprocess CLI (never `source`). Commands: `list`, `set <agent> <string>`,
   `unset <agent>`. MUST write only `$MROOT/.claude/dev-team/models.local.json`
   (same MROOT as M1). MUST NOT write repo `models.json` or
-  `~/.claude/dev-team/models.json`. `list` MUST print the 11 M8 names with the
+  `~/.claude/dev-team/models.json`. `list` MUST print the 12 M8 names with the
   winning resolved string (MUST call `resolve-model.sh`; MUST NOT reimplement
   merge) or `Tier default` when empty, plus the local path. `list` is
   read-only (MUST NOT mkdir or write). `set` MUST merge
@@ -349,7 +354,7 @@ amendment, and the surface retirement land as separate tickets.
   `agents`. Invalid or unknown agent, or empty / invalid effort token →
   exit 64 + usage; no write. Missing effort key on unset → exit 0.
   `qa` / `council-judge` effort set: write + M9 warn. `list` MUST print the
-  11 M8 names with the winning resolved model (`Tier default` when empty)
+  12 M8 names with the winning resolved model (`Tier default` when empty)
   AND the winning resolved effort (`inherited` when empty), plus the local
   path. `list` MUST call `resolve-model.sh` and
   `resolve-model.sh --effort` (MUST NOT reimplement merge).
@@ -636,7 +641,7 @@ amendment, and the surface retirement land as separate tickets.
 - `finder` / `debugger` resolve a mapped model and never gain `Write` / `Edit` (M12)
 - `bash skills/spec-tooling/check-format.sh specs/core/SPEC-037-per-agent-model-map.md` exits 0
 - `write-model.sh set` writes only local `models.local.json`; repo/global unchanged (M18)
-- `write-model.sh list` prints 11 M8 names + local path; empty resolve → `Tier default` (M18)
+- `write-model.sh list` prints 12 M8 names + local path; empty resolve → `Tier default` (M18)
 - `write-model.sh list` calls `resolve-model.sh` (repo string wins when local omits) (M18)
 - Unknown agent / empty string / bad argv → exit 64 + usage; extra argv ignored (M18)
 - Unparseable existing local → set/unset refuse, exit 1, file unchanged (M18)
@@ -667,7 +672,7 @@ amendment, and the surface retirement land as separate tickets.
 - `spawn-site-test.sh` greps `resolve-model.sh --effort` and `host rejected effort` at every M13 ∪ M16 site (M29)
 - `spawn-site-test.sh` asserts `effort:` frontmatter is PRESENT and Tier-table-matching on all 12 agents, and carries no assertion that it is absent (M12 / M29)
 - `resolve-model.sh finder` / `resolve-model.sh debugger` emit a mapped string and are not unknown-agent (M8)
-- `write-model.sh list` prints 11 mappable names including `finder`, `debugger`, and `advisor` (M8 / M18)
+- `write-model.sh list` prints 12 mappable names including `finder`, `debugger`, `advisor`, and `council-scribe` (M8 / M18)
 - `/doctor --only models.map` accepts `finder` / `debugger` keys without an unknown-key WARN (M8 / M19)
 - All three M8 enforcement points (`resolve-model.sh`, `write-model.sh`, `doctor.sh`) carry the identical mappable set (M8)
 - Absent `concurrency` / empty / `null` / `""` → empty `--concurrency` stdout, no warn, exit 0 (M30)
@@ -706,10 +711,27 @@ Format and rules: SPEC-033 M14(g) and M14(h).
 - **AC12.** `/doctor` check `models.map` validates the `concurrency` key and is WARN-never-FAIL (never FAIL, never silent skip of a present bad value).
   Verify: bash skills/doctor/test.sh
 
+### CDT-654
+
+- **A.** The name. `council-scribe` is mappable: `mappable-names.sh --is council-scribe` exits 0, `--list` carries 12 names ending `council-scribe`, and `--internal-empty` stays exactly `distiller` and `project-init`. `resolve-model.sh`, `write-model.sh`, and the `/doctor` `models.map` check keep delegating the set to the helper — no literal `council-scribe` appears in `resolve-model.sh`.
+  Verify: bash skills/model-map/test.sh
+- **B.** The fence. The three Workflow-path scribe sites (Extract, Cross-review, Phase 4) in `skills/council/workflow.js` pass `model: mapModel('council-scribe')` — the same per-run resolve cache and floor semantics as `finder` and `council-judge`; the single-site `SCRIBE_MODEL_PIN` constant is absent from the file; no `effort` reaches the Workflow path (SPEC-037 F1).
+  Verify: bash skills/council/test-workflow-static.sh
+- **C.** The P2 floor survives. With no scribe key in any map layer, every scribe-class spawn resolves `sonnet` (the SPEC-042 M2 P2 policy value, deliberately below the opus/high Tier row) and a model-attributed reject degrades without a sibling retry; a mapped `council-scribe` key wins at every scribe site. The P1 alias tables carry no scribe row.
+  Verify: bash skills/council/test-workflow-f21.sh
+- **D.** The Task path keeps its P2 literal pins — the spawn-site scanner exempts `council-scribe` P2 literals from the mappable-role flag, and the M6 mappability bite probes a non-mappable sentinel instead of the now-mappable name.
+  Verify: bash skills/model-map/spawn-site-test.sh
+- **E.** Dashboards name it: `/adjust-agent` prose lists `council-scribe` as mappable-internal and `write-model.sh list` prints 12 names.
+  Verify: bash skills/model-map/write-model-test.sh
+- **F.** Spec coherence: SPEC-037 M8/M16/M18 and the M8 test lines state 12 names; SPEC-042's M8 boundary, MUST-NOT fences and Test bullets describe the fence swap and the floor survival; SPEC-013 § Workflow execution path names `council-scribe` among the mappable Workflow roles with the P2 floor; SPEC-039's 11-name freeze carries the CDT-654 amendment note; docs count 12.
+  Verify: bash skills/docs-drift/test.sh
+- **G.** [process] The touched suites pass on the changed tree: `bash skills/model-map/test.sh`, `bash skills/model-map/spawn-site-test.sh`, `bash skills/model-map/write-model-test.sh`, `bash skills/model-map/effort-test.sh`, `bash skills/model-map/effort-write-test.sh`, `bash skills/model-map/concurrency-test.sh`, `bash skills/council/test-workflow-static.sh`, `bash skills/council/test-workflow-f21.sh` each exit 0.
+
 ## Version History
 
 | Date | Change |
 |------|--------|
+| 2026-11-24 | CDT-654 — **M8** gains `council-scribe` (12 names). The **M16 site 4** note is amended: the mappable-set exclusion ends — the Workflow-path scribe sites resolve through the map fence, and the P2 `sonnet` (maintainer ruling 2026-11-18) survives as the fence floor and the Task-path P2 literal; the plugin ships no scribe map key. **M18** and the M8 test lines state 12 names. Status stays ACTIVE. |
 | 2026-11-18 | CDT-641 (SPEC-042): the Model map stops treating council spawns as omit sites. **M14** gains a scope clause — the omit retry stays for the M13 ∪ M16 sites outside the council/workflow covered set, and a covered site takes SPEC-042 M4's sibling-alias retry (never omit, alias fixed at pin time). **M16 site 4** is rewritten: the `/council` fence covers the whole tribunal (Phase 1 extractor, Phase 2 named fallback chain, Phase 2.5, Phase 3, Phase 4, Phase 5 incl. the bundle-cap parts, `--blind` wave + quorum analyst), so the former "MUST NOT wire Phase 1 / Phase 3 / Phase 4 / `--blind`" is inverted; at those sites empty map stdout passes the SPEC-003 § Tier-default alias, a tool-less `council-scribe`-class role pins the literal `sonnet`, and `council-scribe` stays outside the M8 mappable set (CDT-654 owns that join). **M17**'s omit list is scoped to non-council sites and the skill doc gains the two pin classes. **M27** and the MUST NOT line are amended: `skills/council/workflow.js` carries `model` (SPEC-042 M3) and stays `effort`-free (F1). Status stays ACTIVE. |
 | 2026-10-22 | CDT-574-C3 — M33 gains the env-validation clause for `resolve-concurrency.sh`: `COUNCIL_CONCURRENCY` is validated on every path that reaches it, including when `--flag` wins (exit 64 + a stderr warning naming the variable). An empty-string env is unset. The map layer stays lazy: the merge helper reads it only when the flag and env are both unset, so the M30–M32 map contract and the flag > env > map precedence for valid values are unchanged. Status stays ACTIVE. |
 | 2026-10-22 | CDT-574-C5 — M18 and the M8 test lines state 11 names, matching M8 (`advisor` joins under SPEC-039 M36) and `mappable-names.sh --list`. `/setup models` docs list `advisor`. The model-map list bite-tests loop over `mappable-names.sh --list` (count-blind). Historical rows keep their facts; only the stale count literal is dropped from them. Status stays ACTIVE. |

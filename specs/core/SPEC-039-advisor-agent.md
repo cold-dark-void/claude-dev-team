@@ -348,6 +348,8 @@ Glossary term: Advisor (`CONTEXT.md`).
   `project-init` stay always-empty. The 11-name set plus two internals
   MUST live in one helper `skills/model-map/mappable-names.sh`
   (`--is NAME` exit 0/1; `--list` one name per line; `--internal-empty`).
+  *(CDT-654 amendment: `council-scribe` joins SPEC-037 M8, so the set is now
+  12 names — the same single helper. See SPEC-037 M8 / SPEC-042 M8.)*
   `resolve-model.sh`, `write-model.sh`, and `skills/doctor/checks/models.sh`
   MUST call that helper. MUST NOT keep a third hand-copied case list.
   `spawn-site-test.sh` ROSTER gains `advisor:opus:high`.
@@ -572,7 +574,7 @@ Format and rules: SPEC-033 M14(g) and M14(h).
 
 ### CDT-560
 
-- **AC1.** `skills/model-map/mappable-names.sh` is the single source of the mappable set. `--is NAME` exits 0 exactly for the 11 mappable names (`pm`, `tech-lead`, `ic5`, `ic4`, `devops`, `qa`, `ds`, `council-judge`, `finder`, `debugger`, `advisor`) and 1 otherwise; `--list` prints the 11 names one per line; `--internal-empty` prints `distiller` and `project-init` one per line. `spawn-site-test.sh` ROSTER gains `advisor:opus:high` (covered by `skills/model-map/spawn-site-test.sh`, also run at the gate).
+- **AC1.** `skills/model-map/mappable-names.sh` is the single source of the mappable set. `--is NAME` exits 0 exactly for the 11 mappable names (`pm`, `tech-lead`, `ic5`, `ic4`, `devops`, `qa`, `ds`, `council-judge`, `finder`, `debugger`, `advisor`) and 1 otherwise; `--list` prints the 11 names one per line; `--internal-empty` prints `distiller` and `project-init` one per line. `spawn-site-test.sh` ROSTER gains `advisor:opus:high` (covered by `skills/model-map/spawn-site-test.sh`, also run at the gate). *(CDT-654 amendment: `council-scribe` joins the set — 12 names; the `--is`/`--list`/`--internal-empty` contract is unchanged. See SPEC-037 M8 / SPEC-042 M8.)*
   Verify: bash skills/model-map/test.sh
 - **AC2.** `resolve-model.sh --mapped <agent>` prints exactly `unmapped` when no Model map layer carries a valid string for the agent (no layers, internals, unknown agents, and invalid values are all unmapped) and `mapped` otherwise; it never consults the Tier default.
   Verify: bash skills/model-map/test.sh
