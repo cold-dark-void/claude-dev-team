@@ -244,7 +244,9 @@ Glossary term: Advisor (`CONTEXT.md`).
 
 - **M26 — Caps.** Per-run reserves: (a)=3, (b)=4, (c)=2, (d)=1. Global per-run
   total 5. `ADVISOR_MAX_CALLS` only lowers the global 5 (integer ≥ 1).
-  Retries count. Dedupe by question hash (sha256 of trigger+normalized
+  Retries count. A probe increments only its own trigger's counter plus the
+  run total in `runs/<run_id>/counters.json`; it MUST NOT spend another
+  trigger's reserve (CDT-662). Dedupe by question hash (sha256 of trigger+normalized
   question+evidence hashes); cache hits are free and MUST NOT increment
   caps. Epic children own the same per-run caps. Epic total default 8
   (stored under `.claude/advisor/epic/<epic_id>/counters.json`). Cap
@@ -486,6 +488,7 @@ Glossary term: Advisor (`CONTEXT.md`).
 
 | Date | Change |
 |------|--------|
+| 2026-11-24 | CDT-662: M26 amended — a probe increments only its own trigger's counter plus the run total (the `ask.sh` § Increment block wrote all four counters per probe, so one b-probe spent the trigger-d reserve); `### CDT-662` ACs; the `t2e` counter-scope checks in `skills/advisor/test.sh`. |
 | 2026-10-31 | CDT-589-C5: `### CDT-589-C5` ACs for the opt-in Step 6c BC1 mis-fire enforce clear — M42 (`ADVISOR_ENFORCE` human config, default off; `gates.sh mode` reports `enforce`; `gates.sh apply` clears a `bc1-mis-fire` `mis-fire` ruling at confidence ≥ 80 on a `plan-approve` halt only, fail-closed otherwise); `append-card.sh` M30 shape accepts trigger-a `halt-stands\|mis-fire`; §3g enforce fence + `06-design.md` 6c exception; one auto/advisor clear card, distinct from the C3 demotion. |
 | 2026-10-31 | CDT-589-C3: `### CDT-589-C3` ACs for trigger (d) class verify — M38 seam (`a|b|c|d`, reserve d=1, question home in the SKILL trigger table), M39 vocabulary (`auth-relevant`/`not-auth-relevant`, `gates.sh allow`/`ruling` fence), M40 demotion card (`gate: plan-approve`, proceed/null) + `class-verify.jsonl` precision log, M41 demotion-only fail-closed (never BC8); M18/M26/M29/M30 amended; `append-card.sh` M30 shape accepts trigger d. |
 | 2026-10-20 | M37: per-run advisor model override — `--with-advisor=<model>`, `ADVISOR_MODEL`, `ask.sh probe --model`, `appeal.sh gate --model`, epic `advisor_model` persistence; M8/M9/M10/M12 amended (council diff-mode review). |
@@ -733,6 +736,14 @@ Format and rules: SPEC-033 M14(g) and M14(h).
   Verify: bash skills/advisor/test-enforce.sh --ac AC9
 - **AC10.** `skills/advisor/SKILL.md` documents `ADVISOR_ENFORCE` (default off/absent, valid values, junk handling) and the `apply` subcommand; there is no new Surface (no `commands/*.md`), no new flag on any command, and no new agent role.
   Verify: bash skills/advisor/test-enforce.sh --ac AC10
+
+### CDT-662
+
+- **AC1.** `ask.sh probe` increments only the current trigger's counter (`.[trigger]` in `runs/<run_id>/counters.json`) plus `.total`; a b-probe leaves `.a`, `.c`, and `.d` at 0, and the trigger-d reserve (1) is not spent by probes of any other trigger. The per-trigger reserves (a)=3, (b)=4, (c)=2, (d)=1 and the global per-run total 5 are unchanged.
+  Verify: bash skills/advisor/test.sh
+- **AC2.** A trigger-(d) probe in a run that already holds one b-probe returns `action: spawn`, not `action: cap`; the regression case runs in the advisor suite as the `t2e` counter-scope checks (b-probe counter state, then the d-probe action and its counters).
+  Verify: bash skills/advisor/test.sh
+- **AC3.** [process] The counter-scope case lives in the hermetic engine-side suite `skills/advisor/test.sh` (no live LLM, scratch `ADVISOR_STATE_ROOT`, `$TSTATE/runs/<run>/counters.json`), and the gate for this change is that suite plus `tools/spec-lint.sh`.
 
 ## Alternatives considered
 

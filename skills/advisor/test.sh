@@ -7,7 +7,8 @@
 #   - probe actions spawn|cache-hit|refuse|cap; probe never spawns
 #   - unmapped -> refuse "advisor not configured", never a tier default
 #   - caps: per-trigger reserves a=3/b=4/c=2/d=1, global 5,
-#     ADVISOR_MAX_CALLS lowers only, hash dedupe, epic total 8
+#     ADVISOR_MAX_CALLS lowers only, hash dedupe, epic total 8,
+#     a probe bumps only its own trigger's counter + the total (CDT-662)
 #   - re-entrant probe exits 64; finalize ruling taxonomy; timeout is
 #     never a partial ruling; bad locator 64; spawn-fail/refuse status-only;
 #     gitignored state root; sourcing attempt exits 64; single-object stdout;
@@ -239,6 +240,28 @@ check_json "t2d-probe-beta-reports-alpha" "$OUT" ".model" "model-alpha"
 CNT_BETA=$(jq -r ".total // 0" "$TSTATE/runs/r-prov2/counters.json" 2>/dev/null)
 if [ "${CNT_BETA:-0}" = "0" ]; then pass "t2d-cache-hit-free-across-overrides"; else fail "t2d-cache-hit-free-across-overrides: counters=$CNT_BETA"; fi
 
+# ---- t2e: CDT-662 — a probe bumps only its own trigger's counter (M26) --------
+# A b-probe must leave .a/.c/.d untouched; the old write bumped all four, so
+# one b probe spent the trigger-d reserve (d=1) and capped a later d probe.
+plant_advisor
+OUT=$(run_probe --trigger b --question "scope b question" --run-id r-scope)
+check_json "t2e-scope-b-spawn" "$OUT" ".action" "spawn"
+read -r S_A S_B S_C S_D S_T <<<"$(jq -r '[.a,.b,.c,.d,.total] | @tsv' "$TSTATE/runs/r-scope/counters.json")"
+if [ "$S_A" = "0" ] && [ "$S_B" = "1" ] && [ "$S_C" = "0" ] && [ "$S_D" = "0" ] && [ "$S_T" = "1" ]; then
+  pass "t2e-scope-only-own-counter"
+else
+  fail "t2e-scope-only-own-counter: a=$S_A b=$S_B c=$S_C d=$S_D total=$S_T"
+fi
+# The reserve is not pre-spent: the trigger-d probe in the same run spawns.
+OUT=$(run_probe --trigger d --question "scope d question" --run-id r-scope)
+check_json "t2e-scope-d-not-capped" "$OUT" ".action" "spawn"
+read -r S_A S_B S_C S_D S_T <<<"$(jq -r '[.a,.b,.c,.d,.total] | @tsv' "$TSTATE/runs/r-scope/counters.json")"
+if [ "$S_A" = "0" ] && [ "$S_B" = "1" ] && [ "$S_C" = "0" ] && [ "$S_D" = "1" ] && [ "$S_T" = "2" ]; then
+  pass "t2e-scope-d-counter-only-d"
+else
+  fail "t2e-scope-d-counter-only-d: a=$S_A b=$S_B c=$S_C d=$S_D total=$S_T"
+fi
+
 # ---- 3. re-entrant probe -> 64 ----------------------------------------------
 flock -w 5 "$TSTATE/lock" -c "sleep 3" &
 HOLD_PID=$!
@@ -313,9 +336,14 @@ for i in 1 2 3; do
   run_probe --trigger a --question "g a$i" --run-id r4 >/dev/null
 done
 OUT=$(run_probe --trigger b --question "g b1" --run-id r4)
-check_json "t8-global-fifth-spawns" "$OUT" ".action" "spawn"
+check_json "t8-global-fourth-spawns" "$OUT" ".action" "spawn"
 OUT=$(run_probe --trigger b --question "g b2" --run-id r4)
+check_json "t8-global-fifth-spawns" "$OUT" ".action" "spawn"
+OUT=$(run_probe --trigger b --question "g b3" --run-id r4)
 check_json "t8-global-sixth-caps" "$OUT" ".action" "cap"
+# The binder is the global, not the b reserve (4): CNT_B is 2 here (CDT-662 —
+# a-probes do not spend the b reserve).
+check_json "t8-global-sixth-reason" "$OUT" ".reason" "global per-run cap exhausted (5)"
 # ADVISOR_MAX_CALLS lowers only: trigger a (reserve 3) with MAX_CALLS=2 —
 # the global 2 binds before the reserve, proving the knob lowers the global.
 OUT=$(ADVISOR_MAX_CALLS=2 ADVISOR_STATE_ROOT="$TSTATE" bash "$ASK" probe --trigger a --question "m1" --run-id r5 2>/dev/null)
@@ -325,8 +353,8 @@ check_json "t8-maxcalls-second-spawn" "$OUT" ".action" "spawn"
 OUT=$(ADVISOR_MAX_CALLS=2 ADVISOR_STATE_ROOT="$TSTATE" bash "$ASK" probe --trigger a --question "m3" --run-id r5 2>/dev/null)
 check_json "t8-maxcalls-third-caps" "$OUT" ".action" "cap"
 check_json "t8-maxcalls-reason" "$OUT" ".reason" "global per-run cap exhausted (2)"
-# ADVISOR_MAX_CALLS above 5 does NOT raise the global cap: 5 b-probes spawn
-# (reserve b=4 is not the binder — global 5 is), the 6th caps on global.
+# ADVISOR_MAX_CALLS above 5 does NOT raise the global cap: the 6th b-probe
+# caps (the b reserve 4 binds first, and the global 5 is never raised).
 for i in 1 2 3 4 5 6; do
   OUT=$(ADVISOR_MAX_CALLS=9 ADVISOR_STATE_ROOT="$TSTATE" bash "$ASK" probe --trigger b --question "hi$i" --run-id r6 2>/dev/null)
 done

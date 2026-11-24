@@ -511,11 +511,17 @@ if [ -n "$cap_reason" ]; then
   exit 0
 fi
 
-# Increment (retries count; cache hits never reach here).
-jq --argjson a "$((CNT_A + 1))" --argjson b "$((CNT_B + 1))" \
-   --argjson c "$((CNT_C + 1))" --argjson d "$((CNT_D + 1))" \
-   --argjson t "$((CNT_T + 1))" \
-   '.a=$a | .b=$b | .c=$c | .d=$d | .total=$t' "$COUNTERS" > "$COUNTERS.tmp" \
+# Increment (retries count; cache hits never reach here). M26: only the
+# current trigger's counter and the run total bump — every other reserve
+# stays at its counted value.
+case "$TRIGGER" in
+  a) CNT_SELF=$CNT_A ;;
+  b) CNT_SELF=$CNT_B ;;
+  c) CNT_SELF=$CNT_C ;;
+  d) CNT_SELF=$CNT_D ;;
+esac
+jq --arg key "$TRIGGER" --argjson v "$((CNT_SELF + 1))" --argjson t "$((CNT_T + 1))" \
+   '.[$key] = $v | .total = $t' "$COUNTERS" > "$COUNTERS.tmp" \
   && mv "$COUNTERS.tmp" "$COUNTERS"
 
 # Spawn request for the CALLER to act on — probe itself never spawns.

@@ -248,6 +248,8 @@ spawn-probes: retries count).
 - Global per-run total 5. `ADVISOR_MAX_CALLS` only lowers the global 5
   (integer ≥ 1; any other value is ignored).
 - Retries count; cache hits are free and never increment.
+- A probe increments only its own trigger's counter plus the run total
+  (`runs/<run_id>/counters.json`); it never spends another trigger's reserve.
 - Epic children share an epic-level total, default 8, stored at
   `.claude/advisor/epic/<epic_id>/counters.json`.
 - Exhaustion → `action=cap`, no spawn. Under autopilot the caller maps
