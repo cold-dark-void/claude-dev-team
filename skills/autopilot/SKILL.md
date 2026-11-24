@@ -620,3 +620,34 @@ Contract notes (writer):
 - Path `$MROOT/.claude/autopilot/<ticket_id>.jsonl`. The writer builds one JSON line and
   appends it with a single `printf`. There is no flock. PIPE_BUF atomicity applies to
   pipes, not to a regular-file append, so do not cite it as the guarantee here.
+
+## Watchdog back-off state (CDT-617)
+
+`skills/autopilot/backoff-state.sh` is a third subprocess CLI over the same ledger. It
+answers one question for a watchdog (the `/orchestrate` CI-watch cron, SPEC-017): *is
+this ticket sitting on an open hard blocker, and if so, when is the next fire due?* An
+open blocker is the LAST card of `<ticket_id>.jsonl` carrying `decision:"halt"` with
+`blocking_condition` in 1-4, 6-8. BC5 (`reroute-epic`) is a reroute, not a block, so it
+never backs off (M6/M7).
+
+```
+backoff-state.sh check  <ticket_id>   # -> {"blocked","bc","attempts","delay_s","next_fire_ts"}, exit 0
+backoff-state.sh record <ticket_id> <BC>   # ramp the delay for that blocking condition
+backoff-state.sh reset  <ticket_id>   # green run: clear the back-off
+```
+
+State lives at `$MROOT/.claude/autopilot/<ticket_id>.backoff.json` (git-ignored local
+state like the ledger; the file is a back-off timer, not a decision record — M13 owns
+decisions). The delay starts at 1800 s and doubles per identical blocking condition,
+bounded by `AUTOPILOT_BACKOFF_MAX_S` (default 86400) and by the halt card's
+`budget.wall_clock_cap_s`. `AUTOPILOT_BACKOFF_BASE_S` and
+`AUTOPILOT_BACKOFF_MAX_ATTEMPTS` (default 8, after which doubling stops) tune it. A `0`
+base or max disables the wait entirely; a card cap above the env max never raises the
+env max. `record` called after the halt resolved no-ops and clears the stale state — a
+stale timer never seeds the next halt of the same blocking condition. Card
+parsing is delegated to `read-cards.sh`; a missing, empty, unparseable ledger, and a
+missing or corrupt state file, all read as "not blocked" with exit 0 — a watchdog that
+cannot read the journal keeps its normal cadence and never invents a blocker. This
+script introduces no ninth blocking condition, no card field, and no gate value.
+
+Verify: bash skills/autopilot/test-backoff-state.sh

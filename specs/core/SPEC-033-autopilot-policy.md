@@ -1795,6 +1795,43 @@ Format and rules: M14(g) and M14(h). Each ticket that ships through M14 has one
   `bash skills/autopilot/test-end-state-safety.sh`, and `bash skills/release/test-bump-class.sh`
   each exit 0.
 
+### CDT-617 — Watchdog back-off state (M7 halt cards via M13)
+
+- **A.** This subsection is a cross-reference: the watchdog behaviour is owned by
+  SPEC-017 § Watchdog back-off on an open hard blocker (cited, not restated — M12);
+  what SPEC-033 owns here is the consumption rule over its own records. The
+  open-blocker probe reads M7 halt cards through the M13 ledger only. An
+  open hard blocker is the LAST card of `$MROOT/.claude/autopilot/<TICKET-ID>.jsonl`
+  with `decision: "halt"` and `blocking_condition` in 1-4, 6-8 (M7). BC5
+  (`reroute-epic`) is a reroute, not a block (M6/M7), and never backs off. Card
+  parsing is delegated to `skills/autopilot/read-cards.sh` — no second card parser.
+  A missing, empty, unreadable, or unparseable ledger is fail-open: not blocked,
+  normal cadence, exit 0.
+  Verify: bash skills/autopilot/test-backoff-state.sh
+- **B.** The back-off state is a timer, not a decision record.
+  `$MROOT/.claude/autopilot/<TICKET-ID>.backoff.json` (same git-ignored directory as
+  the ledger) holds `{ticket_id, bc, attempts, delay_s, next_fire_ts, updated_at}` for
+  `skills/autopilot/backoff-state.sh` (check/record/reset). The back-off NEVER appends
+  a card and NEVER mutates the ledger; M13 append-only stays intact and M13 owns every
+  decision.
+  Verify: bash skills/autopilot/test-backoff-state.sh
+- **C.** No card schema change and no ninth BC. The M13 card schema is unchanged (no
+  new field, no `type`, `schema_version` stays `1`), the blocking-condition set stays
+  BC1-BC8, no gate value is added, and the poll vocabulary is unchanged
+  (`{done, fail, cap, wait}`, SPEC-017). The run-budget cap the watchdog reads is the
+  existing M13 `budget.wall_clock_cap_s` on the open halt card.
+  Verify: bash skills/autopilot/test-backoff-state.sh
+- **D.** Docs in sync. SPEC-017 § Watchdog back-off on an open hard blocker owns the
+  poll behaviour and the env knobs (`AUTOPILOT_BACKOFF_BASE_S` / `_MAX_S` /
+  `_MAX_ATTEMPTS`, AC9 integer-validation pattern); SPEC-002 gains the hook
+  identical-iteration degrade; `skills/autopilot/SKILL.md` § Watchdog back-off state
+  and `skills/ci-watch/SKILL.md` mirror this section without restating the M6/M7
+  rules. SPEC-033 gains this section and a dated Version History row.
+  Verify: bash skills/docs-drift/test.sh
+- **E.** [process] The touched suites pass on the changed tree: `bash
+  skills/autopilot/test-backoff-state.sh` and `bash skills/ci-watch/test-poll.sh`
+  each exit 0.
+
 ---
 
 ## Test
@@ -1810,6 +1847,7 @@ Format and rules: M14(g) and M14(h). Each ticket that ships through M14 has one
 
 | Date | Change |
 |------|--------|
+| 2026-11-24 | CDT-617: **watchdog back-off consumes M7 halt cards through M13.** A CI-watch cron that re-fires through a hard block re-asks a question a human must answer; the watch now backs off. Reader `skills/autopilot/backoff-state.sh` (check/record/reset) decides "open hard blocker" from the ledger's LAST card (`halt` + BC1-4/BC6-8; BC5 is a reroute, M6/M7) via `read-cards.sh`, fail-open on any unreadable ledger; the timer file `<ticket_id>.backoff.json` is local state, never a card — M13 append-only and the card schema are unchanged, no ninth BC, no gate value. Poll behaviour and the env knobs are owned by SPEC-017 § Watchdog back-off on an open hard blocker (cited, not restated); SPEC-002 gains the hook identical-iteration degrade. New `### CDT-617` cross-reference section. Status stays ACTIVE. |
 | 2026-11-22 | CDT-597: **the master-fold discipline — the default-branch tip must equal a release tag, so land-no-release lands on a registered `land/<ticket>` branch.** Recorded case: a `--autopilot=master` squash fold was committed and pushed straight onto `master`, leaving the tip untagged — no version, no tag, no CHANGELOG entry, and no record of what shipped. Now (1) **M2 master-tag invariant**: the default-branch tip MUST equal a release tag at every pushed state, enforced by `githooks/pre-push` through the new `skills/release/check-master-tagged.sh` CLI (exit 0 on an exact-match tag, 1 with the `/release-train register <branch>` remediation, 64 usage); `install-git-hooks.sh` installs both hooks, and the `/release` fold commit needs no exception because it is itself the tagged tip. (2) **M2/N3a land target**: the sentinel's land target is a new `land/<ticket>` branch cut at the worktree baseline — non-force push, then `train-lib.sh register land/<ticket> --bump patch` with the registered order printed; the default branch never satisfies the land target on this path, and the ancestry clause measures the land branch against its recorded base (its own tip on a resume, baseline HEAD when new), so force-needed history still halts fail-closed. (3) **Registration is queue-only**: the path runs no `/release`, advances no queue entry, and bypasses no part of the train's landing loop (SPEC-023); the next `/release` folds the branch and its fold commit is the tag. No new BC, no card schema change, no new gate value; BC3 stays never-waived for force-push. Docs synced: `skills/autopilot/end-state.md` (§1/§3/§5-land-no-release/§6/§6.5/§7), `skills/autopilot/SKILL.md` (M2, terminal table), `skills/autopilot/ship-pipeline.md`, `skills/orchestrate/steps/11-ship.md`, `skills/orchestrate/steps/00-resolve.md`, `AGENTS.md`, SPEC-010 Covers + H note. New `### CDT-597` AC subsection. Status stays ACTIVE. |
 | 2026-11-21 | CDT-611: **the investigator tool budget scales with claim/AC count, truncated evidence beats silence, and the plan-approve card predicts the M14 budget.** Recorded case (friction audit D8): WP 1-01, 1-02 and 1-03 each halted on the same flat 5-call investigator budget and each needed a resume; one investigator that hit the cap on call 6 self-struck its evidence, leaving a claim uncovered. Now (1) an M14 per-AC claim with a `Verify:` command gets `min(8 + 2·(K−1), 16)` investigator tool calls for K technical ACs — base 8, +2 per additional AC, ceiling 16 — applied at design time in `engine-preflight.sh` beside the `M14_AC_BUDGET` constants (M14(j) precedent: named constants + hard ceiling, no env/flag/plan/spec field, no per-WP override); non-verify claims keep 5. (2) An investigator that hits its cap with bundles in hand returns the partial bundles with `"truncated": true` instead of an empty list; the judge caps confidence on it like a missing verify bundle. (3) The `plan-approve` card's rationale carries `m14-predict: acs=<K> budget=<B>` when the AC subsection holds K ≥ 1 technical ACs — informational, so a predicted M14 budget strain batches resume decisions into one user prompt instead of one per WP BC7 halt. No ninth BC, no gate value, no card field; `M14_AC_BUDGET` and the BC7 reuse are unchanged. Docs synced: `skills/autopilot/SKILL.md` (M4 plan-approve), `skills/council/engine.sh`, `engine-preflight.sh`, `prompts/investigator.md`, `flavors/paranoid-ic.md`, `flavors/skeptic-ic.md`; g10 re-pinned; new `### CDT-611` AC subsection. Status stays ACTIVE. |
 | 2026-11-21 | CDT-610: **BC6's ship-choice carve-out — the budget cap gates new work, not the last push.** Recorded case WP 1-01: finished, reviewed and tested, then halted at the ship step at 81 min against the cap (and WP 1-15: 38,248 s against a 10,800 s cap, ~7.5 h of it user wait). Now, at the `ship-choice` gate only, a run-budget breach downgrades to a **non-blocking budget warning**: the gate's default answer is emitted unchanged (card #1 written with `blocking_condition = null`) and card #1's `rationale` MUST carry `budget-warning:` naming the breached cap (`iteration` or `wall_clock`) with both the measured value and the cap. BC6 stays a hard stop at every other gate (`scope-confirm`, `plan-approve`, `/kickoff`, `/epic` Mode A). User-wait coverage at the ship step is two-sided: an approval wait before card #1 is the M9a exclusion, a breach at the gate itself warns (this change), and BC6 is not evaluated after card #1 — so no user wait around the ship step, and no overrun on already-approved work, can cost a finished run its landing. No ninth BC, no new card field, no gate value, no `type`; the marker rides card #1's rationale like `approval-wait:` / `pass-with-note:`. `append-card.sh`, `budget-check.sh`, and the M14 gate are unchanged. Docs synced: `skills/autopilot/SKILL.md` (M6 item 6, M4 ship-choice item 3) and `skills/autopilot/self-answer.md` §d. New `### CDT-610` AC subsection; `test-bc6-approval-wait.sh` gains the static drift-guard. Status stays ACTIVE. |

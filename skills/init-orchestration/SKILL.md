@@ -881,6 +881,51 @@ if ! [[ "$TASK_ID" =~ ^[A-Za-z0-9_-]+$ ]]; then
   exit 2
 fi
 
+# === identical-iteration degrade (CDT-617, SPEC-002) ===
+# A watchdog or /goal loop that re-fires the same blocked task re-runs this
+# gate on every fire and livelocks. Count consecutive IDENTICAL blocks per
+# task; after 3, print one final notice that names the escape and pass
+# (exit 0). Any change to the block message, and any passing stop, resets
+# the counter. Pre-task-id guards (plugin JSON, stdin, invalid task_id) stay
+# plain exit 2: with no task id there is no per-task counter to keep.
+ITERATE_STAMP="$MROOT/.claude/.task-completed-iterate-${TASK_ID}"
+ITERATE_LIMIT=3
+
+iterate_reset() {
+  rm -f "$ITERATE_STAMP" 2>/dev/null || true
+}
+
+iterate_block() {
+  # iterate_block <message> — print the block, count identical repeats, exit
+  # 2 under the limit; at the limit print the one final notice and exit 0.
+  local msg hash stored_hash stored_count count
+  msg="${1-}"
+  printf '%s\n' "$msg" >&2
+  hash=$(printf '%s' "$msg" | cksum | cut -d' ' -f1)
+  stored_hash=""
+  stored_count=0
+  if [ -f "$ITERATE_STAMP" ]; then
+    read -r stored_hash stored_count < "$ITERATE_STAMP" 2>/dev/null || true
+  fi
+  case "$stored_hash" in *[!A-Za-z0-9]*) stored_hash="" ;; esac
+  case "$stored_count" in ''|*[!0-9]*) stored_count=0 ;; esac
+  if [ -n "$hash" ] && [ "$stored_hash" = "$hash" ]; then
+    count=$(( stored_count + 1 ))
+  else
+    count=1
+  fi
+  printf '%s %s\n' "$hash" "$count" > "$ITERATE_STAMP" 2>/dev/null || true
+  if [ "$count" -ge "$ITERATE_LIMIT" ]; then
+    if [ "$count" -eq "$ITERATE_LIMIT" ]; then
+      printf 'TaskCompleted council gate: task %s blocked identically %d times — passing this iteration. Fix the block cause, or remove the TaskCompleted hook from .claude/settings.json to stop the gate.\n' "$TASK_ID" "$count" >&2
+    fi
+    iterate_reset
+    _emit_task_complete
+    exit 0
+  fi
+  exit 2
+}
+
 # Read task metadata — shadow-safe candidate set (CDT-167 / SPEC-002).
 # Candidates = flat <T>.json (if present) ∪ all *-<T>.json (nullglob-safe).
 # effective_requires_council = any candidate requires_council true (AC1, AC6).
@@ -904,6 +949,7 @@ unset _prev_nullglob _cand
 
 if [ ${#CANDIDATES[@]} -eq 0 ]; then
   # Silent pass — pure-missing (AC5); task pre-dates the gate or is not tracked
+  iterate_reset
   _emit_task_complete
   exit 0
 fi
@@ -964,8 +1010,7 @@ SCAN_RC=$?
 # not read as "no candidate requires council". Candidates exist here (the
 # empty-candidates silent pass already returned), so any scan failure exits 2.
 if [ "$SCAN_RC" -ne 0 ] || [ -z "$META_SCAN" ]; then
-  echo "TaskCompleted council gate: META_SCAN failed (rc=$SCAN_RC) — refusing to pass silently; fix the interpreter, then re-run" >&2
-  exit 2
+  iterate_block "TaskCompleted council gate: META_SCAN failed (rc=$SCAN_RC) — refusing to pass silently; fix the interpreter, then re-run"
 fi
 
 REQUIRES_COUNCIL=$(printf '%s\n' "$META_SCAN" | sed -n '1p')
@@ -974,6 +1019,7 @@ CANDIDATE_COUNT=$(printf '%s\n' "$META_SCAN" | sed -n '3p')
 case "$CANDIDATE_COUNT" in ''|*[!0-9]*) CANDIDATE_COUNT=0 ;; esac
 
 if [ "$REQUIRES_COUNCIL" != "true" ]; then
+  iterate_reset
   _emit_task_complete
   exit 0  # silent pass — no candidate opted into the gate
 fi
@@ -1006,8 +1052,7 @@ THRESHOLD="${THRESHOLD:-80}"
 # Read council index — required when gate is opted in
 INDEX="$MROOT/.claude/council/index.json"
 if [ ! -f "$INDEX" ]; then
-  echo "TaskCompleted council gate: council index missing at $INDEX (task $TASK_ID requires_council=true)" >&2
-  exit 2
+  iterate_block "TaskCompleted council gate: council index missing at $INDEX (task $TASK_ID requires_council=true)"
 fi
 
 # Look up task in index. CDT-163 isolate scores (template SoT; regen live hooks via
@@ -1104,34 +1149,29 @@ except Exception:
 
 case "$MAX_CONF" in
   NO_TASK_IN_INDEX)
-    echo "TaskCompleted council gate: no council verdict for task $TASK_ID (task not found in index)" >&2
-    exit 2
+    iterate_block "TaskCompleted council gate: no council verdict for task $TASK_ID (task not found in index)"
     ;;
   NO_CONFIDENCE_ROWS)
-    echo "TaskCompleted council gate: no confidence rows for task $TASK_ID (need verdict[] max_verdict_confidence or finding[] max_finding_confidence)" >&2
-    exit 2
+    iterate_block "TaskCompleted council gate: no confidence rows for task $TASK_ID (need verdict[] max_verdict_confidence or finding[] max_finding_confidence)"
     ;;
   WORST:*)
-    echo "TaskCompleted council gate: newest row worst_verdict ${MAX_CONF#WORST:} blocks task $TASK_ID regardless of confidence" >&2
-    exit 2
+    iterate_block "TaskCompleted council gate: newest row worst_verdict ${MAX_CONF#WORST:} blocks task $TASK_ID regardless of confidence"
     ;;
   PARSE_ERROR)
-    echo "TaskCompleted council gate: failed to parse council index $INDEX for task $TASK_ID" >&2
-    exit 2
+    iterate_block "TaskCompleted council gate: failed to parse council index $INDEX for task $TASK_ID"
     ;;
   AMBIGUOUS_SUFFIX)
-    echo "TaskCompleted council gate: ambiguous index suffix for task $TASK_ID (multiple suffix-matching keys; refuse multi-key max-merge)" >&2
-    exit 2
+    iterate_block "TaskCompleted council gate: ambiguous index suffix for task $TASK_ID (multiple suffix-matching keys; refuse multi-key max-merge)"
     ;;
 esac
 
 # Numeric comparison — MAX_CONF is an integer at this point
 if [ "$MAX_CONF" -lt "$THRESHOLD" ]; then
-  echo "TaskCompleted council gate: max confidence $MAX_CONF below threshold $THRESHOLD for task $TASK_ID" >&2
-  exit 2
+  iterate_block "TaskCompleted council gate: max confidence $MAX_CONF below threshold $THRESHOLD for task $TASK_ID"
 fi
 
 # Pass
+iterate_reset
 _emit_task_complete
 exit 0
 ```
@@ -1177,10 +1217,20 @@ CWD_HASH=$(printf '%s' "$PWD" | cksum | cut -d' ' -f1)
 STAMP_KEY="${CWD_HASH}-${HEAD_SHA}"
 STAMP="$_MROOT/.claude/.stop-review-${STAMP_KEY}"
 
+# Identical-iteration degrade (CDT-617, SPEC-002): the stamp above already
+# prints once per HEAD. When the SAME uncommitted set keeps re-firing across
+# HEAD moves, count the repeats and degrade to one final notice that names
+# the escape. A clean stop resets the counter.
+ITERATE_STAMP="$_MROOT/.claude/.stop-review-iterate"
+ITERATE_LIMIT=3
+
 [ -f "$STAMP" ] && exit 0
 
 DIRTY=$(git status --porcelain 2>/dev/null)
-[ -z "$DIRTY" ] && exit 0
+if [ -z "$DIRTY" ]; then
+  rm -f "$ITERATE_STAMP" 2>/dev/null || true
+  exit 0
+fi
 
 MODIFIED=0
 while IFS= read -r line; do
@@ -1196,9 +1246,30 @@ done <<< "$DIRTY"
 if [ "$MODIFIED" -gt 0 ]; then
   # Sweep stale stamps from prior HEAD shas to keep .claude/ tidy.
   find "$_MROOT/.claude" -maxdepth 1 -name '.stop-review-*' \
-    ! -name ".stop-review-${STAMP_KEY}" -delete 2>/dev/null || true
+    ! -name ".stop-review-${STAMP_KEY}" ! -name '.stop-review-iterate' -delete 2>/dev/null || true
   touch "$STAMP"
-  printf "Stop hook: %d file(s) modified but not committed.\n" "$MODIFIED"
+  # Count consecutive identical reminders: same dirty set, same file count.
+  ITER_HASH=$(printf '%s %s' "$DIRTY" "$MODIFIED" | cksum | cut -d' ' -f1)
+  ITER_STORED_HASH=""
+  ITER_STORED_COUNT=0
+  if [ -f "$ITERATE_STAMP" ]; then
+    read -r ITER_STORED_HASH ITER_STORED_COUNT < "$ITERATE_STAMP" 2>/dev/null || true
+  fi
+  case "$ITER_STORED_HASH" in *[!A-Za-z0-9]*) ITER_STORED_HASH="" ;; esac
+  case "$ITER_STORED_COUNT" in ''|*[!0-9]*) ITER_STORED_COUNT=0 ;; esac
+  if [ -n "$ITER_HASH" ] && [ "$ITER_STORED_HASH" = "$ITER_HASH" ]; then
+    ITER_COUNT=$(( ITER_STORED_COUNT + 1 ))
+  else
+    ITER_COUNT=1
+  fi
+  printf '%s %s\n' "$ITER_HASH" "$ITER_COUNT" > "$ITERATE_STAMP" 2>/dev/null || true
+  if [ "$ITER_COUNT" -ge "$ITERATE_LIMIT" ]; then
+    if [ "$ITER_COUNT" -eq "$ITERATE_LIMIT" ]; then
+      printf 'Stop hook: the same %d uncommitted file(s) across %d stops — no further reminders. Commit or discard the changes, or remove the Stop hook from .claude/settings.json.\n' "$MODIFIED" "$ITER_COUNT"
+    fi
+  else
+    printf "Stop hook: %d file(s) modified but not committed.\n" "$MODIFIED"
+  fi
 fi
 
 exit 0

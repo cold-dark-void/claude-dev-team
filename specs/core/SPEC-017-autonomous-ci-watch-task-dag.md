@@ -4,7 +4,7 @@
 **Category**: core
 **Created**: 2026-04-30
 
-**Covers**: `skills/orchestrate/SKILL.md` (router) + `skills/orchestrate/steps/*.md` (CDT-199), `skills/orchestrate/task-graph.md` (WP 1-07), `skills/kickoff/SKILL.md`, `skills/standup/SKILL.md`, `skills/wrap-ticket/SKILL.md`, `skills/orchestrate/task-store.sh`, `skills/orchestrate/dag-lib.sh`, `skills/ci-watch/SKILL.md`, `skills/ci-watch/poll.sh`, `skills/ci-watch/sidecar.sh`, `skills/ci-watch/detect-mode.sh`, `skills/orchestrate/router-static-test.sh`, `skills/ci-watch/test-poll.sh`, `skills/orchestrate/task-store-test.sh`
+**Covers**: `skills/orchestrate/SKILL.md` (router) + `skills/orchestrate/steps/*.md` (CDT-199), `skills/orchestrate/task-graph.md` (WP 1-07), `skills/kickoff/SKILL.md`, `skills/standup/SKILL.md`, `skills/wrap-ticket/SKILL.md`, `skills/orchestrate/task-store.sh`, `skills/orchestrate/dag-lib.sh`, `skills/ci-watch/SKILL.md`, `skills/ci-watch/poll.sh`, `skills/ci-watch/sidecar.sh`, `skills/ci-watch/detect-mode.sh`, `skills/autopilot/backoff-state.sh` (CDT-617), `skills/autopilot/test-backoff-state.sh`, `skills/orchestrate/router-static-test.sh`, `skills/ci-watch/test-poll.sh`, `skills/orchestrate/task-store-test.sh`
 
 ---
 
@@ -94,6 +94,42 @@ metadata lets /orchestrate fan out unblocked tasks in parallel automatically and
 
 - /wrap-ticket MUST check for and delete any active CI-watcher cron for the ticket being
   wrapped, regardless of current check state
+
+### Watchdog back-off on an open hard blocker (CDT-617)
+
+A cron is a watchdog. When the ticket sits on a hard blocker (SPEC-033 M7), the next
+fire re-asks a question a human must answer, so the watch backs off instead of
+re-firing. The ledger is the source of truth; no new sidecar field is added.
+
+- MUST read the open-decision-card state through
+  `skills/autopilot/backoff-state.sh check <TICKET>` (SPEC-033 § Watchdog back-off
+  state) before doing any poll work. "Open hard blocker" = the M13 ledger's LAST card
+  has `decision: "halt"` and `blocking_condition` in 1-4, 6-8. BC5 (`reroute-epic`) is a
+  reroute, not a block, and MUST NOT back off (SPEC-033 M6/M7).
+- MUST emit `wait` — and MUST NOT run `gh`, run tests, write `last_failure.txt`, or let
+  the cron prompt spawn a fixer — while a hard blocker is open and the current epoch is
+  earlier than `next_fire_ts`. It MUST log `backoff_wait` to `<TICKET>.log` and write one
+  stderr notice naming the blocking condition.
+- MUST run `backoff-state.sh record <TICKET> <BC>` before emitting `fail` when the
+  failure arrives with a hard blocker open, and MUST log `backoff_record`. The `cap`
+  path is unchanged and MUST NOT record.
+- MUST run `backoff-state.sh reset <TICKET>` on every `done`.
+- MUST keep the frozen stdout vocabulary `{done, fail, cap, wait}`: the back-off chooses
+  between the four existing words and MUST NOT add a fifth, so no cron prompt, flag, or
+  command surface changes.
+- MUST fail open: no reader script, no `jq`, a missing, empty, or unparseable ledger,
+  and a missing or corrupt back-off state all take the normal poll path. A watch that
+  cannot read the journal keeps its cadence; it MUST NOT halt the watch or invent a
+  blocker.
+- MUST ramp the delay exponentially from a 1800 s base, doubling per identical blocking
+  condition, bounded by `AUTOPILOT_BACKOFF_MAX_S` (default 86400), by
+  `AUTOPILOT_BACKOFF_MAX_ATTEMPTS` (default 8, after which doubling stops), and by the
+  open halt card's `budget.wall_clock_cap_s` when present.
+- MUST validate each `AUTOPILOT_BACKOFF_*` env value as a non-negative integer (at most
+  15 digits, no leading zero) before it is used in arithmetic, falling back to the baked
+  default with one stderr line. No caps are required configuration: every knob has a
+  baked default. A `0` base or max disables the wait entirely (the poll proceeds at its
+  normal cadence).
 
 ### Task store schema
 
@@ -340,6 +376,15 @@ The router loads only the current step file plus `cross-cutting.md`
 - Verify WP 1-07 with the three suites named in `## Acceptance criteria` below:
   `skills/orchestrate/dag-lib-test.sh`, `skills/orchestrate/task-store-test.sh` and
   `skills/orchestrate/router-static-test.sh`
+- Verify CDT-617 back-off (ledger fixtures, no live autopilot run): an open `halt` BC1 card
+  with the timer running → `wait` + log `backoff_wait`, no `last_failure.txt`; a fresh
+  failure on that open blocker → `fail` + record (attempts 1, delay 1800 s) + log
+  `backoff_record`; past due → `fail` with the delay doubled and bounded by the card's
+  `budget.wall_clock_cap_s`; `done` → state removed; a BC5 `reroute-epic` card and a
+  malformed ledger both keep the normal cadence with no state written.
+  `skills/autopilot/test-backoff-state.sh` pins the reader: `check`/`record`/`reset`, the
+  doubling ladder, the env caps, the argv guards (exit 64), and fail-open on a missing,
+  empty, malformed ledger or a corrupt state file.
 - Verify wrap-ticket deletes active CI-watcher cron
 
 ---
@@ -372,6 +417,7 @@ The router loads only the current step file plus `cross-cutting.md`
 
 ---
 
+| 2026-11-24 | CDT-617: **Watchdog back-off on an open hard blocker.** A cron that re-fires through a hard block re-asks a question a human must answer (observed: ~25 identical exchanges on a 30-min cadence). `poll.sh` now consults `skills/autopilot/backoff-state.sh` — the M13 ledger's LAST card decides (`halt` + BC1-4/BC6-8 = blocked; BC5 is a reroute, never a block, SPEC-033 M6/M7). Inside the timer the cycle emits `wait` (log `backoff_wait`) and touches no `gh`/test/fixer path; a fresh failure with a blocker open records the ramp then emits `fail` (log `backoff_record`); every `done` resets. Delay: 1800 s base, doubling per identical BC, bounded by `AUTOPILOT_BACKOFF_MAX_S` (86400), `AUTOPILOT_BACKOFF_MAX_ATTEMPTS` (8), and the halt card's `budget.wall_clock_cap_s`; env values take the SPEC-033 AC9 integer pattern with a fall-back-to-default on garbage. Stdout stays the frozen `{done, fail, cap, wait}`; the gate only picks `wait`, so no cron prompt, flag, sidecar field, or command surface changes. Fail-open throughout. New `### CDT-617` AC subsection; suites: `skills/autopilot/test-backoff-state.sh` (new) and `skills/ci-watch/test-poll.sh`. |
 | 2026-10-02 | CDT-391: Covers names `router-static-test.sh`, `test-poll.sh`, and `task-store-test.sh`. |
 | 2026-10-01 | WP 5-04 (CDT-369, CDT-379, CDT-282 T-sidecar, W2-36): `ci` mode also requires `gh auth status`. Empty `[]` is `done` immediately only when `.github/workflows/` is absent; otherwise after 3 consecutive empty polls. `poll_error_count` ≥ 10 emits `cap`. A stale `fixer_active` (missing or old `fixer_started_at`, TTL 1800s) logs `fixer_stale`, clears the guard, and counts a retry. Sidecar `set` keeps digit strings as strings; `delete` removes the log and last-failure file. |
 | 2026-09-28 | WP 1-07 (CDT-312, CDT-406, CDT-354, CDT-278 E7/E8/F27, rv-w1-08, rv-w1-09): one task identity (`<ISSUE-ID>-<taskcreate_id>` key, optional `plan_ordinal` / `taskcreate_id` fields, deps translated in two phases); one Step 7 task-graph protocol in `skills/orchestrate/task-graph.md` with a deterministic DAG file and real halts; dag-lib exit codes 0/1/2/64, pure-jq `check-cycle`, `ready-set --issue`, corrupt-file skip, `blocked-dep` stderr report, `status-of` id rule; 11-ship records `SHIP_START`; step files name the file of each cross-file block. |
@@ -432,3 +478,57 @@ Format and rules: SPEC-033 M14(g) and M14(h). Each ticket that ships through M14
 - **P.** [process] The suites `skills/orchestrate/dag-lib-test.sh`, `skills/orchestrate/task-store-test.sh`, `skills/orchestrate/router-static-test.sh`, `skills/epic/test.sh` and `skills/model-map/spawn-site-test.sh` pass.
 - **Q.** [process] `bash tools/run-all-tests.sh` (the full test runner) exits 0.
 - **R.** [process] Every `/release` gate passes (skill-lint, docs-drift, spec check, smoke), with a patch bump.
+
+### CDT-617
+
+- **A.** The open-decision-card reader. `skills/autopilot/backoff-state.sh` is a pure
+  subprocess CLI (never sourced; jq-guarded; argv-disciplined) with subcommands
+  `check <TICKET>`, `record <TICKET> <BC>`, `reset <TICKET>`. `check` prints exactly
+  `{blocked, bc, attempts, delay_s, next_fire_ts}` and exits 0 on every well-formed call,
+  blocked included. Blocked means the M13 ledger's LAST card is `decision:"halt"` with
+  `blocking_condition` in 1-4, 6-8; a BC5 `reroute-epic` card is not a blocker
+  (SPEC-033 M6/M7); a missing, empty, unparseable ledger, and a missing or corrupt state
+  file, all read as not blocked / attempts 0 with exit 0. Card parsing is delegated to
+  `read-cards.sh` — the reader holds no second card parser.
+  Verify: bash skills/autopilot/test-backoff-state.sh
+- **B.** The ladder. `record` writes `$MROOT/.claude/autopilot/<TICKET>.backoff.json`
+  atomically (temp file beside the target plus rename; no temp file left behind):
+  attempts 1 and the 1800 s base on the first call, doubling per identical blocking
+  condition, restarting at the base when the blocking condition changes, and stopping the
+  doubling at `AUTOPILOT_BACKOFF_MAX_ATTEMPTS` (default 8). A `record` call that lands
+  when the ledger no longer shows an open blocker no-ops: it prints the not-blocked
+  shape, clears any stale state file, and writes nothing — a stale timer must not seed
+  the next halt of the same blocking condition. `reset` clears the state and
+  is idempotent.
+  Verify: bash skills/autopilot/test-backoff-state.sh
+- **C.** Caps with no new required config. `AUTOPILOT_BACKOFF_BASE_S` (1800),
+  `AUTOPILOT_BACKOFF_MAX_S` (86400) and `AUTOPILOT_BACKOFF_MAX_ATTEMPTS` (8) are read
+  only when set, validated as a non-negative integer (at most 15 digits, no leading zero)
+  before any arithmetic, and fall back to the baked default with one stderr line. The
+  open halt card's `budget.wall_clock_cap_s` bounds the delay; a card cap above the env
+  max does not raise the env max.
+  Verify: bash skills/autopilot/test-backoff-state.sh
+- **D.** Usage guards. No subcommand, a wrong argc, an unknown subcommand, a ticket id
+  outside `^[A-Za-z0-9_-]+$`, a BC outside BC1-BC8, and a BC5 record each exit 64 and
+  write nothing.
+  Verify: bash skills/autopilot/test-backoff-state.sh
+- **E.** The poll gate. With the timer running, `skills/ci-watch/poll.sh` emits `wait`,
+  logs `backoff_wait`, writes a stderr notice, runs no `gh`, and writes no
+  `last_failure.txt`. A failure with the blocker open runs `record` and logs
+  `backoff_record` before emitting `fail`, and past due the delay doubles (bounded by the
+  card's `wall_clock_cap_s`). A `cap` outcome keeps its word. `done` clears the state.
+  Verify: bash skills/ci-watch/test-poll.sh
+- **F.** Fail-open + frozen surface. With no ledger, a malformed ledger, no reader, or a
+  BC5 card, `poll.sh` keeps its normal cadence and writes no back-off state. The poll
+  stdout vocabulary stays exactly `{done, fail, cap, wait}`, no `commands/*.md` is added,
+  and no new flag is required to get the behaviour.
+  Verify: bash skills/ci-watch/test-poll.sh
+- **G.** Docs in sync. `skills/ci-watch/SKILL.md` (side-effect list, decision matrix,
+  back-off section) and `skills/autopilot/SKILL.md` § Watchdog back-off state match this
+  spec; SPEC-033 gains the cross-reference and SPEC-002 the hook-contract degrade;
+  docs-drift is clean.
+  Verify: bash skills/docs-drift/test.sh
+- **H.** [process] The touched suites pass on the changed tree: `bash
+  skills/autopilot/test-backoff-state.sh`, `bash skills/ci-watch/test-poll.sh`,
+  `bash skills/init-orchestration/check-hook-templates.sh` and `bash
+  skills/skill-lint/check-skill-bash.sh` each exit 0.

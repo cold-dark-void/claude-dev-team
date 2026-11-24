@@ -556,6 +556,155 @@ else
   FAIL=$((FAIL + 1))
 fi
 
+# ---- CDT-617: back off when the ledger shows an open hard blocker -----------
+echo ""
+echo "CDT-617: watchdog back-off on an open hard blocker (SPEC-017 / SPEC-033 M7)"
+
+AUTO_DIR=".claude/autopilot"
+mkdir -p "$AUTO_DIR"
+HALT_LEDGER="$AUTO_DIR/${TICKET}.jsonl"
+BACKOFF_STATE="$AUTO_DIR/${TICKET}.backoff.json"
+BACKOFF_SH="$SCRIPT_DIR/../autopilot/backoff-state.sh"
+[ -f "$BACKOFF_SH" ] || die "skills/autopilot/backoff-state.sh not found"
+
+# halt_card BC — the whole ledger is one M13 halt card on blocking condition BC.
+halt_card() {
+  jq -cn --argjson bc "$1" '{
+    schema_version: 1, type: "autopilot_decision",
+    ts: "2026-11-24T00:00:00Z", run_id: "r", workflow: "orchestrate",
+    ticket_id: "CDV-170-TEST", gate: "ship-choice",
+    decision: "halt", decided_by: "auto", bump: null, confidence: 0,
+    blocking_condition: $bc, council_tier: null, grading_reason: null,
+    max_loc: null, rationale: "fixture",
+    budget: { iteration: 1, iteration_cap: 25, wall_clock_s: 10,
+              wall_clock_cap_s: 2700, tier: null, source: null, signals: null },
+    actor: "orchestrator", advisor: null }' > "$HALT_LEDGER"
+}
+
+# make_backoff_due — move the state's next_fire_ts into the past.
+make_backoff_due() {
+  jq -c --argjson n "$(date +%s)" '.next_fire_ts = ($n - 1)' "$BACKOFF_STATE" > "$BACKOFF_STATE.due" \
+    && mv "$BACKOFF_STATE.due" "$BACKOFF_STATE"
+}
+
+export GH_MOCK_JSON="$FAIL_JSON"
+export GH_MOCK_RC=1
+export GH_MOCK_STATE=OPEN
+
+# Control: no ledger (no blocker) → fail, no back-off state.
+rm -f "$HALT_LEDGER" "$BACKOFF_STATE"
+reset_sidecar 0
+nb_out=$(bash "$POLL_CLI" "$TICKET" 2>/dev/null)
+if [ "$nb_out" = "fail" ] && [ ! -f "$BACKOFF_STATE" ]; then
+  echo "  PASS [no ledger]: fail, no back-off state written"
+  PASS=$((PASS + 1))
+else
+  echo "  FAIL [no ledger]: out='$nb_out' (want fail) state=$([ -f "$BACKOFF_STATE" ] && echo written || echo none)"
+  FAIL=$((FAIL + 1))
+fi
+
+# Control: BC5 is a reroute, not a hard blocker → normal fail, no ramp.
+halt_card 5
+jq -c '.decision = "reroute-epic"' "$HALT_LEDGER" > "$HALT_LEDGER.r" && mv "$HALT_LEDGER.r" "$HALT_LEDGER"
+rm -f "$BACKOFF_STATE"
+reset_sidecar 0
+b5_out=$(bash "$POLL_CLI" "$TICKET" 2>/dev/null)
+if [ "$b5_out" = "fail" ] && [ ! -f "$BACKOFF_STATE" ]; then
+  echo "  PASS [BC5 reroute]: fail, no back-off (SPEC-033 M6/M7)"
+  PASS=$((PASS + 1))
+else
+  echo "  FAIL [BC5 reroute]: out='$b5_out' (want fail) state=$([ -f "$BACKOFF_STATE" ] && echo written || echo none)"
+  FAIL=$((FAIL + 1))
+fi
+
+# Open halt BC1 + a fresh failure → fail, and the ramp starts (1800 s).
+halt_card 1
+rm -f "$BACKOFF_STATE"
+reset_sidecar 0
+f_out=$(bash "$POLL_CLI" "$TICKET" 2>/dev/null)
+f_att=$(jq -r '.attempts // "none"' "$BACKOFF_STATE" 2>/dev/null || echo none)
+f_delay=$(jq -r '.delay_s // "none"' "$BACKOFF_STATE" 2>/dev/null || echo none)
+if [ "$f_out" = "fail" ] && [ "$f_att" = "1" ] && [ "$f_delay" = "1800" ] \
+   && grep -q 'outcome=backoff_record' ".claude/ci-watch/${TICKET}.log"; then
+  echo "  PASS [halt BC1 fail]: fail + record (attempts=1, delay=1800), logged backoff_record"
+  PASS=$((PASS + 1))
+else
+  echo "  FAIL [halt BC1 fail]: out='$f_out' (want fail) attempts='$f_att' (want 1) delay='$f_delay' (want 1800)"
+  FAIL=$((FAIL + 1))
+fi
+
+# Re-fire inside the window → wait, no failure context, no ramp growth.
+rm -f ".claude/ci-watch/${TICKET}.last_failure.txt"
+w_out=$(bash "$POLL_CLI" "$TICKET" 2>/dev/null)
+w_att=$(jq -r '.attempts // "none"' "$BACKOFF_STATE" 2>/dev/null || echo none)
+if [ "$w_out" = "wait" ] && [ "$w_att" = "1" ] \
+   && ! [ -f ".claude/ci-watch/${TICKET}.last_failure.txt" ] \
+   && grep -q 'outcome=backoff_wait' ".claude/ci-watch/${TICKET}.log"; then
+  echo "  PASS [in window]: wait, no last_failure, no fixer path, logged backoff_wait"
+  PASS=$((PASS + 1))
+else
+  echo "  FAIL [in window]: out='$w_out' (want wait) attempts='$w_att' (want 1) last_failure=$([ -f ".claude/ci-watch/${TICKET}.last_failure.txt" ] && echo written || echo none)"
+  FAIL=$((FAIL + 1))
+fi
+
+# Past due → the poll runs: fail again and the delay doubles. The halt card
+# carries budget.wall_clock_cap_s 2700, which bounds the doubled delay (AC3).
+make_backoff_due
+reset_sidecar 0
+d_out=$(bash "$POLL_CLI" "$TICKET" 2>/dev/null)
+d_att=$(jq -r '.attempts // "none"' "$BACKOFF_STATE" 2>/dev/null || echo none)
+d_delay=$(jq -r '.delay_s // "none"' "$BACKOFF_STATE" 2>/dev/null || echo none)
+if [ "$d_out" = "fail" ] && [ "$d_att" = "2" ] && [ "$d_delay" = "2700" ]; then
+  echo "  PASS [past due]: fail + ramp to attempts=2, delay 3600 bounded by the card cap 2700"
+  PASS=$((PASS + 1))
+else
+  echo "  FAIL [past due]: out='$d_out' (want fail) attempts='$d_att' (want 2) delay='$d_delay' (want 2700)"
+  FAIL=$((FAIL + 1))
+fi
+
+# Cap path keeps its word: an open blocker does not turn cap into wait.
+reset_sidecar 3
+make_backoff_due
+cp_out=$(bash "$POLL_CLI" "$TICKET" 2>/dev/null)
+if [ "$cp_out" = "cap" ]; then
+  echo "  PASS [cap unchanged]: an open blocker past due still emits cap"
+  PASS=$((PASS + 1))
+else
+  echo "  FAIL [cap unchanged]: out='$cp_out' (want cap)"
+  FAIL=$((FAIL + 1))
+fi
+
+# Green clears the back-off.
+halt_card 1
+reset_sidecar 0
+export GH_MOCK_JSON="$EMPTY_ARRAY"
+export GH_MOCK_RC=0
+g_out=$(bash "$POLL_CLI" "$TICKET" 2>/dev/null)
+if [ "$g_out" = "done" ] && [ ! -f "$BACKOFF_STATE" ]; then
+  echo "  PASS [green clears]: done + back-off state removed"
+  PASS=$((PASS + 1))
+else
+  echo "  FAIL [green clears]: out='$g_out' (want done) state=$([ -f "$BACKOFF_STATE" ] && echo present || echo gone)"
+  FAIL=$((FAIL + 1))
+fi
+
+# Fail-open: an unreadable ledger is not a blocker — the watch keeps cadence.
+printf 'not json\n' > "$HALT_LEDGER"
+rm -f "$BACKOFF_STATE"
+reset_sidecar 0
+export GH_MOCK_JSON="$FAIL_JSON"
+export GH_MOCK_RC=1
+ff_out=$(bash "$POLL_CLI" "$TICKET" 2>/dev/null)
+if [ "$ff_out" = "fail" ] && [ ! -f "$BACKOFF_STATE" ]; then
+  echo "  PASS [malformed ledger]: fail-open — normal fail, no back-off state"
+  PASS=$((PASS + 1))
+else
+  echo "  FAIL [malformed ledger]: out='$ff_out' (want fail) state=$([ -f "$BACKOFF_STATE" ] && echo written || echo none)"
+  FAIL=$((FAIL + 1))
+fi
+
+rm -f "$HALT_LEDGER" "$BACKOFF_STATE"
+
 echo ""
 echo "Results: PASS=$PASS FAIL=$FAIL"
 if [ "$FAIL" -ne 0 ]; then

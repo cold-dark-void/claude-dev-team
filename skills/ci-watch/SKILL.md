@@ -75,7 +75,31 @@ poll.sh <TICKET_ID>
   - On `fixer_active == true` with a missing or older `fixer_started_at`: logs `fixer_stale`, sets `fixer_active` false, increments `retry_count`, writes a stderr notice, and continues the poll.
   - On missing sidecar: emits `wait`.
   - On missing `timeout`, `gtimeout` and `perl` (mode `local-test`, checked before the worktree check): increments `poll_error_count`; emits `wait`; logs `timeout_missing`; writes a stderr hint naming `timeout`, `gtimeout` and `perl`. Otherwise the test runs under `portable_with_timeout` (CDT-284): `timeout`, then `gtimeout`, then a perl supervisor.
+  - Back-off (CDT-617): before any poll work it runs
+    `bash <PLUGIN>/skills/autopilot/backoff-state.sh check <TICKET>`. An open hard
+    blocker (the M13 ledger's last card is `halt` on BC1-BC4/BC6-BC8) whose timer has
+    not expired → logs `backoff_wait`, writes a stderr notice, emits `wait` (no gh call,
+    no fixer). A real failure while that blocker is open → runs `record <TICKET> <BC>`
+    (ramp the delay) and logs `backoff_record` before emitting `fail`. Any `done` →
+    runs `reset <TICKET>`. No reader, no ledger, or an unreadable state = fail-open:
+    the poll runs normally. Stdout vocabulary is unchanged — the gate only picks `wait`.
   - Appends `<ISO-8601> <TICKET> outcome=<word>` to `<TICKET>.log` for every non-silent outcome.
+
+### Back-off on an open hard blocker (CDT-617)
+
+A halt card means a human must answer. Re-firing the same prompt on a hard block fixes
+nothing, so the watch backs off exponentially:
+
+| Knob | Default | Effect |
+|------|---------|--------|
+| `AUTOPILOT_BACKOFF_BASE_S` | 1800 | first delay after a failure on an open blocker; `0` disables the wait |
+| `AUTOPILOT_BACKOFF_MAX_S` | 86400 | ceiling on the doubled delay; `0` disables the wait |
+| `AUTOPILOT_BACKOFF_MAX_ATTEMPTS` | 8 | doubling stops after this many identical attempts |
+
+The halt card's `budget.wall_clock_cap_s` bounds the delay as well, so a back-off never
+outlasts the run budget that produced the halt. State is
+`$MROOT/.claude/autopilot/<TICKET>.backoff.json`, owned by
+`skills/autopilot/backoff-state.sh` (SPEC-033 § Watchdog back-off state).
 
 ### Decision matrix
 
@@ -85,6 +109,10 @@ fixer_active=true
   fixer_started_at fresh → wait (silent)
   missing or older than CI_WATCH_FIXER_TTL → log fixer_stale, clear the flag,
                          increment retry_count, continue this poll
+backoff-state.sh check <TICKET>:
+  open hard blocker (last ledger card halt on BC1-4/BC6-8) and now < next_fire_ts
+                       → log backoff_wait, stderr notice, emit wait
+  no reader / no ledger / open blocker past due / not blocked → continue this poll
 mode=ci:
   PR MERGED|CLOSED      → done
   gh stdout not array (jq type == "array" fails):
@@ -95,6 +123,7 @@ mode=ci:
     total==0, workflows present    → wait until 3 consecutive empty polls, then done
                          (CI_WATCH_EMPTY_POLLS; a non-empty poll resets the count)
     any fail|cancel    → fail|cap via handle_failure
+                         (open blocker: record <BC> + log backoff_record first)
     all pass|skipping  → done
     else (pending)     → wait (no poll_error_count++)
 mode=local-test:
@@ -106,6 +135,7 @@ mode=local-test:
       retry_count >= 3  → cap
       else              → fail (write last_failure.txt)
 mode unknown            → wait
+every done              → backoff-state.sh reset <TICKET> (clear any back-off)
 ```
 
 ## Cron prompt template

@@ -244,6 +244,176 @@ for name in $HOOKS; do
 done
 
 ######################################################################
+# CDT-617 — identical-iteration degrade (task-completed + stop-review)
+######################################################################
+
+# A watchdog that re-fires a blocked task re-runs the gate on every fire.
+# After 3 consecutive IDENTICAL blocks the hook prints one final notice that
+# names the escape and passes; a changed block message, a per-task counter,
+# and a passing stop all reset it.
+
+echo ""
+echo "CDT-617: identical-iteration degrade"
+
+write_index() {
+  # write_index DIR CONF — one council row for IT1 at confidence CONF
+  mkdir -p "$1/.claude/council"
+  printf '%s\n' "{\"IT1\":[{\"report_path\":\"r.md\",\"max_verdict_confidence\":$2,\"created_at\":\"2026-11-24T00:00:00Z\"}]}" \
+    > "$1/.claude/council/index.json"
+}
+
+IT_REPO="$WORK/cdt617-tc"
+new_repo "$IT_REPO"
+write_task "$IT_REPO" "IT1" "true" "in_progress"
+printf '%s' '{"task_id":"IT1"}' > "$WORK/it1.stdin"
+IT_STAMP="$IT_REPO/.claude/.task-completed-iterate-IT1"
+IT2_STAMP="$IT_REPO/.claude/.task-completed-iterate-IT2"
+
+tc_iter() {
+  # tc_iter TAG — run the hook for IT1; sets RC, ERR, COUNT (stamp count)
+  ( cd "$IT_REPO" && unset CLAUDE_TASK_ID && "$BASH_BIN" "$TC_HOOK" < "$WORK/it1.stdin" \
+    > "$WORK/it-$1.out" 2>"$WORK/it-$1.err" )
+  RC=$?
+  ERR="$WORK/it-$1.err"
+  COUNT=""
+  if [ -f "$IT_STAMP" ]; then
+    read -r _ COUNT < "$IT_STAMP" 2>/dev/null || true
+  fi
+}
+
+tc_iter b1
+check_rc "CDT-617 TC: block 1 rc" "$RC" "2"
+check_contains "CDT-617 TC: block 1 reason" "$ERR" "council index missing"
+check_not_contains "CDT-617 TC: block 1 prints no final notice" "$ERR" "blocked identically"
+if [ "$COUNT" = "1" ]; then pass; else fail "CDT-617 TC: stamp count after block 1 = '$COUNT' want 1"; fi
+
+# Per-task key: a second blocked task gets its own counter.
+write_task "$IT_REPO" "IT2" "true" "in_progress"
+printf '%s' '{"task_id":"IT2"}' > "$WORK/it2.stdin"
+( cd "$IT_REPO" && unset CLAUDE_TASK_ID && "$BASH_BIN" "$TC_HOOK" < "$WORK/it2.stdin" \
+  > "$WORK/it2.out" 2>"$WORK/it2.err" )
+check_rc "CDT-617 TC: second task blocks rc" "$?" "2"
+IT2_COUNT=""
+if [ -f "$IT2_STAMP" ]; then
+  read -r _ IT2_COUNT < "$IT2_STAMP" 2>/dev/null || true
+fi
+IT1_COUNT=""
+read -r _ IT1_COUNT < "$IT_STAMP" 2>/dev/null || true
+if [ "$IT2_COUNT" = "1" ] && [ "$IT1_COUNT" = "1" ]; then
+  pass
+else
+  fail "CDT-617 TC: counters not per-task (IT2='$IT2_COUNT' want 1, IT1='$IT1_COUNT' want 1)"
+fi
+
+tc_iter b2
+check_rc "CDT-617 TC: block 2 rc" "$RC" "2"
+check_not_contains "CDT-617 TC: block 2 prints no final notice" "$ERR" "blocked identically"
+if [ "$COUNT" = "2" ]; then pass; else fail "CDT-617 TC: stamp count after block 2 = '$COUNT' want 2"; fi
+
+# A CHANGED block message resets the counter to 1.
+write_index "$IT_REPO" 10
+tc_iter c1
+check_rc "CDT-617 TC: changed message rc" "$RC" "2"
+check_contains "CDT-617 TC: changed message reason" "$ERR" "below threshold"
+if [ "$COUNT" = "1" ]; then pass; else fail "CDT-617 TC: stamp count after a changed message = '$COUNT' want 1"; fi
+
+tc_iter c2
+if [ "$COUNT" = "2" ]; then pass; else fail "CDT-617 TC: ramp after reset = '$COUNT' want 2"; fi
+
+tc_iter c3
+check_rc "CDT-617 TC: 3rd identical block degrades to a pass rc" "$RC" "0"
+check_contains "CDT-617 TC: final notice names the streak" "$ERR" "blocked identically 3 times"
+check_contains "CDT-617 TC: final notice names the escape" "$ERR" "settings.json"
+if [ -f "$IT_STAMP" ]; then
+  fail "CDT-617 TC: stamp survives the degrade (the counter must clear)"
+else
+  pass
+fi
+
+# A passing stop clears the counter.
+write_index "$IT_REPO" 95
+tc_iter pass1
+check_rc "CDT-617 TC: passing gate rc" "$RC" "0"
+if [ -f "$IT_STAMP" ]; then
+  fail "CDT-617 TC: stamp survives a passing stop"
+else
+  pass
+fi
+
+# A corrupt stamp restarts the count rather than crashing the gate.
+tc_iter d1
+printf 'garbage\n' > "$IT_STAMP"
+write_index "$IT_REPO" 10
+tc_iter d2
+check_rc "CDT-617 TC: corrupt stamp rc" "$RC" "2"
+if [ "$COUNT" = "1" ]; then pass; else fail "CDT-617 TC: count after a corrupt stamp = '$COUNT' want 1"; fi
+
+# ---- stop-review: 3 identical reminders collapse to one final notice --------
+SR2="$WORK/cdt617-sr"
+mkdir -p "$SR2/.claude"
+( cd "$SR2" && git init -q && printf '%s\n' '.claude/' >> .git/info/exclude \
+  && echo one > f.txt && git add f.txt && git commit -q -m init && echo two >> f.txt )
+SR_ITER="$SR2/.claude/.stop-review-iterate"
+
+sr_iter() {
+  # sr_iter TAG — run the Stop hook; sets RC, OUT, COUNT
+  ( cd "$SR2" && "$BASH_BIN" "$SR_HOOK" 0<&- > "$WORK/sr2-$1.out" 2>"$WORK/sr2-$1.err" )
+  RC=$?
+  OUT="$WORK/sr2-$1.out"
+  COUNT=""
+  if [ -f "$SR_ITER" ]; then
+    read -r _ COUNT < "$SR_ITER" 2>/dev/null || true
+  fi
+}
+
+sr_move_head() {
+  ( cd "$SR2" && git commit -q --allow-empty -m "head moves" )
+}
+
+sr_iter 1
+check_rc "CDT-617 SR: reminder rc" "$RC" "0"
+check_contains "CDT-617 SR: reminder printed" "$OUT" "modified but not committed"
+if [ "$COUNT" = "1" ]; then pass; else fail "CDT-617 SR: counter after reminder 1 = '$COUNT' want 1"; fi
+
+sr_move_head
+sr_iter 2
+check_contains "CDT-617 SR: reminder 2 printed" "$OUT" "modified but not committed"
+check_not_contains "CDT-617 SR: reminder 2 prints no final notice" "$OUT" "no further reminders"
+if [ "$COUNT" = "2" ]; then pass; else fail "CDT-617 SR: counter after reminder 2 = '$COUNT' want 2"; fi
+
+sr_move_head
+sr_iter 3
+check_contains "CDT-617 SR: 3rd identical fires the final notice" "$OUT" "no further reminders"
+check_not_contains "CDT-617 SR: final notice replaces the reminder" "$OUT" "modified but not committed"
+check_contains "CDT-617 SR: final notice names the escape" "$OUT" "settings.json"
+if [ "$COUNT" = "3" ]; then pass; else fail "CDT-617 SR: counter after the degrade = '$COUNT' want 3"; fi
+
+sr_move_head
+sr_iter 4
+check_rc "CDT-617 SR: silent after the degrade rc" "$RC" "0"
+if [ -s "$OUT" ]; then
+  fail "CDT-617 SR: printed after the degrade: $(tr '\n' ' ' < "$OUT")"
+else
+  pass
+fi
+
+# A clean stop resets the counter.
+( cd "$SR2" && git commit -q -am "commit the change" )
+sr_iter 5
+check_rc "CDT-617 SR: clean stop rc" "$RC" "0"
+if [ -f "$SR_ITER" ]; then
+  fail "CDT-617 SR: counter survives a clean stop"
+else
+  pass
+fi
+
+# A dirty set again starts a fresh ramp.
+( cd "$SR2" && echo three >> f.txt )
+sr_iter 6
+check_contains "CDT-617 SR: a new dirty set reminds again" "$OUT" "modified but not committed"
+if [ "$COUNT" = "1" ]; then pass; else fail "CDT-617 SR: counter after a clean stop = '$COUNT' want 1"; fi
+
+######################################################################
 # AC B — task_id validation and candidate filter
 ######################################################################
 

@@ -10,7 +10,8 @@
 #   fail  → real failure; cron prompt should spawn fixer
 #   cap   → retry_count >= 3, or poll_error_count >= 10; cron should self-delete + notify
 #   wait  → nothing actionable this cycle (sidecar missing, fresh fixer running,
-#           checks not yet reported, transient poll error under the cap, etc.)
+#           checks not yet reported, transient poll error under the cap, an open
+#           hard blocker inside its back-off window (CDT-617), etc.)
 #
 # Usage: poll.sh <TICKET_ID>
 # THIS SCRIPT IS A SUBPROCESS CLI — NEVER SOURCE IT.
@@ -50,6 +51,12 @@ trap 'rm -f "$OUT_TMP" "$ERR_TMP"' EXIT
 SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 SIDECAR_CLI="$SCRIPT_DIR/sidecar.sh"
 DETECT_CLI="$SCRIPT_DIR/detect-mode.sh"
+# Open-decision-card reader (SPEC-033 M13 ledger -> back-off state).
+BACKOFF_CLI="$SCRIPT_DIR/../autopilot/backoff-state.sh"
+BACKOFF_BLOCKED=0
+BACKOFF_BC=""
+BACKOFF_NEXT=0
+BACKOFF_JSON=""
 
 # ---- Logging helper ---------------------------------------------------------
 log_event() {
@@ -61,6 +68,10 @@ log_event() {
 emit() {
   echo "$1"
   [[ "$1" != "wait" ]] && log_event "$1"
+  # Green (or merged/closed) clears any back-off: the next watch starts fresh.
+  if [ "$1" = "done" ] && [ -f "$BACKOFF_CLI" ]; then
+    bash "$BACKOFF_CLI" reset "$TICKET" >/dev/null 2>&1 || true
+  fi
   exit 0
 }
 
@@ -109,6 +120,30 @@ fi
 
 MODE=$(bash "$SIDECAR_CLI" get "$TICKET" mode 2>/dev/null || echo "")
 
+# ---- Back-off gate (CDT-617) -------------------------------------------------
+# An open hard blocker (the ledger's LAST card is `halt` on BC1-BC4/BC6-BC8,
+# SPEC-033 M7) needs a human, not another poll. While the back-off timer runs,
+# this cycle is a silent `wait` and no fixer is spawned. Fail-open: no reader,
+# no jq, no open blocker, or an unreadable state all fall through to a normal
+# poll. Stdout vocabulary is unchanged — the gate only picks `wait`.
+if [ -f "$BACKOFF_CLI" ]; then
+  BACKOFF_JSON=$(bash "$BACKOFF_CLI" check "$TICKET" 2>/dev/null) || BACKOFF_JSON=""
+fi
+if [ -n "$BACKOFF_JSON" ] \
+  && printf '%s' "$BACKOFF_JSON" | jq -e 'type == "object"' >/dev/null 2>&1; then
+  BACKOFF_BLOCKED=$(printf '%s' "$BACKOFF_JSON" | jq -r 'if .blocked then 1 else 0 end' 2>/dev/null || echo 0)
+  BACKOFF_BC=$(printf '%s' "$BACKOFF_JSON" | jq -r 'if (.bc | type) == "string" then .bc else "" end' 2>/dev/null || echo "")
+  BACKOFF_NEXT=$(printf '%s' "$BACKOFF_JSON" | jq -r '(.next_fire_ts | tonumber?) // 0' 2>/dev/null || echo 0)
+  case "$BACKOFF_BLOCKED" in ''|*[!0-9]*) BACKOFF_BLOCKED=0 ;; esac
+  case "$BACKOFF_NEXT" in ''|*[!0-9]*) BACKOFF_NEXT=0 ;; esac
+  if [ "$BACKOFF_BLOCKED" = "1" ] && [ -n "$BACKOFF_BC" ] \
+    && [ "$(date +%s)" -lt "$BACKOFF_NEXT" ]; then
+    log_event "backoff_wait"
+    echo "ci-watch: $TICKET is halted on $BACKOFF_BC; backing off, next poll not before epoch $BACKOFF_NEXT" >&2
+    emit "wait"
+  fi
+fi
+
 # ---- Failure-path helper (shared by ci + local-test) ------------------------
 # Args: <source-tmp-file>  (file whose head -c 4096 becomes last_failure.txt)
 handle_failure() {
@@ -124,6 +159,14 @@ handle_failure() {
   mkdir -p "$WATCH_DIR" 2>/dev/null
   if [ -f "$src" ]; then
     head -c 4096 "$src" > "$LAST_FAIL" 2>/dev/null || true
+  fi
+
+  # A fresh failure on an already-halted ticket is the identical outcome the
+  # back-off exists for: ramp it before emitting, so the next cycle waits.
+  if [ "$BACKOFF_BLOCKED" = "1" ] && [ -n "$BACKOFF_BC" ] && [ -f "$BACKOFF_CLI" ]; then
+    if bash "$BACKOFF_CLI" record "$TICKET" "$BACKOFF_BC" >/dev/null 2>&1; then
+      log_event "backoff_record"
+    fi
   fi
   emit "fail"
 }

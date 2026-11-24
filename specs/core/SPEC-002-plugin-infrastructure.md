@@ -67,6 +67,8 @@ The foundational layer that makes dev-team a valid Claude Code plugin. Defines t
   - Resolved key present but no confidence row meets the threshold → stderr naming the blocked task id, the best observed confidence under **that key only**, and the required `council.taskgate.min_confidence` value
   - The META_SCAN interpreter fails (non-zero exit) or returns empty output → stderr containing `META_SCAN failed` and exit 2 (CDT-541, wp-1-10 Step 10b). Candidates exist at this point, so a soft fallback would read a broken interpreter as "no candidate requires council" and silently pass the gate.
 - The hook MUST treat `requires_council: false` or absent as the default no-op path — no index read, no env var requirement, silent pass
+- **Identical-iteration degrade (CDT-617).** A watchdog or `/goal` loop that re-fires the same blocked task re-runs this gate on every fire and livelocks (observed: ~10 identical blocked iterations). The hook MUST therefore keep a consecutive-identical-block counter per task at `$MROOT/.claude/.task-completed-iterate-<TASK_ID>`, holding a hash of the block message and the count. After **3** consecutive identical blocks the hook MUST print one final notice that names the escape (fix the block cause, or remove the TaskCompleted hook from `.claude/settings.json`) to stderr and exit 0 (fail-open degrade). That notice is the only permitted exit-0 override of the hard-fail list above, and it is never silent. Any change to the block message, and every passing stop, MUST delete the counter; the degrade clears the counter, so a new streak starts and the notice fires once per streak. The counter file MUST be validated (hash charset, integer count) — a corrupt file restarts the count at 1 and never crashes the gate. The counter is keyed per task id: one blocked task MUST NOT degrade another task's gate. Guards that run before the task id is resolved (plugin JSON validation, the stdin read, the `invalid task_id` exit) keep a plain exit 2 — with no task id there is no per-task counter to keep. The template in `skills/init-orchestration/SKILL.md` is the SoT; live hooks regenerate via `/setup orchestration`.
+  Verify: bash skills/init-orchestration/test-hook-templates-exec.sh
 - MUST enable sandbox (`sandbox.enabled: true`) with `autoAllowBashIfSandboxed: true` — the OS sandbox is the containment boundary for orchestration (AGENTS.md: "sandbox is the boundary")
 - MUST include the **matrix allow set** in `permissions.allow` for the orchestration posture: `Bash(*)`, `Read`, `Write`, `Edit`, `Glob`, `Grep`, `Agent`, `Task` (exact names as used in the CDT-51 matrix probe). Keep the full set so core tools are predictable under every cell.
 - MUST ship orchestration `permissions.defaultMode` as the **least-privilege cell among those that pass** the live permission matrix (CDT-51 / CDT-46-C5 / CDT-75). Matrix cells (Claude Code keys, verified real): **(A)** `bypassPermissions`; **(B)** `acceptEdits` + sandbox + `autoAllowBashIfSandboxed`; **(C)** `dontAsk` + sandbox; **(D)** `auto` + sandbox. Flows that MUST pass for a cell to count: orchestrate spawn, memory sqlite3 writes, worktree ops, hook execution. Pass bar: zero prompts at least privilege among passing cells; MCP availability is part of the CDT-75 gate for choosing between C and D.
@@ -104,6 +106,17 @@ Note: `CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS` env var is set during bootstrap —
 - MUST print at most one reminder per project per HEAD commit (keyed to a cwd-hash + short HEAD sha stamp under `.claude/`); the reminder re-fires only when HEAD moves (new work lands), not on every `claude --resume` of the same commit
 - MUST NOT block session exit (always exits 0)
 - MUST silently exit 0 when not in a git repository
+- **Identical-iteration degrade (CDT-617).** The per-HEAD stamp already collapses repeats
+  within one commit. Across HEAD moves the same uncommitted set can still re-fire the
+  reminder every stop. The hook MUST count consecutive identical reminders — hash of the
+  porcelain listing plus the modified-file count — in
+  `$MROOT/.claude/.stop-review-iterate`. On the **3rd** consecutive identical reminder it
+  MUST print one final notice that names the escape (commit or discard the changes, or
+  remove the Stop hook from `.claude/settings.json`), MUST print nothing further while the
+  set stays identical, and MUST still exit 0. A clean stop MUST delete the counter; the
+  counter file MUST be validated (hash charset, integer count) so a corrupt file restarts
+  the count at 1. The sweep of stale `.stop-review-*` stamps MUST NOT delete this counter.
+  Verify: bash skills/init-orchestration/test-hook-templates-exec.sh
 - The stdin drain is best-effort with no MUST (wp-1-10 Step 10b): the explicit fd-0 guard (terminal → skip; `{ exec 3<&0; }` failure → skip) discards stdin content and falls through to exit 0 on any guard failure. Stdin is not read by this hook, so the drain has no correctness requirement.
 
 ### Settings keys (`.claude/settings.json`)
