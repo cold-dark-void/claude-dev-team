@@ -23,7 +23,7 @@ The query layer for agent memories. Provides three search strategies (semantic v
 - MUST support optional agent and type filters on all queries
 
 ### Agent Session-Read Protocol (single source of truth)
-- The agent session-READ (tiered) protocol is defined ONCE in `skills/agent-memory/protocol.md` (expanded into the 7 behavioral agents, drift-checked by `skills/agent-memory/sync-includes.py` at `/release`). `skills/memory-recall` Step 2 points at that partial and does not duplicate the bash.
+- The agent session-READ (tiered) protocol is defined ONCE in `skills/agent-memory/protocol.md` (expanded into the 7 behavioral agents, drift-checked by `skills/agent-memory/sync-includes-check.sh` at `/release`). `skills/memory-recall` Step 2 points at that partial and does not duplicate the bash.
 - The read MUST select `type, content` (not `content` alone) for tier-2, tier-1, and non-archived tier-0 together, `archived = TRUE` excluded. `skills/memory-store/memdb.sh load-session` is that query.
 
 ### Semantic Search

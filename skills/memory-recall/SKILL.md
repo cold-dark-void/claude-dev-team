@@ -34,7 +34,7 @@ fi
 
 **Single source of truth:** agent session-start (directives → tiered read → context.md)
 lives in `skills/agent-memory/protocol.md` and is managed-inline into the 7 behavioral
-agents (drift-checked by `skills/agent-memory/sync-includes.py` at `/release`).
+agents (drift-checked by `skills/agent-memory/sync-includes-check.sh` at `/release`).
 
 Do **not** duplicate that bash here. Contract summary (SPEC-006):
 

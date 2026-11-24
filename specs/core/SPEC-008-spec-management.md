@@ -40,7 +40,7 @@ agree with the required-section set below — they MUST NOT define their own com
   8. `## Validation` section with validation claims
   9. `## Version History` table
 - MUST source the operational required-section skeleton from `skills/spec-tooling/spec-skeleton.md`
-  — the ONE canonical partial that emitters include (drift-gated by `sync-includes.py check` at
+  — the ONE canonical partial that emitters include (drift-gated by `sync-includes-check.sh check` at
   `/release`). Emitter-specific extras (e.g. `## SHOULD`, `## Open Questions`, `## Cross-references`
   in `/spec generate`; `---` separators in `/spec create`) are legitimately distinct and live
   OUTSIDE the included region; they MUST NOT be forced byte-identical across emitters.
@@ -196,7 +196,7 @@ exact exclude set; drift here silently redefines "source" and changes audit verd
 - MUST source this set operationally from the ONE shared partial `skills/spec-tooling/source-exclude.md`,
   included byte-identical into the four alignment consumers via
   `<!-- include: skills/spec-tooling/source-exclude.md agent=spec -->` markers and drift-gated by
-  `sync-includes.py check` at `/release`. The four consumers MUST NOT carry a divergent inline copy.
+  `sync-includes-check.sh check` at `/release`. The four consumers MUST NOT carry a divergent inline copy.
 - MUST NOT path-exclude `skills/` or `commands/`. Rationale: the `*.md` extension exclude already
   removes the SKILL.md/command.md prose self-match (a markdown plugin's behavioral prose is a contract,
   not the implementation under test), while real implementation under `skills/*.sh` (and `.go`/`.ts`/etc.
@@ -304,7 +304,7 @@ verifies that each MUST has a TEST. Phase 3 adds an opt-in MUST→test traceabil
 - **P3-M4 — Frameworkless (self-hosting) mapping.** When no marker matches (e.g. this plugin —
   pure markdown/JSON/bash, no test runner), Phase 3 MUST instead map each MUST to the spec's
   own `## Test` entries that address it, and MUST verify any fixture/bite-test script an entry
-  names (e.g. `skills/spec-tooling/check-format.sh`, `sync-includes.py`) exists (Glob).
+  names (e.g. `skills/spec-tooling/check-format.sh`, `skills/agent-memory/sync-includes-check.sh`) exists (Glob).
   COVERED = ≥1 Test entry addresses the MUST and every script that entry names exists;
   MISSING = no entry addresses it (an entry whose named script does not exist MUST NOT count as
   COVERED).
@@ -349,9 +349,9 @@ verifies that each MUST has a TEST. Phase 3 adds an opt-in MUST→test traceabil
 - Verify `/spec generate` caps file reading at 300 lines
 - Verify `/spec tests` names tests with spec ID for traceability
 - Verify a fresh `/spec generate` output has all 9 required sections and passes `/spec check` Phase 1 (`skills/spec-tooling/check-format.sh` exits 0; MC-6)
-- Verify the `skills/spec-tooling/spec-skeleton.md` include regions in `/spec generate` and `/spec create` are byte-identical (`sync-includes.py check` exits 0)
+- Verify the `skills/spec-tooling/spec-skeleton.md` include regions in `/spec generate` and `/spec create` are byte-identical (`bash skills/agent-memory/sync-includes-check.sh check` exits 0)
 - Verify `**Status**:` values and the TDD-index Status column are Axis-A lifecycle words only (no `✅/❌/⚠️` or `🚧/🔄` emoji); verify TDD-index and spec-file Version-History rows are 2-column
-- Verify the four code-alignment consumers (`/spec check` ×2 regions, `/spec update`, `/spec reflect` ×2 regions) carry a byte-identical `skills/spec-tooling/source-exclude.md` include region (`sync-includes.py check` exits 0); verify none of the four path-excludes `skills/` or `commands/` (the `*.md` extension exclude handles plugin prose, real `.sh` stays visible)
+- Verify the four code-alignment consumers (`/spec check` ×2 regions, `/spec update`, `/spec reflect` ×2 regions) carry a byte-identical `skills/spec-tooling/source-exclude.md` include region (`bash skills/agent-memory/sync-includes-check.sh check` exits 0); verify none of the four path-excludes `skills/` or `commands/` (the `*.md` extension exclude handles plugin prose, real `.sh` stays visible)
 - Verify spec discovery is the single category-agnostic `Glob $MROOT/specs/**/*.md` enumerator (no hardcoded per-category dir list in `/spec find`; `/spec list` cross-checks TDD.md against the glob to flag orphans; TDD.md is excluded from the governed-spec set)
 - Verify the 5 canonical language markers (`go.mod`, `package.json`, `Cargo.toml`, `pyproject.toml`+`setup.py`, `*.csproj`) agree across `/spec check`/`/spec reflect`/`/spec generate`/`/spec tests`
 - Verify the post-hoc alignment taxonomy (`MATCH/MISSING/DIFFERS/UNDOCUMENTED`) and `/spec update`'s pre-write code-impact taxonomy (`CODE MATCHES/CODE CONTRADICTS/NO CODE FOUND`) are kept distinct (not conflated)

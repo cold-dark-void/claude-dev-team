@@ -31,7 +31,7 @@ Do NOT hand-edit include regions; refresh from the repo root:
 _gc=$(git rev-parse --git-common-dir 2>/dev/null) \
   && MROOT=$(cd "$(dirname "$_gc")" && pwd) \
   || MROOT=$(pwd)
-python3 "$MROOT/skills/agent-memory/sync-includes.py" apply "$MROOT/skills/spec-tooling/SKILL.md"
+bash "$MROOT/skills/agent-memory/sync-includes-check.sh" apply "$MROOT/skills/spec-tooling/SKILL.md"
 ```
 
 ## Dispatch

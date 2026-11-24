@@ -26,7 +26,7 @@ The write-path persistence layer for agent memories. Handles dual-mode storage (
 
 ### Agent Session-Write Protocol (single source of truth)
 - The agent session-WRITE protocol (append-only INSERT, `PRAGMA busy_timeout=5000`, SQLITE_BUSY retry, `MEMORY_ID` capture via same-session `last_insert_rowid()`, best-effort embedding via `skills/memory-store/embed-one.sh`) is defined ONCE in `skills/memory-store` plus the canonical `skills/agent-memory/protocol.md` partial.
-- The 7 behavioral agents (pm, tech-lead, ic5, ic4, devops, qa, ds) MUST carry a MANAGED-INLINE copy of that block — expanded from the partial with `<AGENT>` substituted, between `<!-- include: skills/agent-memory/protocol.md agent=X -->` / `<!-- /include -->` markers, verified byte-identical against the partial by `skills/agent-memory/sync-includes.py` (check mode) at `/release`. Agents MUST NOT hand-edit the managed-inline region; corrections go to the partial and re-expand.
+- The 7 behavioral agents (pm, tech-lead, ic5, ic4, devops, qa, ds) MUST carry a MANAGED-INLINE copy of that block — expanded from the partial with `<AGENT>` substituted, between `<!-- include: skills/agent-memory/protocol.md agent=X -->` / `<!-- /include -->` markers, verified byte-identical against the partial by `skills/agent-memory/sync-includes-check.sh` (check mode) at `/release`. Agents MUST NOT hand-edit the managed-inline region; corrections go to the partial and re-expand.
 
 ### .md Fallback Path
 - MUST write to `.claude/memory/<agent>/{cortex,memory,lessons}.md`
@@ -105,17 +105,26 @@ appends its `### <ticket_id>` subsection here.
 
 ### CDT-241
 
-- **A.** The `apply` subtest of `skills/agent-memory/sync-includes-test.sh` operates on a scratch copy under `${TMPDIR:-/tmp}` (the suite's existing `FIX` root), never on `$ROOT`: every `apply`-mode invocation in the suite carries `--root`, and the only `$ROOT` invocations are read-only modes (`check`, bare usage, `--help`, unknown-mode). Running the suite leaves the working tree byte-identical — the suite asserts it itself (`git status --porcelain` captured before the first subtest and compared after the last, graceful skip outside a git tree).
-  Verify: bash skills/agent-memory/sync-includes-test.sh
+- **A.** The `apply` subtest of `skills/agent-memory/test-sync-includes-check.sh` operates on a scratch copy under `${TMPDIR:-/tmp}` (the suite's existing `FIX` root), never on `$ROOT`: every `apply`-mode invocation in the suite carries `--root`, and the only `$ROOT` invocations are read-only modes (`check`, bare usage, `--help`, unknown-mode). Running the suite leaves the working tree byte-identical — the suite asserts it itself (`git status --porcelain` captured before the first subtest and compared after the last, graceful skip outside a git tree).
+  Verify: bash skills/agent-memory/test-sync-includes-check.sh
 - **B.** The drift-masking behavior is fixed: with drift injected into a managed region, running the suite does not heal it — the tree stays dirty and the suite's full-tree `check` subtest reports the drift (`DRIFT: <file> (agent=<X>, partial=<partial>)`) and fails, so a standalone `check` after the suite still sees the drift (the behavior the pre-fix `apply` subtest masked).
-  Verify: bash skills/agent-memory/sync-includes-test.sh
+  Verify: bash skills/agent-memory/test-sync-includes-check.sh
 - **C.** The `include-drift` CI job in `.github/workflows/smoke.yml` is one step — the suite alone — with a comment naming CDT-241 and the redundancy reason (the pre-fix suite healed the checkout before the standalone check could see drift; post-fix the suite's own full-tree check fails the job on drift).
-  Verify: bash skills/agent-memory/sync-includes-test.sh
-- **D.** The no-side-effect assertion was watched failing first (RED): with drift injected into `agents/qa.md` and the apply subtest still un-sandboxed, the tree-identity assertion FAILs because the real-tree apply heals the file mid-run (`PASS=88 FAIL=5`); the GREEN run at the fixed suite shows the tree untouched and the drift surviving (`PASS=97 FAIL=0` clean; drifted clone fails loudly with `M agents/qa.md` intact).
-  Verify: bash skills/agent-memory/sync-includes-test.sh
-- **E.** The suite passes clean: `bash skills/agent-memory/sync-includes-test.sh` exits 0 (`PASS=97 FAIL=0`) and the smoke harness gate exits 0 (`bash tools/smoke/run.sh`, 601 checked / 0 failed).
+  Verify: bash skills/agent-memory/test-sync-includes-check.sh
+- **D.** The no-side-effect assertion was watched failing first (RED): with drift injected into `agents/qa.md` and the apply subtest still un-sandboxed, the tree-identity assertion FAILs because the real-tree apply heals the file mid-run (`PASS=88 FAIL=5`, python-suite era); the GREEN run at the fixed suite shows the tree untouched and the drift surviving (`PASS=97 FAIL=0` clean at that era; drifted clone fails loudly with `M agents/qa.md` intact).
+  Verify: bash skills/agent-memory/test-sync-includes-check.sh
+- **E.** The suite passes clean: `bash skills/agent-memory/test-sync-includes-check.sh` exits 0 (`PASS=143 FAIL=0`, measured at the CDT-615 bash port) and the smoke harness gate exits 0 (`bash tools/smoke/run.sh`, 609 checked / 0 failed).
   Verify: bash tools/smoke/test.sh
-- **F.** [process] The release gates pass (`bash tools/run-all-tests.sh` exits 0; every `/release` gate green), and the release notes record the CDT-241 test-isolation fix (apply sandboxed into the suite's FIX scratch root, tree-identity assertion, include-drift job simplified to one step) while the suite code and this subsection stay coherent (`PASS=97`, the RED/GREEN evidence recorded).
+- **F.** [process] The release gates pass (`bash tools/run-all-tests.sh` exits 0; every `/release` gate green), and the release notes record the CDT-241 test-isolation fix (apply sandboxed into the suite's FIX scratch root, tree-identity assertion, include-drift job simplified to one step) while the suite code and this subsection stay coherent (`PASS=97` in the python-suite era, the RED/GREEN evidence recorded).
+
+### CDT-615
+
+- **A.** The managed-inline byte-identity check for the agent-memory protocol blocks is `skills/agent-memory/sync-includes-check.sh` (bash/awk, no interpreter dependency): `check` verifies, `apply` re-expands. The managed-inline MUST above names that script.
+  Verify: bash skills/agent-memory/test-sync-includes-check.sh
+- **B.** Its golden suite `skills/agent-memory/test-sync-includes-check.sh` ports the retired python suite's message-shape assertions (mode/usage table, rv-w3-25 path-safety and pairing negatives, sandboxed apply, tree-identity assertion) and adds the apply byte-contract, drift-diff shape, and discovery pins. It exits 0 at `PASS=143 FAIL=0` and leaves the working tree byte-identical.
+  Verify: bash skills/agent-memory/test-sync-includes-check.sh
+- **C.** The two intentional divergences from the retired engine are pinned in the suite: an unrecognised first positional exits 64 with usage (the seed port exited 1), and a nonexistent `--root` exits 64 (the retired engine scanned an empty glob and exited 0).
+  Verify: bash skills/agent-memory/test-sync-includes-check.sh
 
 ## Validation
 
@@ -138,6 +147,7 @@ appends its `### <ticket_id>` subsection here.
 
 | Date | Change |
 |------|--------|
+| 2026-11-24 | CDT-615: the managed-include drift check moves to bash — `skills/agent-memory/sync-includes-check.sh` (check + apply) replaces the python engine, which is deleted with its suite in the same change set. The gate-owning MUST is SPEC-010 (Step 4.5); this spec's managed-inline clause and CDT-241 ACs name the bash script and its golden suite (`PASS=143 FAIL=0`, sandboxed apply, tree-identity assertion kept). `### CDT-615` ACs A–C. |
 | 2026-10-02 | CDT-371 / CDT-391: schema is v4. Test harnesses `test-migrate.sh` and `test-seed-pack.sh` exist. Covers names them. |
 | 2026-10-01 | WP 3-07: v2 rebuild, distillation_log, and the version bump share one `BEGIN IMMEDIATE`. `sqlite_sequence` is preserved. `migrate.sh` backs up with `VACUUM INTO` and fails when the version read fails. |
 | 2026-09-30 | WP 1-13 (`wp-1-13-setup-team-lembed`; CDT-262 `[07 F-1]`): `lembed()` takes a registered model NAME, not a file path. The Embedding MUST "pass file path to GGUF model for lembed (not model name)" was wrong for sqlite-lembed v0.0.1-alpha.8: `lembed('<path>', …)` fails with "Unknown model name … Was it registered with lembed_models?", so no vector was stored or queried in the default local mode. The GGUF is now registered on the same connection, before `lembed()` (`INSERT INTO temp.lembed_models(name, model) SELECT 'mini', lembed_model_from_file('<gguf>')`); `migrate-md.sh` reads the result with `vec_to_json()` (a BLOB, not `json()`) and keeps sqlite3 stderr out of the vector (temp file); `embed-one.sh` and `migrate-md.sh` share `embed-common.sh`. A failed embed is no longer hidden: one line per failure in `<MROOT>/.claude/memory/.errors.log`, counted by `/memory stats` and `/doctor`. The CI round-trip smoke test with a real model is deferred until a CI model download is approved. Status stays ACTIVE. |
@@ -146,7 +156,7 @@ appends its `### <ticket_id>` subsection here.
 | 2026-07-22 | CDT-52 / CDT-46-C6: human-reviewed promote INFERRED→ACTIVE; evidence: Linear CDT-52 ship comment + /spec check exit-0. |
 | 2026-07-22 | CDT-51 / CDT-46-C5: Covers + migrate-v3/v4; Test/Validation note for fresh + v3→v4 (full v1→v4 OK in-repo) and PRAGMA-poison-safe version capture. Status stays INFERRED (W5). migrate-v3/v4 ownership notes with SPEC-011 unchanged. |
 | 2026-06-15 | Added `skills/memory-store/schema.sql` (the fresh-DB DDL — normative home for the schema) to Covers; it was orphaned. Added the `REFERENCES memories(id)` FK clause to `distillation_log.result_memory_id` (migrate-v2.sh) and `validation_log.memory_id` (migrate-v3.sh) so a migrated DB's log-table DDL matches schema.sql's fresh-create DDL exactly (`migrate-v3.sh` itself stays owned by SPEC-011) (AUDIT-P3.5a). |
-| 2026-06-13 | Added "Agent Session-Write Protocol (single source of truth)" MUST — the write block is defined once in skills/memory-store + the canonical skills/agent-memory/protocol.md partial; the 7 behavioral agents carry a managed-inline copy (markers, sync-includes.py byte-check at /release) and MUST NOT hand-edit it. Confirmed the cortex 100/memory 50/lessons 80/context 60 line-limits MUST is the canonical copy (AUDIT-P1-1). |
+| 2026-06-13 | Added "Agent Session-Write Protocol (single source of truth)" MUST — the write block is defined once in skills/memory-store + the canonical skills/agent-memory/protocol.md partial; the 7 behavioral agents carry a managed-inline copy (markers, include-drift byte-check at /release — python until the CDT-615 bash port) and MUST NOT hand-edit it. Confirmed the cortex 100/memory 50/lessons 80/context 60 line-limits MUST is the canonical copy (AUDIT-P1-1). |
 | 2026-04-26 | Added MUST for whole-file (no-header) chunk truncation at 5000 chars — distinct from the 8000-char ## section limit. Added PRAGMA busy_timeout=5000 to migrate-v2.sh to satisfy the "every write" requirement. |
 | 2026-03-23 | Bumped chunk truncation from 5000 to 8000 chars. Added context.md 60-line limit. Added default distill config values. Moved tier access control to SPEC-007. Moved distillation threshold check to SPEC-007. |
 | 2026-03-22 | Initial spec generated by /generate-specs |

@@ -5,10 +5,10 @@ Single source; included into /spec generate (skills/spec-tooling/SKILL.md) and
 <!-- include: skills/spec-tooling/spec-skeleton.md agent=spec --> markers,
 drift-gated at /release. Cite SPEC-008 (format contract) + SPEC-004.
 
-Editing notes (this block is stripped by sync-includes.py expand() — it drops
+Editing notes (this block is stripped by sync-includes-check.sh expand() — it drops
 everything up to and including the first lone `-->` line):
 - The body below is the byte-identical region that every emitter includes.
-- `**Status**: <STATUS>` keeps the literal `<STATUS>` token: sync-includes.py only
+- `**Status**: <STATUS>` keeps the literal `<STATUS>` token: sync-includes-check.sh only
   substitutes `<AGENT>`, never `<STATUS>`, so the token survives expansion byte-identically
   across emitters (drift-checkable). Each emitter's OWN prose (added outside the markers in
   fan-out) tells the LLM to replace `<STATUS>` with INFERRED (/spec generate) or DRAFT (/spec create).

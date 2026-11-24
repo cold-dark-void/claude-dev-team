@@ -12,7 +12,7 @@ NOTE: /spec generate is NOT a consumer — its generation-scope
 scan is a distinct exclusion (it skips skills/ + commands/); it cites SPEC-008 but
 is not this partial.
 
-Editing notes (this block is stripped by sync-includes.py expand() — it drops
+Editing notes (this block is stripped by sync-includes-check.sh expand() — it drops
 everything up to and including the first lone `-->` line):
 - The body below is the byte-identical region every alignment consumer includes.
 - There is NO `<AGENT>` token — `agent=spec` is a no-op sentinel (expand() substitutes

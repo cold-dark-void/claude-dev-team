@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # agent-blocks-test.sh — CDT-299 bite-tests: the 7 behavioral agents carry the
 # managed glossary + hand-back block (skills/agent-memory/glossary-handback.md),
-# expanded per agent by sync-includes.py. CDT-558 adds the ADVISORY checks for
+# expanded per agent by sync-includes-check.sh. CDT-558 adds the ADVISORY checks for
 # agents/advisor.md + skills/agent-memory/advisor-protocol.md.
 #
 # Machine-check: bash skills/agent-memory/agent-blocks-test.sh  (exit 0)
@@ -132,9 +132,9 @@ if [ -f "$ADV" ]; then
     pass "advisor-protocol.md dropped cortex from the fallback loop"
   fi
   assert_contains "advisor-protocol.md keeps the PDH stanza" "$ptext" "plugin-dir.sh"
-  # AC2: managed region matches the partial (sync-includes.py check).
-  if python3 "$HERE/sync-includes.py" check "$ADV" >/dev/null 2>&1; then
-    pass "advisor include region matches its partial (sync-includes.py check)"
+  # AC2: managed region matches the partial (sync-includes-check.sh check).
+  if bash "$HERE/sync-includes-check.sh" check "$ADV" >/dev/null 2>&1; then
+    pass "advisor include region matches its partial (sync-includes-check.sh check)"
   else
     fail "advisor include region drifted from advisor-protocol.md"
   fi

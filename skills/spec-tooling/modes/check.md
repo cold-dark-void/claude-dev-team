@@ -166,7 +166,7 @@ Check the canonical 5 language markers (per SPEC-008 § Project-Language Markers
 Used when no language marker matches (including this plugin).
 
 1. Read the spec's `## Test` section. Map each MUST to Test entries that address it (keyword/behavior match — same judgment as a human reading the Test list, not Phase-2 code search).
-2. For every script/fixture a Test entry names (e.g. `skills/spec-tooling/check-format.sh`, `sync-includes.py`, `skills/docs-drift/test.sh`), **Glob** that path and confirm it exists.
+2. For every script/fixture a Test entry names (e.g. `skills/spec-tooling/check-format.sh`, `skills/agent-memory/sync-includes-check.sh`, `skills/docs-drift/test.sh`), **Glob** that path and confirm it exists.
 3. Classify each MUST:
    - **COVERED** — ≥1 Test entry addresses the MUST **and** every script that entry names exists. Evidence = `Test #k` + script path(s) (or `Test #k (prose only)` if no script named).
    - **MISSING** — no Test entry addresses it, **or** every candidate entry names a script that does not exist (a nonexistent script MUST NOT count as COVERED).

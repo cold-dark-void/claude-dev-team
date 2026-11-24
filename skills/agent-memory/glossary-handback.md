@@ -1,11 +1,11 @@
 <!--
 Managed partial: glossary load + hand-back block for the 7 behavioral agents
 (CDT-299). Included via `<!-- include: skills/agent-memory/glossary-handback.md
-agent=<name> -->` regions; sync-includes.py keeps the copies byte-identical.
+agent=<name> -->` regions; sync-includes-check.sh keeps the copies byte-identical.
 The load order here is the same one `skills/domain-glossary/SKILL.md` defines
 (worktree CONTEXT.md first, main checkout fallback — CDT-374). Do not edit the
 expanded regions in agents/*.md; edit this partial and run
-`python3 skills/agent-memory/sync-includes.py apply`.
+`bash skills/agent-memory/sync-includes-check.sh apply`.
 -->
 
 ## Domain glossary and hand-back

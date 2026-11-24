@@ -182,7 +182,7 @@ For each domain (in order), write `specs/core/SPEC-NNN-<domain-slug>.md`.
 The 9 required sections come from the canonical, drift-gated partial
 `skills/spec-tooling/spec-skeleton.md` (single-sourced via the `<!-- include -->`
 region below — SPEC-008). Do NOT hand-edit the region between the markers; run
-`python3 "$MROOT/skills/agent-memory/sync-includes.py" apply "$MROOT/skills/spec-tooling/SKILL.md"`
+`bash "$MROOT/skills/agent-memory/sync-includes-check.sh" apply "$MROOT/skills/spec-tooling/SKILL.md"`
 to refresh it. The emitter EXTRAS (`**Covers**:`, `## SHOULD`, `## Open Questions`,
 `## Cross-references`) follow the region as normal content.
 

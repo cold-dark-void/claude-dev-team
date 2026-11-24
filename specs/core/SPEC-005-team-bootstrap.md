@@ -135,7 +135,7 @@ Everything needed to get the dev-team running in a new or existing project. Incl
 
 ### Emitted AGENTS.md Template (distinctness contract)
 - This repo's hand-tuned `AGENTS.md` and the AGENTS.md template emitted by `init-orchestration` (Step 5) are intentionally DISTINCT documents. They share rule *bodies* by convention (manual reconciliation), NOT by byte-level single-sourcing. No managed-include relationship exists or is required between them.
-- MUST NOT introduce a `<!-- include: -->` managed-include relationship between this repo's `AGENTS.md` and the emitted consumer template, nor drift-check one against the other. (The `sync-includes.py` managed-include engine, SPEC-010, covers the agent-memory protocol only — not AGENTS.md.)
+- MUST NOT introduce a `<!-- include: -->` managed-include relationship between this repo's `AGENTS.md` and the emitted consumer template, nor drift-check one against the other. (The `sync-includes-check.sh` managed-include engine, SPEC-010, covers the agent-memory protocol only — not AGENTS.md.)
 - The emitted consumer AGENTS.md (both the new-file template and the append-only "Team Coordination section only" block) MUST be marker-free: no `<!-- include: -->` / `<!-- /include -->` directives may appear in any file written into a consumer project. Managed-include markers are a dev-repo-only single-sourcing device and MUST NOT leak into generated consumer files.
 - When a shared rule body is corrected in one document, the maintainer MUST reconcile the other by hand (e.g. the `SendMessage` no-addressable-parent guidance applies to consumer-spawned agents and so MUST appear in the emitted template's Team Coordination section, not only in this repo's AGENTS.md).
 
