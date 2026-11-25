@@ -20,7 +20,7 @@ Four premises describe the gap:
   supervisor's beat loop.
 - **P2**: chiefd restarts in ~2 s (systemd `RestartSec=2`), but lease expiry
   takes at least one stall limit (108 s sonnet, 270 s opus; heartbeat
-  cadence `clamp(limit/2, 250ms, 30s)`). A one-shot startup scan adopts
+  cadence `clamp(limit/2, 250ms, 30s)`). A one-shot startup scan takes over
   nothing: it runs before any lease has expired. The scan must repeat.
 - **P3**: a graceful SIGTERM restart lands every run in
   `halted:operator_halt`. `agent.Supervise` registers its own
@@ -101,7 +101,9 @@ ticket and ACs). Code identifiers use `takeover`.
   `halted:reconcile_failed`, `halted:budget_exhausted`, `completed`,
   `failed`, `new`, or the `reconcile.JournalRun` pseudo-Run (`run_id`
   "reconcile"). The selection reads the journal replay only — no queue read,
-  no slot read.
+  no slot read. A `running`/`claimed` run that carries no lease row at all is
+  selected: no owner can prove liveness, which is `run.Lease.Expired`'s own
+  rule for a lease whose liveness it cannot read.
 - **M2 — The scan repeats on the halt-watch cadence.** The scan runs inside
   the existing `chief.Watch` loop, every `chief.DefaultWatchInterval` (5 s),
   for the service lifetime — never once at startup. Order inside one tick:
@@ -116,12 +118,14 @@ ticket and ACs). Code identifiers use `takeover`.
   (`run_claimed`/`run_started` payload), and the host derived from the
   run's newest recorded `agent.start` intent via `hostByCommand`
   (`takeoverStartCommand` reads the newest intent; the steer/correct path's
-  `chief.hostFromJournal` reads the oldest). No
+  `chief.hostFromJournal` reads the first matching intent — the correction
+  needs any recorded host — and collapses a run with no start intent and a
+  start intent naming an unknown host command into one `ErrNotSteerable`). No
   second spawn path, no takeover method on the adapter, no new event kind,
   no lifecycle-graph change. The supervision rides the chief's base context
   on its own goroutine — the same shape `chief.startRun` uses, including the
-  `runRecord` bookkeeping (`Host`, `Capture`) so the board, steer, and
-  checks readings work on adopted runs without special cases.
+  `runRecord` bookkeeping (`Host`, `Cap`) so the board, steer, and
+  checks readings work on taken-over runs without special cases.
 - **M4 — No double spawn.** A run whose lease is live and unexpired is not
   selected, and a takeover race is refused by the lease itself:
   `journal.ErrLeaseHeld` from `run.Machine.Claim` ends that run's takeover,
@@ -140,6 +144,9 @@ ticket and ACs). Code identifiers use `takeover`.
   `journal.ErrLeaseHeld` during one run's takeover stops that run only:
   the scan continues with the next selected run, and chiefd keeps serving.
   A refusal is reported (stdout line plus the run's state), never swallowed.
+  An unreadable lease row stops that run's takeover the same way and is the
+  scan's one silent continue: a lease that cannot be read proves no expiry,
+  so the run is left alone and the next tick reads it again.
 - **M7 — The takeover never blocks serving and never lies.** chiefd binds
   and answers `GET /v1/runs` before the first takeover pass finishes. Every
   report (`/v1/runs`, the board, `/v1/checks`) shows the replayed journal
@@ -161,13 +168,15 @@ ticket and ACs). Code identifiers use `takeover`.
   - chiefd passes its own signal context as the chief's base context
     (`chief.WithBaseContext`), so a shutdown cancels every supervised run's
     context and the quiet path applies.
-  - On shutdown, chiefd releases the lease **only** through an existing
-    state-machine path: `run.Machine.ReleaseStaleLease` when the lease has
-    already expired. The closed event set has no live-lease release verb and
-    this spec adds none (ADR 0001 boundary; AC3 forbids a new kind), so a
-    live lease at shutdown is left to expire and M2's bound covers the
-    restart. The fencing token guards every window: a zombie of the dead
-    chiefd writes nothing (`journal.ErrStaleToken`).
+  - On shutdown, chiefd never releases the lease. Releasing is the
+    reconciler's path: `reconcile` journals a `Machine.Repair` row
+    (`p.repair(..., ActionReleaseStaleLease, ...)`), and the closed event set
+    carries no lease-release verb of its own (ADR 0001 boundary; AC3 forbids
+    a new kind), so a release on shutdown is the run event this contract
+    forbids. A live lease at shutdown is left to expire; an expired one is
+    re-selected by the next scan, and M2's bound covers the restart. The
+    fencing token guards every window: a zombie of the dead chiefd writes
+    nothing (`journal.ErrStaleToken`).
   - chiefd MUST NOT remove the pidfile on shutdown: the recorded runner pid
     is what the next supervisor's orphan probe reads.
 - **M9 — The takeover pages nothing (DRI OQ2).** The takeover path calls no
@@ -191,7 +200,7 @@ ticket and ACs). Code identifiers use `takeover`.
   runner, `lease_acquired` (reason `takeover`, token+1) → `agent.kill`
   intent/outcome → `agent.start` (new pid) → `stint_started`
   (attempt N+1) → … → `run_completed`.
-- **M12 — Node-local boundary.** The scan adopts only runs whose Runner
+- **M12 — Node-local boundary.** The scan takes over only runs whose Runner
   lives on chiefd's own Node (CONTEXT.md § Node): chiefd never spawns,
   probes, or signals a process on another machine, and no remote node agent
   is called. Phase 1 has one node, so the boundary is structural — the
@@ -225,6 +234,12 @@ ticket and ACs). Code identifiers use `takeover`.
   naming the run id, the state it was found in, and the refusal reason. The
   lines are the operator's first reading after a reboot; they are never the
   only record (the journal is).
+  A pass that ends before a start's journal proof lands reports that run in
+  the unconfirmed bucket: the start rides the chief's base context and may
+  still land, so the line names an unproven start, never a refusal.
+  `chief.logTakeover` writes each line only the first time the process sees
+  it; the report stays the journal's truth on every pass — the dedup covers
+  the log line, never the reading.
 - **S2 — The scan's work is bounded per tick.** The takeover pass processes
   the M1 set serially, one run at a time (DRI OQ4); a tick that finds more
   selected runs than it finishes leaves the rest to the next tick. No
@@ -278,7 +293,7 @@ ticket and ACs). Code identifiers use `takeover`.
   takeover.
 - The shutdown-contract test: SIGTERM to chiefd lands no run event; an
   explicit stop still lands `halted:operator_halt`; a restarted chiefd
-  adopts the quietly-shutdown run after expiry.
+  takes over the quietly-shutdown run after expiry.
 - The kill test (AC13): a real process killed with SIGKILL mid-run, chiefd
   restarted, the run taken over and completed exactly once — the trail of
   M11 asserted on the journal.
@@ -289,11 +304,12 @@ ticket and ACs). Code identifiers use `takeover`.
 
 - **OQ1 (shutdown semantics)** — CLOSED (DRI 2026-11-20, ruling (a)):
   chiefd shutdown journals no `operator_halt`; a graceful shutdown releases
-  the lease only when the closed event set already has a legal release path,
-  otherwise the lease expires and the repeated scan takes over. Fencing
-  token guards safety. Landed as M8.
+  the lease only when the closed event set already has a legal release path
+  — which it does not (M8): the release is the reconciler's journaled
+  `Machine.Repair` path, forbidden on shutdown — so the lease expires and
+  the repeated scan takes over. Fencing token guards safety. Landed as M8.
 - **OQ2 (crashed-run halts)** — CLOSED (DRI 2026-11-20): a `halted:stalled`
-  run is adopted through `run.RecoveryPlan`'s machine path and resumed;
+  run is taken over through `run.RecoveryPlan`'s machine path and resumed;
   the operator is paged only on adoption failure or a spent budget. Landed
   as M9/M10.
 - **OQ3 (scan cadence)** — CLOSED (DRI 2026-11-20): the scan folds into the
@@ -362,7 +378,7 @@ ticket and ACs). Code identifiers use `takeover`.
   the journal rows (`lease_acquired` reason `takeover` token+1 →
   `agent.kill` → `agent.start` new pid → `stint_started` attempt N+1 →
   `run_completed`) are the proof.
-- **AC12.** Node scope. The scan adopts only runs whose Runner lives on
+- **AC12.** Node scope. The scan takes over only runs whose Runner lives on
   chiefd's own Node; no remote spawn; the node-local boundary is named in
   the refusal text.
 - **AC13.** [process] The kill test is a plain `go test` under
@@ -382,11 +398,11 @@ ticket and ACs). Code identifiers use `takeover`.
 - **AC15.** Shutdown contract (DRI OQ1(a)). A chiefd shutdown (SIGTERM
   from systemd) journals no `operator_halt` and no halt row of any reason;
   `operator_halt` comes only from an explicit stop (UI stop → the stop verb;
-  the standalone `node-agent start` signal path). On graceful shutdown the
-  lease is released only through an existing state-machine path
-  (`run.Machine.ReleaseStaleLease` when already expired); otherwise the
-  lease waits for expiry and the repeated scan takes over. The fencing token
-  guards safety. The pidfile survives shutdown so the next supervisor's
+  the standalone `node-agent start` signal path). On shutdown chiefd never
+  releases the lease: a live lease waits for expiry, an expired one is
+  re-selected by the next scan, and releasing needs a journaled repair row,
+  which the no-run-event rule forbids. The fencing token guards safety. The
+  pidfile survives shutdown so the next supervisor's
   orphan probe reads it.
 - **AC16.** Version (DRI OQ8). `control-plane/VERSION` reads `0.2.0` in
   the same change; `.claude-plugin/plugin.json` and `CHANGELOG.md` are
@@ -476,6 +492,41 @@ ticket and ACs). Code identifiers use `takeover`.
   same day. A probe that cannot run on the lane is recorded as an open gap in
   this spec's Validation record.
 
+### CDT-664
+
+- **AC1.** The chief's run record survives a sibling start's refusal: a
+  start that refuses (the claim fence, the live lease, the matrix) deletes
+  the run's record only when no confirmed start owns it — the record a
+  confirmed start populated (its capture) survives a sibling's refusal, and
+  a refused-then-confirmed pair records the confirmed start's capture, so
+  the board, steer, and checks readings survive the unconfirmed-then-
+  re-selected window. No double spawn exists in any interleaving (M4's
+  fence is untouched).
+  Verify: bash control-plane/test.sh
+- **AC2.** A `halted:stalled` halt the takeover answers during the page
+  pass pages nothing: the page decision re-reads the answered state after
+  the intent row and before the channel call, closes the intent row with an
+  outcome row (`delivered: false`, error "suppressed: the takeover answered
+  the halt"), and the next scan reports the halt without paging. The page
+  record stays at-least-once: a start that lands after the re-check can
+  still page once (the residual window is inherent — the start rides the
+  base context), and no new wait or knob exists.
+  Verify: bash control-plane/test.sh
+- **AC3.** [process] SPEC-044 states the shutdown contract's actual
+  mechanism: chiefd never calls `run.Machine.ReleaseStaleLease` on
+  shutdown — the lease waits for expiry (M2's bound covers the restart),
+  and releasing is the reconciler's path (`Machine.Repair`-journaled
+  `ActionReleaseStaleLease`), which the no-run-event rule forbids on
+  shutdown; M3 names the `runRecord` field `Cap`;
+  `chief.hostFromJournal` returns the first matching `agent.start` intent
+  and collapses no-intent and unknown-host into one `ErrNotSteerable`; the
+  takeover prose says "takes over"; and M1, M6, and S1 name the
+  no-lease-row selection, the unreadable-lease continue, the
+  `TakeoverUnconfirmed` report bucket, and the per-process report-line
+  dedup. The gate for this change is the Go suite plus `tools/spec-lint.sh`.
+- **AC4.** Version: `control-plane/VERSION` reads `0.2.2` in the same
+  change; `.claude-plugin/plugin.json` and `CHANGELOG.md` are untouched.
+
 ## Validation
 
 - Spec reviewed and promoted to ACTIVE
@@ -541,6 +592,7 @@ ticket and ACs). Code identifiers use `takeover`.
 
 | Date | Change |
 |------|--------|
+| 2026-11-24 | CDT-664 (CDT-660 TL-review follow-ups): the chief's run record survives a refused start — two starts for one run id share one `runRecord`, so registration keeps a confirmed start's `Cap`, an errored start deletes only an unconfirmed record, and a confirmed start re-creates the record a refused sibling removed (M3's bookkeeping); the halt scan re-reads the takeover's answer before it pages, closing the intent row with the outcome `suppressed: the takeover answered the halt` (M9/AC9). Prose letters: M8/AC15 state the shutdown truth (chiefd never releases the lease — the release is the reconciler's `Machine.Repair` path, which the no-run-event rule forbids on shutdown), M3 names the `Cap` field and the `chief.hostFromJournal` split (first matching intent, one `ErrNotSteerable`), M1 records the no-lease-row selection, M6 the unreadable-lease continue, S1 the unconfirmed bucket and the per-process log-line dedup, and the loose `adopts` verb becomes "takes over". `control-plane/VERSION` `0.2.1` → `0.2.2`. |
 | 2026-11-24 | CDT-661: the host session id is journaled and adoption resumes it — the node agent journals the id its runner's capture holds as an `agent.session` `side_effect` intent/outcome pair under the live lease token (AC1), the Grok ACP transport joins the captured hosts by reading `result.sessionId` off the `session/new` response frame pinned to a recorded probe transcript (AC2, AC7), the takeover resumes the journaled session through `hostadapter.Adapter.Resume` with `hostadapter.ResumeRoute` gating CDT-660's fresh re-spawn fallback (AC3/AC4), `effectEvidence` treats a pending `agent.session` intent as self-evidencing so the two-append crash window never halts the run `halted:reconcile_failed` (a state the takeover refuses), and the restart kill test proves the same host session survives the crash (AC5). `control-plane/VERSION` `0.2.0` → `0.2.1` (AC6). `### CDT-661` AC1–AC7. |
 | 2026-11-21 | CDT-656: clock- and environment-independent control-plane tests — `TestSuperviseSteerThenOperatorStop` pins a wide `DEVTEAM_STALL_LIMIT` (270) so a loaded CI runner can no longer race the 1 s default limit into `ErrSteerLost` between `waitRunner` and the steer; the chief model-map seam subtest execs the real `resolve-model.sh` against a layer-free fixture checkout (its own git root + pinned `HOME`/cwd) instead of the live worktree, whose shared store may carry a DRI's local Model map layer; new `control-plane/test.sh` runs `go test ./... -count=1` and restores the ship-gate Verify binding the spec-lint pass dropped. `### CDT-656` ACs A–C. |
 | 2026-11-20 | Spec-lint pass (CDT-660): added the `## Validation` record — the landed proofs per AC, incl. the AC13 restart kill test inside the control-plane CI job and the digest-pinned G-02 image run. Every AC bullet now carries the M14(g) bullet form `- **ACn.** …`; the 14 `Verify:` lines that named Go `_test.go` files are dropped, because M14(g) admits a suite script basename (`test.sh`, `test-*.sh`, `*-test.sh`) only and no suite script covers the Go lane — the proofs are named in `## Validation` instead (a `control-plane/test.sh` suite is the follow-up that restores the ship-gate Verify binding). AC13 is a `[process]` AC, so it holds no Verify line by rule. Registered in `specs/TDD.md`. No MUST, Test, or AC requirement text changed. |

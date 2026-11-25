@@ -176,6 +176,14 @@ func newTestChief(t *testing.T, eng *journal.Engine, seam *fakeAgent,
 	return c
 }
 
+// runRecordOf reads the chief's own record of one run.
+func runRecordOf(c *Chief, runID string) (*runRecord, bool) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	rec, ok := c.runs[runID]
+	return rec, ok
+}
+
 // AC1: a defect routes to /debug — the Surface is named, the ticket record
 // is written through the ticket seam, the model resolves through the Model
 // map, and the run's workflow carries the Surface — never a second copy.
@@ -669,5 +677,153 @@ func TestTakeoverRegistersTheTakenOverRunForRunsChecksAndSteer(t *testing.T) {
 	}
 	if frame["type"] != "steer" {
 		t.Errorf("frame = %v, want the omp steer frame", frame)
+	}
+}
+
+// gateAgent is the node-agent seam of the start-race tests: every Supervise
+// call records the capture the adapter handed it, says it is inside the
+// start, and answers only when the test releases it, with its tabled error.
+// The test owns the order of the two racing starts.
+type gateAgent struct {
+	mu       sync.Mutex
+	captures []io.Writer
+	inside   []chan struct{}
+	release  []chan struct{}
+	errs     []error
+	n        int
+}
+
+func newGateAgent(errs ...error) *gateAgent {
+	ag := &gateAgent{errs: errs}
+	for range errs {
+		ag.inside = append(ag.inside, make(chan struct{}))
+		ag.release = append(ag.release, make(chan struct{}))
+	}
+	return ag
+}
+
+func (f *gateAgent) Supervise(_ context.Context, _ *journal.Engine,
+	_ agent.StartRequest, cap io.Writer) error {
+	f.mu.Lock()
+	idx := f.n
+	f.n++
+	f.captures = append(f.captures, cap)
+	f.mu.Unlock()
+	close(f.inside[idx])
+	<-f.release[idx]
+	return f.errs[idx]
+}
+
+// capture is the session capture the i-th start rode.
+func (f *gateAgent) capture(i int) *hostadapter.Capture {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	cap, ok := f.captures[i].(*hostadapter.Capture)
+	if !ok {
+		return nil
+	}
+	return cap
+}
+
+func (f *gateAgent) Stop(_ context.Context, _ *journal.Engine, _ string,
+	_ time.Duration) error {
+	return nil
+}
+
+func (f *gateAgent) Steer(_ context.Context, _ *journal.Engine, _, _ string) error {
+	return nil
+}
+
+func (f *gateAgent) Status(_ context.Context, _ *journal.Engine,
+	runID string) (agent.StatusReport, error) {
+	return agent.StatusReport{RunID: runID, State: "running"}, nil
+}
+
+// gateStartRequest is the start both racing calls carry.
+func gateStartRequest(runID string) hostadapter.StartRequest {
+	return hostadapter.StartRequest{RunID: runID, Ticket: "CDT-1",
+		Workflow: "debug", Model: "sonnet", Host: hostadapter.HostOmp}
+}
+
+func gateChief(t *testing.T, eng *journal.Engine, ag *gateAgent) *Chief {
+	t.Helper()
+	return NewWithAdapter(eng, &hostadapter.Adapter{Agent: ag},
+		WithTickets(&fakeTickets{}), WithModelMap(&fakeModels{}), WithPhone(&fakePhone{}))
+}
+
+// CDT-664: two starts for one run id share the record's key, so a refusal
+// answers over a record its confirmed sibling is carrying. An errored start
+// owns no confirmation: it deletes only an unconfirmed record, and the
+// confirmed run keeps the capture the board, steer, and checks readings read.
+func TestRefusedStartKeepsTheConfirmedRunsCapture(t *testing.T) {
+	eng := newEngine(t)
+	ag := newGateAgent(nil, fmt.Errorf("agent.ErrRunning: the runner is live"))
+	c := gateChief(t, eng, ag)
+
+	errc1 := c.startSupervised("r-race", gateStartRequest("r-race"))
+	<-ag.inside[0]
+	close(ag.release[0])
+	if err := <-errc1; err != nil {
+		t.Fatalf("first start: %v", err)
+	}
+	cap1 := ag.capture(0)
+	rec, ok := runRecordOf(c, "r-race")
+	if !ok || rec.Cap != cap1 {
+		t.Fatalf("record after the confirmed start = %+v (present %t), want its capture", rec, ok)
+	}
+
+	errc2 := c.startSupervised("r-race", gateStartRequest("r-race"))
+	<-ag.inside[1]
+	close(ag.release[1])
+	if err := <-errc2; err == nil {
+		t.Fatal("second start: want the refusal")
+	}
+
+	rec, ok = runRecordOf(c, "r-race")
+	if !ok {
+		t.Fatal("the refused start deleted the confirmed run's record: the readings " +
+			"lose the host and the capture until restart")
+	}
+	if rec.Cap != cap1 {
+		t.Errorf("record Cap = %p, want the confirmed start's capture %p", rec.Cap, cap1)
+	}
+	if rec.Host != hostadapter.HostOmp {
+		t.Errorf("record Host = %q, want the start's host", rec.Host)
+	}
+}
+
+// CDT-664, the reverse order: the refusal deletes the shared record, so the
+// start that lands after it must re-create one — otherwise its capture is
+// silently dropped and Correct can no longer steer the run.
+func TestConfirmedStartAfterARefusalKeepsTheCapture(t *testing.T) {
+	eng := newEngine(t)
+	ag := newGateAgent(fmt.Errorf("agent.ErrNoRunnerSelected: no runner"), nil)
+	c := gateChief(t, eng, ag)
+
+	errc1 := c.startSupervised("r-race", gateStartRequest("r-race"))
+	<-ag.inside[0]
+	errc2 := c.startSupervised("r-race", gateStartRequest("r-race"))
+	<-ag.inside[1]
+
+	close(ag.release[0])
+	if err := <-errc1; err == nil {
+		t.Fatal("first start: want the refusal")
+	}
+	close(ag.release[1])
+	if err := <-errc2; err != nil {
+		t.Fatalf("second start: %v", err)
+	}
+
+	rec, ok := runRecordOf(c, "r-race")
+	if !ok {
+		t.Fatal("the confirmed run has no record: the refused start deleted the " +
+			"shared key and the confirmed capture was dropped")
+	}
+	if rec.Cap != ag.capture(1) {
+		t.Errorf("record Cap = %p, want the confirmed start's capture %p",
+			rec.Cap, ag.capture(1))
+	}
+	if rec.Host != hostadapter.HostOmp {
+		t.Errorf("record Host = %q, want the start's host", rec.Host)
 	}
 }

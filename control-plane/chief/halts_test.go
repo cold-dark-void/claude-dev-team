@@ -2,6 +2,7 @@ package chief
 
 import (
 	"context"
+	"encoding/json"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
@@ -522,4 +523,107 @@ func TestWatchPagesThenStops(t *testing.T) {
 		}
 		time.Sleep(10 * time.Millisecond)
 	}
+}
+
+// CDT-664: the one-shot page window. An unconfirmed takeover start rides the
+// chief's base context and can land after the scan's answered read. The scan
+// re-reads the answer before it pages: the answered stall pages nothing, and
+// the intent row closes with a suppressed outcome so the record shows the
+// page never went out.
+func TestStalledHaltAnsweredAfterTheIntentIsSuppressed(t *testing.T) {
+	eng := newEngine(t)
+	seedHalt(t, eng, "r1", run.ReasonStalled, "no heartbeat for 2s")
+	phone := &fakePhone{}
+	c := newTestChief(t, eng, &fakeAgent{}, &fakeTickets{}, &fakeModels{}, phone)
+	ctx := context.Background()
+
+	// The window: the scan's first read says the stall stands, and the
+	// takeover's re-spawn lands between that read and the page.
+	answered := c.takeoverAnswered
+	reads := 0
+	c.answeredRead = func(_ context.Context, h HaltReport) (bool, error) {
+		reads++
+		if reads == 1 {
+			resumeStalledRun(t, eng, h.RunID)
+			return false, nil
+		}
+		return answered(ctx, h)
+	}
+
+	halts, err := c.ScanHalts(ctx)
+	if err != nil {
+		t.Fatalf("scan: %v", err)
+	}
+	if len(halts) != 1 || halts[0].Notified {
+		t.Fatalf("halts = %+v, want the halt reported un-notified", halts)
+	}
+	if n := len(phone.recorded()); n != 0 {
+		t.Fatalf("pages = %d, want the answered stall suppressed", n)
+	}
+	rows := notifyRows(t, c)
+	if len(rows) != 2 {
+		t.Fatalf("record rows = %d (%+v), want one intent and its outcome", len(rows), rows)
+	}
+	if rows[0].Kind != "intent" || rows[0].RunID != "r1" || rows[0].HaltSeq != halts[0].Seq {
+		t.Errorf("intent row = %+v, want the r1 halt intent at seq %d", rows[0], halts[0].Seq)
+	}
+	if rows[1].Kind != "outcome" || rows[1].Delivered ||
+		rows[1].Error != suppressedByTakeover {
+		t.Errorf("outcome row = %+v, want delivered:false with %q",
+			rows[1], suppressedByTakeover)
+	}
+
+	// The next scan reads the journal's answer and pages nothing.
+	halts, err = c.ScanHalts(ctx)
+	if err != nil {
+		t.Fatalf("rescan: %v", err)
+	}
+	if len(halts) != 1 || halts[0].Notified {
+		t.Errorf("halts after the rescan = %+v, want the halt reported un-notified", halts)
+	}
+	if n := len(phone.recorded()); n != 0 {
+		t.Errorf("pages after the rescan = %d, want none", n)
+	}
+	if got := len(notifyRows(t, c)); got != 2 {
+		t.Errorf("record rows after the rescan = %d, want the suppressed pair", got)
+	}
+}
+
+// resumeStalledRun is the takeover's re-spawn on the journal: the
+// halted:stalled run runs again.
+func resumeStalledRun(t *testing.T, eng *journal.Engine, runID string) {
+	t.Helper()
+	m := run.New(eng, runID)
+	if err := m.Resume(context.Background(), "node-agent-1", 1); err != nil {
+		t.Fatalf("resume %s: %v", runID, err)
+	}
+}
+
+// notifyRows reads the phone-channel record.
+func notifyRows(t *testing.T, c *Chief) []notifyRecord {
+	t.Helper()
+	path, err := c.notifyPath()
+	if err != nil {
+		t.Fatal(err)
+	}
+	raw, err := os.ReadFile(path)
+	if os.IsNotExist(err) {
+		return nil
+	}
+	if err != nil {
+		t.Fatal(err)
+	}
+	var out []notifyRecord
+	for _, line := range strings.Split(string(raw), "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		var rec notifyRecord
+		if err := json.Unmarshal([]byte(line), &rec); err != nil {
+			t.Fatalf("record line %q: %v", line, err)
+		}
+		out = append(out, rec)
+	}
+	return out
 }

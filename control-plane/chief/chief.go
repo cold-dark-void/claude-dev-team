@@ -130,6 +130,12 @@ type Chief struct {
 	// notifyMu serializes the halt scan and its pages: two scans must not
 	// page the same halt twice.
 	notifyMu sync.Mutex
+
+	// answeredRead is the takeover-answered reading of the halt scan —
+	// takeoverAnswered itself. It is a seam like the others: a test drives it
+	// to land a re-spawn between the scan's first read and its pre-page
+	// re-read, the one-shot page window CDT-664 closes.
+	answeredRead func(context.Context, HaltReport) (bool, error)
 }
 
 // runRecord is one run the chief started: the host its session rides and the
@@ -228,6 +234,9 @@ func NewWithAdapter(eng *journal.Engine, ad *hostadapter.Adapter, opts ...Option
 	}
 	if c.pluginRoot == nil {
 		c.pluginRoot = defaultPluginRoot
+	}
+	if c.answeredRead == nil {
+		c.answeredRead = c.takeoverAnswered
 	}
 	if c.tickets == nil {
 		c.tickets = &ticketCLI{root: c.pluginRoot, store: c.mroot}
@@ -389,14 +398,23 @@ func (c *Chief) startSupervisedResume(runID string, req hostadapter.ResumeReques
 // superviseRun is the body of both: record the run, run the adapter verb on
 // the base context, store the returned capture so Correct can steer it, and
 // answer on the start's channel. A refused start wrote no row: the chief's
-// record of the run goes with it.
+// record of the run goes with it — when that record is still unconfirmed.
+// Two starts for one run id share one record (CDT-664), so the record carries
+// one start's confirmation while the other answers: registration keeps the
+// record a confirmed start is carrying, an errored start owns no confirmation
+// and never deletes a record that holds a capture, and a confirmed start
+// re-creates the record a refused sibling removed.
 func (c *Chief) superviseRun(runID string, host hostadapter.Host,
 	spawn func(ctx context.Context) (*hostadapter.Capture, error)) <-chan error {
 	c.mu.Lock()
 	if c.runs == nil {
 		c.runs = map[string]*runRecord{}
 	}
-	c.runs[runID] = &runRecord{Host: host}
+	if rec, ok := c.runs[runID]; ok {
+		rec.Host = host
+	} else {
+		c.runs[runID] = &runRecord{Host: host}
+	}
 	c.mu.Unlock()
 
 	base := c.baseCtx
@@ -406,19 +424,25 @@ func (c *Chief) superviseRun(runID string, host hostadapter.Host,
 	errc := make(chan error, 1)
 	go func() {
 		cap, err := spawn(base)
+		if err != nil {
+			c.mu.Lock()
+			if rec, ok := c.runs[runID]; ok && rec.Cap == nil {
+				delete(c.runs, runID)
+			}
+			c.mu.Unlock()
+			errc <- err
+			return
+		}
 		if cap != nil {
 			c.mu.Lock()
 			if rec, ok := c.runs[runID]; ok {
 				rec.Cap = cap
+			} else {
+				c.runs[runID] = &runRecord{Host: host, Cap: cap}
 			}
 			c.mu.Unlock()
 		}
-		if err != nil {
-			c.mu.Lock()
-			delete(c.runs, runID)
-			c.mu.Unlock()
-		}
-		errc <- err
+		errc <- nil
 	}()
 	return errc
 }

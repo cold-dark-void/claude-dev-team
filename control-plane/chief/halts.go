@@ -43,6 +43,11 @@ type notifyKey struct {
 	Seq   int64
 }
 
+// suppressedByTakeover is the outcome error that closes the intent row of a
+// page the pre-page re-read suppressed (CDT-664): the takeover answered the
+// halt between the scan's two reads, so the page never went out.
+const suppressedByTakeover = "suppressed: the takeover answered the halt"
+
 func (h HaltReport) key() notifyKey { return notifyKey{RunID: h.RunID, Seq: h.Seq} }
 
 // notifyPath is the phone-channel record path under the record root.
@@ -148,6 +153,10 @@ func (c *Chief) takeoverAnswered(ctx context.Context, h HaltReport) (bool, error
 // the re-spawn is the response. A halt the scan does not answer keeps its
 // page: a refusal, a skip, a spent stalled budget, and every halt of
 // another reason (AC8) all stay on the record's at-least-once rules.
+//
+// The scan reads the answer twice: once before the intent row and once before
+// the channel call. A re-spawn that lands in that window closes the intent
+// with a suppressed outcome and pages nothing (CDT-664).
 func (c *Chief) ScanHalts(ctx context.Context) ([]HaltReport, error) {
 	c.notifyMu.Lock()
 	defer c.notifyMu.Unlock()
@@ -167,7 +176,7 @@ func (c *Chief) ScanHalts(ctx context.Context) ([]HaltReport, error) {
 			out = append(out, h)
 			continue
 		}
-		answered, err := c.takeoverAnswered(ctx, h)
+		answered, err := c.answeredRead(ctx, h)
 		if err != nil {
 			return nil, err
 		}
@@ -181,6 +190,26 @@ func (c *Chief) ScanHalts(ctx context.Context) ([]HaltReport, error) {
 			Kind: "intent", RunID: h.RunID, HaltSeq: h.Seq, Reason: h.Reason,
 		}); err != nil {
 			return nil, err
+		}
+		// The one-shot page window (CDT-664): a takeover start rides the
+		// chief's base context and can land after the read above. One bounded
+		// re-read before the page keeps an answered stall off the phone, and
+		// the intent row closes with the suppressed outcome so the record
+		// shows the page never went out. The next scan's answered read skips
+		// the halt — the journal is the proof, as it is for the pass above.
+		answered, err = c.answeredRead(ctx, h)
+		if err != nil {
+			return nil, err
+		}
+		if answered {
+			if err := c.appendNotify(notifyRecord{
+				Kind: "outcome", RunID: h.RunID, HaltSeq: h.Seq,
+				Error: suppressedByTakeover,
+			}); err != nil {
+				return nil, err
+			}
+			out = append(out, h)
+			continue
 		}
 		page := fmt.Sprintf("run %s halted: %s — %s (retry budget %d, %d remaining)",
 			h.RunID, h.Reason, orNone(h.Detail), h.Budget, h.Remaining)
