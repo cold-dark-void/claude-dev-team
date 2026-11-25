@@ -622,11 +622,27 @@ Field source for card #2's `append-card.sh` args: `workflow` / `ticket_id` / `ru
 `iteration` from card #1's run context; `gate = ship-choice`; `decision` /
 `blocking_condition` / `confidence` / `bump` / `rationale` copied verbatim from the verdict
 mapper's stdout object (§4; the same mapper invocation covers §5's degraded/total-fail
-paths); `wall_clock_s` from the run's budget snapshot; `actor` = the literal
-`ship-gate-council` (M13's actor discriminator, CDT-281; card #1 MUST NOT carry
-it); `council_tier` / `grading_reason` from §3a; **`max_loc`
-copied from card #1** (null / number `n` / `"unbound"`). Every arg is built
+paths); `wall_clock_s` from the run's **frozen** budget (the paragraph below, never from
+ambient env); `actor` = the literal `ship-gate-council` (M13's actor discriminator,
+CDT-281; card #1 MUST NOT carry it); `council_tier` / `grading_reason` from §3a;
+**`max_loc` copied from card #1** (null / number `n` / `"unbound"`). Every arg is built
 valid-by-construction so the writer never exit-64s (`self-answer.md` §4).
+
+**Card #2 mirrors the run's frozen budget (SPEC-033 M9b; CDT-667).** Card #2's
+`wall_clock_s` is measured against the caps the run froze at plan-approve, not against
+whatever the environment says now. Read the freeze from the run's decision ledger: the
+**latest** `plan-approve` card on card #1's `ticket_id` whose nested
+`budget.{tier,source,signals}` are **non-null** and whose `actor` is **not** `advisor` (an
+advisor card mirrors the freeze, so it is never a freeze source — SPEC-039 M43). Copy that
+snapshot verbatim into process-local `AUTOPILOT_BUDGET_META` and call `budget-check.sh`
+**argc=4** with the copied caps, then pass its `wall_clock_s` as arg 11. While a freeze
+exists this writer MUST NOT re-derive the caps from env — a mid-run env change never retunes
+a frozen run (the CDT-663 rule). Absent a freeze — no ledger, a pre-CDT-224 card with null
+nested keys, or a reader failure — use `self-answer.md` §3f **Path 3**'s argc-2 call shape
+with null nested keys, and set no META.
+A breach (exit 6) stays an outcome; exit 64 aborts the card. The freeze-select filter and
+the three-path branch live in `self-answer.md` §3f (cited, not restated); this section
+owns only the fact that card #2 rides them.
 
 `council_tier` and `grading_reason` extend `self-answer.md` §3f's call shape as two
 **optional trailing** args; `max_loc` is a further optional (CDT-223 / writer M16).

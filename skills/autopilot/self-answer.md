@@ -97,7 +97,9 @@ Argc=2 = env or static M (helper reads `AUTOPILOT_ITERATION_CAP` /
 re-read those env vars). `derive` = raw AC9 table (helper MUST NOT read env).
 
 A **freeze** is the latest `gate=plan-approve` card from `read-cards.sh
-<ticket_id>` whose nested `budget.tier` / `source` / `signals` are **non-null**.
+<ticket_id>` whose nested `budget.tier` / `source` / `signals` are **non-null**
+and whose `actor` is not `advisor` (an advisor card mirrors the freeze, so it
+is never a freeze source — SPEC-039 M43).
 **Rule:** it applies when that card's `ticket_id` matches the envelope **and**
 (the card `run_id` equals the envelope `run_id` **or** this invocation is a
 resume of this ticket: Step 0 `RESUMING=true` because plan Tracking
@@ -267,6 +269,10 @@ describes live only here (not copied a second time). This is card #1's own
 call shape; `end-state.md`'s halt cards cite this fence too. `ship-gate-council.md`
 §6's card #2 does **not** use it — this fence has no `<council_tier>` /
 `<grading_reason>` slots, so card #2 keeps its own call shape (argc 15/16).
+The freeze-read rule is shared by every card #2-class writer, so it is stated
+once: the M14 ship-gate council card (`ship-gate-council.md` §6) and the advisor
+card (SPEC-039 M43) each read the same freeze and call `budget-check.sh` argc=4
+on the copied caps.
 Every angle-bracket token below is a
 literal substitution the caller makes before running the block; `<tasks>`
 `<projected_loc>` `<waves>` only matter on path 2 (first freeze at
@@ -294,7 +300,7 @@ RATIONALE=$(rationale_text)
 
 CARDS=$(bash "$READ_CARDS" "<ticket_id>" 2>/dev/null) || CARDS='[]'
 FREEZE=$(printf '%s' "$CARDS" | jq -c --arg rid "<run_id>" --arg res "<RESUMING>" '
-  [.[] | select(.gate=="plan-approve" and .budget.tier!=null and .budget.source!=null and .budget.signals!=null)
+  [.[] | select(.gate=="plan-approve" and .budget.tier!=null and .budget.source!=null and .budget.signals!=null and .actor!="advisor")
        | select(.run_id==$rid or $res=="true")]
   | last
   | if .==null then empty else .budget | {iteration_cap, wall_clock_cap_s, tier, source, signals} end

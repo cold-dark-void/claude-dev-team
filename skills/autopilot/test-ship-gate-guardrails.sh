@@ -3,8 +3,10 @@
 # skills/autopilot/test-ship-gate-guardrails.sh — SPEC-033 M14(k) static
 # guardrail test (WP 1-14 T9).
 #
-# Static text asserts only. Starts no live council. Writes only under a
-# private TMPDIR (mutated copies of the real docs, for the bite tests).
+# Static text asserts, plus the g12 executable freeze-mirror family. Starts no
+# live council and no LLM. Writes only under a private TMPDIR (mutated copies
+# of the real docs, for the bite tests; a git-init fixture MROOT holding the
+# g12 fixture ledger, for the freeze-mirror checks).
 #
 # Covers SPEC-033 AC B (the 5 M14 guardrails), asserted in BOTH
 # specs/core/SPEC-033-autopilot-policy.md and skills/autopilot/ship-gate-council.md:
@@ -41,6 +43,14 @@
 #        byte-identical-mapper clause, and the `dRPDwyJo` worked example.
 #        g11b asserts every `ship-gate-verdict.sh --meta` call takes exactly one
 #        `--meta` argument (SPEC-033 M14(i): merge first, then one call).
+#   g12 (CDT-667 / SPEC-033 M9b, mirrors SPEC-039 M43) — §6 card #2 mirrors the
+#        run's frozen budget: the freeze-read conditions (latest `plan-approve`
+#        card, non-null nested `budget.{tier,source,signals}`, `actor` not
+#        `advisor`), the process-local `AUTOPILOT_BUDGET_META` channel,
+#        `budget-check.sh` argc=4 on the copied caps, the
+#        MUST-NOT-re-derive-from-env rule, and the §3f Path-3 argc-2 fallback.
+#        One bite per needle, plus executable freeze-mirror checks (g12c-g12f)
+#        on a fixture ledger seeded through the real writer.
 #   a6 — SPEC-033 has a dated 2026-09-28 WP 1-16 row naming M14(g), M14(j),
 #        the no-elision rule and the judge caps ("can only lower a
 #        confidence"); SPEC-013 has a dated 2026-09-28 WP 1-16 row.
@@ -85,6 +95,8 @@ VERDICT_SH="$SCRIPT_DIR/ship-gate-verdict.sh"
 VERDICT_BLOB="$SCRIPT_DIR/fixtures/ship-gate-guardrails/ship-gate-verdict.blob"
 APPEND_CARD_SH="$SCRIPT_DIR/append-card.sh"
 APPEND_CARD_BLOB="$SCRIPT_DIR/fixtures/ship-gate-guardrails/append-card.blob"
+READ_CARDS_SH="$SCRIPT_DIR/read-cards.sh"
+BUDGET_CHECK_SH="$SCRIPT_DIR/budget-check.sh"
 GOLDEN_SGC_S5="$SCRIPT_DIR/fixtures/ship-gate-guardrails/sgc-s5.golden.md"
 ENGINE_SH="$ROOT/skills/council/engine.sh"
 SPEC013="$ROOT/specs/core/SPEC-013-adversarial-council-tribunal.md"
@@ -104,7 +116,7 @@ TMP=$(mktemp -d "${TMPDIR:-/tmp}/ship-gate-guardrails-test.XXXXXX")
 cleanup() { rm -rf "$TMP"; hermetic_cleanup; }
 trap cleanup EXIT
 
-for f in "$SPEC" "$SG" "$GOLDEN" "$GOLDEN_M14B" "$VERDICT_SH" "$VERDICT_BLOB" "$APPEND_CARD_SH" "$APPEND_CARD_BLOB" "$GOLDEN_SGC_S5" "$ENGINE_SH" "$SPEC013" "$W1" "$W2" "$W3" "$W4"; do
+for f in "$SPEC" "$SG" "$GOLDEN" "$GOLDEN_M14B" "$VERDICT_SH" "$VERDICT_BLOB" "$APPEND_CARD_SH" "$APPEND_CARD_BLOB" "$READ_CARDS_SH" "$BUDGET_CHECK_SH" "$GOLDEN_SGC_S5" "$ENGINE_SH" "$SPEC013" "$W1" "$W2" "$W3" "$W4"; do
   if [ ! -f "$f" ]; then
     echo "FAIL: fixture/source file missing: $f" >&2
     exit 1
@@ -804,6 +816,183 @@ if [ "${G11B_MUT:-0}" -ge 1 ]; then
   pass "g11b-bite mutated doc holds a mapper call with two --meta arguments -> check would fail"
 else
   fail "g11b-bite mutation produced no second --meta token"
+fi
+
+# =============================================================================
+# g12 (CDT-667 / SPEC-033 M9b, mirrors SPEC-039 M43) — card #2's writer mirrors
+# the run's FROZEN budget. §6's field-source paragraph must name: the freeze
+# read (latest plan-approve card with non-null nested budget.{tier,source,
+# signals} and actor not advisor), the process-local AUTOPILOT_BUDGET_META
+# channel, budget-check.sh argc=4 on the copied caps, the MUST-NOT-re-derive-
+# from-env rule, and the absent-freeze argc-2 fallback (self-answer.md §3f
+# Path 3). g12a static needles over the §6 extract, g12b the bite, g12c-g12f
+# the executable freeze-mirror family (the CDT-663 t41 pattern: a git-init
+# fixture MROOT under the private TMPDIR, seeded through the real writer).
+# =============================================================================
+extract_sgc_s6() {
+  awk '
+    /^## 6\./ { grab = 1 }
+    grab && /^## 7\./ { exit }
+    grab { print }
+  ' "$1"
+}
+
+G12_HEAD="mirrors the run"
+G12_N1="**latest** \`plan-approve\` card"
+G12_N2="budget.{tier,source,signals}"
+G12_N3="\`actor\` is **not** \`advisor\`"
+G12_N4="process-local \`AUTOPILOT_BUDGET_META\`"
+G12_N5="argc=4"
+G12_N6="MUST NOT re-derive the caps from env"
+G12_N7="\`self-answer.md\` §3f **Path 3**"
+G12_N8="argc-2"
+G12_N9="A breach (exit 6) stays an outcome"
+G12_N10="exit 64 aborts the card"
+
+extract_sgc_s6 "$SG" > "$TMP/g12-live-s6.md"
+if [ ! -s "$TMP/g12-live-s6.md" ]; then
+  fail "g12 could not extract the §6 card-append section from ship-gate-council.md"
+elif ! has "$TMP/g12-live-s6.md" "$G12_HEAD"; then
+  fail "g12 §6 section is not the frozen-budget mirror rule"
+else
+  G12_MISSING=""
+  for g12_needle in "$G12_N1" "$G12_N2" "$G12_N3" "$G12_N4" "$G12_N5" "$G12_N6" "$G12_N7" "$G12_N8" "$G12_N9" "$G12_N10"; do
+    has "$TMP/g12-live-s6.md" "$g12_needle" || G12_MISSING="$G12_MISSING $g12_needle"
+  done
+  if [ -z "$G12_MISSING" ]; then
+    pass "g12 ship-gate-council.md §6: freeze-read conditions, META channel, argc=4, no-env rule, Path-3 argc-2 fallback, exit 6/64 split"
+  else
+    fail "g12 ship-gate-council.md §6 frozen-budget rule missing:$G12_MISSING"
+  fi
+fi
+
+# g12-bite: remove each needle once from the §6 extract; the same needle test
+# must fail on the mutated copy.
+g12_i=0
+for g12_needle in "$G12_N1" "$G12_N2" "$G12_N3" "$G12_N4" "$G12_N5" "$G12_N6" "$G12_N7" "$G12_N8" "$G12_N9" "$G12_N10"; do
+  g12_i=$((g12_i + 1))
+  remove_line_substr "$TMP/g12-live-s6.md" "$TMP/g12-bite-$g12_i.md" "$g12_needle"
+  if has "$TMP/g12-bite-$g12_i.md" "$g12_needle"; then
+    fail "g12-bite mutation did not remove the §6 needle $g12_needle"
+  else
+    pass "g12-bite §6 loses '$g12_needle' -> check would fail"
+  fi
+done
+
+# --- g12c-g12f: executable freeze-mirror family (CDT-663 t41 pattern) --------
+# Private fixture MROOT: a git-init repo under the suite TMPDIR, so
+# append-card.sh / read-cards.sh resolve $MROOT there and touch nothing in the
+# worktree. The ambient caps are pinned to the static M defaults (25/2700) on
+# every call below, so a writer that re-derives from env is caught.
+require_cmd jq git
+FXM="$TMP/g12-fxm"
+FX_TICKET="CDT-667-TEST"
+G12_META='{"iteration_cap":40,"wall_clock_cap_s":10800,"tier":"L","source":"mixed","signals":{"tasks":8,"projected_loc":600,"waves":3}}'
+G12_AMBIENT="-u AUTOPILOT_BUDGET_META AUTOPILOT_ITERATION_CAP=25 AUTOPILOT_WALLCLOCK_CAP=2700"
+G12_EPOCH=$(date +%s)
+if ! git init -q "$FXM"; then
+  fail "g12c could not git-init the fixture MROOT $FXM"
+else
+  # g12c — seed the freeze card through the real writer, then re-run §3f
+  # Path 1's freeze-select filter and require the snapshot verbatim.
+  if ( cd "$FXM" && env $G12_AMBIENT AUTOPILOT_BUDGET_META="$G12_META" \
+      bash "$APPEND_CARD_SH" \
+      orchestrate "$FX_TICKET" plan-approve approve auto null 90 null \
+      "orch-667-1" 1 100 orchestrator "CDT-667 freeze fixture" ) >/dev/null 2>&1; then
+    pass "g12c freeze plan-approve card seeded on the fixture ledger"
+  else
+    fail "g12c append-card.sh rejected the freeze fixture"
+  fi
+  G12_CARDS=$( cd "$FXM" && bash "$READ_CARDS_SH" "$FX_TICKET" 2>/dev/null ) || G12_CARDS='[]'
+  # Filter copied verbatim from skills/autopilot/self-answer.md §3f Path 1.
+  G12_FREEZE=$(printf '%s' "$G12_CARDS" | jq -c --arg rid "orch-667-1" --arg res "false" '
+    [.[] | select(.gate=="plan-approve" and .budget.tier!=null and .budget.source!=null and .budget.signals!=null and .actor!="advisor")
+         | select(.run_id==$rid or $res=="true")]
+    | last
+    | if .==null then empty else .budget | {iteration_cap, wall_clock_cap_s, tier, source, signals} end
+  ')
+  if [ "$G12_FREEZE" = "$G12_META" ]; then
+    pass "g12c §3f Path-1 freeze filter mirrors the freeze verbatim ($G12_META)"
+  else
+    fail "g12c freeze filter gave '$G12_FREEZE' expected '$G12_META'"
+  fi
+
+  # g12g — the actor guard bites: a LATER plan-approve card written by the
+  # advisor actor (full nested keys, the M43 mirror shape, carrying the
+  # run's own run_id) must NOT become the freeze source — the filter skips
+  # it and the orchestrator card's snapshot survives as the freeze.
+  if ( cd "$FXM" && env $G12_AMBIENT AUTOPILOT_BUDGET_META="$G12_META" \
+      bash "$APPEND_CARD_SH" \
+      orchestrate "$FX_TICKET" plan-approve approve auto null 90 null \
+      "orch-667-1" 1 100 advisor "CDT-667 advisor mirror card (never a freeze source)" \
+      --advisor-json /dev/null ) >/dev/null 2>&1; then
+    G12_ADV=$( cd "$FXM" && bash "$READ_CARDS_SH" "$FX_TICKET" 2>/dev/null \
+      | jq -c --arg rid "orch-667-1" --arg res "false" '
+        [.[] | select(.gate=="plan-approve" and .budget.tier!=null and .budget.source!=null and .budget.signals!=null and .actor!="advisor")
+             | select(.run_id==$rid or $res=="true")]
+        | last
+        | if .==null then empty else .budget | {iteration_cap, wall_clock_cap_s, tier, source, signals} end' )
+    if [ "$G12_ADV" = "$G12_META" ]; then
+      pass "g12g advisor plan-approve card is not a freeze source (the orchestrator freeze survives)"
+    else
+      fail "g12g the filter returned '$G12_ADV' — an advisor card became the freeze"
+    fi
+  else
+    fail "g12g could not seed the advisor mirror card"
+  fi
+
+  # g12d — budget-check.sh argc=4 on the copied caps reports those caps, with
+  # the ambient caps set to the static M defaults in the same environment.
+  G12_BC=$( ( cd "$FXM" && env $G12_AMBIENT bash "$BUDGET_CHECK_SH" 1 "$G12_EPOCH" 40 10800 ) || true )
+  if printf '%s' "$G12_BC" | jq -e \
+      '.iteration_cap == 40 and .wall_clock_cap_s == 10800 and .blocking_condition == null' >/dev/null 2>&1; then
+    pass "g12d budget-check.sh argc=4 uses the copied caps (40/10800), not the ambient 25/2700"
+  else
+    fail "g12d budget-check.sh argc=4 gave '$G12_BC' — caps not copied from the freeze"
+  fi
+
+  # g12e — the appended card #2 carries the freeze verbatim when META is set.
+  if ( cd "$FXM" && env $G12_AMBIENT AUTOPILOT_BUDGET_META="$G12_META" \
+      bash "$APPEND_CARD_SH" \
+      orchestrate "$FX_TICKET" ship-choice merge auto null 90 null \
+      "orch-667-1" 2 3600 ship-gate-council "CDT-667 card #2 (frozen caps)" \
+      full "graded: full" ) >/dev/null 2>&1; then
+    pass "g12e card #2 appended argc 15 on the fixture ledger"
+  else
+    fail "g12e append-card.sh rejected the card #2 fixture"
+  fi
+  G12_CARD2=$( cd "$FXM" && bash "$READ_CARDS_SH" "$FX_TICKET" 2>/dev/null \
+    | jq -c 'map(select(.actor == "ship-gate-council")) | last' )
+  if printf '%s' "$G12_CARD2" | jq -e \
+      '.budget.wall_clock_cap_s == 10800 and .budget.iteration_cap == 40
+       and .budget.tier == "L" and .budget.source == "mixed"
+       and .budget.signals.tasks == 8' >/dev/null 2>&1; then
+    pass "g12e card #2 records the freeze verbatim (wall_clock_cap_s 10800, tier L, mixed, signals.tasks 8)"
+  else
+    fail "g12e card #2 budget is '$(printf '%s' "$G12_CARD2" | jq -c '.budget')' — expected the 40/10800 L/mixed freeze"
+  fi
+
+  # g12f — the defect control: with no META the writer falls back to the ambient
+  # caps, which is exactly the CDT-660 ledger signature (2700 recorded
+  # post-freeze). This proves g12e bites on a real env-derived card.
+  if ( cd "$FXM" && env $G12_AMBIENT \
+      bash "$APPEND_CARD_SH" \
+      orchestrate "$FX_TICKET" ship-choice merge auto null 90 null \
+      "orch-667-2" 3 3600 ship-gate-council "CDT-667 ambient control card" \
+      full "graded: full" ) >/dev/null 2>&1; then
+    G12_CTL=$( cd "$FXM" && bash "$READ_CARDS_SH" "$FX_TICKET" 2>/dev/null \
+      | jq -c 'map(select(.run_id == "orch-667-2")) | last' )
+    if printf '%s' "$G12_CTL" | jq -e \
+        '.budget.wall_clock_cap_s == 2700 and .budget.tier == null' >/dev/null 2>&1; then
+      pass "g12f no-META card records the ambient 2700 default — the CDT-660 defect shape g12e must not"
+    else
+      fail "g12f control card budget is '$(printf '%s' "$G12_CTL" | jq -c '.budget')' — expected the ambient 2700"
+    fi
+  else
+    fail "g12f append-card.sh rejected the no-META control card"
+  fi
+
+  rm -f "$FXM/.claude/autopilot/$FX_TICKET.jsonl"
 fi
 
 # =============================================================================

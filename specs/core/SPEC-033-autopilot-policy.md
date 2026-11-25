@@ -1832,6 +1832,36 @@ Format and rules: M14(g) and M14(h). Each ticket that ships through M14 has one
   skills/autopilot/test-backoff-state.sh` and `bash skills/ci-watch/test-poll.sh`
   each exit 0.
 
+### CDT-667
+
+- **AC1.** The M14 ship-gate council card (card #2) mirrors the run's frozen budget
+  (`skills/autopilot/ship-gate-council.md` §6): its writer reads the freeze — the latest
+  `plan-approve` card on card #1's `ticket_id` whose nested `budget.{tier,source,signals}`
+  are non-null and whose `actor` is not `advisor` — passes that snapshot verbatim as
+  process-local `AUTOPILOT_BUDGET_META` to `append-card.sh`, and measures `wall_clock_s`
+  with `budget-check.sh` argc=4 on the copied caps. While a freeze exists it MUST NOT
+  re-derive the caps from env. On a seeded L-tier 40/10800 `mixed` freeze, the §3f Path-1
+  filter returns that snapshot verbatim, the argc=4 call reports caps 40/10800 in an
+  environment that carries 25/2700, and the appended card records
+  `budget.wall_clock_cap_s` 10800.
+  Verify: bash skills/autopilot/test-ship-gate-guardrails.sh
+- **AC2.** Absent a freeze — no ledger, a pre-CDT-224 card with null nested keys, or a
+  reader failure — card #2 takes `skills/autopilot/self-answer.md` §3f Path 3's argc-2
+  shape with null nested keys and no META, and a writer with no META records the ambient
+  cap (the recorded CDT-660 defect shape: 2700 on a run that froze 86400). A breach
+  (exit 6) stays an outcome; only exit 64 aborts the card.
+  Verify: bash skills/autopilot/test-ship-gate-guardrails.sh
+- **AC3.** The `g12` family in `skills/autopilot/test-ship-gate-guardrails.sh` proves the
+  mirror and bites: static needles over the §6 extract for every freeze-read condition, the
+  META channel, argc=4, the no-env rule and the Path-3 argc-2 fallback; one bite per needle;
+  and executable checks that seed the freeze through the real writer, re-run the §3f Path-1
+  filter, and read back the appended card from a fixture ledger.
+  Verify: bash skills/autopilot/test-ship-gate-guardrails.sh
+- **AC4.** [process] This change is docs plus tests: no script behaviour changes, and the
+  gate is the suites `skills/autopilot/test-ship-gate-guardrails.sh`,
+  `skills/autopilot/test-contract-prose.sh`, `skills/autopilot/test.sh` and
+  `tools/spec-lint.sh`, each exiting 0 on the changed tree.
+
 ---
 
 ## Test
@@ -1847,6 +1877,7 @@ Format and rules: M14(g) and M14(h). Each ticket that ships through M14 has one
 
 | Date | Change |
 |------|--------|
+| 2026-11-25 | CDT-667: **the M14 ship-gate council card mirrors the run's frozen budget.** Recorded case (CDT-660 ledger, card 8): card #2 carried `budget.wall_clock_cap_s` 2700 while the run froze 86400 at plan-approve, and its own `wall_clock_s` exceeded the cap it stated. Cause: `skills/autopilot/ship-gate-council.md` §6 owned card #2's write shape as "per `self-answer.md` §3f — not restated", and §3f names the argc-2 env-deriving call, so the writer read the ambient/default cap. Now §6 owns the freeze read for card #2: the latest `plan-approve` card on card #1's ticket with non-null nested `budget.{tier,source,signals}` and `actor` not `advisor`, copied verbatim into process-local `AUTOPILOT_BUDGET_META` and measured with `budget-check.sh` argc=4; the caps are never re-derived from env while a freeze exists (the CDT-663 rule, SPEC-039 M43); absent a freeze the §3f Path-3 argc-2 shape holds with null nested keys; exit 6 stays an outcome, only exit 64 aborts the card. `self-answer.md` §3f gains one pointer sentence (the rule body stays in one place per writer home). No script change, no card schema change, no new BC. New `### CDT-667` AC subsection; the `g12` family in `skills/autopilot/test-ship-gate-guardrails.sh` (static needles, per-needle bites, executable freeze-mirror checks on a fixture ledger). Status stays ACTIVE. |
 | 2026-11-24 | CDT-644: **M14(g) writer-pass findings, recorded on the CDT-661 spec change.** The control-plane Go lane hit three M14(g) writer traps; each is a rule this spec already holds, so no requirement text changes and the findings are recorded with their dispositions. **1. The AC-bullet form.** An AC bullet MUST read `- **ACn.** <text>`; a dash title (`- **AC1 — Title.**`) is not a bullet to `skills/council/m14-ac-split.sh`, so the subsection fails case 5 and every later finding stays hidden — fix the bullet form first, then re-run, because the checker is fail-fast. Disposition: closed — SPEC-044's AC blocks carry the bullet form (its 2026-11-20 spec-lint pass) and `### CDT-661` AC1–AC7 follow it. **2. The spec-lint mirror check.** `skills/orchestrate/ticket-class-receipts-test.sh` lints `git archive HEAD`, not the worktree: an uncommitted spec edit is invisible to the mirror (and `m14-ac-split` in `HEAD` mode reports case 3 "subsection missing"), so the spec fix must be committed before the suites that assert a clean tree can pass. Disposition: closed — CDT-661 lands its SPEC-044 edit in its own `docs:` commit before the suite gate runs. **3. The `[process]`-AC guards.** Guard 1 is lexical: a `[process]` AC's own text MUST hold an execution-vocabulary word (test, suite, runner, gate, CI, release — `skills/council/m14-ac-split.sh:257`), else case 8; case 5 also fires on any line in the subsection that is not blank, not an AC bullet, and not a continuation, so nested content takes the `  - ` (two-space dash) indent and a 4+ space indent is a finding; a `[process]` AC never carries a `Verify:` line (case 10). Disposition: closed — `### CDT-661` AC7 names the suite and the recorded transcript fixture its capture ships against, holds no Verify line, and the subsection splits at exit 0 with 6 technical ACs; `bash tools/spec-lint.sh` exits 0 with no SPEC-044 finding. |
 | 2026-11-24 | CDT-617: **watchdog back-off consumes M7 halt cards through M13.** A CI-watch cron that re-fires through a hard block re-asks a question a human must answer; the watch now backs off. Reader `skills/autopilot/backoff-state.sh` (check/record/reset) decides "open hard blocker" from the ledger's LAST card (`halt` + BC1-4/BC6-8; BC5 is a reroute, M6/M7) via `read-cards.sh`, fail-open on any unreadable ledger; the timer file `<ticket_id>.backoff.json` is local state, never a card — M13 append-only and the card schema are unchanged, no ninth BC, no gate value. Poll behaviour and the env knobs are owned by SPEC-017 § Watchdog back-off on an open hard blocker (cited, not restated); SPEC-002 gains the hook identical-iteration degrade. New `### CDT-617` cross-reference section. Status stays ACTIVE. |
 | 2026-11-22 | CDT-597: **the master-fold discipline — the default-branch tip must equal a release tag, so land-no-release lands on a registered `land/<ticket>` branch.** Recorded case: a `--autopilot=master` squash fold was committed and pushed straight onto `master`, leaving the tip untagged — no version, no tag, no CHANGELOG entry, and no record of what shipped. Now (1) **M2 master-tag invariant**: the default-branch tip MUST equal a release tag at every pushed state, enforced by `githooks/pre-push` through the new `skills/release/check-master-tagged.sh` CLI (exit 0 on an exact-match tag, 1 with the `/release-train register <branch>` remediation, 64 usage); `install-git-hooks.sh` installs both hooks, and the `/release` fold commit needs no exception because it is itself the tagged tip. (2) **M2/N3a land target**: the sentinel's land target is a new `land/<ticket>` branch cut at the worktree baseline — non-force push, then `train-lib.sh register land/<ticket> --bump patch` with the registered order printed; the default branch never satisfies the land target on this path, and the ancestry clause measures the land branch against its recorded base (its own tip on a resume, baseline HEAD when new), so force-needed history still halts fail-closed. (3) **Registration is queue-only**: the path runs no `/release`, advances no queue entry, and bypasses no part of the train's landing loop (SPEC-023); the next `/release` folds the branch and its fold commit is the tag. No new BC, no card schema change, no new gate value; BC3 stays never-waived for force-push. Docs synced: `skills/autopilot/end-state.md` (§1/§3/§5-land-no-release/§6/§6.5/§7), `skills/autopilot/SKILL.md` (M2, terminal table), `skills/autopilot/ship-pipeline.md`, `skills/orchestrate/steps/11-ship.md`, `skills/orchestrate/steps/00-resolve.md`, `AGENTS.md`, SPEC-010 Covers + H note. New `### CDT-597` AC subsection. Status stays ACTIVE. |
