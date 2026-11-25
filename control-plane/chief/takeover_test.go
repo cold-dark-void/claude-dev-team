@@ -1098,6 +1098,27 @@ func seedSessionRow(t *testing.T, eng *journal.Engine, runID, id string, closed 
 	}
 }
 
+// seedPendingPremiseRow records the crash window CDT-665 M16 names: the run's
+// agent.premise intent row with no outcome — the intent landed and the frame
+// never reached the child. The effect name is spelled out (the chief package
+// names no agent effect of its own), as the CDT-661 seeding helper does.
+func seedPendingPremiseRow(t *testing.T, eng *journal.Engine, runID, text string) {
+	t.Helper()
+	raw, err := json.Marshal(map[string]any{"premise": text, "attempt": 1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ev, err := journal.NewEvent(runID, journal.KindSideEffect, journal.Effect{
+		Effect: "agent.premise", Intent: raw})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ev.IdempotencyKey = fmt.Sprintf("agent:premise:%s#1", runID)
+	if _, _, err := eng.AppendChecked(context.Background(), ev); err != nil {
+		t.Fatalf("append %s premise intent: %v", runID, err)
+	}
+}
+
 // lastStartIntentArgs is the argv of the run's newest agent.start intent.
 func lastStartIntentArgs(t *testing.T, eng *journal.Engine, runID string) []string {
 	t.Helper()

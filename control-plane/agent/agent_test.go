@@ -1034,3 +1034,332 @@ func TestJournalSessionIDReplaysThePendingIntent(t *testing.T) {
 		t.Errorf("rows keyed %s = %d, want the replayed intent, never a duplicate", key, n)
 	}
 }
+
+// ---------------------------------------------------------------------------
+// SPEC-044 CDT-665 — the work premise reaches the session's first turn
+// ---------------------------------------------------------------------------
+
+// premiseTestFrame is the test host's first-turn frame — the shape a host
+// adapter's per-host spec owns. It names the session, so a frame rendered
+// before the capture names the id is visible in the bytes the child read.
+func premiseTestFrame(sessionID, premise string, seq int) (string, bool) {
+	if sessionID == "" {
+		return "", false
+	}
+	return fmt.Sprintf(`{"type":"prompt","session_id":%q,"premise":%q,"id":%d}`,
+		sessionID, premise, seq), true
+}
+
+// firstFrameFile points the seam child's stdin capture at a file of its own.
+// The child scripts below read one line of stdin — the session's first frame —
+// and write it out, the step the shipped contract never proved.
+func firstFrameFile(t *testing.T) string {
+	t.Helper()
+	out := filepath.Join(t.TempDir(), "first-frame.txt")
+	t.Setenv("CDT665_TEST_FIRST_FRAME_OUT", out)
+	return out
+}
+
+// premiseAttemptPair reads the attempt number out of both halves of one
+// premise pair. A re-delivery closes the pair the dead attempt opened, so the
+// two numbers must agree.
+func premiseAttemptPair(t *testing.T, eng *journal.Engine, runID, key string) (int, int) {
+	t.Helper()
+	at := func(raw []byte) int {
+		var p struct {
+			Attempt int `json:"attempt"`
+		}
+		if json.Unmarshal(raw, &p) != nil {
+			return 0
+		}
+		return p.Attempt
+	}
+	e := effectByKey(t, eng, runID, key)
+	return at(e.Intent), at(e.Outcome)
+}
+
+// readFirstFrame decodes the frame the seam child read from its stdin.
+func readFirstFrame(t *testing.T, out string) (sessionID, premise string) {
+	t.Helper()
+	raw, err := os.ReadFile(out)
+	if err != nil {
+		t.Fatalf("first-frame output: %v", err)
+	}
+	var f struct {
+		SessionID string `json:"session_id"`
+		Premise   string `json:"premise"`
+	}
+	if err := json.Unmarshal(raw, &f); err != nil {
+		t.Fatalf("first frame is not JSON: %v (%q)", err, raw)
+	}
+	return f.SessionID, f.Premise
+}
+
+// seedDeadAttempt is a dead supervisor's trail for a takeover: claim, start,
+// the closed attempt-1 spawn, the premise rows the dead agent left, and the
+// handover pidfile that names a dead runner. closed picks the shape: the
+// premise pair that landed, or the crash window's pending intent. The dead
+// lease is aged past its stall limit, so the takeover is legal.
+func seedDeadAttempt(t *testing.T, eng *journal.Engine, runID string, closed bool) {
+	t.Helper()
+	ctx := context.Background()
+	m := run.New(eng, runID)
+	m.Getenv = func(string) string { return stallLimit }
+	token, err := m.Claim(ctx, deadOwner, runID, "orchestrate", "sonnet")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := m.Start(ctx, deadOwner, token, "sonnet"); err != nil {
+		t.Fatal(err)
+	}
+	seq, _, err := m.Intent(ctx, deadOwner, token, fmt.Sprintf("agent:start:%s#1", runID),
+		EffectStart, map[string]any{"command": "sh", "attempt": 1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := m.Outcome(ctx, deadOwner, token, seq, EffectStart,
+		map[string]any{"pid": 999999, "attempt": 1}); err != nil {
+		t.Fatal(err)
+	}
+	key := fmt.Sprintf("agent:premise:%s#1", runID)
+	intent := map[string]any{"premise": "the seeded premise", "attempt": 1}
+	ps, _, err := m.Intent(ctx, deadOwner, token, key, EffectPremise, intent)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if closed {
+		if _, err := m.Outcome(ctx, deadOwner, token, ps, EffectPremise,
+			map[string]any{"delivered": true, "attempt": 1}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := writePIDFile(runID, 999999, 999999); err != nil {
+		t.Fatal(err)
+	}
+	time.Sleep(takeoverWait)
+}
+
+// AC1/AC2: the premise of a start is the session's first turn. The frame the
+// child read carries the text and the captured session id, and the journal
+// carries one closed pair for the attempt — the intent row and its outcome.
+func TestSuperviseDeliversThePremiseAsTheFirstTurn(t *testing.T) {
+	eng := newEngine(t)
+	runID := "CDT-665"
+	out := firstFrameFile(t)
+	sc := &sessionCapture{}
+	a := &Agent{Runner: Native{Stdout: sc, Stderr: io.Discard}}
+
+	const premise = "Fix the redirect: the premise reaches the first turn."
+	req := startReq(runID,
+		`printf 'sess-1\n'; read l; printf '%s\n' "$l" > "$CDT665_TEST_FIRST_FRAME_OUT"`)
+	req.Premise = premise
+	req.PremiseFrame = premiseTestFrame
+	if err := a.Supervise(context.Background(), eng, req); err != nil {
+		t.Fatalf("supervise: %v", err)
+	}
+
+	sessionID, delivered := readFirstFrame(t, out)
+	if sessionID != "sess-1" || delivered != premise {
+		t.Errorf("first frame = (%q, %q), want the captured id and the premise",
+			sessionID, delivered)
+	}
+
+	key := "agent:premise:" + runID + "#1"
+	e := effectByKey(t, eng, runID, key)
+	if e.Effect != EffectPremise || e.Pending() {
+		t.Fatalf("premise effect = %+v, want a closed agent.premise row pair", e)
+	}
+	if !strings.Contains(string(e.Intent), `"premise":"`+premise+`"`) ||
+		!strings.Contains(string(e.Intent), `"attempt":1`) {
+		t.Errorf("intent %s does not carry the premise and the attempt", e.Intent)
+	}
+	if !strings.Contains(string(e.Outcome), `"delivered":true`) {
+		t.Errorf("outcome %s does not close the delivery", e.Outcome)
+	}
+	if n := countKeyRows(t, eng, runID, key); n != 1 {
+		t.Errorf("rows keyed %s = %d, want the one intent", key, n)
+	}
+	if n := countEffectRows(t, eng, runID, EffectPremise); n != 2 {
+		t.Errorf("agent.premise rows = %d, want the intent and its outcome", n)
+	}
+	if st := state(t, eng, runID); st.Name() != "completed" {
+		t.Errorf("state = %s, want completed", st.Name())
+	}
+}
+
+// The ACP dependency: the premise frame names the session, and the id arrives
+// in the host's session/new response. The delivery rides the tick that names
+// the id — it never renders a frame with an empty session, and the earlier
+// unnamed ticks harm nothing.
+func TestSupervisePremiseWaitsForTheCapturedSessionID(t *testing.T) {
+	eng := newEngine(t)
+	runID := "CDT-665"
+	out := firstFrameFile(t)
+	r := &lateSessionRunner{
+		Native: Native{Stdout: io.Discard, Stderr: io.Discard},
+		id:     "sess-late", since: time.Now(), late: 350 * time.Millisecond,
+	}
+	a := &Agent{Runner: r}
+
+	const premise = "The premise waits for the session it names."
+	req := startReq(runID,
+		`sleep 0.4; read l; printf '%s\n' "$l" > "$CDT665_TEST_FIRST_FRAME_OUT"`)
+	req.Premise = premise
+	req.PremiseFrame = premiseTestFrame
+	if err := a.Supervise(context.Background(), eng, req); err != nil {
+		t.Fatalf("supervise: %v", err)
+	}
+
+	sessionID, delivered := readFirstFrame(t, out)
+	if sessionID != "sess-late" || delivered != premise {
+		t.Errorf("first frame = (%q, %q), want the late id and the premise",
+			sessionID, delivered)
+	}
+	if n := countEffectRows(t, eng, runID, EffectPremise); n != 2 {
+		t.Errorf("agent.premise rows = %d, want one closed pair", n)
+	}
+}
+
+// The bounded poll: a start whose runner never names a session cannot render
+// the frame. The pair closes undelivered with the reason, and the run rides on
+// unharmed — an un-renderable premise is never a halt and never a hang.
+func TestSupervisePremiseClosesUndeliveredPastTheSessionWait(t *testing.T) {
+	eng := newEngine(t)
+	runID := "CDT-665"
+	a := &Agent{Runner: Native{Stdout: io.Discard, Stderr: io.Discard},
+		PremiseSessionWait: 250 * time.Millisecond}
+
+	req := startReq(runID, "sleep 1")
+	req.Premise = "A premise no frame can carry."
+	req.PremiseFrame = premiseTestFrame
+	if err := a.Supervise(context.Background(), eng, req); err != nil {
+		t.Fatalf("supervise: %v", err)
+	}
+
+	key := "agent:premise:" + runID + "#1"
+	e := effectByKey(t, eng, runID, key)
+	if e.Pending() {
+		t.Fatalf("the premise intent is pending: %+v", e)
+	}
+	if !strings.Contains(string(e.Outcome), `"delivered":false`) {
+		t.Errorf("outcome %s, want delivered false", e.Outcome)
+	}
+	if !strings.Contains(string(e.Outcome), "session") {
+		t.Errorf("outcome %s names no cause for the undelivered premise", e.Outcome)
+	}
+	if n := countEffectRows(t, eng, runID, EffectPremise); n != 2 {
+		t.Errorf("agent.premise rows = %d, want one closed pair", n)
+	}
+	if st := state(t, eng, runID); st.Name() != "completed" {
+		t.Errorf("state = %s, want completed: an undelivered premise harms no run", st.Name())
+	}
+}
+
+// AC3: a takeover re-adoption of a run whose premise pair landed sends no
+// second turn. The child sits reading stdin — the 0-CPU shape of the defect —
+// and the re-adoption writes it nothing at all, and journals no new row.
+func TestSuperviseTakeoverSkipsAClosedPremiseRow(t *testing.T) {
+	eng := newEngine(t)
+	runID := "CDT-665"
+	seedDeadAttempt(t, eng, runID, true)
+	out := firstFrameFile(t)
+	sc := &sessionCapture{}
+	a := &Agent{Runner: Native{Stdout: sc, Stderr: io.Discard}}
+	ctx := context.Background()
+
+	req := startReq(runID, `printf 'sess-1\n'; cat > "$CDT665_TEST_FIRST_FRAME_OUT"`)
+	req.Premise = "the seeded premise"
+	req.PremiseFrame = premiseTestFrame
+	done := supervise(t, a, eng, req)
+	// waitRunner's record check passes on the dead attempt's handover record
+	// (it names pid 999999), so wait for the re-adoption's own runner record
+	// before stopping it — the way the orphan-kill test does.
+	waitFor(t, eng, runID, func(st *journal.State) bool {
+		if st.Status != journal.StatusRunning {
+			return false
+		}
+		rec, err := readPIDFile(runID)
+		return err == nil && rec.RunnerPID > 0 && rec.RunnerPID != 999999
+	}, "the re-adoption's own runner record")
+
+	if n := countEffectRows(t, eng, runID, EffectPremise); n != 2 {
+		t.Errorf("agent.premise rows = %d, want the dead attempt's pair and no new row", n)
+	}
+	// End the run: the child blocks on stdin, which is what the delivery
+	// would have written to.
+	if err := a.Stop(ctx, eng, runID, 0); err != nil {
+		t.Fatalf("stop: %v", err)
+	}
+	if err := <-done; err != nil {
+		t.Fatalf("supervise: %v", err)
+	}
+	raw, err := os.ReadFile(out)
+	if err != nil {
+		t.Fatalf("first-frame output: %v", err)
+	}
+	if strings.TrimSpace(string(raw)) != "" {
+		t.Errorf("the re-adoption re-sent the premise: %q", raw)
+	}
+}
+
+// AC4: the crash window is the pending premise row the takeover performs. The
+// frame the child read carries the journaled text — the re-spawn carries no
+// premise of its own — and it lands exactly once, closing the row.
+func TestSuperviseTakeoverRedeliversThePendingPremiseRow(t *testing.T) {
+	eng := newEngine(t)
+	runID := "CDT-665"
+	seedDeadAttempt(t, eng, runID, false)
+	out := firstFrameFile(t)
+	sc := &sessionCapture{}
+	a := &Agent{Runner: Native{Stdout: sc, Stderr: io.Discard}}
+
+	req := startReq(runID,
+		`printf 'sess-1\n'; read l; printf '%s\n' "$l" > "$CDT665_TEST_FIRST_FRAME_OUT"`)
+	req.PremiseFrame = premiseTestFrame
+	if err := a.Supervise(context.Background(), eng, req); err != nil {
+		t.Fatalf("supervise: %v", err)
+	}
+
+	_, delivered := readFirstFrame(t, out)
+	if delivered != "the seeded premise" {
+		t.Errorf("first frame carries %q, want the premise of the pending row", delivered)
+	}
+	key := "agent:premise:" + runID + "#1"
+	e := effectByKey(t, eng, runID, key)
+	if e.Pending() {
+		t.Fatalf("the pending premise row survived the re-delivery: %+v", e)
+	}
+	if !strings.Contains(string(e.Outcome), `"delivered":true`) {
+		t.Errorf("outcome %s does not close the delivery", e.Outcome)
+	}
+	if n := countKeyRows(t, eng, runID, key); n != 1 {
+		t.Errorf("rows keyed %s = %d, want the replayed intent, never a duplicate", key, n)
+	}
+	if n := countEffectRows(t, eng, runID, EffectPremise); n != 2 {
+		t.Errorf("agent.premise rows = %d, want the seeded intent and its outcome", n)
+	}
+	// The trail names one attempt in both halves: the outcome closes the pair
+	// the dead attempt opened, not the re-spawn's own count.
+	if ia, oa := premiseAttemptPair(t, eng, runID, key); ia != 1 || oa != 1 {
+		t.Errorf("premise pair carries attempt %d (intent) / %d (outcome), want 1/1 under %s",
+			ia, oa, key)
+	}
+	if st := state(t, eng, runID); st.Name() != "completed" {
+		t.Errorf("state = %s, want completed", st.Name())
+	}
+}
+
+// A start that carries no premise journals nothing and writes nothing: the
+// premise row belongs to the start that has a premise.
+func TestSuperviseWithNoPremiseJournalsNoPremiseRow(t *testing.T) {
+	eng := newEngine(t)
+	runID := "CDT-665"
+	a := nativeAgent()
+
+	if err := a.Supervise(context.Background(), eng, startReq(runID, "sleep 0.2")); err != nil {
+		t.Fatalf("supervise: %v", err)
+	}
+	if n := countEffectRows(t, eng, runID, EffectPremise); n != 0 {
+		t.Errorf("agent.premise rows = %d, want 0: a start with no premise journals none", n)
+	}
+}

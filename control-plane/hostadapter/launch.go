@@ -30,6 +30,14 @@ type spec struct {
 	// the frame (AGENTS.md § Code Conventions), and the node agent delivers
 	// the frame at the next step boundary — never mid-turn.
 	SteerFrame func(sessionID, message string, seq int) string
+
+	// PremiseFrame encodes the work premise into the host's first-turn wire
+	// frame (SPEC-044 CDT-665). It answers ok=false when the frame cannot
+	// render yet: the ACP transport names the session in the frame, so a
+	// Grok premise waits for the captured session id (probe P-GK-ACP-1).
+	// nil is the matrix refusal — mini-swe, the host with no steerable
+	// route.
+	PremiseFrame func(sessionID, premise string, seq int) (frame string, ok bool)
 }
 
 // resumeSpec is the AC-4 named resume invocation of one host: a distinct
@@ -94,6 +102,59 @@ func encodeValue(v any) string {
 	return string(out)
 }
 
+// streamJSONUserFrame is Claude Code's stdin frame on the stream-json route:
+// a user message, absorbed at the next step boundary as a correction
+// (P-CC-C) and read as the prompt as the session's first turn (CDT-665). The
+// frame names no session.
+func streamJSONUserFrame(_, message string, _ int) string {
+	return omniJSON("type", "user", "message", json.RawMessage(omniJSON(
+		"role", "user",
+		"content", []any{json.RawMessage(omniJSON("type", "text", "text", message))})))
+}
+
+// grokPromptFrame is Grok's ACP session/prompt frame (JSON-RPC): the second
+// prompt merges into the running turn (P-GK-CTR-3c) and the first prompt
+// opens the session (CDT-665). The transport names the session in the frame,
+// and the id arrives in the session/new response (probe P-GK-ACP-1), so the
+// premise rides the tick that captures it.
+func grokPromptFrame(sessionID, message string, seq int) string {
+	return omniJSON(
+		"jsonrpc", "2.0",
+		"id", seq,
+		"method", "session/prompt",
+		"params", json.RawMessage(omniJSON(
+			"sessionId", sessionID,
+			"prompt", []any{json.RawMessage(omniJSON("type", "text", "text", message))})))
+}
+
+// ompSteerFrame is omp's RPC steer command (P-OMP-C-C): it enters the
+// steering queue and is delivered at the step boundary. The command names no
+// session.
+func ompSteerFrame(_, message string, _ int) string {
+	return omniJSON("type", "steer", "message", message)
+}
+
+// frameIgnoresSession adapts a frame builder whose frame names no session to
+// the premise contract: it renders on the first tick.
+func frameIgnoresSession(build func(sessionID, message string, seq int) string) func(string, string, int) (string, bool) {
+	return func(sessionID, message string, seq int) (string, bool) {
+		return build(sessionID, message, seq), true
+	}
+}
+
+// frameNeedsSession adapts a frame builder that names the session to the
+// premise contract: the premise is the session's first turn, so a frame with
+// no id to name is not renderable — the node agent retries on the next poll
+// tick (SPEC-044 CDT-665 AC1).
+func frameNeedsSession(build func(sessionID, message string, seq int) string) func(string, string, int) (string, bool) {
+	return func(sessionID, message string, seq int) (string, bool) {
+		if sessionID == "" {
+			return "", false
+		}
+		return build(sessionID, message, seq), true
+	}
+}
+
 // specs is the per-host contract table. Every field cites the matrix row or
 // probe that fixes it.
 var specs = map[Host]spec{
@@ -117,11 +178,8 @@ var specs = map[Host]spec{
 			Command: "claude",
 			ByID:    func(id string) []string { return []string{"-p", "--resume", id} },
 		},
-		SteerFrame: func(_, message string, _ int) string {
-			return omniJSON("type", "user", "message", json.RawMessage(omniJSON(
-				"role", "user",
-				"content", []any{json.RawMessage(omniJSON("type", "text", "text", message))})))
-		},
+		SteerFrame:   streamJSONUserFrame,
+		PremiseFrame: frameIgnoresSession(streamJSONUserFrame),
 	},
 
 	// Grok 1.0.92 — ACP transport (`grok agent --always-approve stdio`) is the
@@ -147,24 +205,15 @@ var specs = map[Host]spec{
 				return []string{"-p", "--output-format", "json", "--resume", id, "--fork-session"}
 			},
 		},
-		SteerFrame: func(sessionID, message string, seq int) string {
-			// ACP session/prompt (JSON-RPC): the second prompt merges into
-			// the running turn (P-GK-CTR-3c) — delivered at the next step
-			// boundary, never a separate turn.
-			//
-			// C8 wiring scope (review N3): over the ACP transport the
-			// session id arrives in the session/new response frame, which
-			// `acpSessionID` reads (CDT-661), so a live ACP session is
-			// capture-named and a steer can name it. Delivering the initial
-			// prompt over ACP is CDT-665's.
-			return omniJSON(
-				"jsonrpc", "2.0",
-				"id", seq,
-				"method", "session/prompt",
-				"params", json.RawMessage(omniJSON(
-					"sessionId", sessionID,
-					"prompt", []any{json.RawMessage(omniJSON("type", "text", "text", message))})))
-		},
+		// ACP session/prompt (JSON-RPC) is both frames: the second prompt
+		// merges into the running turn (P-GK-CTR-3c) — delivered at the next
+		// step boundary, never a separate turn — and the first prompt opens
+		// the session (CDT-665). Over the ACP transport the session id
+		// arrives in the session/new response frame, which `acpSessionID`
+		// reads (CDT-661), so a live ACP session is capture-named and both
+		// frames can name it.
+		SteerFrame:   grokPromptFrame,
+		PremiseFrame: frameNeedsSession(grokPromptFrame),
 	},
 
 	// omp — RPC mode is the steerable route (P-OMP-C-C: the
@@ -182,9 +231,8 @@ var specs = map[Host]spec{
 			ByID:     func(id string) []string { return []string{"-p", "--mode", "json", "-r", id} },
 			Continue: []string{"-p", "--mode", "json", "--continue"},
 		},
-		SteerFrame: func(_, message string, _ int) string {
-			return omniJSON("type", "steer", "message", message)
-		},
+		SteerFrame:   ompSteerFrame,
+		PremiseFrame: frameIgnoresSession(ompSteerFrame),
 	},
 
 	// mini-swe — documentation-only host: no streaming route, no resume

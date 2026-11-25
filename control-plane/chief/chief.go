@@ -460,10 +460,15 @@ func (c *Chief) startWait() time.Duration {
 // the ticket, the Surface as the workflow, and the resolved model — the
 // route's own trail in the closed event set, never a new kind. The
 // supervision lives under the chief's base context, not the caller's.
+//
+// The route's premise text rides the start as the run's work premise
+// (SPEC-044 CDT-665): the host adapter renders it into the session's
+// first-turn frame, so a routed run reaches work without an operator
+// correction.
 func (c *Chief) startRun(ctx context.Context, req RouteRequest, res *RouteResult) error {
 	errc := c.startSupervised(res.RunID, hostadapter.StartRequest{
 		RunID: res.RunID, Ticket: res.RunID, Workflow: res.Surface.Name,
-		Model: res.Model, Host: req.Host,
+		Model: res.Model, Host: req.Host, Premise: req.Text,
 	})
 
 	wait := c.startWait()

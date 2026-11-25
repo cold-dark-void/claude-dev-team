@@ -110,6 +110,13 @@ type StartRequest struct {
 	// before anything is written: an unproven name refuses the start
 	// fail-closed (AC5/B7).
 	Credentials []InjectCredential
+
+	// Premise is the run's work premise — the ticket record's text — which
+	// the node agent delivers as the session's first turn (SPEC-044
+	// CDT-665). The adapter renders it through the host's first-turn frame;
+	// a host with no steerable route refuses the start (AC5). Empty means
+	// this start has no premise to deliver.
+	Premise string
 }
 
 // Start begins one host session for a run. The matrix gates the route
@@ -117,10 +124,21 @@ type StartRequest struct {
 // cell verdict as a refusal (AC6) and no journal row is written — then the
 // adapter hands the host's launch argv to the node agent's start verb. The
 // returned Capture records the session id as the host names it in the
-// session output (AC2: captured at start).
+// session output (AC2: captured at start). A start that carries a Premise
+// gates the host's first-turn frame as well, and every start carries the
+// renderer the host's spec names (SPEC-044 CDT-665 M16/AC5).
 func (a *Adapter) Start(ctx context.Context, eng *journal.Engine,
 	req StartRequest) (*Capture, error) {
 	sp, err := a.launchOf(req.Host, req.Credentials)
+	if err != nil {
+		return nil, err
+	}
+	// CDT-665 AC1/AC5: the renderer travels with the spawn on the host's
+	// spec, so a takeover re-spawn with no premise text of its own can still
+	// perform the run's pending premise row. A start that carries a premise
+	// is matrix-gated first, so a host with no steerable route refuses the
+	// start and writes no row.
+	premiseFrame, err := premiseFrameOf(req.Host, req.Premise)
 	if err != nil {
 		return nil, err
 	}
@@ -128,6 +146,7 @@ func (a *Adapter) Start(ctx context.Context, eng *journal.Engine,
 	err = a.supervise(ctx, eng, req.RunID, req.Host, cap, agent.StartRequest{
 		RunID: req.RunID, Ticket: req.Ticket, Workflow: req.Workflow,
 		Model: req.Model, Command: sp.Command, Args: sp.Args, Env: sp.Env,
+		Premise: req.Premise, PremiseFrame: premiseFrame,
 	})
 	return cap, err
 }
@@ -208,9 +227,19 @@ func (a *Adapter) Resume(ctx context.Context, eng *journal.Engine,
 		args = rs.ByID(req.SessionID)
 	}
 	cap := NewCapture(req.Host)
+	// CDT-665 M16: the resume carries no premise text — the resumed session
+	// continues a session that already opened — yet it carries the host's
+	// first-turn renderer, because this verb is also a takeover re-adoption
+	// (SPEC-044 AC3/CDT-661): a premise row the dead stint left PENDING is
+	// performed by the re-spawn, from the text that row carries.
+	premiseFrame, err := premiseFrameOf(req.Host, "")
+	if err != nil {
+		return nil, err
+	}
 	err = a.supervise(ctx, eng, req.RunID, req.Host, cap, agent.StartRequest{
 		RunID: req.RunID, Ticket: req.Ticket, Workflow: req.Workflow,
 		Model: req.Model, Command: rs.Command, Args: args,
+		PremiseFrame: premiseFrame,
 	})
 	return cap, err
 }
@@ -221,6 +250,65 @@ func (a *Adapter) Resume(ctx context.Context, eng *journal.Engine,
 // Adapter.Resume and a fresh Start. A false answer is the cell's verdict, never
 // an error: an unknown host has no route either.
 func ResumeRoute(h Host) bool { return route(h, CapResume) == nil }
+
+// PremiseRoute returns the first-turn frame renderer of one host — the frame
+// that carries a run's work premise into the session as its first turn
+// (SPEC-044 CDT-665 AC1). It is the pre-check a caller runs before it asks
+// for a premise delivery. The matrix gates the route first: a host with no
+// steerable route answers with its cell verdict as a refusal (AC5), and an
+// unknown host is a named error. The renderer answers ok=false for as long as
+// the frame has no session id to name — the ACP transport names the session
+// in the frame (probe P-GK-ACP-1) — so a premise is never rendered blind.
+func PremiseRoute(h Host) (func(sessionID, premise string, seq int) (string, bool), error) {
+	if err := route(h, CapSteer); err != nil {
+		return nil, err
+	}
+	sp, err := specOf(h)
+	if err != nil {
+		return nil, err
+	}
+	if sp.PremiseFrame == nil {
+		return nil, refusalOf(h, CapSteer,
+			fmt.Sprintf("%s names no first-turn frame: the premise needs the steerable "+
+				"route the matrix (c) cell records", h))
+	}
+	return sp.PremiseFrame, nil
+}
+
+// premiseFrameOf resolves the first-turn renderer one spawn carries (SPEC-044
+// CDT-665 M16). It is gated on the host's SPEC, never on the caller's text.
+//
+// A start that carries a premise is gated by PremiseRoute: a host with no
+// steerable route refuses with its matrix cell (AC5) before any row lands.
+//
+// A spawn that carries no premise text attaches the renderer whenever the
+// host's spec names one. That is the takeover re-adoption: the run's PENDING
+// premise row carries the text (the chief stores no ticket text, M16), so the
+// renderer must travel with a re-spawn that has no premise of its own — with
+// nil here the re-adoption closes the row undelivered and the crash window is
+// never performed.
+//
+// A host whose spec names no first-turn frame answers nil, never a refusal: a
+// premise-less mini-swe re-spawn behaves exactly as it did before CDT-665
+// (its start refusal is the matrix (b) cell, which launchOf owns), and the
+// agent journals no premise row when it has neither a row nor text.
+func premiseFrameOf(h Host, premise string) (agent.PremiseFrame, error) {
+	if premise != "" {
+		render, err := PremiseRoute(h)
+		if err != nil {
+			return nil, err
+		}
+		return render, nil
+	}
+	sp, err := specOf(h)
+	if err != nil {
+		return nil, err
+	}
+	if sp.PremiseFrame == nil {
+		return nil, nil
+	}
+	return agent.PremiseFrame(sp.PremiseFrame), nil
+}
 
 // SteerRequest is one correction for one running host session.
 type SteerRequest struct {

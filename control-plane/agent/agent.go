@@ -49,6 +49,14 @@ const (
 	// it — so control-plane/reconcile closes a pending one from its own
 	// payload, and the chief's takeover reads the id from either row.
 	EffectSession = "agent.session"
+	// EffectPremise is the work premise's delivery as the session's first
+	// turn (SPEC-044 CDT-665): the intent row carries the premise text and
+	// the attempt, the outcome row says whether the frame reached the
+	// child's stdin. Keyed "agent:premise:<run>#<attempt>". A closed pair
+	// means the session got its first turn, so a takeover re-adoption sends
+	// no second one; a pending intent is the crash window the re-adoption
+	// performs.
+	EffectPremise = "agent.premise"
 )
 
 // agentRunsRelPath is where the agent records its live processes, under the
@@ -57,6 +65,13 @@ const agentRunsRelPath = ".claude/runs/agent"
 
 // DefaultGrace is the stop grace: SIGTERM first, SIGKILL after this long.
 const DefaultGrace = 10 * time.Second
+
+// DefaultPremiseSessionWait bounds the premise delivery's poll for the
+// captured session id (SPEC-044 CDT-665 AC1): the id arrives in the host's
+// session/new response (probe P-GK-ACP-1), so the first turn rides the tick
+// that captures it. Past the bound the frame is unrenderable and the row
+// pair closes undelivered — the run is never halted for it.
+const DefaultPremiseSessionWait = 30 * time.Second
 
 // killConfirmWait is how long an orphan stop polls after SIGKILL before it
 // declares the process un-killable (only a D-state process survives it).
@@ -84,6 +99,11 @@ type Agent struct {
 
 	// Now is the clock, injected so a test can move time instead of sleeping.
 	Now func() time.Time
+
+	// PremiseSessionWait overrides DefaultPremiseSessionWait for the
+	// premise delivery's bounded poll for the captured session id. Zero is
+	// the default.
+	PremiseSessionWait time.Duration
 
 	// steerMu serializes the steer verb: two concurrent steers must not
 	// derive the same sequence number n.
@@ -131,6 +151,39 @@ type StartRequest struct {
 	// only a proven credential name reaches a run); the agent itself injects
 	// nothing.
 	Env []string
+	// Premise is the run's work premise — the ticket record's text — which
+	// the supervision loop delivers as the session's first turn
+	// (SPEC-044 CDT-665). Like Command and Args it travels with the spawn:
+	// the agent holds no ticket store. Empty means this start has no premise
+	// to deliver.
+	Premise string
+	// PremiseFrame renders Premise into the host's first-turn wire frame.
+	// The host adapter resolves it from the host's spec (the agent never
+	// parses or builds host frames); nil means this start names no
+	// first-turn route, and the loop journals nothing.
+	PremiseFrame PremiseFrame
+}
+
+// PremiseFrame renders the work premise into one host wire frame — the
+// per-host first-turn shape the host adapter's spec owns (SPEC-044 CDT-665
+// AC1). It answers ok=false when the frame cannot be rendered yet: the ACP
+// transport names the session in the frame, and the id arrives in the host's
+// session/new response, so a Grok premise waits for the capture. seq is the
+// frame's request id (the attempt number): the transport echoes it back and
+// nothing on this side correlates on it.
+type PremiseFrame func(sessionID, premise string, seq int) (frame string, ok bool)
+
+// premiseDelivery is one attempt's first-turn contract as the supervision
+// loop holds it: what to deliver, how to render it, and the loop's own
+// bookkeeping for the bounded session-id poll.
+type premiseDelivery struct {
+	text  string
+	frame PremiseFrame
+
+	// since stamps the first delivery attempt; done settles the effect for
+	// the rest of this supervision.
+	since time.Time
+	done  bool
 }
 
 // Supervise drives one run to its end and journals every step of it
@@ -229,7 +282,8 @@ func (a *Agent) Supervise(ctx context.Context, eng *journal.Engine, req StartReq
 	if err != nil {
 		return err
 	}
-	return a.supervise(ctx, m, token, req.RunID, proc)
+	return a.supervise(ctx, m, token, req.RunID, proc,
+		&premiseDelivery{text: req.Premise, frame: req.PremiseFrame})
 }
 
 // killOrphan stops the live runner a dead supervisor recorded, journaled
@@ -377,11 +431,12 @@ func (a *Agent) spawn(ctx context.Context, m *run.Machine, token int64,
 	return proc, nil
 }
 
-// supervise is the supervision loop: heartbeats, steers, and the terminal
-// exit. It returns when the run ends, the lease is lost, or the caller
-// cancels the supervision context for a quiet shutdown.
+// supervise is the supervision loop: the work premise delivered as the
+// session's first turn, heartbeats, steers, and the terminal exit. It returns
+// when the run ends, the lease is lost, or the caller cancels the supervision
+// context for a quiet shutdown.
 func (a *Agent) supervise(ctx context.Context, m *run.Machine, token int64,
-	runID string, proc Process) error {
+	runID string, proc Process, pd *premiseDelivery) error {
 	st, err := m.State(ctx)
 	if err != nil {
 		_ = proc.Stop(0)
@@ -440,6 +495,19 @@ func (a *Agent) supervise(ctx context.Context, m *run.Machine, token int64,
 				return fmt.Errorf("agent: watchdog halted the run")
 			}
 		case <-poll.C:
+			if sessionID == "" {
+				sessionID = a.journalSessionID(ctx, m, token, runID)
+			}
+			// The premise is the session's first turn, so it rides ahead of
+			// the steers on the same tick (SPEC-044 CDT-665).
+			if !pd.done {
+				settled, err := a.deliverPremise(ctx, m, token, runID, proc, pd, sessionID)
+				if err != nil {
+					a.stopQuiet(proc, 0)
+					return err
+				}
+				pd.done = settled
+			}
 			if done, err := a.deliverSteers(ctx, m, token, runID, proc); done {
 				// A stop intent without an outcome means the stop verb owns
 				// the close: it kills the child and journals the halt.
@@ -447,9 +515,6 @@ func (a *Agent) supervise(ctx context.Context, m *run.Machine, token int64,
 			} else if err != nil {
 				a.stopQuiet(proc, 0)
 				return err
-			}
-			if sessionID == "" {
-				sessionID = a.journalSessionID(ctx, m, token, runID)
 			}
 		case exitErr := <-proc.Done():
 			return a.runnerExit(ctx, m, token, runID, proc, exitErr)
@@ -547,6 +612,194 @@ func (a *Agent) runnerExit(ctx context.Context, m *run.Machine, token int64,
 // the reason.
 func (a *Agent) stopQuiet(proc Process, grace time.Duration) {
 	_ = proc.Stop(grace)
+}
+
+// deliverPremise delivers the work premise as the session's first turn
+// (SPEC-044 CDT-665). It is deliverSteers' journal-first pattern applied to
+// the frame that opens the session: render, journal the intent, write the
+// frame to the child's stdin, close the outcome. The render comes first
+// because it is a pure computation — the pending row must span only the frame
+// write, the microsecond window the takeover performs.
+//
+// The re-delivery rule is the AC: a premise pair that CLOSED for this run
+// means the session already got its turn, so a takeover re-adoption writes
+// nothing and journals no new row (no duplicate turn); a premise intent left
+// PENDING is the crash between the row and the frame, and the re-adoption
+// performs it exactly once, from the text the row itself carries — a
+// re-spawn needs no ticket store.
+//
+// settled=true means this attempt has nothing left to deliver. A frame the
+// host cannot render yet retries on the next tick until
+// Agent.premiseSessionWait expires, and the pair then closes undelivered with
+// the cause: an unrenderable premise is a record, never a hang and never the
+// reconciler's pending intent.
+func (a *Agent) deliverPremise(ctx context.Context, m *run.Machine, token int64,
+	runID string, proc Process, pd *premiseDelivery, sessionID string) (bool, error) {
+	st, err := m.State(ctx)
+	if err != nil {
+		return false, err
+	}
+	if premiseClosed(st) {
+		return true, nil
+	}
+	pending := premisePending(st)
+	if pending == nil && pd.text == "" {
+		return true, nil
+	}
+	attempt := countEffects(st, EffectStart)
+	if attempt < 1 {
+		attempt = 1
+	}
+	text := pd.text
+	if pending != nil {
+		// The row names the attempt it opened. A re-adoption closes that
+		// pair, so both rows under "…#<attempt>" carry the dead attempt's
+		// number — the re-spawn's count would say attempt 2 in the outcome
+		// of a pair the intent opened at attempt 1.
+		rowText, rowAttempt := premiseRowParts(pending.Intent)
+		if rowText != "" {
+			text = rowText
+		}
+		if rowAttempt > 0 {
+			attempt = rowAttempt
+		}
+	}
+	if text == "" {
+		return true, nil
+	}
+
+	frame, ok := "", false
+	if pd.frame != nil {
+		frame, ok = pd.frame(sessionID, text, attempt)
+	}
+	if !ok {
+		cause := "the start carries no premise frame renderer"
+		if pd.frame != nil {
+			if pd.since.IsZero() {
+				pd.since = nowOr(a.Now)
+			}
+			wait := a.premiseSessionWait()
+			if nowOr(a.Now).Sub(pd.since) < wait {
+				return false, nil
+			}
+			cause = fmt.Sprintf("no captured session id within %s: the host's "+
+				"first-turn frame names the session", wait)
+		}
+		return true, a.settlePremise(ctx, m, token, runID, attempt, pending, text,
+			sessionID, cause)
+	}
+
+	seq := int64(0)
+	if pending != nil {
+		seq = pending.Seq
+	} else {
+		key := fmt.Sprintf("agent:premise:%s#%d", runID, attempt)
+		s, _, err := m.Intent(ctx, a.owner(), token, key, EffectPremise,
+			premisePayload(text, attempt, sessionID))
+		if err != nil {
+			return false, err
+		}
+		seq = s
+	}
+	// proc.Steer is the runner's frame writer: one JSON frame line on the
+	// child's stdin. The steer verb hands over an already-encoded frame, so
+	// the first turn and a correction ride the same pipe.
+	writeErr := proc.Steer(frame)
+	outcome := map[string]any{"delivered": writeErr == nil, "attempt": attempt}
+	if sessionID != "" {
+		outcome["session_id"] = sessionID
+	}
+	if writeErr != nil {
+		outcome["error"] = writeErr.Error()
+	}
+	if _, err := m.Outcome(ctx, a.owner(), token, seq, EffectPremise, outcome); err != nil {
+		return false, err
+	}
+	// A frame the child never received is the closed row above, not a failed
+	// run: the child is gone, and the exit path names the real cause.
+	return true, nil
+}
+
+// settlePremise closes a premise that will never reach the child: the pair
+// lands intent-then-outcome with delivered false and the named cause, so an
+// undelivered premise is visible on the journal and never the pending intent
+// the reconciler halts a run for.
+func (a *Agent) settlePremise(ctx context.Context, m *run.Machine, token int64,
+	runID string, attempt int, pending *journal.RecordedEffect,
+	text, sessionID, cause string) error {
+	seq := int64(0)
+	if pending == nil {
+		key := fmt.Sprintf("agent:premise:%s#%d", runID, attempt)
+		s, _, err := m.Intent(ctx, a.owner(), token, key, EffectPremise,
+			premisePayload(text, attempt, sessionID))
+		if err != nil {
+			return err
+		}
+		seq = s
+	} else {
+		seq = pending.Seq
+	}
+	_, err := m.Outcome(ctx, a.owner(), token, seq, EffectPremise,
+		map[string]any{"delivered": false, "attempt": attempt, "error": cause})
+	return err
+}
+
+// premiseSessionWait is this agent's bound on the session-id poll.
+func (a *Agent) premiseSessionWait() time.Duration {
+	if a.PremiseSessionWait > 0 {
+		return a.PremiseSessionWait
+	}
+	return DefaultPremiseSessionWait
+}
+
+// premisePayload is the row's record: the premise text, the attempt it opens,
+// and the session the frame names when the capture held one.
+func premisePayload(text string, attempt int, sessionID string) map[string]any {
+	payload := map[string]any{"premise": text, "attempt": attempt}
+	if sessionID != "" {
+		payload["session_id"] = sessionID
+	}
+	return payload
+}
+
+// premiseClosed reports whether a premise pair already closed for this run —
+// the session's first turn landed, so no attempt sends a second one.
+func premiseClosed(st *journal.State) bool {
+	for _, e := range st.Effects {
+		if e.Effect == EffectPremise && !e.Pending() {
+			return true
+		}
+	}
+	return false
+}
+
+// premisePending returns the run's unanswered premise intent: the crash
+// window the recovery performs. At most one can be pending — the verb records,
+// acts, and closes in order.
+func premisePending(st *journal.State) *journal.RecordedEffect {
+	for i := range st.Effects {
+		if e := st.Effects[i]; e.Effect == EffectPremise && e.Pending() {
+			return &st.Effects[i]
+		}
+	}
+	return nil
+}
+
+// premiseRowParts reads the premise text and the attempt out of a premise
+// row's payload. A row that carries neither answers the zero values, so the
+// caller keeps its own count.
+func premiseRowParts(raw []byte) (text string, attempt int) {
+	if len(raw) == 0 {
+		return "", 0
+	}
+	var p struct {
+		Premise string `json:"premise"`
+		Attempt int    `json:"attempt"`
+	}
+	if json.Unmarshal(raw, &p) != nil {
+		return "", 0
+	}
+	return p.Premise, p.Attempt
 }
 
 // deliverSteers delivers every steer intent whose outcome has not landed. It

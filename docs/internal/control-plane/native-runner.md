@@ -407,6 +407,44 @@ Everything above is the phase-0 record and is unchanged. C4 (CDT-628 C4,
     the operator-halt paths). The SIGKILL restart case belongs to the SPEC-044
     AC13 lane, `control-plane/killtest/`.
 
+- **D4 (CDT-665, 2026-11-25): the runner contract has a first frame
+  (`control-plane/VERSION` `0.2.2` → `0.3.0`, SPEC-044 M16/M17).** Before
+  CDT-665 the steerable hosts sat at 0 CPU after the spawn: the runner wrote
+  a frame only when a correction arrived, so a chief-routed run needed a
+  human turn to start working. The runner's stdin contract now names both
+  frames it writes on the poll tick:
+
+  - **The work premise, as the session's first turn.** The start carries the
+    premise as data (`agent.StartRequest.Premise`, beside the command and
+    argv — the agent holds no ticket store). The supervision loop is
+    journal-first: the `agent.premise` intent row (the text and the attempt),
+    the frame write, then the outcome row (`delivered`, the attempt, and the
+    session the frame named). One closed pair per run: the key names the
+    attempt that opened the session, and no later attempt duplicates it.
+  - **The steer frame of a correction**, unchanged.
+
+  The re-delivery rule is the same one the takeover's re-spawn rides: a
+  CLOSED pair means the session got its turn, so a re-adoption writes no
+  frame and journals no new row; a PENDING intent is the crash between the
+  row and the write, and the re-adoption performs it once, from the text that
+  row carries. The frame shape stays the host adapter's per-host spec, and the
+  adapter attaches the renderer on every `Start` and `Resume` of that host —
+  the gate is the spec, not the request's premise text, so a re-adoption that
+  carries no text still performs the row: the
+  Claude Code stream-json user message, the Grok ACP `session/prompt` (which
+  waits for the captured session id, probe P-GK-ACP-1, because the frame
+  names the session), and the omp RPC `{"type":"steer","message":…}` command.
+  mini-swe has no steerable route, so a start that carries a premise is
+  refused by its matrix cell (c). A frame that cannot render is bounded: past
+  `agent.DefaultPremiseSessionWait` the pair closes with `delivered: false`
+  and the named cause, and the run rides on. Proofs:
+  `control-plane/agent/agent_test.go` (the pair, the session-id dependency,
+  the bound, the closed-row skip, the pending-row re-delivery),
+  `control-plane/hostadapter/hostadapter_test.go` (the per-host frames, the
+  refusal), and `control-plane/chief/e2e_test.go`
+  (`TestAPremiseTurnCompletesARoutedRunWithNoSteer` — a routed run that
+  reaches `completed` with no correction ever posted).
+
 ### Operator step B8 — linger (pending-operator)
 
 **Status: pending-operator. Do not execute inside the ticket.** The CDT-626

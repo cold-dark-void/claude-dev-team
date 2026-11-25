@@ -4,7 +4,7 @@
 **Category**: core
 **Created**: 2026-11-20
 
-**Covers**: `control-plane/cmd/chiefd/main.go`, `control-plane/chief/chief.go`, `control-plane/chief/halts.go`, `control-plane/chief/takeover.go` (new), `control-plane/chief/takeover_test.go` (new), `control-plane/agent/agent.go`, `control-plane/agent/agent_test.go`, `control-plane/cmd/node-agent/main.go`, `control-plane/agent/doc.go`, `docs/internal/control-plane/native-runner.md`, `specs/core/SPEC-043-control-plane-setup.md`, `control-plane/VERSION`, `.github/workflows/smoke.yml` (comment-only, if at all)
+**Covers**: `control-plane/cmd/chiefd/main.go`, `control-plane/chief/chief.go`, `control-plane/chief/halts.go`, `control-plane/chief/takeover.go` (new), `control-plane/chief/takeover_test.go` (new), `control-plane/chief/e2e_test.go`, `control-plane/chief/steer_test.go`, `control-plane/agent/agent.go`, `control-plane/agent/agent_test.go`, `control-plane/hostadapter/adapter.go`, `control-plane/hostadapter/launch.go`, `control-plane/hostadapter/hostadapter_test.go`, `control-plane/cmd/node-agent/main.go`, `control-plane/agent/doc.go`, `docs/internal/control-plane/native-runner.md`, `specs/core/SPEC-043-control-plane-setup.md`, `control-plane/VERSION`, `.github/workflows/smoke.yml` (comment-only, if at all)
 
 ---
 
@@ -53,7 +53,8 @@ ticket and ACs). Code identifiers use `takeover`.
 - **ADR 0001 (journal engine)** owns the closed event set and the
   intent-then-outcome rule. The takeover journals only existing kinds:
   `lease_acquired` (reason `takeover`), `side_effect` (`agent.kill`,
-  `agent.start`), `stint_started`. This spec adds no kind and no payload.
+  `agent.start`, `agent.session`, `agent.premise`), `stint_started`. This
+  spec adds no kind and no payload.
 - **control-plane/run** owns the lease and the state machine
   (`run.Lease.Expired`, `run.Machine.Claim` takeover at token+1,
   `run.Machine.Resume`, `run.RetryBudgets`, `run.ResolveStallLimit`). The
@@ -226,6 +227,49 @@ ticket and ACs). Code identifiers use `takeover`.
   same change. The plugin version pair
   (`.claude-plugin/plugin.json`, `CHANGELOG.md`) is untouched, and no
   plugin release runs for this change.
+- **M16 — The run's work premise reaches the session's first turn.** A
+  start that carries a premise — the ticket record's text, the run's **work
+  premise** (not this spec's numbered assumptions P1–P4) — delivers it as
+  the session's first turn. The node agent journals the delivery as a
+  `side_effect` of the effect name `agent.premise`, keyed
+  `agent:premise:<run>#<attempt>`, under the live lease token: the intent
+  row carries the premise text and the attempt, the outcome row carries
+  `delivered`, the attempt, and the session the frame named. The agent
+  renders nothing: the host adapter's per-host spec owns the first-turn
+  frame shape, and the premise rides the spawn as data
+  (`StartRequest.Premise`), exactly like the command and argv.
+  The re-delivery rule is the takeover's, and it is the same
+  intent-then-outcome rule `deliverSteers` applies to a correction: a
+  premise pair that CLOSED for the run ends the effect for every attempt —
+  the takeover re-adoption writes no frame to the child and journals no new
+  row, so the session never gets a duplicate turn, and a pair the agent
+  settled undelivered (M17) is never retried; a premise intent left PENDING
+  is the crash between the row and the frame, and the re-adoption performs
+  it exactly once, from the text that row carries — the re-spawn needs no
+  ticket store. The host adapter attaches that renderer from the host's spec
+  on every spawn of that host — the gate is the SPEC, never the request's
+  premise text — so a re-adoption that carries no text of its own can still
+  perform the row; a host whose spec names no first-turn frame attaches
+  nothing and is never refused for it, so a premise-less mini-swe re-spawn
+  behaves as it did before this clause. A start that carries no premise
+  journals no premise row.
+  The window this clause does not claim: the effect begins at its intent row.
+  A run re-adopted between the spawn and the supervision loop's first poll
+  tick carries no premise row and no premise text, so the re-adoption journals
+  nothing and the session opens with no premise — no record of the miss
+  exists, and M16 claims none. Closing it needs a premise that survives the
+  spawn (a ticket-store read at the re-adoption, which the chief does not
+  have: its `TicketStore` writes only), so it stays a named gap, not a
+  guarantee.
+- **M17 — The premise is never a hang and never a halt.** A first-turn
+  frame that names the session (the ACP transport, probe P-GK-ACP-1)
+  renders on the poll tick that captures the id. The agent retries the
+  render on each tick for a bounded wait
+  (`agent.DefaultPremiseSessionWait`, overridable for a test); past the
+  bound it closes the pair with `delivered: false` and the named cause, and
+  the run rides on. An undeliverable premise is a journal record, never a
+  pending intent the reconciler halts a run for, and never a stalled
+  supervision loop.
 
 ## SHOULD
 
@@ -549,6 +593,57 @@ ticket and ACs). Code identifiers use `takeover`.
 - **AC4.** [process] No production file changes — the deflake is
   test-only (`*_test.go`), the Go suite stays green solo in the pinned
   G-02 image, and `-race` stays clean on chief and agent.
+### CDT-665
+
+- **AC1.** A routed run reaches work with no human turn: the chief carries
+  the route's premise text onto the start (`hostadapter.StartRequest.Premise`
+  → `agent.StartRequest.Premise`), the node agent delivers it to the spawned
+  session, and the run reaches `completed` with no correction ever posted.
+  The e2e seam proves it on a real child that reads its FIRST stdin frame
+  and exits: the frame carries the route's text, and the steer output file
+  the same child would write stays absent.
+  Verify: bash control-plane/test.sh
+- **AC2.** The delivery is intent-then-outcome: one closed `agent.premise`
+  pair for the run, keyed `agent:premise:<run>#<attempt>` by the attempt that
+  opened the session, and never duplicated by a later attempt (M16's rule is
+  run-wide) — the intent row carries the premise text and the attempt, the
+  outcome row carries `delivered: true`, the attempt, and the session the
+  frame named, naming the same attempt as its intent — written under the live
+  lease token. A start that carries no premise journals no premise row.
+  Verify: bash control-plane/test.sh
+- **AC3.** No duplicate turn: a takeover re-adoption of a run whose premise
+  pair CLOSED writes no frame to the child's stdin and journals no new
+  premise row — the child that sits reading stdin (the 0-CPU shape of the
+  defect) receives nothing at all.
+  Verify: bash control-plane/test.sh
+- **AC4.** The crash window is performed: a premise intent left PENDING is
+  delivered exactly once by the re-adoption, from the text the pending row
+  carries (the re-spawn carries no premise of its own), the row closes with
+  `delivered: true`, and no second intent lands under the key. The renderer is
+  not a caller-supplied extra: `Adapter.Start` and `Adapter.Resume` attach the
+  host's first-turn renderer whenever the host's spec names one, gated on the
+  spec and not on the request's premise text, and the proof spawns with an
+  empty premise. A premise-less spawn on a host whose spec names no
+  first-turn frame attaches nothing and is not refused — mini-swe does not
+  regress into a refusal.
+  Verify: bash control-plane/test.sh
+- **AC5.** Each steerable host renders the premise as its own first-turn
+  frame, from the adapter's per-host spec: Claude Code the stream-json user
+  message (P-CC-C shape), Grok the ACP `session/prompt` frame naming the
+  captured session (P-GK-CTR-3c shape, id per probe P-GK-ACP-1), omp the RPC
+  `{"type":"steer","message":…}` command (P-OMP-C-C). A frame that names the
+  session renders no bytes before the capture names the id.
+  Verify: bash control-plane/test.sh
+- **AC6.** The refusal and the bound are both records, never a hang: a host
+  with no steerable route (mini-swe, matrix cell (c)) refuses a start that
+  carries a premise with its matrix cell verdict before the agent is called,
+  so no journal row lands; and a runner that never names a session closes
+  the pair with `delivered: false` and the named cause once the bounded
+  session-id wait expires, with the run riding on to its own terminal state.
+  Verify: bash control-plane/test.sh
+- **AC7.** Version: `control-plane/VERSION` reads `0.3.0` in the same
+  change (a new capability that completes the CDT-626 route contract);
+  `.claude-plugin/plugin.json` and `CHANGELOG.md` are untouched.
 
 ## Validation
 
@@ -609,12 +704,64 @@ ticket and ACs). Code identifiers use `takeover`.
 - `go build ./... && go vet ./... && go test ./...` green in the
   digest-pinned G-02 image (`golang:1.27-bookworm@sha256:4fa7c968…`): all 13
   packages ok
+- Premise delivery to the session's first turn (CDT-665 AC1–AC6): the
+  per-host first-turn frames and the mini-swe refusal pass in
+  `control-plane/hostadapter/hostadapter_test.go` (`TestPremiseFramePerHost`,
+  `TestPremiseRouteRefusesAHostWithNoSteerableRoute`); the closed pair, the
+  captured-session-id dependency, the bounded wait, the closed-row skip, the
+  pending-row re-delivery, and the no-premise start pass in
+  `control-plane/agent/agent_test.go` (`TestSuperviseDeliversThePremiseAsTheFirstTurn`,
+  `TestSupervisePremiseWaitsForTheCapturedSessionID`,
+  `TestSupervisePremiseClosesUndeliveredPastTheSessionWait`,
+  `TestSuperviseTakeoverSkipsAClosedPremiseRow`,
+  `TestSuperviseTakeoverRedeliversThePendingPremiseRow`,
+  `TestSuperviseWithNoPremiseJournalsNoPremiseRow`); the routed run that
+  reaches `completed` with no correction ever posted passes in
+  `control-plane/chief/e2e_test.go`
+  (`TestAPremiseTurnCompletesARoutedRunWithNoSteer`); and the two-frame order
+  — the premise first, the correction second — is asserted on the same seam
+  in `control-plane/chief/steer_test.go`, `control-plane/chief/e2e_test.go`,
+  and `control-plane/hostadapter/hostadapter_test.go`.
+- The AC4 renderer is proved unmasked: `control-plane/chief/steer_test.go`
+  (`TestTakeoverRedeliversThePendingPremiseRowFromTheJournal`) takes a run
+  over with an empty premise and a seeded PENDING premise row, asserts the
+  spawn carries no caller-supplied frame, and reaches `completed` on the row's
+  own text with `delivered: true` and one attempt named in both rows;
+  `control-plane/hostadapter/hostadapter_test.go`
+  (`TestStartAndResumeCarryTheRendererWithNoPremise`) pins that `Start` and
+  `Resume` carry the renderer for every steerable host, and that a host whose
+  spec names no first-turn frame answers nil with no refusal.
 - Spec-lint (SPEC-008) and docs-drift green on the landed diff
+- CDT-665 gate run (2026-11-25, digest-pinned G-02 image, go1.27.4):
+  `go build ./... && go vet ./...` clean, `gofmt -l agent chief hostadapter`
+  clean, and `bash control-plane/test.sh` (`go test ./... -count=1`) green —
+  all 13 packages `ok`, incl. the `killtest` restart lane (49.9 s). `-race` is
+  clean on `./chief ./agent ./hostadapter` (7.99 s / 14.5 s / 1.46 s) with the
+  three pre-existing cases skipped: `TestTakeoverScanResumesTheJournaledSession`
+  and `TestTakeoverSetSelection` (the CDT-661 async-row read and the 1 s-limit
+  lease flake — both cured on `master` by CDT-669 and red at this branch's
+  v2.1.26 baseline: stash-verified, 5/5 under `-race`), and
+  `TestSuperviseTakeoverKillsTheLiveOrphan` (deterministic in this container at
+  the baseline, 3/3; `ok` in the full-suite runs on this diff). Every CDT-665
+  test is green at `-count=10`: the six premise cases in
+  `control-plane/agent/agent_test.go`, the three in
+  `control-plane/hostadapter/hostadapter_test.go` (incl.
+  `TestStartAndResumeCarryTheRendererWithNoPremise`) plus the widened
+  `TestSteerThroughTheAgentDeliversAtTheBoundary` seam, and the four
+  `control-plane/chief` seam cases (incl.
+  `TestTakeoverRedeliversThePendingPremiseRowFromTheJournal`).
+- The TL-review fixes are RED-proved with the masks put back: gate the
+  renderer on the request's premise text and the chief proof fails with "the
+  takeover spawn carries no premise frame renderer" while the adapter test
+  fails "carries no premise frame renderer" on all six Start/Resume rows;
+  recount the attempt from `agent.start` and the pair reads attempt 1 (intent)
+  / 2 (outcome). All three restore to green.
 
 ## Version History
 
 | Date | Change |
 |------|--------|
+| 2026-11-25 | CDT-665: the run's work premise reaches the spawned session's first turn. The chief carries the route's premise text onto the start (`hostadapter.StartRequest.Premise` → `agent.StartRequest.Premise`), the node agent delivers it journal-first as an `agent.premise` intent/outcome pair keyed `agent:premise:<run>#<attempt>` (one closed pair per run, keyed by the attempt that opened the session, under the live lease token), and the host adapter's per-host spec owns the first-turn frame: the Claude Code stream-json user message, the Grok ACP `session/prompt` (waiting on the captured session id, probe P-GK-ACP-1, because the frame names the session), and the omp RPC `{"type":"steer","message":…}` command; mini-swe's matrix cell (c) refuses a start that carries a premise. The takeover re-delivery rule is `deliverSteers` generalized — a CLOSED pair writes no second turn and journals no new row, a PENDING intent is performed once from the text the row carries — and M3's one spawn path is untouched. The bounded session-id poll closes an unrenderable premise with `delivered: false` and the named cause: never a halt, never a hang. New M16/M17, `### CDT-665` AC1–AC7, and `docs/internal/control-plane/native-runner.md` § "CDT-644" D4 names the premise frame in the runner contract. `control-plane/VERSION` `0.2.2` → `0.3.0` (a new capability that completes the CDT-626 route contract: a chief-routed run reaches `completed` without a human); the plugin version pair is untouched. TL review landed in the same change: the first-turn renderer attaches from the host's SPEC on every `Adapter.Start` and `Adapter.Resume` of that host — never on the request's premise text — so a re-adoption that carries no text performs the pending row (AC4, proved unmasked by `TestTakeoverRedeliversThePendingPremiseRowFromTheJournal`: empty premise, no caller-supplied frame), a premise-less spawn on mini-swe attaches nothing and is not refused, the outcome of a re-delivery names the attempt its intent opened, AC2 reads per-run (M16's rule is run-wide), and M16 names the pre-intent window it does not claim. |
 | 2026-11-24 | CDT-664 (CDT-660 TL-review follow-ups): the chief's run record survives a refused start — two starts for one run id share one `runRecord`, so registration keeps a confirmed start's `Cap`, an errored start deletes only an unconfirmed record, and a confirmed start re-creates the record a refused sibling removed (M3's bookkeeping); the halt scan re-reads the takeover's answer before it pages, closing the intent row with the outcome `suppressed: the takeover answered the halt` (M9/AC9). Prose letters: M8/AC15 state the shutdown truth (chiefd never releases the lease — the release is the reconciler's `Machine.Repair` path, which the no-run-event rule forbids on shutdown), M3 names the `Cap` field and the `chief.hostFromJournal` split (first matching intent, one `ErrNotSteerable`), M1 records the no-lease-row selection, M6 the unreadable-lease continue, S1 the unconfirmed bucket and the per-process log-line dedup, and the loose `adopts` verb becomes "takes over". `control-plane/VERSION` `0.2.1` → `0.2.2`. |
 | 2026-11-24 | CDT-661: the host session id is journaled and adoption resumes it — the node agent journals the id its runner's capture holds as an `agent.session` `side_effect` intent/outcome pair under the live lease token (AC1), the Grok ACP transport joins the captured hosts by reading `result.sessionId` off the `session/new` response frame pinned to a recorded probe transcript (AC2, AC7), the takeover resumes the journaled session through `hostadapter.Adapter.Resume` with `hostadapter.ResumeRoute` gating CDT-660's fresh re-spawn fallback (AC3/AC4), `effectEvidence` treats a pending `agent.session` intent as self-evidencing so the two-append crash window never halts the run `halted:reconcile_failed` (a state the takeover refuses), and the restart kill test proves the same host session survives the crash (AC5). `control-plane/VERSION` `0.2.0` → `0.2.1` (AC6). `### CDT-661` AC1–AC7. |
 | 2026-11-21 | CDT-656: clock- and environment-independent control-plane tests — `TestSuperviseSteerThenOperatorStop` pins a wide `DEVTEAM_STALL_LIMIT` (270) so a loaded CI runner can no longer race the 1 s default limit into `ErrSteerLost` between `waitRunner` and the steer; the chief model-map seam subtest execs the real `resolve-model.sh` against a layer-free fixture checkout (its own git root + pinned `HOME`/cwd) instead of the live worktree, whose shared store may carry a DRI's local Model map layer; new `control-plane/test.sh` runs `go test ./... -count=1` and restores the ship-gate Verify binding the spec-lint pass dropped. `### CDT-656` ACs A–C. |

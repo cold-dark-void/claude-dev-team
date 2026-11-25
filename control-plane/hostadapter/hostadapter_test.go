@@ -642,6 +642,172 @@ func hasSubseq(got, want []string) bool {
 	return false
 }
 
+// ---------------------------------------------------------------------------
+// SPEC-044 CDT-665 — the premise frame of each host
+// ---------------------------------------------------------------------------
+
+const testPremise = "Fix the redirect: the premise is the session's first turn."
+
+// AC1: every host with a steerable route renders the work premise as its
+// first-turn frame. The Grok frame names the session, so it cannot render
+// before the capture names the id (probe P-GK-ACP-1); the other two frames
+// ignore the id and render on the first tick.
+func TestPremiseFramePerHost(t *testing.T) {
+	t.Run("claude code stream-json user message", func(t *testing.T) {
+		render, err := PremiseRoute(HostClaudeCode)
+		if err != nil {
+			t.Fatalf("route: %v", err)
+		}
+		frame, ok := render("", testPremise, 1)
+		if !ok {
+			t.Fatal("the stream-json user frame names no session: it renders at once")
+		}
+		var f struct {
+			Type    string `json:"type"`
+			Message struct {
+				Role    string `json:"role"`
+				Content []struct {
+					Type string `json:"type"`
+					Text string `json:"text"`
+				} `json:"content"`
+			} `json:"message"`
+		}
+		if err := json.Unmarshal([]byte(frame), &f); err != nil {
+			t.Fatalf("frame is not JSON: %v (%q)", err, frame)
+		}
+		if f.Type != "user" || f.Message.Role != "user" ||
+			len(f.Message.Content) != 1 || f.Message.Content[0].Text != testPremise {
+			t.Errorf("frame = %q, want the stream-json user frame carrying the premise", frame)
+		}
+	})
+
+	t.Run("grok ACP session/prompt waits for the session id", func(t *testing.T) {
+		render, err := PremiseRoute(HostGrok)
+		if err != nil {
+			t.Fatalf("route: %v", err)
+		}
+		if frame, ok := render("", testPremise, 1); ok {
+			t.Errorf("frame %q rendered with no session id: the ACP frame names the "+
+				"session, so the premise must wait for the capture", frame)
+		}
+		frame, ok := render("sess-acp-1", testPremise, 2)
+		if !ok {
+			t.Fatal("the frame must render once the capture names the id")
+		}
+		var f struct {
+			JSONRPC string `json:"jsonrpc"`
+			ID      int    `json:"id"`
+			Method  string `json:"method"`
+			Params  struct {
+				SessionID string `json:"sessionId"`
+				Prompt    []struct {
+					Type string `json:"type"`
+					Text string `json:"text"`
+				} `json:"prompt"`
+			} `json:"params"`
+		}
+		if err := json.Unmarshal([]byte(frame), &f); err != nil {
+			t.Fatalf("frame is not JSON: %v (%q)", err, frame)
+		}
+		if f.JSONRPC != "2.0" || f.Method != "session/prompt" || f.ID != 2 ||
+			f.Params.SessionID != "sess-acp-1" ||
+			len(f.Params.Prompt) != 1 || f.Params.Prompt[0].Text != testPremise {
+			t.Errorf("frame = %q, want the ACP session/prompt frame naming the session", frame)
+		}
+	})
+
+	t.Run("omp RPC steer command", func(t *testing.T) {
+		render, err := PremiseRoute(HostOmp)
+		if err != nil {
+			t.Fatalf("route: %v", err)
+		}
+		frame, ok := render("", testPremise, 1)
+		if !ok {
+			t.Fatal(`the {"type":"steer"} command names no session: it renders at once`)
+		}
+		var f struct {
+			Type    string `json:"type"`
+			Message string `json:"message"`
+		}
+		if err := json.Unmarshal([]byte(frame), &f); err != nil {
+			t.Fatalf("frame is not JSON: %v (%q)", err, frame)
+		}
+		if f.Type != "steer" || f.Message != testPremise {
+			t.Errorf("frame = %q, want the omp steer frame carrying the premise", frame)
+		}
+	})
+
+	if _, err := PremiseRoute(Host("codex")); !errors.Is(err, ErrUnknownHost) {
+		t.Errorf("PremiseRoute(codex) err = %v, want ErrUnknownHost", err)
+	}
+}
+
+// AC5: a host with no steerable route refuses the premise with its matrix
+// cell (mini-swe, capability (c)), and the start verb carries that refusal.
+func TestPremiseRouteRefusesAHostWithNoSteerableRoute(t *testing.T) {
+	_, err := PremiseRoute(HostMiniSwe)
+	if !errors.Is(err, ErrUnsupportedCapability) {
+		t.Fatalf("PremiseRoute(mini-swe) err = %v, want the matrix refusal", err)
+	}
+	var ref Refusal
+	if !errors.As(err, &ref) {
+		t.Fatalf("err = %T, want a Refusal", err)
+	}
+	if ref.Cell.Capability != CapSteer || ref.Cell.Verdict != VerdictUnsupported {
+		t.Errorf("cell = %+v, want the mini-swe × steer unsupported cell", ref.Cell)
+	}
+
+	a := newFakeAdapter(&fakeAgent{})
+	if _, err := a.Start(context.Background(), nil, StartRequest{
+		RunID: "r-premise", Host: HostMiniSwe, Premise: testPremise,
+	}); !errors.Is(err, ErrUnsupportedCapability) {
+		t.Errorf("Start(mini-swe) err = %v, want the matrix refusal", err)
+	}
+}
+
+// SPEC-044 M16/AC4: the renderer travels with the spawn on the host's SPEC,
+// not on the caller's premise text. A takeover re-spawn carries no premise —
+// the run's PENDING premise row carries the text, and the chief stores none —
+// so a start or resume that hands over no premise must still carry the host's
+// first-turn renderer, or the re-adoption closes the row undelivered. A host
+// whose spec names no first-turn frame answers nil and is never refused here:
+// a premise-less mini-swe re-spawn behaves as it did before CDT-665.
+func TestStartAndResumeCarryTheRendererWithNoPremise(t *testing.T) {
+	for _, h := range []Host{HostClaudeCode, HostGrok, HostOmp} {
+		f := &fakeAgent{}
+		a := newFakeAdapter(f)
+		eng := newEngine(t)
+		if _, err := a.Start(context.Background(), eng, startReq(h)); err != nil {
+			t.Fatalf("Start(%s): %v", h, err)
+		}
+		if _, err := a.Resume(context.Background(), eng, resumeReq(h)); err != nil {
+			t.Fatalf("Resume(%s): %v", h, err)
+		}
+		if len(f.starts) != 2 {
+			t.Fatalf("starts = %d, want the start and the resume", len(f.starts))
+		}
+		for i, verb := range []string{"Start", "Resume"} {
+			got := f.starts[i]
+			if got.Premise != "" {
+				t.Errorf("%s(%s) premise = %q, want empty (the premise row carries the text)",
+					verb, h, got.Premise)
+			}
+			if got.PremiseFrame == nil {
+				t.Errorf("%s(%s) carries no premise frame renderer: the re-adoption of a "+
+					"pending premise row would close it undelivered", verb, h)
+			}
+		}
+	}
+
+	// The resolution never refuses a premise-less spawn.
+	if pf, err := premiseFrameOf(HostMiniSwe, ""); err != nil || pf != nil {
+		t.Errorf("premiseFrameOf(mini-swe, \"\") = (%v, %v), want nil and no refusal", pf, err)
+	}
+	if _, err := premiseFrameOf(Host("codex"), ""); !errors.Is(err, ErrUnknownHost) {
+		t.Errorf("premiseFrameOf(codex, \"\") err = %v, want ErrUnknownHost", err)
+	}
+}
+
 // The integration seam: a real node agent over a real journal, with the
 // native runner's child standing in for the host CLI. The steer the adapter
 // hands over lands in the child's stdin at the agent's step boundary — the
@@ -651,6 +817,11 @@ func hasSubseq(got, want []string) bool {
 // The seam rewrites the launch command to a shell child: the adapter's host
 // argv is asserted in TestResumeFollowsTheNamedPathPerHost, and no test may
 // exec a host CLI.
+//
+// CDT-665 widened the child to the session's whole frame order: it reads its
+// FIRST stdin frame (the work premise's first-turn frame) into
+// $CDT648_TEST_PREMISE_OUT, then the steer frame into
+// $CDT648_TEST_STEER_OUT.
 type shAgent struct {
 	A *agent.Agent
 }
@@ -658,7 +829,9 @@ type shAgent struct {
 func (s *shAgent) Supervise(ctx context.Context, eng *journal.Engine,
 	req agent.StartRequest, sessionOut io.Writer) error {
 	req.Command, req.Args = "sh", []string{"-c",
-		`printf '%s\n' '{"type":"session","version":3,"id":"01a1ddda-7a27"}'; read l; printf '%s' "$l" > "$CDT648_TEST_STEER_OUT"`}
+		`printf '%s\n' '{"type":"session","version":3,"id":"01a1ddda-7a27"}'; ` +
+			`read l; printf '%s\n' "$l" >> "$CDT648_TEST_PREMISE_OUT"; ` +
+			`read l; printf '%s' "$l" > "$CDT648_TEST_STEER_OUT"`}
 	s.A.Runner = agent.Native{Stdout: sessionOut}
 	return s.A.Supervise(ctx, eng, req)
 }
@@ -681,13 +854,17 @@ func (s *shAgent) Status(ctx context.Context, eng *journal.Engine,
 func TestSteerThroughTheAgentDeliversAtTheBoundary(t *testing.T) {
 	eng := newEngine(t)
 	out := filepath.Join(t.TempDir(), "steered.txt")
+	premiseOut := filepath.Join(t.TempDir(), "first-frame.txt")
 	t.Setenv("CDT648_TEST_STEER_OUT", out)
+	t.Setenv("CDT648_TEST_PREMISE_OUT", premiseOut)
+	const premiseText = "the run's work premise"
 	a := &Adapter{Agent: &shAgent{A: agentNative(io.Discard)}}
 	errc := make(chan error, 1)
 	go func() {
 		_, err := a.Start(context.Background(), eng, StartRequest{
 			RunID: "run-steer", Host: HostOmp,
 			Ticket: "CDT-648", Workflow: "orchestrate", Model: "sonnet",
+			Premise: premiseText,
 		})
 		errc <- err
 	}()
@@ -726,6 +903,23 @@ func TestSteerThroughTheAgentDeliversAtTheBoundary(t *testing.T) {
 	if decoded.Type != "steer" ||
 		decoded.Message != steerReq(HostOmp, "").Message {
 		t.Errorf("delivered frame = %q, want the omp steer frame", raw)
+	}
+
+	// CDT-665: the steer rode the SECOND frame — the start's premise reached
+	// the session as its first turn, in the host's steerable shape.
+	praw, err := os.ReadFile(premiseOut)
+	if err != nil {
+		t.Fatalf("premise output: %v", err)
+	}
+	var pframe struct {
+		Type    string `json:"type"`
+		Message string `json:"message"`
+	}
+	if err := json.Unmarshal(praw, &pframe); err != nil {
+		t.Fatalf("premise frame is not JSON: %v (%q)", err, praw)
+	}
+	if pframe.Message != premiseText {
+		t.Errorf("first frame = %q, want the premise %q", praw, premiseText)
 	}
 
 	// The adapter added no event kind and no run state: every row the run

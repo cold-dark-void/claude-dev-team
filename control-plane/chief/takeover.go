@@ -434,6 +434,10 @@ func (c *Chief) takeoverSpawn(ctx context.Context, cand takeoverCandidate,
 	errc := c.startSupervised(cand.RunID, hostadapter.StartRequest{
 		RunID: cand.RunID, Ticket: cand.Ticket, Workflow: cand.Workflow,
 		Model: cand.Model, Host: host,
+		// No Premise: the re-adoption reads the run's work premise out of
+		// the journal's own premise row (SPEC-044 CDT-665) — a closed pair
+		// means the session already got its turn, a pending intent carries
+		// the text to deliver. The chief stores no ticket text to re-send.
 	})
 	return c.takeoverWatch(ctx, cand, since, errc, line)
 }
