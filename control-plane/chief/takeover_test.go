@@ -757,6 +757,9 @@ func TestTakeoverScanSpawnsTheSelectedSet(t *testing.T) {
 			t.Errorf("%s carries %d run_halted rows after the takeover, want the %d it came with",
 				runID, n, halted[runID])
 		}
+		// The re-spawn's intent rides the async path: await it before the
+		// count assert reads the journal.
+		awaitStartIntents(t, eng, runID, 2)
 		if n := startIntents(t, eng, runID); n != 2 {
 			t.Errorf("%s carries %d spawn intents, want the journaled one plus the re-spawn",
 				runID, n)
@@ -1031,6 +1034,10 @@ func TestTakeoverScanRefusesARunnerOnAnotherNode(t *testing.T) {
 func TestTakeoverScanLeavesALiveLeaseAlone(t *testing.T) {
 	_ = captureTakeoverLog(t)
 	eng := newEngine(t)
+	// The 1 s limit newEngine pins leaves a 1 s live window: under package
+	// parallelism the seed→scan gap can cross it and the scan takes the lease.
+	// 600 s is a window the fixture gap can never cross.
+	t.Setenv("DEVTEAM_STALL_LIMIT", "600")
 	seedTakeoverRunning(t, eng, "r-live", takeoverOwner, "grok")
 	before := lastSeq(t, eng, "r-live")
 
@@ -1117,6 +1124,26 @@ func lastStartIntentArgs(t *testing.T, eng *journal.Engine, runID string) []stri
 	return args
 }
 
+// awaitStartIntents blocks until the run's journal carries n agent.start
+// intents, polling every 10 ms up to a 5 s deadline. The resume path appends
+// its spawn intent AFTER the lease claim, and takeoverWatch proves the
+// takeover off lease_acquired — which can land first — so the asserts that
+// read the intents must await the append, not bare-read it.
+func awaitStartIntents(t *testing.T, eng *journal.Engine, runID string, n int) {
+	t.Helper()
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		got := startIntents(t, eng, runID)
+		if got >= n {
+			return
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("start intents = %d, want %d within 5s", got, n)
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+}
+
 // AC3: a selected run whose journal carries a closed captured session id is
 // re-supervised through Adapter.Resume — the host's by-id invocation rides
 // the one takeover path, the newest spawn intent carries the resume argv at
@@ -1155,6 +1182,9 @@ func TestTakeoverScanResumesTheJournaledSession(t *testing.T) {
 	if !call.BaseCtx {
 		t.Errorf("the resume does not ride the chief's base context")
 	}
+	// The resume's spawn intent rides the async path: await it before the
+	// argv/count asserts read the journal.
+	awaitStartIntents(t, eng, "r-run", 2)
 	if got := strings.Join(lastStartIntentArgs(t, eng, "r-run"), " "); got != "-p --resume sess-1" {
 		t.Errorf("the newest spawn intent carries %q, want the resume argv", got)
 	}

@@ -802,7 +802,13 @@ func newEngine(t *testing.T) *journal.Engine {
 	dir := t.TempDir()
 	t.Setenv("DEVTEAM_MROOT", dir)
 	t.Setenv("DEVTEAM_RUN_DB", filepath.Join(dir, "run.db"))
-	t.Setenv("DEVTEAM_STALL_LIMIT", "1")
+	// CDT-669: a wide stall limit makes the steer clock-independent. The
+	// watchdog beat is half the stall limit (clamped by heartbeatFloor), so the
+	// 1 s default checks liveness every 500 ms against the journal's
+	// second-granularity heartbeat TS, and a starved beat on a loaded runner
+	// reads the live run as past its limit (ErrSteerLost). No test here needs
+	// the limit to fire, so the fixture carries the wide window (CDT-656).
+	t.Setenv("DEVTEAM_STALL_LIMIT", "270")
 	t.Setenv("DEVTEAM_RUNNER", "native")
 	eng, err := journal.OpenPath(context.Background(), os.Getenv("DEVTEAM_RUN_DB"))
 	if err != nil {

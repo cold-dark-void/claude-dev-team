@@ -963,6 +963,12 @@ func TestSuperviseWithNoCaptureJournalsNoSessionRow(t *testing.T) {
 // once.
 func TestSuperviseSessionJournalRetriesUntilTheIDIsNamed(t *testing.T) {
 	eng := newEngine(t)
+	// CDT-656 precedent: a wide stall limit makes the run clock-independent.
+	// The beat is half the stall limit (clamped), so the 1 s default fires a
+	// watchdog check every 500 ms for the whole 5 s child, and a starved beat
+	// halts the run on a loaded runner. 270 s keeps the watchdog out of the
+	// window; the late-id retry rides the 100 ms poll tick, not the beat.
+	t.Setenv("DEVTEAM_STALL_LIMIT", "270")
 	runID := "CDT-661"
 	r := &lateSessionRunner{
 		Native: Native{Stdout: io.Discard, Stderr: io.Discard},
@@ -970,7 +976,9 @@ func TestSuperviseSessionJournalRetriesUntilTheIDIsNamed(t *testing.T) {
 	}
 	a := &Agent{Runner: r}
 
-	if err := a.Supervise(context.Background(), eng, startReq(runID, `sleep 1`)); err != nil {
+	// sleep 5 (not 1): the tick that journals the late id needs headroom
+	// after the 350 ms capture under package parallelism. The test runs ~5 s.
+	if err := a.Supervise(context.Background(), eng, startReq(runID, `sleep 5`)); err != nil {
 		t.Fatalf("supervise: %v", err)
 	}
 	key := "agent:session:" + runID + "#1"

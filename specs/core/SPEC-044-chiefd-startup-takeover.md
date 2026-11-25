@@ -527,6 +527,29 @@ ticket and ACs). Code identifiers use `takeover`.
 - **AC4.** Version: `control-plane/VERSION` reads `0.2.2` in the same
   change; `.claude-plugin/plugin.json` and `CHANGELOG.md` are untouched.
 
+### CDT-669
+
+- **AC1.** The CDT-661 resume proof no longer races the journal: the
+  resume tests await the re-spawn's `agent.start` intent with a bounded
+  poll (the `takeoverWatch` proof reads `lease_acquired`, which can land
+  before the async append) — `TestTakeoverScanResumesTheJournaledSession`
+  and `TestTakeoverScanSpawnsTheSelectedSet` read the journal only after
+  the awaited row lands.
+  Verify: bash control-plane/test.sh
+- **AC2.** The live-lease proof's window is wider than any fixture gap:
+  `TestTakeoverScanLeavesALiveLeaseAlone` seeds the lease with a 600 s
+  stored stall limit, so package parallelism cannot age it past expiry
+  between the seed and the scan.
+  Verify: bash control-plane/test.sh
+- **AC3.** The late-id proof outlives starvation: the
+  `TestSuperviseSessionJournalRetriesUntilTheIDIsNamed` child runs 5 s
+  under a 270 s stall limit (the file's CDT-656 precedent), so package
+  parallelism cannot starve the journal ticks before the late id lands.
+  Verify: bash control-plane/test.sh
+- **AC4.** [process] No production file changes — the deflake is
+  test-only (`*_test.go`), the Go suite stays green solo in the pinned
+  G-02 image, and `-race` stays clean on chief and agent.
+
 ## Validation
 
 - Spec reviewed and promoted to ACTIVE
