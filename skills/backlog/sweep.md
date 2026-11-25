@@ -37,8 +37,9 @@ or a newline or CR in the note are usage errors: exit 64 before any write.
 ## Step 0: Resolve the helpers and the shared root
 
 Every fence below runs in a fresh shell. Run this fence first and carry its
-bindings (`SWEEP`, `NEST_HOST`, `MROOT`, `SWEEP_DIR`, `TMPD`) through the sweep
-session; a later fence that names one carries a `lint-ok: C1` note.
+bindings (`SWEEP`, `NEST_HOST`, `READ_CARDS`, `MROOT`, `SWEEP_DIR`, `TMPD`)
+through the sweep session; a later fence that names one carries a `lint-ok: C1`
+note.
 
 ```bash
 # Locate the dev-team plugin root (PDH), then the sweep CLI and the nest probe.
@@ -47,6 +48,7 @@ PDH=$( { [ -n "${CLAUDE_PLUGIN_ROOT:-}" ] && [ -f "$CLAUDE_PLUGIN_ROOT/skills/pl
 SWEEP=$(bash "$PDH/skills/plugin-dir.sh" file skills/backlog/sweep.sh)
 DEFER=$(bash "$PDH/skills/plugin-dir.sh" file skills/backlog/defer.sh)
 NEST_HOST=$(bash "$PDH/skills/plugin-dir.sh" file skills/autopilot/nest-host.sh)
+READ_CARDS=$(bash "$PDH/skills/plugin-dir.sh" file skills/autopilot/read-cards.sh)
 _gc=$(git rev-parse --git-common-dir 2>/dev/null) \
   && MROOT=$(cd "$(dirname "$_gc")" && pwd) \
   || MROOT=$(pwd)
@@ -374,6 +376,18 @@ outcomes. It repeats the intent record's `args` value verbatim, note suffix
 included, so the two records for one run differ only by `outcome`. Each spawned
 run emits its own decision-cards (SPEC-033).
 
+**Card rule (SPEC-033 M13).** Every decision card a walk run writes — the run's
+own or a child run's — goes through `skills/autopilot/append-card.sh`, the only
+legitimate writer of `$MROOT/.claude/autopilot/<TICKET-ID>.jsonl`. The card
+carries a `gate` from the M13 enum (`scope-confirm`, `plan-approve`,
+`ship-choice`), a non-null `bump` only on a `ship-choice` card (the writer's
+cross-field invariant), the run's own `run_id` and `run_start_epoch`, and the
+actor M13 names for that writer (`orchestrator`, `epic-orchestrator` for an
+`/epic`-driven child). The M14 ship-gate council card is a `ship-choice` card
+whose actor is `ship-gate-council` — the CDT-660 canonical form. Off-triad
+checkpoints (a QA go/no-go, a run-start note) record in the sweep journal,
+never as ledger cards, and never as a hand-written ledger line.
+
 The journal outcome enum is closed (M20): `closed`, `shipped`, `pr-stopped`,
 `deferred`, `asked-answered`. A child run that halts names its own blocking
 condition (`complexity-overflow`, `bc5-reroute`, …), which is not an enum value,
@@ -416,11 +430,37 @@ five buckets sum to N open.
 # lint-ok: C1 — SWEEP is carried from Step 0 in this sweep session
 bash "$SWEEP" summary --counts \
   '{"open":12,"CLOSE":3,"ASK":1,"ORCHESTRATE":5,"DEFER":2,"SKIP":1,"escalations":1}'
+# Ledger-sweep gate: the walk's ticket ids, one per item (linear_id, else slug).
+# lint-ok: C1 — TMPD is carried from Step 0 in this sweep session
+jq -r 'if (.linear_id | length) > 0 then .linear_id else .slug end' "$TMPD/walk.jsonl" > "$TMPD/ledger-ids.txt"
+LEDGER_ESC=0
+while IFS= read -r ID; do
+  [ -n "$ID" ] || continue
+  # lint-ok: C1 — READ_CARDS is carried from Step 0 in this sweep session
+  if ! bash "$READ_CARDS" "$ID" >/dev/null 2>&1; then
+    printf 'ESCALATION %s (the decision-card ledger is unreadable)\n' "$ID"
+    LEDGER_ESC=$((LEDGER_ESC + 1))
+  fi
+done < "$TMPD/ledger-ids.txt"
 # lint-ok: C1 — TMPD is carried from Step 0 in this sweep session
 rm -rf -- "$TMPD"
+if [ "$LEDGER_ESC" -ne 0 ]; then
+  exit 1
+fi
 ```
 
-Exit 0 with escalations. Non-zero only for machinery failure: a usage error, an
+**Ledger-sweep gate (SPEC-033 M13).** After the bucket counts, the close-out
+reads every ledger the sweep wrote: one `read-cards.sh` call per walk item,
+keyed by the item's ticket id (`linear_id`, else the slug). A ledger that
+reports a non-zero exit is an unreadable audit trail: print one `ESCALATION`
+line for it under the bucket counts and add it to the escalation list. A ticket
+with no decision cards is not a failure — the reader prints `[]` and exits 0
+for a missing ledger. A sweep that leaves an unreadable
+ledger does not exit clean: it exits 1 after the summary, the same class as the
+I/O failures below.
+
+Exit 0 with escalations. Non-zero for the ledger-sweep gate above (an
+unreadable decision-card ledger) and for machinery failure: a usage error, an
 I/O failure, a lock timeout. List each escalation on its own line under the
 bucket counts.
 

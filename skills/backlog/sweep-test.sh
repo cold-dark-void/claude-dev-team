@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # skills/backlog/sweep-test.sh — SPEC-040 § CDT-582 Phase-1 suite (AC1–AC16)
-# plus § CDT-585 (AC22–AC26, the child-surface flag forwarding).
+# plus § CDT-585 (AC22–AC26, the child-surface flag forwarding) and
+# SPEC-033 § CDT-668 (the walk's decision cards through append-card.sh).
 #
 # Two layers of bites:
 #   1. Data plane — every sweep.sh verb (T1 helpers, T3 purge evidence) plus
@@ -34,8 +35,13 @@ SWEEP_MD="$HERE/sweep.md"
 SKILL_MD="$HERE/SKILL.md"
 SQLQ="$HERE/../lib/sqlq.sh"
 GITIGNORE="$HERE/../../.gitignore"
+APPEND_CARD="$HERE/../autopilot/append-card.sh"
+READ_CARDS="$HERE/../autopilot/read-cards.sh"
+SELF_ANSWER_MD="$HERE/../autopilot/self-answer.md"
+SPEC33="$HERE/../../specs/core/SPEC-033-autopilot-policy.md"
 
-for _f in "$SWEEP" "$DEFER" "$CLOSE" "$TS_SH" "$SLUG_SH" "$READERS" "$SWEEP_MD" "$SKILL_MD" "$GITIGNORE"; do
+for _f in "$SWEEP" "$DEFER" "$CLOSE" "$TS_SH" "$SLUG_SH" "$READERS" "$SWEEP_MD" "$SKILL_MD" \
+  "$APPEND_CARD" "$READ_CARDS" "$SELF_ANSWER_MD" "$SPEC33" "$GITIGNORE"; do
   [ -f "$_f" ] || { printf 'FAIL: missing %s\n' "$_f"; printf 'VERIFY exit=1\n'; exit 1; }
 done
 
@@ -1406,7 +1412,7 @@ check "AC15" "the summary names the OPEN count" "1" \
   "$(bash "$SWEEP" summary --counts "$COUNTS_A" | grep -c '^Sweep summary: 8 open$')"
 md_rule "AC15" "every item is counted in exactly one bucket" 1 "Count every item in exactly one bucket"
 md_rule "AC15" "the sweep exits 0 with escalations" 1 "Exit 0 with escalations"
-md_rule "AC15" "a non-zero exit means machinery failure only" 1 "Non-zero only for machinery failure"
+md_rule "AC15" "a non-zero exit means the ledger-sweep gate or machinery failure" 1 "Non-zero for the ledger-sweep gate above"
 
 # R2 GAPS-3 — the walk-truncated tail is a SKIP member, never a lost item (M18, M24).
 A_TAIL=$(grep -c '^WALK-BOUND ' "$EV_A" || true)
@@ -1857,6 +1863,88 @@ check "AC3" "no injected file landed in the fixture repo" "absent" \
 check "AC3" "the hostile Affects text reached the journal as data (intent + completed)" "2" \
   "$(grep -cF 'drop table backlog' "$REPOA/.claude/sweeps/metachar-item.jsonl" || true)"
 check "AC3" "the hostile item closed with no side effects" "COMPLETED" "$(item_status "$REPOA" metachar-item)"
+
+# ===========================================================================
+# CDT-668 — the walk's decision cards go through append-card.sh (SPEC-033 M13)
+# ===========================================================================
+# SPEC-033 § CDT-668. AC1/AC2 are the Step 9e card rule and the journal-only
+# off-triad checkpoints; AC3 is the Step 10 ledger-sweep gate. The protocol is
+# prose-driven, so the text carries the static needles; the writer/reader pair
+# runs live so the gate enum and the cross-field invariants are enforced, not
+# just named.
+md_rule "AC14" "the card rule names the only legitimate writer" 1 "legitimate writer of"
+md_rule "AC14" "the card rule carries the M13 gate enum" 1 '`scope-confirm`, `plan-approve`,'
+md_rule "AC14" "the card rule pins a non-null bump to ship-choice" 1 \
+  'non-null `bump` only on a `ship-choice` card'
+md_rule "AC14" "the card rule uses the run's own id and epoch" 1 \
+  'own `run_id` and `run_start_epoch`'
+md_rule "AC14" "the card rule names the M14 council card actor" 1 '`ship-gate-council`'
+md_rule "AC14" "the card rule cites the CDT-660 canonical form" 1 'CDT-660 canonical form'
+md_rule "AC14" "off-triad checkpoints are never ledger cards" 1 'never as ledger cards'
+count_in "AC14" "append-card.sh is named once in the protocol" 1 "$SWEEP_MD" 'append-card.sh'
+count_in "AC14" "self-answer §3a points a sweep at the journal" 1 "$SELF_ANSWER_MD" \
+  'never maps an off-triad gate'
+count_in "AC14" "self-answer §3a forbids ledger cards for them" 1 "$SELF_ANSWER_MD" \
+  'never as ledger cards'
+count_in "AC14" "SPEC-033 M13 carries the sweep-card rule" 1 "$SPEC33" \
+  'A sweep run writes cards only through `skills/autopilot/append-card.sh`'
+count_not "AC14" "the protocol emits no off-triad gate card shape" "$SWEEP_MD" \
+  '"gate"[[:space:]]*:[[:space:]]*"(qa|run-start|ship-gate-council)"'
+
+# Bite: the same grep catches the recorded defect shape.
+PLANT668=$(mktemp "${TMPDIR:-/tmp}/cdt668-plant.XXXXXX")
+printf '%s\n' '{"gate": "ship-gate-council","decision":"merge"}' > "$PLANT668"
+check "AC14" "negative control: an off-triad gate card shape is detected" "1" \
+  "$(grep -cE '"gate"[[:space:]]*:[[:space:]]*"(qa|run-start|ship-gate-council)"' "$PLANT668")"
+rm -f "$PLANT668"
+
+# Live: append-card.sh is the enforcement point, so a card built through it
+# reads back through the canonical reader, and every CDT-668 defect shape is a
+# writer reject that never reaches the ledger.
+LROOT="$WORK/ledger-root"
+git init -q "$LROOT"
+mkdir -p "$LROOT/.claude/autopilot"
+card_rc() { # card_rc <args...> — append-card.sh with $LROOT as MROOT
+  (cd "$LROOT" && env -u AUTOPILOT_BUDGET_META bash "$APPEND_CARD" "$@" >/dev/null 2>&1; echo $?)
+}
+read_rc() { # read_rc <ticket-id> — read-cards.sh with $LROOT as MROOT
+  (cd "$LROOT" && bash "$READ_CARDS" "$1" >/dev/null 2>&1; echo $?)
+}
+check "AC14" "append-card.sh appends a canonical sweep card" "0" \
+  "$(card_rc orchestrate CDT-668 plan-approve approve auto null 90 null \
+      orchestrate-CDT-668-1700000000 1 10 orchestrator 'sweep walk card')"
+check "AC14" "the writer-built ledger reads back through read-cards.sh" "0" "$(read_rc CDT-668)"
+check "AC14" "append-card.sh rejects the off-triad gate qa" "64" \
+  "$(card_rc orchestrate CDT-668-G qa approve auto null 90 null r-1 1 10 orchestrator 'off-triad')"
+check "AC14" "append-card.sh rejects the council card name as a gate" "64" \
+  "$(card_rc orchestrate CDT-668-G ship-gate-council merge auto patch 90 null r-1 1 10 \
+      ship-gate-council 'council card')"
+check "AC14" "append-card.sh rejects a bump on plan-approve (invariant a)" "64" \
+  "$(card_rc orchestrate CDT-668-G plan-approve approve auto patch 90 null r-1 1 10 \
+      orchestrator 'bump off gate')"
+check "AC14" "append-card.sh rejects the council pair on plan-approve (invariant c)" "64" \
+  "$(card_rc orchestrate CDT-668-G plan-approve approve auto null 90 null r-1 1 10 \
+      orchestrator 'council pair' light 'graded band')"
+check "AC14" "a rejected card leaves no ledger line" "absent" \
+  "$([ -s "$LROOT/.claude/autopilot/CDT-668-G.jsonl" ] && echo present || echo absent)"
+printf '%s\n' '{"schema_version":1,"type":"autopilot_decision","ts":"2026-11-24T00:00:00Z","run_id":"orchestrate-CDT-668-H-0","workflow":"orchestrate","ticket_id":"CDT-668-H","gate":"plan-approve","decision":"approve","decided_by":"auto","bump":null,"confidence":90,"blocking_condition":null,"council_tier":"light","grading_reason":"hand-written","max_loc":null,"rationale":"bypass","budget":{"iteration":1,"iteration_cap":25,"wall_clock_s":10,"wall_clock_cap_s":2700,"tier":null,"source":null,"signals":null},"actor":"orchestrator","advisor":null}' \
+  > "$LROOT/.claude/autopilot/CDT-668-H.jsonl"
+check "AC14" "the reader rejects a hand-written council pair on plan-approve" "64" \
+  "$(read_rc CDT-668-H)"
+
+# AC15 — the Step 10 ledger-sweep gate.
+check "AC15" "a ticket with no ledger reads clean (never an escalation)" "0" \
+  "$(read_rc CDT-668-NONE)"
+md_rule "AC15" "the close-out reads every ledger the sweep wrote" 1 \
+  'reads every ledger the sweep'
+md_rule "AC15" "an unreadable ledger is an escalation line" 1 \
+  'the decision-card ledger is unreadable'
+md_rule "AC15" "a sweep that leaves one does not exit clean" 1 'does not exit clean'
+md_rule "AC15" "a missing ledger is not an escalation" 1 'prints `[]` and exits 0'
+count_in "AC15" "read-cards.sh is named twice (the fence and its prose)" 2 "$SWEEP_MD" \
+  'read-cards.sh'
+check "AC15" "SPEC-033 gains the CDT-668 AC subsection" "1" \
+  "$(grep -c '^### CDT-668$' "$SPEC33" || true)"
 
 # ===========================================================================
 # R2 statics — one copy of each shared helper (SPEC-003 default extract)

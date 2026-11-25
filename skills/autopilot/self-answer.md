@@ -72,9 +72,11 @@ plus **exactly one** appended card via `append-card.sh` (side effect).
 ### a. Receive the input envelope
 Take the envelope of §2. `gate` is already the canonical name the caller mapped per the M5
 per-command table (off-triad checkpoints such as `/kickoff` Step 3 arrive pre-mapped to
-their closest canonical gate — the engine does not re-derive the mapping). `iteration` and
-`run_start_epoch` are **orchestrator-tracked session-local inputs**, not derived from the
-ledger.
+their closest canonical gate — the engine does not re-derive the mapping). A backlog-sweep
+run never maps an off-triad gate: its cards carry only the M13 triad, and its off-triad
+checkpoints record in the sweep journal (`skills/backlog/sweep.md` Step 8/Step 9) —
+never as ledger cards. `iteration` and `run_start_epoch` are **orchestrator-tracked
+session-local inputs**, not derived from the ledger.
 
 ### b. Freeze or select caps, then evaluate the run budget (BC6) deterministically
 This step — including any `derive` + env mix — MUST run **before** the BC1→BC8 walk

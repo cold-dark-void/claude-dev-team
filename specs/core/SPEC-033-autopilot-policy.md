@@ -593,6 +593,14 @@ target.
     readers and the `read-cards.sh` tests pass unchanged. The C5 clear card
     and the CDT-589-C3 demotion card are distinct provenance (`trigger: "a"`
     vs `"d"`, distinct rationales).
+  - **Sweep cards (CDT-668).** A sweep run writes cards only through `skills/autopilot/append-card.sh`,
+    the only legitimate writer, so the card carries a `gate` from the M13 enum, the `bump`
+    discipline above (non-null only on a `ship-choice` card), the run's own `run_id` and
+    `run_start_epoch`, and the actor M13 names for that writer. The M14 ship-gate council card
+    keeps its canonical form: a `ship-choice` card with `actor: "ship-gate-council"`. A sweep's
+    own off-triad checkpoints (a QA go/no-go, a run-start note) record in the sweep journal,
+    never as ledger cards. The sweep's Step-10 close-out reads every ledger it wrote through
+    `read-cards.sh` (the protocol is `skills/backlog/sweep.md`, SPEC-040).
 
 ### AC7 — Council ship-gate pass (CDT-111-C5)
 
@@ -1862,6 +1870,34 @@ Format and rules: M14(g) and M14(h). Each ticket that ships through M14 has one
   `skills/autopilot/test-contract-prose.sh`, `skills/autopilot/test.sh` and
   `tools/spec-lint.sh`, each exiting 0 on the changed tree.
 
+### CDT-668
+
+- **AC1.** Every decision card a backlog-sweep run writes — its own or a child run's — goes
+  through `skills/autopilot/append-card.sh`, the only legitimate writer (M13). The card
+  carries a `gate` from the M13 enum (`scope-confirm` | `plan-approve` | `ship-choice`), a
+  non-null `bump` only on a `ship-choice` card (the writer's cross-field invariant), the
+  run's own `run_id` and `run_start_epoch`, and the actor M13 names for that writer; the M14
+  ship-gate council card is a `ship-choice` card whose `actor` is `ship-gate-council` (the
+  CDT-660 canonical form). `skills/backlog/sweep.md` Step 9e states the rule; a ledger line is
+  never hand-written.
+  Verify: bash skills/backlog/sweep-test.sh
+- **AC2.** A sweep's off-triad checkpoints — a QA go/no-go, a run-start note — record in the
+  sweep journal (`skills/backlog/sweep.md` Step 8/Step 9), never as ledger cards, and the
+  `gate` enum stays the frozen triad: no fourth value exists.
+  `skills/autopilot/self-answer.md` §3a and `skills/backlog/sweep.md` Step 9e both state it.
+  Verify: bash skills/backlog/sweep-test.sh
+- **AC3.** The Step-10 close-out reads every ledger the sweep wrote through
+  `skills/autopilot/read-cards.sh` — one call per walk item, keyed by `linear_id`, else the
+  slug — prints one escalation line under the summary for each non-zero exit, and exits
+  non-zero; a sweep that leaves an unreadable ledger does not exit clean. A missing ledger
+  stays exit 0 (`[]`), so a ticket with no cards is never an escalation.
+  Verify: bash skills/backlog/sweep-test.sh
+- **AC4.** [process] Docs plus one suite extension: `append-card.sh`, `read-cards.sh`,
+  `sweep.sh`, and `budget-check.sh` are untouched, and the gate is the suites
+  `skills/backlog/sweep-test.sh`, `skills/autopilot/test.sh`,
+  `skills/autopilot/test-ship-gate-guardrails.sh`, `skills/docs-drift/test.sh` and
+  `tools/spec-lint.sh`, each exiting 0 on the changed tree.
+
 ---
 
 ## Test
@@ -1877,6 +1913,7 @@ Format and rules: M14(g) and M14(h). Each ticket that ships through M14 has one
 
 | Date | Change |
 |------|--------|
+| 2026-11-25 | CDT-668: **the sweep walk writes decision cards through the writer, never by hand.** Recorded case: a backlog sweep hand-wrote its decision cards into `.claude/autopilot/<ID>.jsonl`, and 12 of 14 ledgers failed the canonical `read-cards.sh` reader — gate values outside the M13 enum (`ship-gate-council`, `run-start`, `qa`), the council pair on `plan-approve` cards, cards missing the `budget`/`actor`/`advisor` keys, a `bump` on a non-`ship-choice` gate, and fabricated run-id epochs and timestamps. The data repair landed 2026-11-24 (`.claude/sweeps/ledger-repair-2026-11-24.jsonl`); this row lands the process. M13 gains the **Sweep cards** bullet: a sweep run writes cards only through `append-card.sh` with the M13 gate enum, the `bump` discipline above, the run's own `run_id` / `run_start_epoch`, and the actor M13 names for the writer; the M14 council card keeps its canonical form (`ship-choice`, `actor: "ship-gate-council"`). `skills/backlog/sweep.md` Step 9e states the card rule and Step 10 gains the **ledger-sweep gate** — the close-out reads every ledger the sweep wrote and a sweep that leaves an unreadable ledger does not exit clean; `skills/autopilot/self-answer.md` §3a records that a sweep run never maps an off-triad gate and that its off-triad checkpoints record in the sweep journal. No script change, no card schema change, no new BC, no fourth gate value. New `### CDT-668` AC subsection; `skills/backlog/sweep-test.sh` carries the static needles plus live writer/reader bites. Status stays ACTIVE. |
 | 2026-11-25 | CDT-667: **the M14 ship-gate council card mirrors the run's frozen budget.** Recorded case (CDT-660 ledger, card 8): card #2 carried `budget.wall_clock_cap_s` 2700 while the run froze 86400 at plan-approve, and its own `wall_clock_s` exceeded the cap it stated. Cause: `skills/autopilot/ship-gate-council.md` §6 owned card #2's write shape as "per `self-answer.md` §3f — not restated", and §3f names the argc-2 env-deriving call, so the writer read the ambient/default cap. Now §6 owns the freeze read for card #2: the latest `plan-approve` card on card #1's ticket with non-null nested `budget.{tier,source,signals}` and `actor` not `advisor`, copied verbatim into process-local `AUTOPILOT_BUDGET_META` and measured with `budget-check.sh` argc=4; the caps are never re-derived from env while a freeze exists (the CDT-663 rule, SPEC-039 M43); absent a freeze the §3f Path-3 argc-2 shape holds with null nested keys; exit 6 stays an outcome, only exit 64 aborts the card. `self-answer.md` §3f gains one pointer sentence (the rule body stays in one place per writer home). No script change, no card schema change, no new BC. New `### CDT-667` AC subsection; the `g12` family in `skills/autopilot/test-ship-gate-guardrails.sh` (static needles, per-needle bites, executable freeze-mirror checks on a fixture ledger). Status stays ACTIVE. |
 | 2026-11-24 | CDT-644: **M14(g) writer-pass findings, recorded on the CDT-661 spec change.** The control-plane Go lane hit three M14(g) writer traps; each is a rule this spec already holds, so no requirement text changes and the findings are recorded with their dispositions. **1. The AC-bullet form.** An AC bullet MUST read `- **ACn.** <text>`; a dash title (`- **AC1 — Title.**`) is not a bullet to `skills/council/m14-ac-split.sh`, so the subsection fails case 5 and every later finding stays hidden — fix the bullet form first, then re-run, because the checker is fail-fast. Disposition: closed — SPEC-044's AC blocks carry the bullet form (its 2026-11-20 spec-lint pass) and `### CDT-661` AC1–AC7 follow it. **2. The spec-lint mirror check.** `skills/orchestrate/ticket-class-receipts-test.sh` lints `git archive HEAD`, not the worktree: an uncommitted spec edit is invisible to the mirror (and `m14-ac-split` in `HEAD` mode reports case 3 "subsection missing"), so the spec fix must be committed before the suites that assert a clean tree can pass. Disposition: closed — CDT-661 lands its SPEC-044 edit in its own `docs:` commit before the suite gate runs. **3. The `[process]`-AC guards.** Guard 1 is lexical: a `[process]` AC's own text MUST hold an execution-vocabulary word (test, suite, runner, gate, CI, release — `skills/council/m14-ac-split.sh:257`), else case 8; case 5 also fires on any line in the subsection that is not blank, not an AC bullet, and not a continuation, so nested content takes the `  - ` (two-space dash) indent and a 4+ space indent is a finding; a `[process]` AC never carries a `Verify:` line (case 10). Disposition: closed — `### CDT-661` AC7 names the suite and the recorded transcript fixture its capture ships against, holds no Verify line, and the subsection splits at exit 0 with 6 technical ACs; `bash tools/spec-lint.sh` exits 0 with no SPEC-044 finding. |
 | 2026-11-24 | CDT-617: **watchdog back-off consumes M7 halt cards through M13.** A CI-watch cron that re-fires through a hard block re-asks a question a human must answer; the watch now backs off. Reader `skills/autopilot/backoff-state.sh` (check/record/reset) decides "open hard blocker" from the ledger's LAST card (`halt` + BC1-4/BC6-8; BC5 is a reroute, M6/M7) via `read-cards.sh`, fail-open on any unreadable ledger; the timer file `<ticket_id>.backoff.json` is local state, never a card — M13 append-only and the card schema are unchanged, no ninth BC, no gate value. Poll behaviour and the env knobs are owned by SPEC-017 § Watchdog back-off on an open hard blocker (cited, not restated); SPEC-002 gains the hook identical-iteration degrade. New `### CDT-617` cross-reference section. Status stays ACTIVE. |

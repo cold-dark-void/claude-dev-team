@@ -156,8 +156,9 @@ Phase 2 (spec text only): MERGE + EPIC + BC5 mid-flight reroute.
   in the final summary, continue.
 - **M24 — Terminal summary.** Print N open plus per-Disposition counts
   (CLOSE/ASK/ORCHESTRATE/DEFER/SKIP) plus escalations. Every item is
-  in exactly one bucket. Exit 0 with escalations. Non-zero only on
-  machinery failure (usage, I/O, lock).
+  in exactly one bucket. Exit 0 with escalations. Non-zero on the
+  Step-10 ledger-sweep gate (an unreadable decision-card ledger —
+  SPEC-033 § CDT-668 AC3) and on machinery failure (usage, I/O, lock).
 - **M25 — Untrusted ticket text.** Title, body, Affects, and slug reach
   helpers as argv or as a JSON file path. SQL (if any) goes through
   `skills/lib/sqlq.sh`. MUST NOT `eval` or `bash -c` ticket text.
@@ -233,6 +234,7 @@ Phase 2 (spec text only): MERGE + EPIC + BC5 mid-flight reroute.
 
 | Date | Change |
 |------|--------|
+| 2026-11-25 | CDT-668: the Step-10 ledger-sweep gate joins the exit contract — M24 and AC15 name the unreadable-decision-card-ledger class beside machinery failure (SPEC-033 § CDT-668 AC3); Step 9e routes every sweep decision card through `append-card.sh` with the M13 gate enum and bump discipline, and off-triad checkpoints record in the sweep journal, never as ledger cards. |
 | 2026-11-19 | CDT-585: `### CDT-585` ACs for child-surface flag forwarding — Step 1 `parse-flags` accepts `--with-advisor[=<model>]` (SPEC-039) and a documented `--note <text>` DRI-directive token; `compile-orchestrate-args` gains a `--with-advisor[=<model>]` slot; the note rides every walk run and the journal `args` field. Exit 64 stays for unknown flags; the M17 literal-`--ship` ban is unchanged. |
 | 2026-11-03 | M17/AC9 amendment: `auto` joins the `--ship` enum, compiling to `--autopilot=auto` (SPEC-041). |
 | 2026-10-23 | Fold old AC17 into AC1 and old AC18 into AC3 (M14(j) claim budget ≤16). |
@@ -275,7 +277,7 @@ Format and rules: SPEC-033 M14(g) and M14(h).
   Verify: bash skills/backlog/sweep-test.sh
 - **AC14.** Sweep `--autopilot` asks nothing; CLOSE only at the AC3 bar; every would-be ASK converts to DEFER with missing-evidence reason in the journal; each spawned run emits its own decision-cards; a blocking-condition halt inside a run does not halt the sweep (journal outcome, list in the final summary, continue); `--limit` bounds code-bearing runs only; purge always full.
   Verify: bash skills/backlog/sweep-test.sh
-- **AC15.** Terminal summary prints N open plus per-Disposition counts (CLOSE/ASK/ORCHESTRATE/DEFER/SKIP) plus escalations; every item is in exactly one bucket; exit 0 with escalations; non-zero only on machinery failure.
+- **AC15.** Terminal summary prints N open plus per-Disposition counts (CLOSE/ASK/ORCHESTRATE/DEFER/SKIP) plus escalations; every item is in exactly one bucket; exit 0 with escalations; non-zero on the Step-10 ledger-sweep gate (an unreadable decision-card ledger) and on machinery failure.
   Verify: bash skills/backlog/sweep-test.sh
 - **AC16.** Sweep edits nothing outside `.claude/sweeps/` and tracker flips via close/defer verbs; it does not invoke `/release`; `commands/backlog.md` is absent.
   Verify: bash skills/backlog/sweep-test.sh

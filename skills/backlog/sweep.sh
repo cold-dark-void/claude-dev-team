@@ -118,7 +118,8 @@
 #   summary (M24) — --counts is a JSON object
 #     {"open":N,"CLOSE":n,"ASK":n,"ORCHESTRATE":n,"DEFER":n,"SKIP":n,"escalations":n};
 #     a missing key counts 0. Prints N open, the five disposition buckets, and
-#     escalations. Exit 0; a non-zero sweep exit is machinery failure only.
+#     escalations. Exit 0; a non-zero sweep exit is the Step-10 ledger-sweep
+#     gate (an unreadable decision-card ledger) or machinery failure.
 #
 # Untrusted ticket text (M25): title, body, Affects and slug reach this script as
 # argv or as a JSON file path. Values go to jq with --arg and to git with argv
