@@ -66,6 +66,8 @@ One row per check, each with a fix-it line on every WARN and FAIL, then the
 | `controlplane.probe.hygiene` | No runner process, no pidfile, no leftover container (AC13). |
 | `controlplane.runner` | The resolved runner selection, read-only (AC6). |
 | `controlplane.linger` | `loginctl show-user "$USER" -p Linger` (AC10). |
+| `controlplane.chiefd.journal` | The `/v1/runs` board names the fixed probe run, so the service serves `$MROOT/.claude/runs/run.db` — the journal the install journaled — and not the `$HOME` store an unstamped unit resolves (M5, CDT-666). |
+| `controlplane.chiefd.env` | `systemctl --user show dev-team-chiefd.service -p Environment` carries `DEVTEAM_MROOT` for the checkout and a PATH that resolves the node's host CLI (`node.json` `command`, else the probe command) — the env the unit stamps (M5, CDT-666). |
 | `controlplane.wsl2.systemd`, `.autostart`, `.idletimeout` | The three WSL2 rows (AC7). `SKIP` off WSL2. |
 
 ## The probe flow (SPEC-043 M11 as ruled by the T0 spike)

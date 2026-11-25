@@ -71,7 +71,9 @@ ships no node-agent unit (D1, recorded in § "CDT-644"), and the command removes
 that unit file when an earlier install left one behind.
 
 `dev-team-chiefd.service` (the bind stays loopback — SPEC-043 M5 forbids
-widening it, so `ExecStart` names `127.0.0.1` explicitly):
+widening it, so `ExecStart` names `127.0.0.1` explicitly). `<MROOT>` is the
+checkout root the install resolved and `<service PATH>` is the PATH it probed —
+see the stamped-env note below:
 
 ```ini
 [Unit]
@@ -83,6 +85,9 @@ StartLimitIntervalSec=60
 StartLimitBurst=10
 
 [Service]
+WorkingDirectory=<MROOT>
+Environment="DEVTEAM_MROOT=<MROOT>"
+Environment="PATH=<service PATH>"
 ExecStart=%h/.local/bin/chiefd --addr 127.0.0.1:8090
 Restart=on-failure
 RestartSec=2s
@@ -90,6 +95,35 @@ RestartSec=2s
 [Install]
 WantedBy=default.target
 ```
+
+**The stamped service env (CDT-666).** `/setup control-plane` writes three
+directives it already knows, so the service starts routed to this project:
+
+- `WorkingDirectory=<MROOT>` and `Environment="DEVTEAM_MROOT=<MROOT>"` —
+  `chiefd` resolves its journal as `$DEVTEAM_MROOT/.claude/runs/run.db`
+  (`control-plane/journal/open.go`) and the plugin root from the same anchor.
+  Without the stamp it falls back to `$HOME`, which is not a git repo: the
+  service then serves an empty store beside the project's journal and refuses
+  every route.
+- `Environment="PATH=<dirs>:/usr/local/bin:/usr/bin"` — the install probes the
+  user CLI dirs that exist (`$HOME/.grok/bin`, then the binary dir
+  `$HOME/.local/bin`) and appends the systemd user-manager defaults. The native
+  runner spawns the host CLI by name, and the systemd user default
+  (`/usr/local/bin:/usr/bin`) misses both, so an unstamped unit refuses with
+  `exec: "grok": executable file not found in $PATH`. A dir that does not exist
+  is not stamped, so a node with no user CLI dir keeps the defaults.
+
+Two verify rows read the result: `controlplane.chiefd.journal` proves the served
+board names the probe run the install journaled into the project's `run.db`, and
+`controlplane.chiefd.env` proves the running service env carries
+`DEVTEAM_MROOT` and a PATH that resolves the node's host CLI (SPEC-043 M6).
+
+Before CDT-666 the install wrote no env at all, so the CDT-659 phase-1 validation
+run on this node had to hand-write
+`~/.config/systemd/user/dev-team-chiefd.service.d/override.conf` before anything
+routed. That drop-in is no longer required: the install stamps the unit itself.
+The install writes the unit file alone and never touches a drop-in directory, so
+an override an operator left behind survives every later install.
 
 `dev-team-node-agent.service` (pre-T8 template, **not shipped**: the agent has
 no long-lived verb, so this unit exits at once and restart-loops — see the D1

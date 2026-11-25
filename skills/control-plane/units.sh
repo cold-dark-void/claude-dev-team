@@ -14,7 +14,11 @@
 #   cp_install / cp_uninstall      the two modes
 #   cp_build                       the M4 build inside the approved digest
 #   cp_unit_name/cp_unit_path      dev-team-<service>.service, in the user unit dir
-#   cp_unit_text                   the M5 unit template (chiefd only)
+#   cp_unit_text                   the M5 unit template (chiefd only) — it stamps
+#                                  WorkingDirectory, DEVTEAM_MROOT and the probed
+#                                  service PATH (CDT-666)
+#   cp_user_cli_dirs/cp_service_path the user CLI dirs that exist + the systemd
+#                                  default PATH, in stamp order
 #   cp_bin_path                    %h/.local/bin/<binary> (M3)
 #   cp_publish / cp_publish_fn     write only when content differs (M12), atomically
 #   cp_shape_guard                 last-line environment check for standalone use
@@ -128,8 +132,35 @@ cp_unit_path() { # cp_unit_path <service>
 
 # ---- the M5 unit template ----------------------------------------------------
 
-cp_unit_text() { # cp_unit_text <service> — unit file bytes on stdout
-  local svc="$1" desc exec_line
+CP_SYSTEM_DEFAULT_PATH='/usr/local/bin:/usr/bin' # the systemd user-manager default
+
+cp_user_cli_dirs() {
+  # The user CLI dirs the service PATH needs, probed at install: the host CLI
+  # the native runner spawns lives in ~/.grok/bin, and the installed service
+  # CLIs live in the binary dir. A dir that does not exist is not stamped
+  # (systemd keeps the unit startable), so the PATH degrades to the defaults.
+  local d
+  for d in "$HOME/.grok/bin" "$(cp_bin_dir)"; do
+    [ -d "$d" ] || continue
+    printf '%s\n' "$d"
+  done
+}
+
+cp_service_path() {
+  # The PATH value the unit stamps: every existing user CLI dir, then the
+  # systemd user defaults (SPEC-043 M5, CDT-666).
+  local out='' d
+  while IFS= read -r d; do
+    [ -n "$d" ] || continue
+    out="${out:+$out:}$d"
+  done <<DIRS
+$(cp_user_cli_dirs)
+DIRS
+  printf '%s\n' "${out:+$out:}$CP_SYSTEM_DEFAULT_PATH"
+}
+
+cp_unit_text() { # cp_unit_text <service> [checkout-root] — unit file bytes on stdout
+  local svc="$1" desc exec_line mroot
   case "$svc" in
     node-agent)
       # SPEC-043 M5 (T8 replan D1): the agent verbs are start|stop|status|steer|
@@ -150,6 +181,20 @@ cp_unit_text() { # cp_unit_text <service> — unit file bytes on stdout
       return 1
       ;;
   esac
+  # The env the service needs (CDT-666): chiefd resolves its journal as
+  # $DEVTEAM_MROOT/.claude/runs/run.db and the plugin root from the same anchor,
+  # so an unstamped unit falls back to $HOME, serves an empty store beside the
+  # project's, and refuses every route. The caller passes the checkout root it
+  # resolved; with no argument cp_checkout_root resolves it.
+  mroot="${2:-}"
+  if [ -z "$mroot" ]; then
+    mroot=$(cp_checkout_root) || mroot=''
+  fi
+  if [ -z "$mroot" ] || [ ! -d "$mroot" ]; then
+    printf 'control-plane: cannot stamp the unit — the checkout root is not a directory: %s\n' "${mroot:-unset}" >&2
+    printf 'fix: run /setup control-plane inside a dev-team checkout (SPEC-043 AC5).\n' >&2
+    return 63
+  fi
   # stdout/stderr need no directive — journald capture is the systemd default.
   cat <<EOF
 [Unit]
@@ -161,6 +206,9 @@ StartLimitIntervalSec=60
 StartLimitBurst=10
 
 [Service]
+WorkingDirectory=$mroot
+Environment="DEVTEAM_MROOT=$mroot"
+Environment="PATH=$(cp_service_path)"
 $exec_line
 Restart=on-failure
 RestartSec=2s
@@ -393,6 +441,9 @@ cp_publish() { # cp_publish <src-file> <dest> <mode>
 }
 
 cp_publish_fn() { # cp_publish_fn <dest> <mode> <producer> [args...]
+  # The write target is <dest> alone: an operator drop-in directory
+  # (<dest>.d/override.conf) is never touched, so a hand-wired node keeps its
+  # overrides across an install (CDT-666).
   local dest="$1" mode="$2" tmp rc=0
   shift 2
   tmp=$(mktemp "${TMPDIR:-/tmp}/dev-team-render.XXXXXX") || return 1
@@ -452,7 +503,7 @@ cp_install() {
     return 2
   fi
   for svc in $CP_UNIT_SERVICES; do
-    if ! cp_publish_fn "$(cp_unit_path "$svc")" "$CP_UNIT_MODE" cp_unit_text "$svc"; then
+    if ! cp_publish_fn "$(cp_unit_path "$svc")" "$CP_UNIT_MODE" cp_unit_text "$svc" "$root"; then
       printf 'control-plane: unit write FAILED for %s (SPEC-043 M5)\n' "$svc" >&2
       return 2
     fi

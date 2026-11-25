@@ -103,7 +103,17 @@ The service keeps its journal CLI name; the plugin never puts it on PATH.
   The unit: `ExecStart=%h/.local/bin/chiefd --addr 127.0.0.1:8090` (the
   service's real CLI; chiefd binds `127.0.0.1:8090` by default),
   `Restart=on-failure`, `RestartSec=2s`, `WantedBy=default.target`, and
-  journald capture by default. Install writes the unit file, then
+  journald capture by default. The unit MUST also carry the service env the
+  install resolved (CDT-666): `WorkingDirectory=<the checkout root>`,
+  `Environment="DEVTEAM_MROOT=<the checkout root>"`, and
+  `Environment="PATH=<each user CLI dir that exists at install>:<the systemd
+  user-manager defaults>"` — `chiefd` resolves its journal and its plugin root
+  from `$DEVTEAM_MROOT` (else the git parent of `$HOME`, which is not a repo),
+  and the native runner spawns the host CLI by name, so an unstamped unit
+  serves an empty journal beside the project's and refuses every spawn with
+  `executable file not found in $PATH`. The PATH is probed, never hardcoded: a
+  user CLI dir that does not exist is not stamped, so the value degrades to the
+  systemd defaults. Install writes the unit file, then
   `systemctl --user daemon-reload`, then
   `systemctl --user enable --now dev-team-chiefd.service`. Enablement never
   widens the chiefd bind beyond loopback. Install MUST NOT write a unit for
@@ -123,7 +133,10 @@ The service keeps its journal CLI name; the plugin never puts it on PATH.
   unit to run it, and `Restart=on-failure` restart-loops it. Every purge of
   such a unit — install-side and uninstall-side — is followed by
   `systemctl --user reset-failed`, because the purged unit's `failed` state is
-  what keeps the manager answering `degraded`.
+  what keeps the manager answering `degraded`. Install writes the unit file it
+  owns and MUST NOT touch a drop-in directory
+  (`dev-team-chiefd.service.d/override.conf`): an override an operator wrote is
+  theirs and survives every later install (CDT-666).
 - **M6 — Verify table.** One table, one row per check, PASS/WARN/FAIL, a
   `N pass / N warn / N fail / N skip` footer. Rows: chiefd answers on
   `127.0.0.1:8090` (an HTTP GET against the `/v1` API); the chiefd unit
@@ -137,7 +150,13 @@ The service keeps its journal CLI name; the plugin never puts it on PATH.
   run id with no journal rows, so the row MUST gate on the journal state,
   never on the status exit code alone; with no journal file the row is a WARN
   `no journal` and the read is skipped (M1); the resolved runner selection
-  (AC6, read-only); the linger row (M10); the WSL2 rows (M8). Fix-it lines
+  (AC6, read-only); the linger row (M10); the served-journal row — the
+  `/v1/runs` board names the fixed probe run, so the service serves
+  `$MROOT/.claude/runs/run.db` and not the `$HOME` store an unstamped unit
+  resolves (M5, CDT-666); the service-env row — `systemctl --user show
+  dev-team-chiefd.service -p Environment` carries `DEVTEAM_MROOT` for the
+  checkout and a PATH that resolves the node's host CLI (M5, CDT-666); the
+  WSL2 rows (M8). Fix-it lines
   accompany every WARN and FAIL.
 - **M7 — Exit codes (lifted from /doctor's scheme).** `0` = only PASS/WARN
   rows; `2` = at least one FAIL; `64` = usage error; `63` = unsupported
@@ -279,7 +298,15 @@ path; (14) a fresh node (no journal file) `--status` leaves the filesystem
 untouched and reports the probe row as WARN `no journal` — the journal CLI
 creates the database on open, so the read is skipped; (15) the M12 lease arm:
 a live heartbeat is a WARN with no `start`, a heartbeat past
-`last_heartbeat_ts + stall_limit_s` runs exactly one takeover `start`.
+`last_heartbeat_ts + stall_limit_s` runs exactly one takeover `start`;
+(16) the M5 env stamp: the template carries `WorkingDirectory` and
+`Environment="DEVTEAM_MROOT="` for the checkout root the caller passed, the PATH
+line carries the probed user CLI dirs before the systemd defaults, and it
+degrades to the defaults when no user CLI dir exists (test-units);
+(17) the two service-env verify rows PASS on a stamped node, FAIL after an
+install and WARN under `--status` on an unstamped one, and SKIP on the M10 skip
+answer; a re-install on a node with an operator drop-in keeps the drop-in
+byte-identical and the unit bytes stable.
 Doctor bites: uninstalled → WARN never FAIL, exit
 stays at doctor's scheme. Skill-lint (SPEC-021) and docs-drift run on the
 landed diff.
@@ -444,6 +471,7 @@ is-system-running` → `running` (rc 0).
 
 | Date | Change |
 |------|--------|
+| 2026-11-25 | CDT-666 (defect fix, plugin-side): M5 gains the service-env stamp — the chiefd unit carries `WorkingDirectory` and `Environment="DEVTEAM_MROOT="` for the checkout root the install resolved, plus `Environment="PATH="` built from the user CLI dirs that exist at install and the systemd user defaults, and the install never writes an operator drop-in directory. The install wrote no env before, so `chiefd` resolved `$HOME` (not a repo): it served an empty journal beside the project's, refused every plugin-root route, and the native spawn died on `executable file not found in $PATH` — the CDT-659 phase-1 validation needed a hand-written `dev-team-chiefd.service.d/override.conf` to route anything. M6 gains the two rows that prove the stamp (`controlplane.chiefd.journal`, `controlplane.chiefd.env`); Test items (16)–(17) bind them. No AC text changed: AC1's "every row PASS" now covers the two new rows. |
 | 2026-11-22 | CDT-620 T4 (macos lane red): M12's probe-lease contract is unchanged — the takeover was a date-parsing defect in `skills/control-plane/setup.sh` `cp_epoch_from_ts`. Its BSD arm stripped the trailing `Z` from the input while the `-j -f` format kept the literal `Z`; BSD `date` matches that format literally, so every heartbeat parsed as undatable and `cp_probe_lease_expired` (undatable = expired) took a live lease over. The `Z` shape now keeps `Z` in both input and format; only the `+hh:mm` offset shape strips the offset. `skills/control-plane/test.sh` section 10 gains a BSD-`date` shim arm (`-d` is a DST spec, `-j -f` matches literally, `-r` takes an epoch) that runs the live-lease fixture under it and asserts the WARN row, zero ` start ` rows, the `retry after lease expiry` row, and hygiene `SKIP`. Suite: 141 checks → 144. |
 | 2026-11-20 | M5's daemon-verb follow-up line is re-pointed (CDT-660, SPEC-044 AC14): the verb stays a phase-4 concern (CDT-631); the chiefd-side takeover scan of SPEC-044 is landed, so the single-node reboot contract needs no daemon verb (SPEC-044 OQ7) and linger stays M10's operator step. No other MUST, AC, or Test text changed. |
 | 2026-11-19 | Spec-alignment pass (CDT-658, Step 10b): M6 names the **installed** `%h/.local/bin/node-agent` for the binary row (a `dist/`-only node is WARN), M1 states why `--status` skips the journal read on a node with no journal (the CLI creates the database on open), M12 names the post-expiry takeover (`run.Lease.Expired` semantics, exactly one `start`), Boundaries adds the `skills/lib/record-status.sh` record-and-render home and the by-path split of the two ADR 0001 crossings, AC14 drops the pre-D1 "units name `%h/.local/bin/node-agent`" wording, Test items (13)–(15) bind the three fixes, and all 14 ACs carry the M14(g) `Verify: bash <path>` grammar. |
@@ -537,3 +565,28 @@ is-system-running` → `running` (rc 0).
   phase-1 dogfood run and reboot acceptance test cite `/setup control-plane`
   as their install step (the reboot test itself executes under CDT-659).
   Verify: bash skills/docs-drift/test.sh
+
+### CDT-666
+
+- **AC1.** The chiefd unit carries the service env at install: `WorkingDirectory`
+  and `Environment="DEVTEAM_MROOT=…"` equal the checkout root the install
+  resolved, and the PATH line prepends the probed user CLI dirs
+  (`$HOME/.grok/bin`, the binary dir) ahead of the systemd defaults — a
+  fresh install serves the project's journal and the chief-routed spawn
+  resolves the host CLI without an operator drop-in; a root that is not a
+  directory refuses (rc 63) before stamping.
+  Verify: bash skills/control-plane/test-units.sh
+- **AC2.** The verify table proves the service env: the served-journal row
+  answers from `$MROOT/.claude/runs/run.db` (the probe run the install
+  journaled names the project's store), and the service-env row parses
+  `systemctl --user show -p Environment` and resolves the host CLI by
+  `command -v` inside the stamped PATH. Both SKIP under the M10 skip
+  answer.
+  Verify: bash skills/control-plane/test.sh
+- **AC3.** A re-run on a hand-wired node is idempotent and never clobbers
+  the operator's drop-in: the unit file rewrites byte-identical and
+  `.service.d/override.conf` survives untouched.
+  Verify: bash skills/control-plane/test-units.sh
+- **AC4.** [process] SPEC-043 M5 and the runner contract name the stamped
+  env and the drop-in rule. The gate for this change is the
+  control-plane shell suites plus `tools/spec-lint.sh`.

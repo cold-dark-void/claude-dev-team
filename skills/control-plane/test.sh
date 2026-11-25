@@ -306,6 +306,20 @@ case "$verb" in
     printf '%s\n' "${CP_FAKE_UNIT_ENABLED:-enabled}"
     if [ "${CP_FAKE_UNIT_ENABLED:-enabled}" = "enabled" ]; then exit 0; fi
     exit 1 ;;
+  show)
+    # `-p Environment` answers the manager's merged view: the unit file plus the
+    # operator drop-ins, in load order, with the systemd quotes stripped
+    # (CDT-666). CP_FAKE_SHOW_EMPTY models the pre-CDT-666 unstamped unit.
+    ufile="${CP_FAKE_UNIT_DIR:-$HOME/.config/systemd/user}/${unit:-}"
+    vals=$(sed -n 's/^Environment=//p' "$ufile" 2>/dev/null | tr -d '"' | tr '\n' ' ')
+    for d in "$ufile.d"/*.conf; do
+      [ -f "$d" ] || continue
+      vals="$vals $(sed -n 's/^Environment=//p' "$d" | tr -d '"' | tr '\n' ' ')"
+    done
+    if [ "${CP_FAKE_SHOW_EMPTY:-0}" = "1" ]; then vals=''; fi
+    # systemd answers one merged line, values space-separated.
+    printf 'Environment=%s\n' "$(printf '%s' "$vals" | tr -s '[:space:]' ' ' | sed -e 's/^ //' -e 's/ $//')"
+    exit 0 ;;
 esac
 if [ "${CP_FAKE_SYSTEMCTL_FAIL:-0}" = "1" ]; then exit 1; fi
 if { [ "$verb" = "enable" ] || [ "$verb" = "start" ]; } &&
@@ -355,13 +369,48 @@ FAKE
 
 cat >"$FAKE_BIN/curl" <<'FAKE'
 #!/usr/bin/env bash
-# fake curl — logs argv, answers the chiefd API GET from env.
+# fake curl — logs argv, answers the chiefd API GET from env. The GET body is
+# the run board chiefd serves, built from the journal database it opens:
+# ${CP_FAKE_CHIEF_DB:-$DEVTEAM_MROOT/.claude/runs/run.db}. Pointing that at
+# another file models a chiefd that resolved a different $MROOT, which is how
+# the CDT-666 "the served journal is the project's" row is exercised.
 printf '%s\n' "$*" >>"${CP_FAKE_CURL_LOG:-/dev/null}"
 if [ "${CP_FAKE_CURL_FAIL:-0}" = "1" ]; then
   printf 'curl: (7) Failed to connect to 127.0.0.1 port 8090\n' >&2
   exit 7
 fi
-printf '200\n'
+out=''
+wfmt=0
+while [ $# -gt 0 ]; do
+  case "$1" in
+    -o) out="${2:-}"; shift 2 ;;
+    -w) wfmt=1; shift 2 ;;
+    -m) shift 2 ;;
+    -*) shift ;;
+    *) shift ;;
+  esac
+done
+body='{"runs":[]}'
+db="${CP_FAKE_CHIEF_DB:-${DEVTEAM_MROOT:-}/.claude/runs/run.db}"
+if [ -n "$db" ] && [ -f "$db" ]; then
+  runs=''
+  while IFS= read -r rid; do
+    [ -n "$rid" ] || continue
+    runs="${runs:+$runs,}{\"run_id\":\"$rid\"}"
+  done <<EOS
+$(sed -n 's/^journal row: \([^ ]*\) run_started$/\1/p' "$db" | sort -u)
+EOS
+  body="{\"runs\":[${runs}]}"
+fi
+if [ -n "$out" ] && [ "$out" != '/dev/null' ]; then
+  printf '%s\n' "$body" >"$out"
+fi
+if [ "$out" != '/dev/null' ]; then
+  printf '%s\n' "$body"
+fi
+if [ "$wfmt" = 1 ]; then
+  printf '200\n'
+fi
 exit 0
 FAKE
 
@@ -435,6 +484,12 @@ reset_state() { # fresh install targets, fresh logs, WSL2-with-systemd node
   export CP_HTTP_TIMEOUT=1 CP_HTTP_WAIT=1 CP_DOCKER_PS_TIMEOUT=2 CP_ASSUME_TTY=0
   export CP_FAKE_EXECUTABLE=0 CP_FAKE_SYSTEMCTL_EXEC=0 CP_FAKE_EXEC_RC=0
   export CP_FAKE_EXEC_LOG="$EXEC_LOG" CP_FAKE_UNIT_DIR="$UNIT_DIR"
+  export CP_FAKE_SHOW_EMPTY=0 CP_FAKE_CHIEF_DB=''
+  # The host CLI the native runner spawns lives in a user CLI dir the install
+  # probes (CDT-666): ~/.grok/bin. The service PATH is what resolves it.
+  mkdir -p "$HOME/.grok/bin"
+  printf '#!/usr/bin/env bash\nexit 0\n' >"$HOME/.grok/bin/grok"
+  chmod 755 "$HOME/.grok/bin/grok"
   rm -f -- "$NODE_JSON"
   unset CP_IMAGE DEVTEAM_RUN_DB DEVTEAM_RUNNER DEVTEAM_CP_IMAGE
 }
@@ -618,13 +673,14 @@ for b in '== preflight ==' '== build ==' '== install ==' '== verify =='; do
     bad "install printed no banner for: $b"
   fi
 done
-if [ "$(footer_of)" = '7 pass / 3 warn / 0 fail / 0 skip' ]; then
+if [ "$(footer_of)" = '9 pass / 3 warn / 0 fail / 0 skip' ]; then
   ok "AC1 table: every row PASS except linger and the two Windows-side rows"
 else
-  bad "AC1 footer is $(footer_of), expected '7 pass / 3 warn / 0 fail / 0 skip' — out: $OUT"
+  bad "AC1 footer is $(footer_of), expected '9 pass / 3 warn / 0 fail / 0 skip' — out: $OUT"
 fi
 for pair in 'controlplane.units.chiefd:PASS' 'controlplane.node-agent:PASS' \
-  'controlplane.chiefd.api:PASS' 'controlplane.probe:PASS' 'controlplane.probe.hygiene:PASS' \
+  'controlplane.chiefd.api:PASS' 'controlplane.chiefd.journal:PASS' 'controlplane.chiefd.env:PASS' \
+  'controlplane.probe:PASS' 'controlplane.probe.hygiene:PASS' \
   'controlplane.runner:PASS' 'controlplane.wsl2.systemd:PASS' \
   'controlplane.linger:WARN' 'controlplane.wsl2.autostart:WARN' 'controlplane.wsl2.idletimeout:WARN'; do
   id=${pair%:*}
@@ -805,7 +861,7 @@ if [ "$RC" -eq 0 ]; then
 else
   bad "M12: second run rc=$RC — out: $OUT"
 fi
-if [ "$(footer_of)" = '7 pass / 3 warn / 0 fail / 0 skip' ]; then
+if [ "$(footer_of)" = '9 pass / 3 warn / 0 fail / 0 skip' ]; then
   ok "M12: the second run reproduces the same footer (AC2 same verdict)"
 else
   bad "M12: second footer is $(footer_of)"
@@ -931,7 +987,7 @@ reset_state
 # An uninstalled node: the fake unit state and the fake API both say "absent".
 export CP_FAKE_UNIT_ACTIVE=inactive CP_FAKE_UNIT_ENABLED=not-found CP_FAKE_CURL_FAIL=1
 run_setup --status
-if [ "$RC" -eq 0 ] && [ "$(footer_of)" = '2 pass / 7 warn / 0 fail / 1 skip' ]; then
+if [ "$RC" -eq 0 ] && [ "$(footer_of)" = '2 pass / 9 warn / 0 fail / 1 skip' ]; then
   ok "--status on an uninstalled node stays WARN-only and exits 0 (the service is opt-in)"
 else
   bad "--status uninstalled: rc=$RC footer=$(footer_of) — out: $OUT"
@@ -1176,8 +1232,8 @@ if [ "$(status_of controlplane.wsl2.systemd)" = 'SKIP' ] &&
 else
   bad "AC7 native-Linux skips: $(footer_of)"
 fi
-if printf '%s\n' "$OUT" | grep -qE '^7 pass / 0 warn / 0 fail / 3 skip$'; then
-  ok "AC7: native Linux reaches the all-PASS table (7 pass, 3 skip)"
+if printf '%s\n' "$OUT" | grep -qE '^9 pass / 0 warn / 0 fail / 3 skip$'; then
+  ok "AC7: native Linux reaches the all-PASS table (9 pass, 3 skip)"
 else
   bad "AC7 native-Linux footer is $(footer_of)"
 fi
@@ -1519,6 +1575,91 @@ if [ "$RC" -eq 2 ] && has 'enable --now FAILED'; then
   ok "AC12: an ExecStart target that exits at once is a FAIL, not a PASS table (the T7 P0)"
 else
   bad "the dying-ExecStart shape returned rc=$RC — out: $OUT"
+fi
+reset_state
+
+# ---- 11b. the CDT-666 service-env rows (served journal, stamped PATH) --------
+# An unstamped unit serves an empty journal beside the project's and refuses
+# every spawn (`exec: "grok": executable file not found in $PATH`) — the
+# CDT-659 validation shape. These two rows prove the stamp landed.
+
+reset_state
+mkdir -p "$(dirname -- "$NODE_JSON")"
+printf '{"runner":"native","command":"grok"}\n' >"$NODE_JSON"
+run_setup
+if [ "$RC" -eq 0 ] && [ "$(status_of controlplane.chiefd.journal)" = 'PASS' ]; then
+  ok "CDT-666: the served board names the probe run, so chiefd serves the project's journal (PASS)"
+else
+  bad "CDT-666 served-journal row: $(status_of controlplane.chiefd.journal) rc=$RC — $(row_of controlplane.chiefd.journal)"
+fi
+if row_of controlplane.chiefd.journal | grep -qF -e "$JOURNAL"; then
+  ok "CDT-666: the served-journal row names the project journal path it proved ($JOURNAL)"
+else
+  bad "CDT-666 served-journal row names no journal path: $(row_of controlplane.chiefd.journal)"
+fi
+if [ "$(status_of controlplane.chiefd.env)" = 'PASS' ] &&
+  row_of controlplane.chiefd.env | grep -qF -e "$HOME/.grok/bin" &&
+  row_of controlplane.chiefd.env | grep -qF -e "$HOME/.grok/bin/grok"; then
+  ok "CDT-666: the service env carries the stamped PATH and the host CLI resolves in it (PASS)"
+else
+  bad "CDT-666 service-env row: $(status_of controlplane.chiefd.env) — $(row_of controlplane.chiefd.env)"
+fi
+reset_state
+export CP_FAKE_SHOW_EMPTY=1
+run_setup
+if [ "$RC" -eq 2 ] && [ "$(status_of controlplane.chiefd.env)" = 'FAIL' ]; then
+  ok "CDT-666: a service env with no stamp is a FAIL row and exit 2 (the pre-fix node)"
+else
+  bad "CDT-666 unstamped: rc=$RC env=$(status_of controlplane.chiefd.env)"
+fi
+if row_with_fixit controlplane.chiefd.env | grep -qF -e 'DEVTEAM_MROOT'; then
+  ok "CDT-666: the unstamped fix-it names the DEVTEAM_MROOT stamp"
+else
+  bad "CDT-666 unstamped fix-it: $(row_with_fixit controlplane.chiefd.env)"
+fi
+run_setup --status
+if [ "$RC" -eq 0 ] && [ "$(status_of controlplane.chiefd.env)" = 'WARN' ]; then
+  ok "CDT-666: --status reads the unstamped env as WARN, never FAIL (the service is opt-in)"
+else
+  bad "CDT-666 unstamped --status: rc=$RC env=$(status_of controlplane.chiefd.env)"
+fi
+reset_state
+printf 'no rows here\n' >"$SCRATCH/foreign-run.db"
+export CP_FAKE_CHIEF_DB="$SCRATCH/foreign-run.db"
+run_setup
+if [ "$RC" -eq 2 ] && [ "$(status_of controlplane.chiefd.journal)" = 'FAIL' ]; then
+  ok "CDT-666: a board with no project run row is a FAIL row and exit 2 (chiefd resolved the wrong MROOT)"
+else
+  bad "CDT-666 foreign journal: rc=$RC journal=$(status_of controlplane.chiefd.journal)"
+fi
+if row_with_fixit controlplane.chiefd.journal | grep -qF -e "DEVTEAM_MROOT=$CHECKOUT"; then
+  ok "CDT-666: the served-journal fix-it names the stamp the unit must carry"
+else
+  bad "CDT-666 served-journal fix-it: $(row_with_fixit controlplane.chiefd.journal)"
+fi
+run_setup --status
+if [ "$RC" -eq 0 ] && [ "$(status_of controlplane.chiefd.journal)" = 'WARN' ]; then
+  ok "CDT-666: --status reads a foreign served journal as WARN with the fix line"
+else
+  bad "CDT-666 foreign journal --status: rc=$RC journal=$(status_of controlplane.chiefd.journal)"
+fi
+reset_state
+mkdir -p "$(dirname -- "$NODE_JSON")"
+printf '{"runner":"native","command":"nosuchcli-666"}\n' >"$NODE_JSON"
+run_setup
+if [ "$RC" -eq 2 ] && [ "$(status_of controlplane.chiefd.env)" = 'FAIL' ] &&
+  row_of controlplane.chiefd.env | grep -qF -e 'nosuchcli-666'; then
+  ok "CDT-666: a host CLI the stamped PATH cannot resolve is a FAIL row that names it"
+else
+  bad "CDT-666 missing CLI: rc=$RC env=$(status_of controlplane.chiefd.env) row=$(row_of controlplane.chiefd.env)"
+fi
+reset_state
+OUT=$(printf 's\n' | CP_ASSUME_TTY=1 bash "$SETUP" 2>&1); RC=$?
+if [ "$RC" -eq 0 ] && [ "$(status_of controlplane.chiefd.journal)" = 'SKIP' ] &&
+  [ "$(status_of controlplane.chiefd.env)" = 'SKIP' ]; then
+  ok "CDT-666: the operator skip answer records SKIP for both service-env rows (SPEC-043 M10)"
+else
+  bad "CDT-666 skip path: rc=$RC journal=$(status_of controlplane.chiefd.journal) env=$(status_of controlplane.chiefd.env)"
 fi
 reset_state
 

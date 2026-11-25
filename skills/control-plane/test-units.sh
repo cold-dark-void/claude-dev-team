@@ -280,6 +280,59 @@ else
   ok "M5 chiefd bind stays loopback (127.0.0.1:8090)"
 fi
 
+# ---- 2b. the CDT-666 service-env stamp ---------------------------------------
+# An unstamped unit runs chiefd with the systemd user defaults: the journal
+# resolves at $HOME (not a git repo), defaultPluginRoot refuses every route, and
+# the native spawn answers `exec: "grok": executable file not found in $PATH`
+# (the CDT-659 validation shape). The unit carries the env install probed.
+
+GROKBIN="$HOME/.grok/bin"
+mkdir -p "$GROKBIN" "$BIN_DIR"
+UNIT_C=$(bash -c '. "$1" >/dev/null 2>&1; cp_unit_text chiefd' _ "$UNITS" 2>&1)
+for needle in "WorkingDirectory=$CHECKOUT" \
+  "Environment=\"DEVTEAM_MROOT=$CHECKOUT\"" \
+  "Environment=\"PATH=$GROKBIN:$BIN_DIR:/usr/local/bin:/usr/bin\""; do
+  if printf '%s\n' "$UNIT_C" | grep -qF -e "$needle"; then
+    ok "CDT-666 env stamp carries: $needle"
+  else
+    bad "CDT-666 env stamp is missing: $needle"
+  fi
+done
+if printf '%s\n' "$UNIT_C" | grep -qF -e 'Environment="PATH=' ; then
+  ok "CDT-666 env stamp keeps the systemd defaults in a quoted PATH assignment"
+else
+  bad "CDT-666 env stamp emits no PATH assignment"
+fi
+if printf '%s\n' "$UNIT_C" | grep -qF -e "PATH=$GROKBIN:$BIN_DIR"; then
+  ok "CDT-666 PATH order: the probed user CLI dirs precede the systemd defaults"
+else
+  bad "CDT-666 PATH order is wrong: $(printf '%s\n' "$UNIT_C" | grep -F 'PATH=' | tr '\n' '|')"
+fi
+
+UNIT_ARG=$(bash -c '. "$1" >/dev/null 2>&1; cp_unit_text chiefd "$2"' _ "$UNITS" "$CHECKOUT" 2>&1)
+if [ "$UNIT_ARG" = "$UNIT_C" ]; then
+  ok "CDT-666 cp_unit_text takes the checkout root as an argument (the root cp_install resolved)"
+else
+  bad "cp_unit_text chiefd and cp_unit_text chiefd <root> disagree — the install root is not threaded through"
+fi
+OUT=$(bash -c '. "$1" >/dev/null 2>&1; cp_unit_text chiefd "$2"' _ "$UNITS" "$SCRATCH/no-such-dir" 2>&1)
+RC=$?
+if [ "$RC" -ne 0 ] && ! printf '%s\n' "$OUT" | grep -q 'ExecStart'; then
+  ok "CDT-666 cp_unit_text refuses a checkout root that is not a directory (rc $RC, no unit text)"
+else
+  bad "cp_unit_text stamped a WorkingDirectory that does not exist"
+fi
+
+# A node with no user CLI dirs: the PATH line degrades to the systemd defaults.
+rm -rf "$GROKBIN" "$BIN_DIR"
+UNIT_P=$(bash -c '. "$1" >/dev/null 2>&1; cp_unit_text chiefd' _ "$UNITS" 2>&1)
+if printf '%s\n' "$UNIT_P" | grep -qF -e 'Environment="PATH=/usr/local/bin:/usr/bin"'; then
+  ok "CDT-666 PATH degrades to the systemd defaults when no user CLI dir exists"
+else
+  bad "CDT-666 PATH degrade is wrong: $(printf '%s\n' "$UNIT_P" | grep -F 'PATH=' | tr '\n' '|')"
+fi
+mkdir -p "$GROKBIN"
+
 OUT=$(bash -c '. "$1" >/dev/null 2>&1; cp_unit_text dashboard' _ "$UNITS" 2>&1)
 RC=$?
 if [ "$RC" -ne 0 ] && ! printf '%s\n' "$OUT" | grep -q 'ExecStart'; then
@@ -454,6 +507,36 @@ if [ "$RC" -eq 0 ] && cmp -s "$UC" "$SCRATCH/expect-c"; then
   ok "a tampered unit file is rewritten from the template (M12 compare is by content)"
 else
   bad "a tampered unit file was not restored (rc $RC)"
+fi
+
+# ---- 4b. a hand-wired node: the operator drop-in survives (CDT-666) ----------
+# The CDT-659 validation routed the node with a hand-written override.conf.
+# Install stamps the env into the unit file it owns and never touches the
+# operator's drop-in directory.
+
+DROPIN_DIR="$UNIT_DIR/dev-team-chiefd.service.d"
+mkdir -p "$DROPIN_DIR"
+printf '[Service]\nEnvironment="DEVTEAM_RUN_DB=%s"\n' "$JOURNAL" >"$DROPIN_DIR/override.conf"
+DROPIN_SUM=$(cksum <"$DROPIN_DIR/override.conf")
+UNIT_SUM=$(cksum <"$UC")
+run_fn cp_install
+if [ "$RC" -eq 0 ] && [ "$(cksum <"$DROPIN_DIR/override.conf")" = "$DROPIN_SUM" ]; then
+  ok "CDT-666 idempotency: a re-run leaves the operator override.conf byte-identical"
+else
+  bad "CDT-666 idempotency: the re-run touched the operator drop-in (rc $RC)"
+fi
+run_fn cp_install
+if [ "$RC" -eq 0 ] && [ "$(cksum <"$DROPIN_DIR/override.conf")" = "$DROPIN_SUM" ] &&
+  [ "$(cksum <"$UC")" = "$UNIT_SUM" ] && cmp -s "$UC" "$SCRATCH/expect-c"; then
+  ok "CDT-666 idempotency: two re-runs keep the unit bytes stable and the drop-in intact"
+else
+  bad "CDT-666 idempotency: the unit bytes moved under a drop-in (rc $RC, unit=$(cksum <"$UC") vs $UNIT_SUM)"
+fi
+if printf '%s\n' "$OUT" | grep -qF -e 'unchanged:' &&
+  ! printf '%s\n' "$OUT" | grep -qF -e "$DROPIN_DIR"; then
+  ok "CDT-666 idempotency: install reports no write target inside the drop-in directory"
+else
+  bad "CDT-666 idempotency: install reported a drop-in write: $(printf '%s\n' "$OUT" | grep -F "$DROPIN_DIR" | tr '\n' '|')"
 fi
 
 # ---- 5. AC4 sudo-deny --------------------------------------------------------

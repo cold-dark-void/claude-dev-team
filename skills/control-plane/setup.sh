@@ -566,6 +566,115 @@ cp_row_chiefd_http() {
   return 0
 }
 
+cp_service_cli() {
+  # The host CLI the native runner spawns: node.json's command key when the node
+  # names one, else the probe command (the driver's no-op default). A value with
+  # whitespace is not a CLI name and falls back the same way.
+  local json="${DEVTEAM_CP_NODE_JSON:-$CP_MROOT/.claude/dev-team/node.json}" name=''
+  if [ -r "$json" ]; then
+    name=$(cp_json_field command "$(cat "$json" 2>/dev/null)")
+  fi
+  name=$(cp_pf_trim "$name")
+  case "$name" in
+    '' | *[[:space:]]*) name="$CP_PROBE_COMMAND" ;;
+  esac
+  printf '%s\n' "$name"
+}
+
+cp_row_chiefd_journal() {
+  # CDT-666: the board chiefd serves is the project's journal. chiefd opens
+  # $DEVTEAM_MROOT/.claude/runs/run.db; an unstamped unit resolves $HOME and
+  # serves an empty store beside the project's (the CDT-659 validation shape).
+  # The proof is the fixed probe run: the install journaled it into
+  # $MROOT/.claude/runs/run.db, so a board that names it is that journal.
+  local id='controlplane.chiefd.journal' tool='' body='' rc=0 db
+  cp_row_guard "$id" || return 0
+  if command -v curl >/dev/null 2>&1; then
+    tool='curl'
+  elif command -v wget >/dev/null 2>&1; then
+    tool='wget'
+  else
+    record_status "$id" 'controlplane' 'WARN' \
+      "no HTTP client on PATH — $CP_HTTP_URL is unreadable" \
+      'install curl (this command never elevates), then re-run' || return 0
+    return 0
+  fi
+  db="${DEVTEAM_MROOT:-$CP_MROOT}/.claude/runs/run.db"
+  if [ "$tool" = 'curl' ]; then
+    if body=$(curl -fsS -m "$CP_HTTP_TIMEOUT" "$CP_HTTP_URL" 2>&1); then rc=0; else rc=$?; fi
+  else
+    if body=$(wget -q -T "$CP_HTTP_TIMEOUT" -t 1 -O - "$CP_HTTP_URL" 2>&1); then rc=0; else rc=$?; fi
+  fi
+  if [ "$rc" -ne 0 ]; then
+    cp_row_absent "$id" \
+      "GET $CP_HTTP_URL failed (exit $rc): $(cp_pf_trim "${body%%$'\n'*}")" \
+      "systemctl --user status $(cp_unit_name chiefd) — then run: /setup control-plane" || return 0
+    return 0
+  fi
+  if printf '%s' "$body" | grep -qF -e "\"run_id\":\"$CP_PROBE_RUN_ID\""; then
+    record_status "$id" 'controlplane' 'PASS' \
+      "the served journal is the project's — GET $CP_HTTP_URL answers the probe run from $db (SPEC-043 M5, CDT-666)" '' || return 0
+    return 0
+  fi
+  cp_row_absent "$id" \
+    "GET $CP_HTTP_URL answers no $CP_PROBE_RUN_ID row — chiefd serves a journal that is not $db" \
+    "the unit must carry Environment=\"DEVTEAM_MROOT=$CP_MROOT\" and WorkingDirectory=$CP_MROOT — then run: /setup control-plane" || return 0
+  return 0
+}
+
+cp_row_service_env() {
+  # CDT-666: the env the unit stamped. chiefd resolves its journal and its plugin
+  # root from $DEVTEAM_MROOT, and the native runner spawns the host CLI by name
+  # through the service PATH — the systemd user default misses the user CLI dirs,
+  # so an unstamped unit refuses with `executable file not found in $PATH`.
+  local id='controlplane.chiefd.env' unit envline='' rc=0 mroot_want pathval='' cli resolved=''
+  cp_row_guard "$id" || return 0
+  if ! command -v systemctl >/dev/null 2>&1; then
+    record_status "$id" 'controlplane' 'WARN' \
+      'systemctl is not on PATH — the service env is unreadable' \
+      'Linux with a systemd user manager is the only supported platform (SPEC-043 M2(b))' || return 0
+    return 0
+  fi
+  unit=$(cp_unit_name chiefd)
+  if envline=$(cp_systemctl show "$unit" -p Environment 2>&1); then rc=0; else rc=$?; fi
+  if [ "$rc" -ne 0 ]; then
+    cp_row_absent "$id" \
+      "systemctl --user show $unit -p Environment failed (exit $rc): $(cp_pf_trim "${envline%%$'\n'*}")" \
+      "systemctl --user status $unit — then run: /setup control-plane" || return 0
+    return 0
+  fi
+  envline=$(printf '%s\n' "$envline" | sed -n 's/^Environment=//p' | head -n 1)
+  mroot_want="${DEVTEAM_MROOT:-$CP_MROOT}"
+  case "$envline" in
+    *"DEVTEAM_MROOT=$mroot_want"*) ;;
+    *)
+      cp_row_absent "$id" \
+        "the service env carries no DEVTEAM_MROOT=$mroot_want (Environment=${envline:-empty}) — the journal and the plugin root resolve outside the project" \
+        'run: /setup control-plane — the unit stamps WorkingDirectory and Environment="DEVTEAM_MROOT" (SPEC-043 M5, CDT-666)' || return 0
+      return 0
+      ;;
+  esac
+  pathval=$(printf '%s' "$envline" | sed -n 's/.*PATH=\([^ ]*\).*/\1/p')
+  if [ -z "$pathval" ]; then
+    cp_row_absent "$id" \
+      'the service env carries no PATH — the runner spawn gets the systemd user default' \
+      'run: /setup control-plane — the unit stamps the user CLI dirs that exist (CDT-666)' || return 0
+    return 0
+  fi
+  cli=$(cp_service_cli)
+  # The CLI name reaches bash as argv, never as code (AGENTS.md: untrusted input
+  # is never code), so the lookup reads the way the service's exec does.
+  if resolved=$(cp_run env "PATH=$pathval" bash -c 'command -v -- "$1"' _ "$cli" 2>/dev/null) && [ -n "$resolved" ]; then
+    record_status "$id" 'controlplane' 'PASS' \
+      "the service env carries DEVTEAM_MROOT and PATH=$pathval — the host CLI $cli resolves at $resolved (SPEC-043 M5, CDT-666)" '' || return 0
+    return 0
+  fi
+  cp_row_absent "$id" \
+    "the host CLI $cli does not resolve in the service PATH ($pathval) — the native spawn refuses with: executable file not found in \$PATH" \
+    'run: /setup control-plane — it stamps every user CLI dir that exists into the unit PATH (CDT-666)' || return 0
+  return 0
+}
+
 cp_row_probe() {
   # The probe row: the journal state of the fixed run id, never
   # `node-agent status` rc alone (spec § Q1a — status answers 0 for a run that
@@ -879,6 +988,10 @@ cp_verify() {
   cp_row_hygiene
   cp_row_runner
   cp_row_linger
+  # The service-env rows sit after the M10 answer, so the documented skip
+  # answer SKIPs them like every later row (SPEC-043 M10).
+  cp_row_chiefd_journal
+  cp_row_service_env
   cp_row_wsl_systemd
   cp_row_wsl_autostart
   cp_row_wsl_idle
