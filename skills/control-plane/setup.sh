@@ -22,6 +22,12 @@
 # The table body and footer come from skills/lib/record-status.sh — the same
 # home /doctor renders from (SPEC-043 M6 footer: `N pass / N warn / N fail / N skip`).
 #
+# `controlplane.chiefd.currency` (SPEC-043 CDT-670 AC3) compares the unit's
+# main-process start time with the installed binary's mtime: current is PASS,
+# a process that predates the binary is FAIL with the exact restart command,
+# an unreadable read is WARN. units.sh restarts the unit on a replaced binary
+# (CDT-670 AC1), so a fresh install lands PASS.
+#
 # The probe (SPEC-043 M11 as ruled by the T0 spike, spec § Q1a/Q1b/Q1c):
 #   - run id `devteam-setup-probe`, one `node-agent start --command <no-op>`;
 #   - the start invocation carries the M2(g) resolved selection as the
@@ -426,6 +432,52 @@ cp_epoch_from_ts() {
   return 1
 }
 
+cp_unit_start_epoch() {
+  # cp_unit_start_epoch <unit> -> epoch seconds of the unit's main-process start,
+  # read from `systemctl --user show -p ExecMainStartTimestamp --value`. rc 1 =
+  # unreadable (no systemctl, a failed show, an empty or unparseable answer):
+  # CDT-670 AC3 reads that as WARN, never as a FAIL.
+  local ts rc=0 base
+  if ! command -v systemctl >/dev/null 2>&1; then
+    return 1
+  fi
+  if ts=$(cp_systemctl show "$1" -p ExecMainStartTimestamp --value 2>/dev/null); then rc=0; else rc=$?; fi
+  [ "$rc" -eq 0 ] || return 1
+  ts=$(cp_pf_trim "$ts")
+  # systemd answers a timestamp in wall-clock form ("Thu 2026-11-26 13:00:58
+  # EST"), the manager's own timezone; the weekday token carries no information.
+  case "$ts" in
+    [A-Za-z][A-Za-z][A-Za-z]" "*) ts=${ts#* } ;;
+  esac
+  case "$ts" in
+    [0-9]*) ;;
+    *) return 1 ;;
+  esac
+  if date -u -d "$ts" +%s 2>/dev/null; then
+    return 0
+  fi
+  # The BSD/macOS form takes no zone name, and cp_epoch_from_ts takes the
+  # space-free RFC 3339 shape, so the value goes to it date-less.
+  base="$ts"
+  case "$base" in
+    *.*) base="${base%%.*}" ;;
+  esac
+  case "$base" in
+    *' '*) base="${base%% *}" ;;
+  esac
+  cp_epoch_from_ts "${base/ /T}"
+}
+
+cp_file_mtime_epoch() {
+  # cp_file_mtime_epoch <path> -> mtime in epoch seconds; rc 1 = unreadable.
+  local m
+  m=$(stat -c %Y "$1" 2>/dev/null || stat -f %m "$1" 2>/dev/null) || return 1
+  case "$m" in
+    '' | *[!0-9]*) return 1 ;;
+  esac
+  printf '%s\n' "$m"
+}
+
 cp_probe_lease_expired() {
   # SPEC-043 M12: expired = more than stall_limit_s passed since the last
   # heartbeat. A lease the state read cannot date counts as expired, matching
@@ -484,6 +536,41 @@ cp_row_unit() {
   cp_row_absent "$id" \
     "unit $unit is ${state:-unreadable} (is-active exit $rc)" \
     "systemctl --user status $unit — then run: /setup control-plane" || return 0
+  return 0
+}
+
+cp_row_chiefd_currency() {
+  # CDT-670 AC3: the running chiefd is the installed chiefd. The unit's
+  # main-process start time must not predate the installed binary's mtime — an
+  # install that replaced the binary under a live unit leaves a daemon running
+  # superseded code (the install restarts it, AC1; this row proves it). An
+  # unreadable read is WARN, never a spurious FAIL.
+  local id='controlplane.chiefd.currency' unit bin mtime start
+  cp_row_guard "$id" || return 0
+  unit=$(cp_unit_name chiefd)
+  bin=$(cp_bin_path chiefd)
+  if [ ! -f "$bin" ]; then
+    cp_row_absent "$id" \
+      "no installed chiefd binary at $bin — nothing to compare the running process with (SPEC-043 M3, CDT-670 AC3)" \
+      'run: /setup control-plane (it builds and installs the binary)' || return 0
+    return 0
+  fi
+  mtime=$(cp_file_mtime_epoch "$bin") || mtime=''
+  start=$(cp_unit_start_epoch "$unit") || start=''
+  if [ -z "$mtime" ] || [ -z "$start" ]; then
+    record_status "$id" 'controlplane' 'WARN' \
+      "chiefd currency is unreadable (binary mtime ${mtime:-unreadable}, process start ${start:-unreadable}) — the row never fails on a read it cannot make (SPEC-043 CDT-670 AC3)" \
+      "systemctl --user show $unit -p ExecMainStartTimestamp --value" || return 0
+    return 0
+  fi
+  if [ "$start" -ge "$mtime" ]; then
+    record_status "$id" 'controlplane' 'PASS' \
+      "the running chiefd started after the installed binary was written (process start $start, binary mtime $mtime — SPEC-043 CDT-670 AC3)" '' || return 0
+    return 0
+  fi
+  cp_row_absent "$id" \
+    "the running chiefd started before the installed binary was written (process start $start, binary mtime $mtime) — the unit runs a superseded binary" \
+    "systemctl --user restart $unit" || return 0
   return 0
 }
 
@@ -982,6 +1069,7 @@ cp_verify() {
   reset_status
   cp_banner verify
   cp_row_unit chiefd
+  cp_row_chiefd_currency
   cp_row_node_agent
   cp_row_chiefd_http
   cp_row_probe

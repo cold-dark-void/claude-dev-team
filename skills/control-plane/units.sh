@@ -10,6 +10,10 @@
 #   cp_uninstall   0 (SPEC-043 M9); 2 only from the AC4 sudo guard
 # Both print their phase banners.
 #
+# Restart-on-replace (SPEC-043 CDT-670 AC1): cp_install restarts the chiefd unit
+# when it wrote the chiefd binary or the chiefd unit file, after the reload and
+# enable block. A re-run that writes nothing restarts nothing (AC2).
+#
 # Function inventory:
 #   cp_install / cp_uninstall      the two modes
 #   cp_build                       the M4 build inside the approved digest
@@ -20,7 +24,9 @@
 #   cp_user_cli_dirs/cp_service_path the user CLI dirs that exist + the systemd
 #                                  default PATH, in stamp order
 #   cp_bin_path                    %h/.local/bin/<binary> (M3)
-#   cp_publish / cp_publish_fn     write only when content differs (M12), atomically
+#   cp_publish / cp_publish_fn     write only when content differs (M12), atomically;
+#                                  report the write in CP_PUBLISH_STATE
+#                                  ('written' | 'mode' | 'same')
 #   cp_shape_guard                 last-line environment check for standalone use
 #   cp_targets_ready               M3: every write target user-writable
 #   cp_run                         command funnel: refuses privilege-elevation tokens
@@ -74,6 +80,9 @@ CP_UNIT_SERVICES='chiefd' # the one supervised service (M5) — no node-agent un
 CP_LEGACY_UNITS='dev-team-node-agent.service'
 # Command words this module must never execute (SPEC-043 MUST NOT).
 CP_DENY_TOKENS='sudo su pkexec'
+# The last cp_publish outcome: 'written' | 'mode' | 'same'. The restart trigger
+# CDT-670 AC1 reads (an out-variable, never stdout parsing).
+CP_PUBLISH_STATE='same'
 
 # ---- phase banners -----------------------------------------------------------
 
@@ -399,7 +408,11 @@ cp_build() { # cp_build <checkout-root> — node-agent + chiefd into control-pla
 # ---- M12: publish only when content differs ----------------------------------
 
 cp_publish() { # cp_publish <src-file> <dest> <mode>
+  # Reports what it did in CP_PUBLISH_STATE: 'written' (the bytes changed),
+  # 'mode' (chmod only), 'same' (no write). CDT-670 AC1 keys the chiefd restart
+  # off 'written' — the caller reads the variable, never this function's stdout.
   local src="$1" dest="$2" mode="$3" dir cur rc=0
+  CP_PUBLISH_STATE='same'
   if [ ! -f "$src" ]; then
     printf 'control-plane: nothing to install from: %s\n' "$src" >&2
     return 1
@@ -423,6 +436,7 @@ cp_publish() { # cp_publish <src-file> <dest> <mode>
       printf 'control-plane: chmod %s FAILED: %s\n' "$mode" "$dest" >&2
       return 1
     fi
+    CP_PUBLISH_STATE='mode'
     printf 'mode -> %s: %s\n' "$mode" "$dest"
     return 0
   fi
@@ -436,6 +450,7 @@ cp_publish() { # cp_publish <src-file> <dest> <mode>
     printf 'control-plane: chmod %s FAILED: %s\n' "$mode" "$dest" >&2
     return 1
   fi
+  CP_PUBLISH_STATE='written'
   printf 'installed: %s (mode %s)\n' "$dest" "$mode"
   return 0
 }
@@ -462,7 +477,7 @@ cp_publish_fn() { # cp_publish_fn <dest> <mode> <producer> [args...]
 # ---- the two modes -----------------------------------------------------------
 
 cp_install() {
-  local root svc rc=0 unit
+  local root svc rc=0 unit chiefd_dirty=0
   if ! cp_sudo_guard; then
     return 2
   fi
@@ -496,6 +511,8 @@ cp_install() {
   for svc in $CP_SERVICES; do
     if ! cp_publish "$root/control-plane/dist/$svc" "$(cp_bin_path "$svc")" "$CP_BIN_MODE"; then
       rc=2
+    elif [ "$svc" = 'chiefd' ] && [ "$CP_PUBLISH_STATE" = 'written' ]; then
+      chiefd_dirty=1
     fi
   done
   if [ "$rc" -ne 0 ]; then
@@ -506,6 +523,9 @@ cp_install() {
     if ! cp_publish_fn "$(cp_unit_path "$svc")" "$CP_UNIT_MODE" cp_unit_text "$svc" "$root"; then
       printf 'control-plane: unit write FAILED for %s (SPEC-043 M5)\n' "$svc" >&2
       return 2
+    fi
+    if [ "$svc" = 'chiefd' ] && [ "$CP_PUBLISH_STATE" = 'written' ]; then
+      chiefd_dirty=1
     fi
   done
   cp_purge_legacy_units
@@ -524,6 +544,20 @@ cp_install() {
   done
   if [ "$rc" -ne 0 ]; then
     return 2
+  fi
+  if [ "$chiefd_dirty" -eq 1 ]; then
+    # CDT-670 AC1: the binary that was just written must be the one in charge.
+    # The restart is the CDT-660 shutdown path (SPEC-044 M8): the SIGTERM
+    # journals no run event, a live lease is left to expire, and the new
+    # process's startup takeover scan re-supervises the in-flight run.
+    unit=$(cp_unit_name chiefd)
+    if cp_systemctl restart "$unit"; then
+      printf 'restarted: %s (the install replaced its binary or unit — SPEC-043 CDT-670 AC1)\n' "$unit"
+    else
+      printf 'control-plane: systemctl --user restart %s FAILED (SPEC-043 CDT-670 AC1)\n' "$unit" >&2
+      printf 'fix: run: systemctl --user restart %s\n' "$unit" >&2
+      return 2
+    fi
   fi
   printf 'install: %s installed, reloaded, and enabled --now; the node agent ships as a CLI with no unit (SPEC-043 M3/M5)\n' \
     "$(cp_unit_name chiefd)"

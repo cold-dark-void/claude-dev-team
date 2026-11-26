@@ -12,8 +12,9 @@
 # probe flow with the T0 rulings (start only, journal-state branch, hygiene)
 # and the M11 runner override, AC1/AC2/AC3 (one unit + reset-failed), AC6
 # read-only runner, AC7 WSL2 rows, AC8/AC9 fail-closed, AC10 linger, AC11 dist
-# path, AC13 hygiene, the M5 ExecStart target run for real by the fake manager,
-# and the record-status single home.
+# path, AC13 hygiene, the CDT-670 chiefd currency row (PASS / FAIL with the
+# restart command / WARN on an unreadable read, AC3), the M5 ExecStart target
+# run for real by the fake manager, and the record-status single home.
 #
 # Run: bash skills/control-plane/test.sh   (exit 0 clean, 1 on any FAIL)
 set -u
@@ -307,6 +308,25 @@ case "$verb" in
     if [ "${CP_FAKE_UNIT_ENABLED:-enabled}" = "enabled" ]; then exit 0; fi
     exit 1 ;;
   show)
+    case " $* " in
+      *ExecMainStartTimestamp*)
+        # `-p ExecMainStartTimestamp --value` answers systemd's wall-clock shape
+        # ("Thu 2026-11-26 13:00:58 EST"). CP_FAKE_START_TS picks the answer:
+        # 'now', an epoch offset in seconds, 'empty' (no value), 'garbage'
+        # (an unparseable value), or 'none' (the show call itself fails) — the
+        # CDT-670 AC3 currency readings.
+        _off="${CP_FAKE_START_TS-now}"
+        case "$_off" in
+          empty) printf '\n'; exit 0 ;;
+          garbage) printf 'n/a\n'; exit 0 ;;
+          none) exit 1 ;;
+          now) _off=0 ;;
+        esac
+        _at=$(( $(date +%s) + _off ))
+        LC_ALL=C date -u -d "@$_at" '+%a %Y-%m-%d %H:%M:%S UTC' 2>/dev/null \
+          || LC_ALL=C date -u -r "$_at" '+%a %Y-%m-%d %H:%M:%S UTC'
+        exit 0 ;;
+    esac
     # `-p Environment` answers the manager's merged view: the unit file plus the
     # operator drop-ins, in load order, with the systemd quotes stripped
     # (CDT-666). CP_FAKE_SHOW_EMPTY models the pre-CDT-666 unstamped unit.
@@ -485,6 +505,7 @@ reset_state() { # fresh install targets, fresh logs, WSL2-with-systemd node
   export CP_FAKE_EXECUTABLE=0 CP_FAKE_SYSTEMCTL_EXEC=0 CP_FAKE_EXEC_RC=0
   export CP_FAKE_EXEC_LOG="$EXEC_LOG" CP_FAKE_UNIT_DIR="$UNIT_DIR"
   export CP_FAKE_SHOW_EMPTY=0 CP_FAKE_CHIEF_DB=''
+  export CP_FAKE_START_TS=now
   # The host CLI the native runner spawns lives in a user CLI dir the install
   # probes (CDT-666): ~/.grok/bin. The service PATH is what resolves it.
   mkdir -p "$HOME/.grok/bin"
@@ -673,13 +694,14 @@ for b in '== preflight ==' '== build ==' '== install ==' '== verify =='; do
     bad "install printed no banner for: $b"
   fi
 done
-if [ "$(footer_of)" = '9 pass / 3 warn / 0 fail / 0 skip' ]; then
+if [ "$(footer_of)" = '10 pass / 3 warn / 0 fail / 0 skip' ]; then
   ok "AC1 table: every row PASS except linger and the two Windows-side rows"
 else
-  bad "AC1 footer is $(footer_of), expected '9 pass / 3 warn / 0 fail / 0 skip' — out: $OUT"
+  bad "AC1 footer is $(footer_of), expected '10 pass / 3 warn / 0 fail / 0 skip' — out: $OUT"
 fi
 for pair in 'controlplane.units.chiefd:PASS' 'controlplane.node-agent:PASS' \
   'controlplane.chiefd.api:PASS' 'controlplane.chiefd.journal:PASS' 'controlplane.chiefd.env:PASS' \
+  'controlplane.chiefd.currency:PASS' \
   'controlplane.probe:PASS' 'controlplane.probe.hygiene:PASS' \
   'controlplane.runner:PASS' 'controlplane.wsl2.systemd:PASS' \
   'controlplane.linger:WARN' 'controlplane.wsl2.autostart:WARN' 'controlplane.wsl2.idletimeout:WARN'; do
@@ -855,13 +877,17 @@ touch_ago "$UC" 300; touch_ago "$BA" 300; touch_ago "$BC" 300
 UC_M=$(mtime_of "$UC"); UC_B=$(cksum "$UC" | awk '{print $2}')
 : >"$JOURNAL_LOG"
 : >"$DOCKER_LOG"
+# Scope the systemctl log to the second run: the first run is a fresh install,
+# which restarts on the write it made (CDT-670 AC1).
+cp -- "$SYSTEMCTL_LOG" "$SCRATCH/systemctl-first.log"
+: >"$SYSTEMCTL_LOG"
 run_setup
 if [ "$RC" -eq 0 ]; then
   ok "M12: the second immediate run exits 0 with the same verdict"
 else
   bad "M12: second run rc=$RC — out: $OUT"
 fi
-if [ "$(footer_of)" = '9 pass / 3 warn / 0 fail / 0 skip' ]; then
+if [ "$(footer_of)" = '10 pass / 3 warn / 0 fail / 0 skip' ]; then
   ok "M12: the second run reproduces the same footer (AC2 same verdict)"
 else
   bad "M12: second footer is $(footer_of)"
@@ -876,10 +902,15 @@ if [ "$(mtime_of "$UC")" = "$UC_M" ] && [ "$(cksum "$UC" | awk '{print $2}')" = 
 else
   bad "AC2: the unit file was rewritten on the second run"
 fi
-if grep -qF -e 'is-active' "$SYSTEMCTL_LOG" && ! grep -qF -e ' restart' "$SYSTEMCTL_LOG"; then
-  ok "M12: verify reads is-active and never restarts a unit"
+if grep -qF -e 'is-active' "$SYSTEMCTL_LOG" && ! grep -qF -e ' restart ' "$SYSTEMCTL_LOG"; then
+  ok "M12: the no-op run and verify read is-active and run no restart (CDT-670 AC2)"
 else
-  bad "M12: verify restarted a unit: $(tr '\n' '|' <"$SYSTEMCTL_LOG")"
+  bad "M12: the no-op run restarted a unit: $(tr '\n' '|' <"$SYSTEMCTL_LOG")"
+fi
+if grep -qF -e '--user restart dev-team-chiefd.service' "$SCRATCH/systemctl-first.log"; then
+  ok "CDT-670 AC1: the fresh install that wrote the binaries restarted the chiefd unit"
+else
+  bad "CDT-670 AC1: the fresh install ran no restart — verify must find a current process"
 fi
 if [ "$(count_lines ' start ' "$AGENT_LOG")" = '1' ]; then
   ok "AC2: no duplicate probe run — one start across both runs (spec § Q1a)"
@@ -987,7 +1018,7 @@ reset_state
 # An uninstalled node: the fake unit state and the fake API both say "absent".
 export CP_FAKE_UNIT_ACTIVE=inactive CP_FAKE_UNIT_ENABLED=not-found CP_FAKE_CURL_FAIL=1
 run_setup --status
-if [ "$RC" -eq 0 ] && [ "$(footer_of)" = '2 pass / 9 warn / 0 fail / 1 skip' ]; then
+if [ "$RC" -eq 0 ] && [ "$(footer_of)" = '2 pass / 10 warn / 0 fail / 1 skip' ]; then
   ok "--status on an uninstalled node stays WARN-only and exits 0 (the service is opt-in)"
 else
   bad "--status uninstalled: rc=$RC footer=$(footer_of) — out: $OUT"
@@ -1232,8 +1263,8 @@ if [ "$(status_of controlplane.wsl2.systemd)" = 'SKIP' ] &&
 else
   bad "AC7 native-Linux skips: $(footer_of)"
 fi
-if printf '%s\n' "$OUT" | grep -qE '^9 pass / 0 warn / 0 fail / 3 skip$'; then
-  ok "AC7: native Linux reaches the all-PASS table (9 pass, 3 skip)"
+if printf '%s\n' "$OUT" | grep -qE '^10 pass / 0 warn / 0 fail / 3 skip$'; then
+  ok "AC7: native Linux reaches the all-PASS table (10 pass, 3 skip)"
 else
   bad "AC7 native-Linux footer is $(footer_of)"
 fi
@@ -1661,6 +1692,49 @@ if [ "$RC" -eq 0 ] && [ "$(status_of controlplane.chiefd.journal)" = 'SKIP' ] &&
 else
   bad "CDT-666 skip path: rc=$RC journal=$(status_of controlplane.chiefd.journal) env=$(status_of controlplane.chiefd.env)"
 fi
+reset_state
+
+# ---- 11c. the CDT-670 chiefd currency row (AC3) ------------------------------
+# The install restarts a unit whose binary it replaced (AC1). This row proves
+# the running process IS the installed binary: the process start time must not
+# predate the binary's mtime. An unreadable read is never a FAIL.
+
+reset_state
+run_setup
+if [ "$RC" -eq 0 ] && [ "$(status_of controlplane.chiefd.currency)" = 'PASS' ]; then
+  ok "CDT-670 AC3: a process that started after the binary write is a PASS row"
+else
+  bad "CDT-670 AC3 current: rc=$RC currency=$(status_of controlplane.chiefd.currency) row=$(row_of controlplane.chiefd.currency)"
+fi
+reset_state
+export CP_FAKE_START_TS=-86400
+run_setup
+if [ "$RC" -eq 2 ] && [ "$(status_of controlplane.chiefd.currency)" = 'FAIL' ]; then
+  ok "CDT-670 AC3: a process older than the installed binary is a FAIL row and exit 2"
+else
+  bad "CDT-670 AC3 stale: rc=$RC currency=$(status_of controlplane.chiefd.currency)"
+fi
+if row_with_fixit controlplane.chiefd.currency | grep -qF -e 'systemctl --user restart dev-team-chiefd.service'; then
+  ok "CDT-670 AC3: the stale row names the exact restart command"
+else
+  bad "CDT-670 AC3 stale fix-it: $(row_with_fixit controlplane.chiefd.currency)"
+fi
+run_setup --status
+if [ "$RC" -eq 0 ] && [ "$(status_of controlplane.chiefd.currency)" = 'WARN' ]; then
+  ok "CDT-670 AC3: --status reads a stale process as WARN, never FAIL (the service is opt-in)"
+else
+  bad "CDT-670 AC3 stale --status: rc=$RC currency=$(status_of controlplane.chiefd.currency)"
+fi
+reset_state
+for _shape in empty garbage none; do
+  export CP_FAKE_START_TS=$_shape
+  run_setup
+  if [ "$RC" -eq 0 ] && [ "$(status_of controlplane.chiefd.currency)" = 'WARN' ]; then
+    ok "CDT-670 AC3: an unreadable start timestamp ($_shape) is WARN, never a spurious FAIL"
+  else
+    bad "CDT-670 AC3 unreadable ($_shape): rc=$RC currency=$(status_of controlplane.chiefd.currency) row=$(row_of controlplane.chiefd.currency)"
+  fi
+done
 reset_state
 
 # ---- 12. the record-and-render pair is shared, not copied -------------------

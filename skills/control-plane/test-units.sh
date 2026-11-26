@@ -8,7 +8,8 @@
 #
 # Coverage: the M5 chiefd template and the D1 rule (no node-agent unit), M3
 # paths + modes, M4 build argv, M5 reload + enable, the legacy-unit purge,
-# M12 write-only-when-differs, M9 uninstall + reset-failed + Windows steps +
+# M12 write-only-when-differs, the CDT-670 restart-on-replace rule and its
+# idempotent re-run, M9 uninstall + reset-failed + Windows steps +
 # journal intact, AC4 sudo-deny and the approved-digest-only pin, M7 exit
 # codes (0/2/63), AC11 nothing new on PATH, AC5 checkout guard.
 #
@@ -95,7 +96,7 @@ if [ -z "$mnt" ] || [ -z "$out" ] || [ -z "$pkg" ]; then
 fi
 f="$mnt/control-plane/$out"
 mkdir -p "$(dirname "$f")"
-printf 'fake-binary %s %s/%s\n' "$pkg" "$goos" "$goarch" >"$f"
+printf 'fake-binary %s %s/%s %s\n' "$pkg" "$goos" "$goarch" "${CP_FAKE_BINARY_TAG:-}" >"$f"
 exit 0
 FAKE
 
@@ -537,6 +538,113 @@ if printf '%s\n' "$OUT" | grep -qF -e 'unchanged:' &&
   ok "CDT-666 idempotency: install reports no write target inside the drop-in directory"
 else
   bad "CDT-666 idempotency: install reported a drop-in write: $(printf '%s\n' "$OUT" | grep -F "$DROPIN_DIR" | tr '\n' '|')"
+fi
+
+# ---- 4c. CDT-670: restart on replace, no restart on a no-op re-run -----------
+# SPEC-043 CDT-670 AC1/AC2. The restart is the CDT-660 shutdown path (SPEC-044
+# M8): the SIGTERM journals no run event and the new process's startup takeover
+# scan re-supervises the in-flight run, so it is the safe way to put a replaced
+# chiefd binary in charge. The fake systemctl answers every verb; the real unit
+# is never touched.
+
+publish_state() { # publish_state <src> <dest> <mode> -> cp_publish's write state
+  bash -c '. "$1" >/dev/null 2>&1; cp_publish "$2" "$3" "$4" >/dev/null 2>&1; printf "%s\n" "$CP_PUBLISH_STATE"' \
+    _ "$UNITS" "$1" "$2" "$3"
+}
+
+reset_state
+run_fn cp_install
+if [ "$RC" -ne 0 ]; then
+  bad "CDT-670: the install that sets up the restart case failed (rc $RC) — out: $OUT"
+fi
+if grep -qF -e '--user restart dev-team-chiefd.service' "$SYSTEMCTL_LOG"; then
+  ok "CDT-670 AC1: an install that writes the chiefd binary restarts the unit"
+else
+  bad "CDT-670 AC1: no restart in the systemctl log: $(tr '\n' '|' <"$SYSTEMCTL_LOG")"
+fi
+if printf '%s\n' "$OUT" | grep -qF -e 'restarted: dev-team-chiefd.service'; then
+  ok "CDT-670 AC1: install reports the restart it ran"
+else
+  bad "CDT-670 AC1: install ran no restart line — out: $(printf '%s\n' "$OUT" | tail -n 2 | tr '\n' '|')"
+fi
+reload_line=$(grep -n -F -e '--user daemon-reload' "$SYSTEMCTL_LOG" | head -1 | cut -d: -f1)
+enable_line=$(grep -n -F -e '--user enable --now' "$SYSTEMCTL_LOG" | head -1 | cut -d: -f1)
+restart_line=$(grep -n -F -e '--user restart dev-team-chiefd.service' "$SYSTEMCTL_LOG" | head -1 | cut -d: -f1)
+if [ -n "$enable_line" ] && [ -n "$restart_line" ] && [ "$enable_line" -lt "$restart_line" ] &&
+  [ -n "$reload_line" ] && [ "$reload_line" -lt "$restart_line" ]; then
+  ok "CDT-670 AC1: the restart runs after the daemon-reload/enable block"
+else
+  bad "CDT-670 AC1: restart is out of order (reload=${reload_line:-none} enable=${enable_line:-none} restart=${restart_line:-none})"
+fi
+if [ "$(count_lines 'restart dev-team-chiefd.service' "$SYSTEMCTL_LOG")" = '1' ]; then
+  ok "CDT-670 AC1: one restart per install (no restart loop)"
+else
+  bad "CDT-670 AC1: restart count is $(count_lines 'restart dev-team-chiefd.service' "$SYSTEMCTL_LOG"), expected 1"
+fi
+
+: >"$SYSTEMCTL_LOG"
+run_fn cp_install
+if [ "$RC" -eq 0 ] && ! grep -qF -e 'restart dev-team-chiefd.service' "$SYSTEMCTL_LOG"; then
+  ok "CDT-670 AC2: an immediate re-run with identical bytes runs no restart and exits 0"
+else
+  bad "CDT-670 AC2: the no-op re-run ran a restart (rc $RC): $(tr '\n' '|' <"$SYSTEMCTL_LOG")"
+fi
+
+# A binary-only change: the fake docker builds a chiefd whose bytes differ
+# (the dist copy is build output, so the change goes into what it compiles).
+: >"$SYSTEMCTL_LOG"
+run_fn cp_install CP_FAKE_BINARY_TAG=v2
+if [ "$RC" -eq 0 ] && grep -qF -e '--user restart dev-team-chiefd.service' "$SYSTEMCTL_LOG"; then
+  ok "CDT-670 AC1: a chiefd binary content change alone restarts the unit"
+else
+  bad "CDT-670 AC1: a binary-only change ran no restart (rc $RC): $(tr '\n' '|' <"$SYSTEMCTL_LOG")"
+fi
+: >"$SYSTEMCTL_LOG"
+run_fn cp_install CP_FAKE_BINARY_TAG=v2
+if [ "$RC" -eq 0 ] && ! grep -qF -e 'restart dev-team-chiefd.service' "$SYSTEMCTL_LOG"; then
+  ok "CDT-670 AC2: the re-run of that same binary runs no restart (the write was the trigger)"
+else
+  bad "CDT-670 AC2: the identical rebuild ran a restart (rc $RC): $(tr '\n' '|' <"$SYSTEMCTL_LOG")"
+fi
+
+run_fn cp_install
+printf 'ExecStart=/usr/local/bin/other\n' >>"$UC"
+: >"$SYSTEMCTL_LOG"
+run_fn cp_install
+if [ "$RC" -eq 0 ] && grep -qF -e '--user restart dev-team-chiefd.service' "$SYSTEMCTL_LOG"; then
+  ok "CDT-670 AC1: a chiefd unit file content change alone restarts the unit"
+else
+  bad "CDT-670 AC1: a unit-only change ran no restart (rc $RC): $(tr '\n' '|' <"$SYSTEMCTL_LOG")"
+fi
+
+chmod 700 "$BC"
+: >"$SYSTEMCTL_LOG"
+run_fn cp_install
+if [ "$RC" -eq 0 ] && ! grep -qF -e 'restart dev-team-chiefd.service' "$SYSTEMCTL_LOG"; then
+  ok "CDT-670 AC1: a mode-only publish (no content write) runs no restart"
+else
+  bad "CDT-670 AC1: a mode-only change ran a restart (rc $RC): $(tr '\n' '|' <"$SYSTEMCTL_LOG")"
+fi
+
+mkdir -p "$SCRATCH/pub70"
+printf 'A\n' >"$SCRATCH/pub70/src"
+printf 'A\n' >"$SCRATCH/pub70/same"
+printf 'B\n' >"$SCRATCH/pub70/diff"
+chmod 600 "$SCRATCH/pub70/same" "$SCRATCH/pub70/diff"
+if [ "$(publish_state "$SCRATCH/pub70/src" "$SCRATCH/pub70/same" 644)" = 'mode' ]; then
+  ok "cp_publish reports the mode-only write as state 'mode' (the restart trigger is an out-variable)"
+else
+  bad "cp_publish mode-only state: $(publish_state "$SCRATCH/pub70/src" "$SCRATCH/pub70/same" 644)"
+fi
+if [ "$(publish_state "$SCRATCH/pub70/src" "$SCRATCH/pub70/same" 644)" = 'same' ]; then
+  ok "cp_publish reports an untouched target as state 'same'"
+else
+  bad "cp_publish unchanged state: $(publish_state "$SCRATCH/pub70/src" "$SCRATCH/pub70/same" 644)"
+fi
+if [ "$(publish_state "$SCRATCH/pub70/src" "$SCRATCH/pub70/diff" 644)" = 'written' ]; then
+  ok "cp_publish reports a content write as state 'written' (the restart trigger)"
+else
+  bad "cp_publish content-write state: $(publish_state "$SCRATCH/pub70/src" "$SCRATCH/pub70/diff" 644)"
 fi
 
 # ---- 5. AC4 sudo-deny --------------------------------------------------------

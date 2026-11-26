@@ -590,3 +590,33 @@ is-system-running` → `running` (rc 0).
 - **AC4.** [process] SPEC-043 M5 and the runner contract name the stamped
   env and the drop-in rule. The gate for this change is the
   control-plane shell suites plus `tools/spec-lint.sh`.
+
+### CDT-670
+
+- **AC1.** Replace-then-restart: when an install writes a chiefd binary whose
+  content differs from the installed one (the M12 tmp+rename write of
+  `cp_publish`), or renders a chiefd unit file whose content differs, setup
+  restarts the unit after the daemon-reload — `systemctl --user restart
+  dev-team-chiefd.service`. The restart is the CDT-660 shutdown path: the
+  SIGTERM journals no run event (SPEC-044 M8), a live lease is left to
+  expire, and the new process's startup takeover scan re-supervises the
+  in-flight run — no `halted:operator_halt` row is written.
+  Verify: bash skills/control-plane/test-units.sh
+- **AC2.** Idempotent re-run: an immediate re-run with no binary or unit
+  change performs no restart (the unit's main PID is unchanged across the
+  re-run), keeps the byte-identical unit file, and still exits PASS.
+  Verify: bash skills/control-plane/test-units.sh
+- **AC3.** Currency verify row: the verify table gains a row that compares
+  the running chiefd's process start time (`systemctl --user show -p
+  ExecMainStartTimestamp --value`) against the installed binary's mtime.
+  Active-and-current is PASS; active-but-older-than-the-binary is FAIL that
+  names the exact restart command; an unreadable timestamp is WARN, never a
+  spurious FAIL, and the row participates in the AC12 exit-code contract.
+  Verify: bash skills/control-plane/test.sh
+- **AC4.** Docs stay true: `skills/control-plane/SKILL.md` documents the
+  restart-on-replace rule and the currency row, and `commands/setup.md`
+  names the new verify row; docs-drift passes.
+  Verify: bash skills/docs-drift/test.sh
+- **AC5.** [process] The change is proven by the control-plane shell suites
+  (`skills/control-plane/test.sh`, `skills/control-plane/test-units.sh`)
+  plus `tools/spec-lint.sh`.

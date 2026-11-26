@@ -28,7 +28,7 @@ banner, and stops at the first failure:
 | `preflight` | `preflight.sh` (`cp_preflight`) | Reads the node: platform, systemd user manager, `/etc/wsl.conf`, checkout, docker, the image pin, the runner selection. Writes nothing (SPEC-043 M2, AC9). |
 | `build (journal CLI)` | `setup.sh` (`cp_build_journal`) | Builds `control-plane/dist/journalctl` — the verify tool. It is never an install target, so it is built first: a failure leaves nothing installed. |
 | `build` | `units.sh` (`cp_build`) | Builds `node-agent` and `chiefd` for the host GOOS/GOARCH inside the approved digest. Outputs land in `control-plane/dist/` (git-ignored). |
-| `install` | `units.sh` (`cp_install`) | Places both binaries at `%h/.local/bin/` (mode 755), writes the chiefd unit to `%h/.config/systemd/user/` (mode 644), removes a `dev-team-node-agent.service` an earlier install left behind and resets failed units when it does, runs `systemctl --user daemon-reload`, then `enable --now` on the chiefd unit. The node agent ships as a CLI with no unit (SPEC-043 M3/M5). |
+| `install` | `units.sh` (`cp_install`) | Places both binaries at `%h/.local/bin/` (mode 755), writes the chiefd unit to `%h/.config/systemd/user/` (mode 644), removes a `dev-team-node-agent.service` an earlier install left behind and resets failed units when it does, runs `systemctl --user daemon-reload`, then `enable --now` on the chiefd unit. When it wrote the chiefd binary or the unit file it then runs `systemctl --user restart dev-team-chiefd.service` (SPEC-043 CDT-670 AC1). The node agent ships as a CLI with no unit (SPEC-043 M3/M5). |
 | `verify` | `setup.sh` (`cp_verify`) | Prints the SPEC-043 M6 table and exits per the code contract below. |
 
 ## Modes and exit codes (SPEC-043 M1/M7, AC12)
@@ -59,6 +59,7 @@ One row per check, each with a fix-it line on every WARN and FAIL, then the
 | Row id | Reads |
 |--------|-------|
 | `controlplane.units.chiefd` | `systemctl --user is-active` and `is-enabled` on `dev-team-chiefd.service` — the only unit phase 1 ships (M5). |
+| `controlplane.chiefd.currency` | The unit's `ExecMainStartTimestamp` against the mtime of the installed `%h/.local/bin/chiefd`. Started at or after the binary write → PASS; started before it → FAIL with `systemctl --user restart dev-team-chiefd.service`; an unreadable timestamp or mtime → WARN, never a spurious FAIL (CDT-670 AC3). |
 | `controlplane.node-agent` | The **installed** `%h/.local/bin/node-agent` answers `status-node` with exit 0 — a binary row: the agent ships no unit, so nothing supervises it (M5/M6). The `control-plane/dist/` build output is not an install: with only that copy present the row is a WARN that names the install path. |
 | `controlplane.chiefd.api` | HTTP GET on `http://127.0.0.1:8090/v1/runs`. Loopback only, always. |
 | `controlplane.probe` | The journal state of run `devteam-setup-probe`. With no journal file the row is a WARN `no journal` and the read is skipped — `journalctl` creates a database it is only asked to read, and `--status` writes nothing (M1). |
@@ -114,6 +115,26 @@ when the bytes differ, `is-enabled`/`is-active` state is unchanged, the
 rebuild is silent and error-free, and the journal carries no duplicate probe
 run — because the driver reads the journal state and skips `start` on a
 terminal id. `--status` re-runs the table with zero writes.
+
+### Restart on replace (SPEC-043 CDT-670 AC1/AC2)
+
+`cp_publish` writes a target only when its bytes differ and reports the outcome
+in `CP_PUBLISH_STATE`: `written` (the bytes changed), `mode` (a chmod only),
+`same` (nothing written). When it wrote the chiefd binary or the chiefd unit
+file, `cp_install` runs `systemctl --user restart dev-team-chiefd.service` after
+the `daemon-reload`/`enable --now` block, so the process in charge is the binary
+that was just installed. A mode-only chmod is not a write, so it restarts
+nothing. An immediate re-run with identical bytes writes nothing and restarts
+nothing, and the unit keeps its main PID (AC2).
+
+The restart is the CDT-660 shutdown path (SPEC-044 M8): the SIGTERM journals no
+run event, a live lease is left to expire, and the new process's startup
+takeover scan re-supervises the in-flight run. It never writes
+`halted:operator_halt`. A failed restart is an install FAIL (exit 2) that prints
+the command to run.
+
+`controlplane.chiefd.currency` proves the result on the next table: PASS when
+the running process started at or after the installed binary's mtime.
 
 ## Linger: the documented continue/skip answer (SPEC-043 M10, AC10)
 
