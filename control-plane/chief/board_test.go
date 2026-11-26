@@ -249,7 +249,9 @@ func TestSurfacesStillWorkStandaloneInTheTerminal(t *testing.T) {
 	// The checkout root: two levels above the package directory.
 	root := "../.."
 
-	for _, tc := range []struct {
+	// The closed route-kind set, in AC order (SPEC-045 M9 widened it to
+	// four kinds).
+	kinds := []struct {
 		kind    string
 		surface string
 		path    string
@@ -257,7 +259,11 @@ func TestSurfacesStillWorkStandaloneInTheTerminal(t *testing.T) {
 		{"defect", "debug", "commands/debug.md"},
 		{"idea", "brainstorm", "skills/brainstorm/SKILL.md"},
 		{"epic", "epic", "commands/epic.md"},
-	} {
+		{"ticket", "orchestrate", "skills/orchestrate/SKILL.md"},
+	}
+	var listed []string
+	for _, tc := range kinds {
+		listed = append(listed, tc.kind)
 		t.Run(tc.surface, func(t *testing.T) {
 			// The Surface is a real plugin file that works in a terminal.
 			raw, err := os.ReadFile(filepath.Join(root, filepath.FromSlash(tc.path)))
@@ -278,5 +284,11 @@ func TestSurfacesStillWorkStandaloneInTheTerminal(t *testing.T) {
 					tc.kind, surface, tc.path)
 			}
 		})
+	}
+
+	// The table is the closed set: no kind routes without a standalone
+	// Surface and none exists here that the Chief cannot route to.
+	if strings.Join(RouteKinds, " ") != strings.Join(listed, " ") {
+		t.Errorf("RouteKinds = %v, want the closed set %v", RouteKinds, listed)
 	}
 }

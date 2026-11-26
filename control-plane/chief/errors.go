@@ -1,6 +1,11 @@
 package chief
 
-import "errors"
+import (
+	"errors"
+	"fmt"
+
+	"github.com/cold-dark-void/claude-dev-team/control-plane/journal"
+)
 
 // The chief's typed errors.
 var (
@@ -28,4 +33,33 @@ var (
 	// exec the plugin's own CLIs from it — the failure is typed and
 	// visible, never a silent one.
 	ErrNoPluginRoot = errors.New("chief: the record root is not a dev-team checkout")
+	// ErrUnknownTicket names a ticket id the local store holds no item for
+	// (SPEC-045 M1). It chains to ErrInvalid so the API answers it as the
+	// 400 it is (statusOf owns the mapping, api.go); the ticket route
+	// refuses with it before any run row is written.
+	ErrUnknownTicket = fmt.Errorf("%w: unknown ticket", ErrInvalid)
+	// ErrIllegalAutopilot is an autopilot token the plugin's own flag
+	// parser refuses (SPEC-045 M3): skills/autopilot/parse-flags.sh exits 64
+	// on it. It chains to ErrInvalid for the same 400 answer.
+	ErrIllegalAutopilot = fmt.Errorf("%w: illegal autopilot token", ErrInvalid)
+	// ErrNotStoppable refuses a stop of a run outside running and claimed
+	// (SPEC-045 M4/AC7). The state is the reason, so it is a conflict.
+	ErrNotStoppable = errors.New("chief: the run is not stoppable")
+	// ErrNotResumable refuses a resume of a run that is not in a named halt
+	// state, and one whose recorded host the matrix denies the resume route
+	// for (SPEC-045 M5/AC7).
+	ErrNotResumable = errors.New("chief: the run is not resumable")
+	// ErrNotRetryable refuses a retry of a run outside failed and
+	// halted:<reason> (SPEC-045 M6/AC7).
+	ErrNotRetryable = errors.New("chief: the run is not retryable")
+	// ErrResumeSpent refuses a resume whose halt reason has no retry budget
+	// left. It chains the journal's own budget exhaustion, so the budget rule
+	// stays the one replay enforces (SPEC-045 M5): halted:operator_halt
+	// carries budget 0 and is never resumable — its recovery path is retry.
+	ErrResumeSpent = fmt.Errorf("%w: the halt's retry budget is spent",
+		journal.ErrBudgetExhausted)
+	// ErrNoJournaledSession refuses a resume whose journal names no host
+	// session id (SPEC-045 M5): the durable agent.session rows are the only
+	// resume source, and the in-memory capture is never one.
+	ErrNoJournaledSession = errors.New("chief: the run journals no host session id")
 )

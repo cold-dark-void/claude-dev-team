@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os/exec"
 	"path/filepath"
@@ -140,6 +141,65 @@ func (m *bashModelMap) Resolve(ctx context.Context, agent string) (string, strin
 // budget's own Tier default (control-plane/run/budget.go), not a chief copy.
 func tierDefaultModel() string { return run.TierDefault.Model }
 
+// AutopilotValidator is the autopilot-token seam (SPEC-045 M3): the legal
+// token vocabulary is the plugin's own — skills/autopilot/parse-flags.sh —
+// never a Go copy of the enum.
+type AutopilotValidator interface {
+	// Validate refuses a token the parser refuses with ErrIllegalAutopilot.
+	// The token is the request's own value; the route applies the default
+	// before calling.
+	Validate(ctx context.Context, token string) error
+}
+
+// autopilotBare is the token that composes the valueless --autopilot flag.
+const autopilotBare = "bare"
+
+// autopilotTokens is the token list for refusal text only — the seam is the
+// one place that decides legality.
+const autopilotTokens = "bare, auto, patch, minor, major, master"
+
+// bashAutopilotFlags is the seam over skills/autopilot/parse-flags.sh. The
+// script is exec'd as argv; its exit-64 usage refusal is the vocabulary's
+// verdict, so the seam reads the exit code and never parses prose.
+type bashAutopilotFlags struct {
+	root func() (string, error)
+}
+
+// Validate execs the parser with the flag form the token names.
+func (v *bashAutopilotFlags) Validate(ctx context.Context, token string) error {
+	script, err := v.pluginFile("skills/autopilot/parse-flags.sh")
+	if err != nil {
+		return err
+	}
+	flag := "--autopilot=" + token
+	if token == autopilotBare {
+		flag = "--autopilot"
+	}
+	_, err = bash(ctx, []string{script, flag})
+	if err == nil {
+		return nil
+	}
+	if exitCodeOf(err) == 64 {
+		return fmt.Errorf("%w: %q is not one of %s (%v)",
+			ErrIllegalAutopilot, token, autopilotTokens, err)
+	}
+	return err
+}
+
+func (v *bashAutopilotFlags) pluginFile(rel string) (string, error) {
+	return pluginFile(v.root, rel)
+}
+
+// exitCodeOf answers a command's exit code from the error it returned, and
+// -1 when the error names none (the spawn itself failed).
+func exitCodeOf(err error) int {
+	var exitErr *exec.ExitError
+	if errors.As(err, &exitErr) {
+		return exitErr.ExitCode()
+	}
+	return -1
+}
+
 // pluginFile resolves one script of the plugin root. The seams exec the
 // plugin's own CLIs — the ADR 0001 boundary — and never a copy of them.
 func pluginFile(root func() (string, error), rel string) (string, error) {
@@ -207,11 +267,13 @@ func bash(ctx context.Context, args []string) (string, error) {
 		if detail == "" {
 			detail = strings.TrimSpace(out.String())
 		}
+		// The cause is wrapped, not formatted: a seam reads the exit code
+		// out of the chain (parse-flags.sh names a malformed flag with 64).
 		if detail != "" {
-			return "", fmt.Errorf("chief: %s failed: %v: %s",
+			return "", fmt.Errorf("chief: %s failed: %w: %s",
 				filepath.Base(args[0]), err, detail)
 		}
-		return "", fmt.Errorf("chief: %s failed: %v", filepath.Base(args[0]), err)
+		return "", fmt.Errorf("chief: %s failed: %w", filepath.Base(args[0]), err)
 	}
 	return out.String(), nil
 }

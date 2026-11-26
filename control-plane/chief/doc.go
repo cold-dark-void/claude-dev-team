@@ -7,13 +7,16 @@
 // A route turns one request into the Surface that serves it. The Surface set
 // is the plugin's own — /debug (commands/debug.md) for a defect, /brainstorm
 // (skills/brainstorm/SKILL.md) for an idea, /epic (commands/epic.md) for an
-// epic — and none of them is reimplemented here. A route names the Surface in
-// the run's workflow field, writes the ticket record the Surface reads
-// through the plugin's own ticket verbs (skills/backlog/ticket.sh — the C7
-// CLI over the local backlog store, the ticket source of truth), and starts
-// the run through the C6 host adapter, which drives the node agent's
-// four-verb contract. An epic route ends at the child-ticket records; each
-// child gets its own run when the operator routes it.
+// epic — and none of them is reimplemented here. The fourth kind, ticket
+// (SPEC-045 M9), routes an existing backlog id to /orchestrate
+// (skills/orchestrate/SKILL.md), or /epic for an epic item, and writes no
+// new ticket record. A route names the Surface in the run's workflow field,
+// writes the ticket record the Surface reads through the plugin's own ticket
+// verbs (skills/backlog/ticket.sh — the C7 CLI over the local backlog store,
+// the ticket source of truth), and starts the run through the C6 host
+// adapter, which drives the node agent's four-verb contract. An epic route
+// ends at the child-ticket records; each child gets its own run when the
+// operator routes it.
 //
 // # Reports
 //
@@ -21,7 +24,10 @@
 // run status is the replayed state (control-plane/journal), the checks
 // reading is the run's pending effects, repairs, and watchdog reading, and
 // the queue view is the C5 slot ledger (control-plane/queue). The stand-up
-// report composes those three.
+// report composes those three. The run detail adds the fields the detail view
+// reads — the premise, the host, the attempt, and the host's resume route —
+// each folded from the journal, plus the bounded tail of the host transcript
+// (SPEC-045 M7).
 //
 // # Model selection
 //
@@ -38,6 +44,15 @@
 // the host's control-message frame and hands it to the node agent's steer
 // verb, which delivers it at the next step boundary — never mid-turn
 // (CONTEXT.md § Steer, the six probes).
+//
+// # Operator actions
+//
+// Stop, Resume, and Retry (SPEC-045 M4/M5/M6) ride primitives that already
+// exist: the node agent's stop verb, the chief's one resume seam, and the
+// route's own start path. They add no event kind, no halt reason, and no
+// lifecycle vertex. Each names its own state refusal, and statusOf answers
+// every one of them as a conflict. Resume continues the same run; Retry
+// allocates the ticket's next attempt and never touches the old run.
 //
 // # Halts
 //

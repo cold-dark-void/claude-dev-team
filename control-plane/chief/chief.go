@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strings"
 	"sync"
@@ -31,16 +32,27 @@ type Surface struct {
 	Path string `json:"path"`
 }
 
-// surfaces is the closed route set: the three routes of CDT-650 AC1. Every
-// path is a real plugin file.
+// surfaces is the closed route set: the three routes of CDT-650 AC1 plus the
+// existing-ticket route SPEC-045 M1 adds by amendment. Every path is a real
+// plugin file.
 var surfaces = map[string]Surface{
 	"defect": {"defect", "debug", "commands/debug.md"},
 	"idea":   {"idea", "brainstorm", "skills/brainstorm/SKILL.md"},
 	"epic":   {"epic", "epic", "commands/epic.md"},
+	"ticket": {"ticket", "orchestrate", "skills/orchestrate/SKILL.md"},
 }
 
 // RouteKinds is the closed route-kind set, in AC order.
-var RouteKinds = []string{"defect", "idea", "epic"}
+var RouteKinds = []string{"defect", "idea", "epic", "ticket"}
+
+// ticketIDRE is the run-id grammar SPEC-045 M2 pins for a ticket id: the id
+// becomes both a run id and the backlog item's file name, so a path
+// separator or a `..` segment never reaches either.
+var ticketIDRE = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]*$`)
+
+// defaultAutopilot is the token a ticket route composes when the request
+// names none (SPEC-045 M3).
+const defaultAutopilot = "auto"
 
 // SurfaceFor returns the Surface one route kind names.
 func SurfaceFor(kind string) (Surface, bool) {
@@ -98,6 +110,11 @@ type Chief struct {
 	tickets TicketCreator
 	models  ModelResolver
 	phone   Phone
+
+	// autopilot is the autopilot-token seam of the ticket route
+	// (SPEC-045 M3): the vocabulary is the plugin's flag parser, never a
+	// chief copy.
+	autopilot AutopilotValidator
 
 	// phaseEvents is the C3 phase-event read the board's current-phase
 	// fold rides (control-plane/spool). Nil is the default spool read.
@@ -199,6 +216,11 @@ func WithModelMap(m ModelResolver) Option { return func(c *Chief) { c.models = m
 // WithPhone replaces the phone seam.
 func WithPhone(p Phone) Option { return func(c *Chief) { c.phone = p } }
 
+// WithAutopilot replaces the autopilot-token seam.
+func WithAutopilot(v AutopilotValidator) Option {
+	return func(c *Chief) { c.autopilot = v }
+}
+
 // WithSID pins the Intercom session id of the operator channel.
 func WithSID(sid string) Option { return func(c *Chief) { c.SID = sid } }
 
@@ -247,6 +269,9 @@ func NewWithAdapter(eng *journal.Engine, ad *hostadapter.Adapter, opts ...Option
 	if c.phone == nil {
 		c.phone = &intercomPhone{root: c.pluginRoot, sid: c.SID}
 	}
+	if c.autopilot == nil {
+		c.autopilot = &bashAutopilotFlags{root: c.pluginRoot}
+	}
 	return c
 }
 
@@ -269,6 +294,14 @@ type RouteRequest struct {
 	// Children are the child tickets of an epic route (AC1: an epic routes
 	// to child tickets).
 	Children []ChildRequest `json:"children,omitempty"`
+	// TicketID is the existing backlog slug a ticket route runs (SPEC-045
+	// M1). The route writes no record: the id names an item the store
+	// already holds.
+	TicketID string `json:"ticket_id,omitempty"`
+	// Autopilot is the ship-intent token of a ticket route — bare, auto,
+	// patch, minor, major, or master — validated by the plugin's own flag
+	// parser. Empty is auto.
+	Autopilot string `json:"autopilot,omitempty"`
 }
 
 // ChildRequest is one child ticket of an epic route.
@@ -295,6 +328,10 @@ type RouteResult struct {
 	RunID       string         `json:"run_id,omitempty"`
 	Model       string         `json:"model"`
 	ModelSource string         `json:"model_source"`
+	// Command is the premise a ticket route composes — the command line the
+	// run executes (SPEC-045 M3). Empty for the new-work kinds, whose
+	// premise is the request's text.
+	Command string `json:"command,omitempty"`
 }
 
 // Route turns one request into work (AC1): it writes the ticket record
@@ -302,6 +339,10 @@ type RouteResult struct {
 // Model map (AC3), and — for a defect or an idea — starts the run whose
 // workflow names the Surface. An epic route ends at the child-ticket
 // records; a child run starts when the operator routes it.
+//
+// A ticket route (SPEC-045 M1) writes no record: the request names an
+// existing backlog id, the composed command is the run's premise, and the
+// run is the next attempt of that ticket.
 //
 // The run is started through the C6 host adapter — the Chief adds no second
 // path to the host session. The route waits, bounded by StartWait, for the
@@ -314,11 +355,15 @@ func (c *Chief) Route(ctx context.Context, req RouteRequest) (*RouteResult, erro
 		return nil, fmt.Errorf("%w: %q is not one of %s", ErrUnknownRoute, req.Kind,
 			strings.Join(RouteKinds, ", "))
 	}
-	if strings.TrimSpace(req.Title) == "" {
-		return nil, fmt.Errorf("%w: a route needs a title", ErrInvalid)
-	}
-	if strings.TrimSpace(req.Text) == "" {
-		return nil, fmt.Errorf("%w: a route needs a premise", ErrInvalid)
+	// A ticket route names an id, not new work: its premise is the composed
+	// command, so the title and premise checks are the new-work kinds'.
+	if req.Kind != "ticket" {
+		if strings.TrimSpace(req.Title) == "" {
+			return nil, fmt.Errorf("%w: a route needs a title", ErrInvalid)
+		}
+		if strings.TrimSpace(req.Text) == "" {
+			return nil, fmt.Errorf("%w: a route needs a premise", ErrInvalid)
+		}
 	}
 	model, source, err := c.models.Resolve(ctx, req.Agent)
 	if err != nil {
@@ -349,6 +394,40 @@ func (c *Chief) Route(ctx context.Context, req RouteRequest) (*RouteResult, erro
 		}
 		return res, nil
 
+	case "ticket":
+		id, err := ticketRouteID(req.TicketID)
+		if err != nil {
+			return nil, err
+		}
+		token := strings.TrimSpace(req.Autopilot)
+		if token == "" {
+			token = defaultAutopilot
+		}
+		if err := c.autopilot.Validate(ctx, token); err != nil {
+			return nil, err
+		}
+		if !hostadapter.ValidHost(req.Host) {
+			return nil, fmt.Errorf("%w: %q is not one of %s", hostadapter.ErrUnknownHost,
+				req.Host, hostList())
+		}
+		item, err := c.ticketItem(id)
+		if err != nil {
+			return nil, err
+		}
+		if item.Kind == "epic" {
+			// The run rides the epic surface: /epic, not /orchestrate.
+			surface = surfaces["epic"]
+			res.Surface = surface
+		}
+		res.Command = composeRunCommand(surface.Name, id, token)
+		if res.RunID, err = c.nextAttempt(ctx, id); err != nil {
+			return nil, err
+		}
+		if err := c.startRun(ctx, req, res, id, res.Command); err != nil {
+			return nil, err
+		}
+		return res, nil
+
 	default:
 		if !hostadapter.ValidHost(req.Host) {
 			return nil, fmt.Errorf("%w: %q is not one of %s", hostadapter.ErrUnknownHost,
@@ -366,11 +445,120 @@ func (c *Chief) Route(ctx context.Context, req RouteRequest) (*RouteResult, erro
 		} else if exists {
 			return nil, fmt.Errorf("%w: %s", ErrRunExists, ticket.Slug)
 		}
-		if err := c.startRun(ctx, req, res); err != nil {
+		if err := c.startRun(ctx, req, res, ticket.Slug, req.Text); err != nil {
 			return nil, err
 		}
 		return res, nil
 	}
+}
+
+// ticketRouteID validates the id a ticket route names: it is a run-safe id
+// before it reaches the store path or a run id (SPEC-045 M2).
+func ticketRouteID(raw string) (string, error) {
+	id := strings.TrimSpace(raw)
+	if !ticketIDRE.MatchString(id) {
+		return "", fmt.Errorf("%w: ticket id %q must match %s", ErrInvalid, raw, ticketIDRE)
+	}
+	return id, nil
+}
+
+// ticketItem is one backlog item the local store holds. The read is the
+// store file the plugin's own ticket verbs own —
+// $MROOT/.claude/backlog/<id>.md (SPEC-045 M1) — and the ticket route only
+// reads it: the store gains no row from routing an existing id (AC8).
+type ticketItem struct {
+	// Kind is the item's frontmatter kind: epic, child, or empty for a
+	// plain ticket.
+	Kind string
+}
+
+func (c *Chief) ticketItem(id string) (ticketItem, error) {
+	root, err := c.mroot()
+	if err != nil {
+		return ticketItem{}, err
+	}
+	raw, err := os.ReadFile(filepath.Join(root, ".claude", "backlog", id+".md"))
+	if err != nil {
+		return ticketItem{}, fmt.Errorf("%w: %s has no item in the local store (%v)",
+			ErrUnknownTicket, id, err)
+	}
+	return ticketItem{Kind: frontmatterKind(raw)}, nil
+}
+
+// frontmatterKind reads the kind key of an item's YAML frontmatter — the key
+// order skills/backlog/add.sh writes. Empty is the plain-ticket shape: those
+// records carry no frontmatter.
+func frontmatterKind(raw []byte) string {
+	lines := strings.Split(string(raw), "\n")
+	if len(lines) == 0 || strings.TrimRight(lines[0], "\r") != "---" {
+		return ""
+	}
+	for _, line := range lines[1:] {
+		line = strings.TrimRight(line, "\r")
+		if line == "---" {
+			return ""
+		}
+		if value, found := strings.CutPrefix(line, "kind:"); found {
+			return strings.TrimSpace(value)
+		}
+	}
+	return ""
+}
+
+// composeRunCommand is the premise a ticket route sends: the Surface's
+// command line with the autopilot flag. The bare token names the valueless
+// flag (SPEC-045 M3).
+func composeRunCommand(workflow, id, token string) string {
+	if token == autopilotBare {
+		return "/" + workflow + " " + id + " --autopilot"
+	}
+	return "/" + workflow + " " + id + " --autopilot=" + token
+}
+
+// nextAttempt answers the run id of one ticket's next attempt (SPEC-045 M2):
+// the plain slug for its first run, then `<slug>-r<N>` where N is one past
+// the highest attempt the journal already carries for the ticket. The
+// journal's ticket field is the grouping key, so a restarted chief re-reads
+// the same answer and an allocation is never doubled.
+func (c *Chief) nextAttempt(ctx context.Context, ticket string) (string, error) {
+	ids, err := c.runIDs(ctx)
+	if err != nil {
+		return "", err
+	}
+	highest := 0
+	for _, id := range ids {
+		st, err := c.eng.RunState(ctx, id)
+		if err != nil {
+			return "", err
+		}
+		if st.Ticket != ticket {
+			continue
+		}
+		if n, ok := attemptOf(ticket, id); ok && n > highest {
+			highest = n
+		}
+	}
+	if highest == 0 {
+		return ticket, nil
+	}
+	return fmt.Sprintf("%s-r%d", ticket, highest+1), nil
+}
+
+// attemptOf derives a ticket run's attempt from its id: the plain slug is
+// attempt 1 and `<slug>-r<N>` is attempt N.
+func attemptOf(ticket, runID string) (int, bool) {
+	if runID == ticket {
+		return 1, true
+	}
+	rest, found := strings.CutPrefix(runID, ticket+attemptSuffix)
+	if !found {
+		return 0, false
+	}
+	n := attemptFromTail(rest)
+	if n == 0 {
+		return 0, false
+	}
+	return n, true
 }
 
 // startSupervised is the one spawn path of the chief's own starts — a routed
@@ -461,14 +649,17 @@ func (c *Chief) startWait() time.Duration {
 // route's own trail in the closed event set, never a new kind. The
 // supervision lives under the chief's base context, not the caller's.
 //
-// The route's premise text rides the start as the run's work premise
+// The route's premise rides the start as the run's work premise
 // (SPEC-044 CDT-665): the host adapter renders it into the session's
 // first-turn frame, so a routed run reaches work without an operator
-// correction.
-func (c *Chief) startRun(ctx context.Context, req RouteRequest, res *RouteResult) error {
+// correction. For a ticket route the premise is the composed command and the
+// ticket is the existing id, which the attempt ladder keeps distinct from
+// the run id (SPEC-045 M1/M2).
+func (c *Chief) startRun(ctx context.Context, req RouteRequest, res *RouteResult,
+	ticket, premise string) error {
 	errc := c.startSupervised(res.RunID, hostadapter.StartRequest{
-		RunID: res.RunID, Ticket: res.RunID, Workflow: res.Surface.Name,
-		Model: res.Model, Host: req.Host, Premise: req.Text,
+		RunID: res.RunID, Ticket: ticket, Workflow: res.Surface.Name,
+		Model: res.Model, Host: req.Host, Premise: premise,
 	})
 
 	wait := c.startWait()
@@ -553,7 +744,10 @@ func (c *Chief) Correct(ctx context.Context, req CorrectRequest) error {
 }
 
 // hostFromJournal derives the host of a run from its recorded start argv —
-// the spawn intent carries the command the adapter launched.
+// the spawn intent carries the command the adapter launched. The fold is the
+// detail view's (detailFold): one host fold for both readers, and its
+// newest-start-row-wins rule is the one a correction needs, so a taken-over
+// run is steered on the host of its current attempt.
 func (c *Chief) hostFromJournal(ctx context.Context, runID string) (hostadapter.Host, error) {
 	events, err := c.eng.Events(ctx, runID)
 	if err != nil {
@@ -562,27 +756,12 @@ func (c *Chief) hostFromJournal(ctx context.Context, runID string) (hostadapter.
 	if len(events) == 0 {
 		return "", fmt.Errorf("%w: %s", ErrUnknownRun, runID)
 	}
-	for _, ev := range events {
-		if ev.Kind != journal.KindSideEffect {
-			continue
-		}
-		var ef journal.Effect
-		if err := jsonUnmarshal(ev.Payload, &ef); err != nil || ef.IntentSeq != 0 ||
-			ef.Effect != agent.EffectStart {
-			continue
-		}
-		var intent struct {
-			Command string `json:"command"`
-		}
-		if err := jsonUnmarshal(ef.Intent, &intent); err != nil {
-			continue
-		}
-		if h, ok := hostByCommand(filepath.Base(intent.Command)); ok {
-			return h, nil
-		}
+	host, _ := detailFold(events)
+	if host == "" {
+		return "", fmt.Errorf("%w: %s names no known host command in its start record; pass host on the correction",
+			ErrNotSteerable, runID)
 	}
-	return "", fmt.Errorf("%w: %s names no known host command in its start record; pass host on the correction",
-		ErrNotSteerable, runID)
+	return host, nil
 }
 
 // hostByCommand maps the adapter's launch commands back to their hosts —

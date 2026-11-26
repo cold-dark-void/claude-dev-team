@@ -1363,3 +1363,105 @@ func TestSuperviseWithNoPremiseJournalsNoPremiseRow(t *testing.T) {
 		t.Errorf("agent.premise rows = %d, want 0: a start with no premise journals none", n)
 	}
 }
+
+// haltForResume leaves a run parked in one named halt, its dead owner's lease
+// aged past the stall limit — the shape a re-supervision meets.
+func haltForResume(t *testing.T, eng *journal.Engine, runID, reason string) {
+	t.Helper()
+	ctx := context.Background()
+	m := run.New(eng, runID)
+	m.Getenv = func(string) string { return stallLimit }
+	token, err := m.Claim(ctx, deadOwner, "CDT-644", "orchestrate", "sonnet")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := m.Start(ctx, deadOwner, token, "sonnet"); err != nil {
+		t.Fatal(err)
+	}
+	if err := m.Halt(ctx, deadOwner, token, reason, "fixture"); err != nil {
+		t.Fatal(err)
+	}
+	time.Sleep(takeoverWait)
+}
+
+// SPEC-045 M5: the supervision gate widens in place for the operator resume.
+// Under the switch the run's current halt reason resumes through the one
+// machine call; a start without it keeps refusing every halt but the watchdog's;
+// and a spent budget (operator_halt, budget 0) stays fenced by the machine —
+// the gate names no budget of its own.
+func TestSuperviseOperatorResumeWidensTheGate(t *testing.T) {
+	t.Run("the switch resumes the run's current halt", func(t *testing.T) {
+		eng := newEngine(t)
+		runID := "CDT-644"
+		haltForResume(t, eng, runID, run.ReasonLeaseLost)
+		req := startReq(runID, "exit 0")
+		req.OperatorResume = true
+		if err := nativeAgent().Supervise(context.Background(), eng, req); err != nil {
+			t.Fatalf("supervise: %v", err)
+		}
+		if got := state(t, eng, runID).Name(); got != "completed" {
+			t.Fatalf("state = %s, want completed through the operator resume", got)
+		}
+		if n := rowsByKind(t, eng, runID, journal.KindRunResumed); n != 1 {
+			t.Errorf("run_resumed rows = %d, want 1", n)
+		}
+	})
+
+	t.Run("without the switch the halt is refused", func(t *testing.T) {
+		eng := newEngine(t)
+		runID := "CDT-644"
+		haltForResume(t, eng, runID, run.ReasonLeaseLost)
+		err := nativeAgent().Supervise(context.Background(), eng, startReq(runID, "exit 0"))
+		if !errors.Is(err, ErrHaltState) {
+			t.Fatalf("supervise err = %v, want ErrHaltState", err)
+		}
+		if n := rowsByKind(t, eng, runID, journal.KindRunResumed); n != 0 {
+			t.Errorf("run_resumed rows = %d, want none", n)
+		}
+	})
+
+	t.Run("a spent budget stays fenced by the machine", func(t *testing.T) {
+		eng := newEngine(t)
+		runID := "CDT-644"
+		haltForResume(t, eng, runID, run.ReasonOperatorHalt)
+		req := startReq(runID, "exit 0")
+		req.OperatorResume = true
+		err := nativeAgent().Supervise(context.Background(), eng, req)
+		if !errors.Is(err, journal.ErrBudgetExhausted) {
+			t.Fatalf("supervise err = %v, want journal.ErrBudgetExhausted", err)
+		}
+		if got := state(t, eng, runID).Name(); got != "halted:operator_halt" {
+			t.Errorf("state = %s, want the halt a spent budget leaves", got)
+		}
+	})
+}
+
+// SPEC-045 M4: a claimed run takes the stop verb. It holds no recorded runner,
+// so the stop is the journal trail alone — the named halt, no signal, and no
+// agent.stop row that would imply one.
+func TestStopAClaimedRunJournalsTheHaltAlone(t *testing.T) {
+	eng := newEngine(t)
+	runID := "CDT-644"
+	ctx := context.Background()
+	m := run.New(eng, runID)
+	m.Getenv = func(string) string { return stallLimit }
+	if _, err := m.Claim(ctx, deadOwner, "CDT-644", "orchestrate", "sonnet"); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := nativeAgent().Stop(ctx, eng, runID, time.Second); err != nil {
+		t.Fatalf("stop a claimed run: %v", err)
+	}
+	if got := state(t, eng, runID).Name(); got != "halted:operator_halt" {
+		t.Errorf("state = %s, want halted:operator_halt", got)
+	}
+	if n := countEffectRows(t, eng, runID, EffectStop); n != 0 {
+		t.Errorf("agent.stop rows = %d, want none — nothing is signalled", n)
+	}
+	if n := rowsByKind(t, eng, runID, journal.KindRunHalted); n != 1 {
+		t.Errorf("run_halted rows = %d, want exactly one", n)
+	}
+	if _, err := os.Stat(pidPath(runID)); !os.IsNotExist(err) {
+		t.Errorf("pidfile stat err = %v, want not exist", err)
+	}
+}

@@ -981,6 +981,20 @@ ownership row (AC5's record). No AC carries the `[process]` tag: each asserts fi
     routes, the plugin-verb ticket leg, and the typed refusals;
     `TestTicketCLIRunsTheRealVerbs` proves the ticket leg is the plugin's own script writing the
     store at `$MROOT`.
+  - **Amendment (2026-11-25, CDT-672 — SPEC-045 M9).** The closed route set is four kinds:
+    `defect`, `idea`, `epic`, and `ticket`. The `ticket` kind runs work that already has a backlog
+    id: the Chief reads the item the plugin's own ticket verbs own (`$MROOT/.claude/backlog/<id>.md`),
+    composes `/orchestrate <ID> --autopilot=<token>` — the token vocabulary is
+    `skills/autopilot/parse-flags.sh` (`bare`, `auto`, `patch`, `minor`, `major`, `master`; the
+    default is `auto`) — routes `/epic <ID> …` when the item is an epic, and starts one run whose
+    `workflow` names the Surface (`orchestrate`, or `epic` for an epic item). It writes no new
+    ticket record: the local store gains no row from routing an existing id, on any repeat
+    (SPEC-045 AC8). SPEC-045 is the provenance of this widening; nothing else widens the closed set.
+    - Verify: `go test ./chief/` — `TestRouteExistingTicketStartsOneRun` and
+      `TestRouteExistingEpicRoutesTheEpicPath` prove one run and zero new store rows;
+      `TestRouteRefusesAnIllegalAutopilotToken` and `TestRouteRefusesAnUnknownTicketID` prove the
+      typed refusals before any row; `TestSurfacesStillWorkStandaloneInTheTerminal` runs one
+      subtest per Surface (defect, idea, epic, ticket).
 - **AC2.** The Chief reports on request — run status, checks, stand-up — and every answer comes
   from journal and queue state, never prose. Run status is the replayed state
   (`control-plane/journal`); the checks reading is the run's pending effects, repairs, and
@@ -1100,6 +1114,21 @@ content (AC7).
   done by the orchestrator later, so C10's commits touch no version pair
   (`.claude-plugin/plugin.json` and `CHANGELOG.md` are untouched).
   - Verify: `git diff --name-only c85338b..HEAD` lists no `plugin.json` or `CHANGELOG.md` change.
+
+**Amendment (2026-11-25, CDT-672 — SPEC-045 M9).** CDT-652 admits the v2 surface the CDT-600
+dogfood run asked for, as three additions: the operator actions (stop, resume, retry), the run
+detail reads (the premise, the host, the attempt number, whether the host supports resume, the run's
+journal row list, and the bounded transcript tail), and the design pass on the page. AC1's "one
+screen over the one API" stands, widened: the additions ride `chief.Handler` on the same loopback
+port — `POST /v1/runs/{run}/stop`, `POST /v1/runs/{run}/resume`, `POST /v1/runs/{run}/retry`,
+`GET /v1/runs/{run}/events`, `GET /v1/runs/{run}/output`, and `GET /v1/model` — and the page gains
+no endpoint of its own, no record, and no private state source (SPEC-045 AC9 and M10). The actions
+journal through the C2 machine's closed set: stop is `run_halted`, resume is `run_resumed` on the
+same run, and retry is a new attempt of the same ticket field; no event kind, halt reason, retry
+budget, graph vertex, or edge is added. The transcript tail is bounded (default 200 lines, at most
+1000, 64 KiB) and an unreadable transcript answers an explicit empty result. AC5's standalone check
+reads the widened set: one subtest per Surface (defect, idea, epic, ticket). SPEC-045 is the
+provenance of this widening.
 
 CDT-651 follows the same ruling: no `specs/` entry — the deliverable AC list below is the spec. C11
 is the eleventh and last child of the CDT-628 epic and closes the phase-1 record set; its gate home

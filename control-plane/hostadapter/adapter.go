@@ -169,6 +169,10 @@ type ResumeRequest struct {
 	// Fork resumes into a new session id (Grok `--fork-session`, riding the
 	// resume flag).
 	Fork bool
+	// OperatorResume passes the chief's operator-resume switch through to the
+	// node agent (SPEC-045 M5): the supervision gate then resumes the run's
+	// current halt reason. It adds no verb, no capability, and no event kind.
+	OperatorResume bool
 
 	// Credentials is C8 wiring scope (review N5): a resumed session whose
 	// host CLI reads an env-var credential needs the proven-name injection
@@ -239,7 +243,7 @@ func (a *Adapter) Resume(ctx context.Context, eng *journal.Engine,
 	err = a.supervise(ctx, eng, req.RunID, req.Host, cap, agent.StartRequest{
 		RunID: req.RunID, Ticket: req.Ticket, Workflow: req.Workflow,
 		Model: req.Model, Command: rs.Command, Args: args,
-		PremiseFrame: premiseFrame,
+		PremiseFrame: premiseFrame, OperatorResume: req.OperatorResume,
 	})
 	return cap, err
 }

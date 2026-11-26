@@ -46,7 +46,13 @@ Usage:
 The API (the only interface; the web UI consumes it):
   POST /v1/route                      route work to a Surface
   POST /v1/runs/{run}/corrections     a correction at the next step boundary
+  POST /v1/runs/{run}/stop            the operator halt
+  POST /v1/runs/{run}/resume          the same-run continuation
+  POST /v1/runs/{run}/retry           a new attempt of the ticket
   GET  /v1/runs, /v1/runs/{run}       run status, from the journal
+  GET  /v1/runs/{run}/events          the run's journal rows
+  GET  /v1/runs/{run}/output          the bounded transcript tail
+  GET  /v1/model?agent=<agent>        the Model map preflight
   GET  /v1/queue                      the slot ledger
   GET  /v1/checks                     the per-run integrity reading
   GET  /v1/standup                    the stand-up report
@@ -54,8 +60,9 @@ The API (the only interface; the web UI consumes it):
   GET  /v1/graph                      the C3 lifecycle graph
 
 The web UI (CDT-652) rides the same port: http://127.0.0.1:8090/ serves the
-board and the chat with the Chief. The bind is loopback-only — a
-non-loopback address is refused (remote access is CDT-630's phase-3 scope).
+run board, the run detail pane with the operator actions (CDT-672), and the
+chat with the Chief. The bind is loopback-only — a non-loopback address is
+refused (remote access is CDT-630's phase-3 scope).
 
 Flags:
   --addr ADDR    the loopback listen address (default 127.0.0.1:8090)

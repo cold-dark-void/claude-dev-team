@@ -6,6 +6,8 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
@@ -825,5 +827,356 @@ func TestConfirmedStartAfterARefusalKeepsTheCapture(t *testing.T) {
 	}
 	if rec.Host != hostadapter.HostOmp {
 		t.Errorf("record Host = %q, want the start's host", rec.Host)
+	}
+}
+
+// --- SPEC-045 AC1/AC8: the existing-ticket route (kind `ticket`) ----------
+
+// plantTicket writes one backlog item in the store newEngine points
+// DEVTEAM_MROOT at, in the shape the plugin's own add.sh writes. frontmatter
+// is the frontmatter body ("kind: epic") or empty for a plain ticket.
+func plantTicket(t *testing.T, slug, frontmatter string) string {
+	t.Helper()
+	dir := filepath.Join(os.Getenv("DEVTEAM_MROOT"), ".claude", "backlog")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	body := fmt.Sprintf("# %s\n\n**Status**: PENDING\n\n## Problem\n\ndo the work\n", slug)
+	if frontmatter != "" {
+		body = "---\n" + frontmatter + "\n---\n\n" + body
+	}
+	if err := os.WriteFile(filepath.Join(dir, slug+".md"), []byte(body), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	return slug
+}
+
+// plantAutopilotParser plants the seam's plugin file
+// skills/autopilot/parse-flags.sh and records each call's argv. code is the
+// parser's exit: 0 admits the token, 64 is its malformed-flag refusal — the
+// seam reads the parser's exit code, never a Go copy of the vocabulary.
+func plantAutopilotParser(t *testing.T, code int) (root, log string) {
+	t.Helper()
+	root = t.TempDir()
+	path := filepath.Join(root, "skills", "autopilot", "parse-flags.sh")
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	script := fmt.Sprintf("#!/usr/bin/env bash\nprintf '%%s\\n' \"$*\" >> \"$CHIEF_SEAM_LOG\"\nexit %d\n", code)
+	if err := os.WriteFile(path, []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	log = filepath.Join(t.TempDir(), "argv.log")
+	t.Setenv("CHIEF_SEAM_LOG", log)
+	return root, log
+}
+
+// newTicketChief is the chief of the ticket-route tests: the fakes of
+// newTestChief plus a plugin root the autopilot seam execs.
+func newTicketChief(t *testing.T, eng *journal.Engine, tickets *fakeTickets,
+	models *fakeModels, seam *fakeAgent, pluginRoot string) *Chief {
+	t.Helper()
+	c := NewWithAdapter(eng, &hostadapter.Adapter{Agent: seam},
+		WithTickets(tickets), WithModelMap(models), WithPhone(&fakePhone{}),
+		WithPluginRoot(pluginRoot))
+	c.StartWait = 5 * time.Second
+	return c
+}
+
+// AC1: an existing ticket id routes /orchestrate — the run carries the
+// existing id as its ticket, the workflow is orchestrate, the command is the
+// composed premise, and the store gains no row (zero ticket-seam calls).
+func TestRouteExistingTicketStartsOneRun(t *testing.T) {
+	eng := newEngine(t)
+	plantTicket(t, "CDT-600", "")
+	root, log := plantAutopilotParser(t, 0)
+	tickets := &fakeTickets{slug: "CDT-600"}
+	c := newTicketChief(t, eng, tickets, &fakeModels{model: "opus", source: "map"},
+		&fakeAgent{}, root)
+
+	res, err := c.Route(context.Background(), RouteRequest{
+		Kind: "ticket", TicketID: "CDT-600", Host: hostadapter.HostGrok,
+		Autopilot: "patch"})
+	if err != nil {
+		t.Fatalf("route: %v", err)
+	}
+	if res.Kind != "ticket" {
+		t.Errorf("kind = %q, want ticket", res.Kind)
+	}
+	if res.Surface.Name != "orchestrate" || res.Surface.Path != "skills/orchestrate/SKILL.md" {
+		t.Errorf("surface = %+v, want orchestrate (skills/orchestrate/SKILL.md)", res.Surface)
+	}
+	if res.RunID != "CDT-600" {
+		t.Errorf("run id = %q, want the plain slug for a ticket's first run", res.RunID)
+	}
+	if want := "/orchestrate CDT-600 --autopilot=patch"; res.Command != want {
+		t.Errorf("command = %q, want %q", res.Command, want)
+	}
+	if res.Model != "opus" || res.ModelSource != "map" {
+		t.Errorf("model = %q/%q, want the map resolution", res.Model, res.ModelSource)
+	}
+	// AC8: routing an existing id writes no ticket record.
+	if calls := tickets.recorded(); len(calls) != 0 {
+		t.Errorf("ticket seam calls = %+v, want none", calls)
+	}
+	st, err := eng.RunState(context.Background(), res.RunID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if st.Workflow != "orchestrate" || st.Ticket != "CDT-600" || st.Model != "opus" {
+		t.Errorf("run state = %s/%s/%s, want orchestrate/CDT-600/opus",
+			st.Workflow, st.Ticket, st.Model)
+	}
+	// The token reached the plugin's own parser as one argv value.
+	raw, err := os.ReadFile(log)
+	if err != nil {
+		t.Fatalf("the parser seam never ran: %v", err)
+	}
+	if !strings.Contains(string(raw), "--autopilot=patch") {
+		t.Errorf("parser argv %q lacks --autopilot=patch", raw)
+	}
+}
+
+// AC1: a ticket id whose item is an epic rides the epic surface — /epic
+// <ID> --autopilot[=<token>], with the default token when the request names
+// none.
+func TestRouteExistingEpicRoutesTheEpicPath(t *testing.T) {
+	eng := newEngine(t)
+	plantTicket(t, "CDT-628", "kind: epic")
+	root, log := plantAutopilotParser(t, 0)
+	tickets := &fakeTickets{slug: "CDT-628"}
+	c := newTicketChief(t, eng, tickets, &fakeModels{}, &fakeAgent{}, root)
+
+	res, err := c.Route(context.Background(), RouteRequest{
+		Kind: "ticket", TicketID: "CDT-628", Host: hostadapter.HostClaudeCode})
+	if err != nil {
+		t.Fatalf("route: %v", err)
+	}
+	if res.Surface.Name != "epic" || res.Surface.Path != "commands/epic.md" {
+		t.Errorf("surface = %+v, want epic (commands/epic.md)", res.Surface)
+	}
+	if want := "/epic CDT-628 --autopilot=auto"; res.Command != want {
+		t.Errorf("command = %q, want %q", res.Command, want)
+	}
+	st, err := eng.RunState(context.Background(), res.RunID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if st.Workflow != "epic" || st.Ticket != "CDT-628" {
+		t.Errorf("run state = %s/%s, want epic/CDT-628", st.Workflow, st.Ticket)
+	}
+	if calls := tickets.recorded(); len(calls) != 0 {
+		t.Errorf("ticket seam calls = %+v, want none", calls)
+	}
+	// The default token is the parser's own ship-intent default.
+	raw, err := os.ReadFile(log)
+	if err != nil {
+		t.Fatalf("the parser seam never ran: %v", err)
+	}
+	if !strings.Contains(string(raw), "--autopilot=auto") {
+		t.Errorf("parser argv %q lacks the default --autopilot=auto", raw)
+	}
+}
+
+// AC1: a token the plugin's own parser refuses (its exit-64 usage code)
+// refuses the route with a typed error before any run row is written.
+func TestRouteRefusesAnIllegalAutopilotToken(t *testing.T) {
+	eng := newEngine(t)
+	plantTicket(t, "CDT-600", "")
+	root, _ := plantAutopilotParser(t, 64)
+	tickets := &fakeTickets{slug: "CDT-600"}
+	c := newTicketChief(t, eng, tickets, &fakeModels{}, &fakeAgent{}, root)
+
+	_, err := c.Route(context.Background(), RouteRequest{
+		Kind: "ticket", TicketID: "CDT-600", Host: hostadapter.HostGrok,
+		Autopilot: "hotdog"})
+	if !errors.Is(err, ErrIllegalAutopilot) {
+		t.Fatalf("err = %v, want ErrIllegalAutopilot", err)
+	}
+	if calls := tickets.recorded(); len(calls) != 0 {
+		t.Errorf("ticket seam calls = %+v, want none", calls)
+	}
+	if exists, err := c.runExists(context.Background(), "CDT-600"); err != nil || exists {
+		t.Errorf("the refused route left a run row (exists=%v, err=%v)", exists, err)
+	}
+}
+
+// AC1: an id the local store holds no item for refuses the route with a
+// typed error, before any run row; an id that is not a run-safe id refuses
+// as malformed input and never reaches the store path.
+func TestRouteRefusesAnUnknownTicketID(t *testing.T) {
+	eng := newEngine(t)
+	root, _ := plantAutopilotParser(t, 0)
+	tickets := &fakeTickets{slug: "CDT-999"}
+	c := newTicketChief(t, eng, tickets, &fakeModels{}, &fakeAgent{}, root)
+	ctx := context.Background()
+
+	_, err := c.Route(ctx, RouteRequest{
+		Kind: "ticket", TicketID: "CDT-999", Host: hostadapter.HostGrok})
+	if !errors.Is(err, ErrUnknownTicket) {
+		t.Fatalf("err = %v, want ErrUnknownTicket", err)
+	}
+	for _, bad := range []string{"", "  ", "../secrets", "a/b", "CDT 600"} {
+		if _, err := c.Route(ctx, RouteRequest{
+			Kind: "ticket", TicketID: bad, Host: hostadapter.HostGrok}); !errors.Is(err, ErrInvalid) {
+			t.Errorf("ticket id %q err = %v, want ErrInvalid", bad, err)
+		}
+	}
+	if calls := tickets.recorded(); len(calls) != 0 {
+		t.Errorf("ticket seam calls = %+v, want none", calls)
+	}
+	if ids, err := c.runIDs(ctx); err != nil || len(ids) != 0 {
+		t.Errorf("the refused routes wrote runs %v (err %v), want none", ids, err)
+	}
+}
+
+// AC8: every route of one existing id starts a further attempt and writes no
+// store row — the run ids follow the attempt ladder, and a restarted chief
+// reads the same answer from the journal.
+func TestRepeatRoutesNeverWriteTheStore(t *testing.T) {
+	eng := newEngine(t)
+	plantTicket(t, "CDT-600", "")
+	root, _ := plantAutopilotParser(t, 0)
+	tickets := &fakeTickets{slug: "CDT-600"}
+	ctx := context.Background()
+
+	var got []string
+	for i := 0; i < 3; i++ {
+		c := newTicketChief(t, eng, tickets, &fakeModels{}, &fakeAgent{}, root)
+		res, err := c.Route(ctx, RouteRequest{
+			Kind: "ticket", TicketID: "CDT-600", Host: hostadapter.HostGrok,
+			Autopilot: "auto"})
+		if err != nil {
+			t.Fatalf("route %d: %v", i+1, err)
+		}
+		got = append(got, res.RunID)
+	}
+	// A chief that holds no record of the runs allocates the next attempt
+	// from the journal alone.
+	restarted := newTicketChief(t, eng, tickets, &fakeModels{}, &fakeAgent{}, root)
+	res, err := restarted.Route(ctx, RouteRequest{
+		Kind: "ticket", TicketID: "CDT-600", Host: hostadapter.HostGrok})
+	if err != nil {
+		t.Fatalf("route after restart: %v", err)
+	}
+	got = append(got, res.RunID)
+
+	want := []string{"CDT-600", "CDT-600-r2", "CDT-600-r3", "CDT-600-r4"}
+	if strings.Join(got, " ") != strings.Join(want, " ") {
+		t.Errorf("run ids = %v, want %v", got, want)
+	}
+	if calls := tickets.recorded(); len(calls) != 0 {
+		t.Errorf("ticket seam calls = %+v, want none on any repeat", calls)
+	}
+	for _, id := range want {
+		st, err := eng.RunState(context.Background(), id)
+		if err != nil {
+			t.Fatalf("run %s: %v", id, err)
+		}
+		if st.Ticket != "CDT-600" {
+			t.Errorf("run %s ticket = %q, want CDT-600", id, st.Ticket)
+		}
+	}
+}
+
+// M3: the seam execs the plugin's own parser — the legal forms exit 0 and the
+// vocabulary stays the script's. `bare` composes the valueless flag.
+func TestAutopilotSeamRunsThePluginParser(t *testing.T) {
+	t.Run("the flag form rides the token", func(t *testing.T) {
+		root, log := plantAutopilotParser(t, 0)
+		seat := &bashAutopilotFlags{root: func() (string, error) { return root, nil }}
+		ctx := context.Background()
+		if err := seat.Validate(ctx, "patch"); err != nil {
+			t.Fatalf("patch: %v", err)
+		}
+		if err := seat.Validate(ctx, "bare"); err != nil {
+			t.Fatalf("bare: %v", err)
+		}
+		raw, err := os.ReadFile(log)
+		if err != nil {
+			t.Fatal(err)
+		}
+		argv := string(raw)
+		if !strings.Contains(argv, "--autopilot=patch") {
+			t.Errorf("argv %q lacks --autopilot=patch", argv)
+		}
+		if !strings.Contains(argv, "--autopilot\n") {
+			t.Errorf("argv %q lacks the valueless --autopilot for the bare token", argv)
+		}
+	})
+	t.Run("the real parser admits its own vocabulary", func(t *testing.T) {
+		seat := &bashAutopilotFlags{root: func() (string, error) { return "../..", nil }}
+		ctx := context.Background()
+		for _, token := range []string{"bare", "auto", "patch", "minor", "major", "master"} {
+			if err := seat.Validate(ctx, token); err != nil {
+				t.Errorf("token %q: %v", token, err)
+			}
+		}
+	})
+	t.Run("the real parser refuses an illegal token", func(t *testing.T) {
+		// One argv value: the token never reaches a shell, so a token that
+		// carries shell text is a vocabulary refusal, not a command.
+		seat := &bashAutopilotFlags{root: func() (string, error) { return "../..", nil }}
+		ctx := context.Background()
+		for _, token := range []string{"hotdog", "Patch", "auto; rm -rf /", "--autopilot=patch"} {
+			if err := seat.Validate(ctx, token); !errors.Is(err, ErrIllegalAutopilot) {
+				t.Errorf("token %q err = %v, want ErrIllegalAutopilot", token, err)
+			}
+		}
+	})
+}
+
+// The interface contract over the one interface: a ticket route answers the
+// composed command and the run id, and each refusal is a typed 400 that
+// writes no run row.
+func TestTheAPIServesTheTicketRouteAndItsRefusals(t *testing.T) {
+	eng := newEngine(t)
+	plantTicket(t, "CDT-600", "")
+	// The plugin's own parser is the seam here: the 400 below is the real
+	// vocabulary's verdict, not a stub's.
+	c := newTicketChief(t, eng, &fakeTickets{slug: "CDT-600"},
+		&fakeModels{model: "opus", source: "map"}, &fakeAgent{}, "../..")
+
+	post := func(body string) (int, map[string]any) {
+		t.Helper()
+		req := httptest.NewRequest(http.MethodPost, "/v1/route", strings.NewReader(body))
+		rec := httptest.NewRecorder()
+		c.Handler().ServeHTTP(rec, req)
+		var out map[string]any
+		if err := json.Unmarshal(rec.Body.Bytes(), &out); err != nil {
+			t.Fatalf("body %q is not JSON: %v", rec.Body, err)
+		}
+		return rec.Code, out
+	}
+
+	code, out := post(`{"kind":"ticket","ticket_id":"CDT-600","host":"grok","autopilot":"patch"}`)
+	if code != http.StatusOK {
+		t.Fatalf("status = %d, want 200 (%v)", code, out)
+	}
+	for key, want := range map[string]string{
+		"kind": "ticket", "run_id": "CDT-600", "model": "opus",
+		"command": "/orchestrate CDT-600 --autopilot=patch",
+	} {
+		if out[key] != want {
+			t.Errorf("%s = %v, want %q", key, out[key], want)
+		}
+	}
+
+	for _, body := range []string{
+		`{"kind":"ticket","ticket_id":"CDT-999","host":"grok"}`,
+		`{"kind":"ticket","ticket_id":"CDT-600","host":"grok","autopilot":"hotdog"}`,
+	} {
+		code, out := post(body)
+		if code != http.StatusBadRequest {
+			t.Errorf("status = %d for %s, want 400 (%v)", code, body, out)
+		}
+	}
+	// The refusals wrote nothing: two routes, one run.
+	runs, err := c.Runs(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(runs) != 1 || runs[0].RunID != "CDT-600" {
+		t.Errorf("runs = %+v, want only the accepted route's run", runs)
 	}
 }

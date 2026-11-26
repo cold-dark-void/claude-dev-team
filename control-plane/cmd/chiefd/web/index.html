@@ -8,23 +8,83 @@
 </head>
 <body>
 <header>
-  <h1>Chief</h1>
-  <span id="conn" class="muted">connecting…</span>
-  <span class="muted">loopback only — no remote access</span>
+  <div class="brand">
+    <h1>Chief</h1>
+    <p id="conn" class="conn" data-state="down">
+      <span class="dot" aria-hidden="true"></span><span id="conn-text">connecting…</span>
+    </p>
+  </div>
+  <ul id="tally" class="tally" aria-label="Run states on the board"></ul>
+  <p class="scope">Loopback only — no remote access</p>
 </header>
+
 <main>
-  <section id="board">
-    <h2>Run board</h2>
-    <table id="runs">
-      <thead>
-        <tr>
-          <th>Run</th><th>State</th><th>Phase</th><th>Halt</th>
-          <th>Budget</th><th>Queue</th><th>Node</th><th>Runner</th>
-          <th>Workflow</th><th>Model</th>
-        </tr>
-      </thead>
-      <tbody></tbody>
-    </table>
+  <section id="board" class="main-view">
+    <div class="section-head">
+      <h2>Run board</h2>
+      <button id="route-toggle" type="button" aria-expanded="false" aria-controls="route-panel">
+        Route work
+      </button>
+    </div>
+
+    <div id="ticket-groups" class="groups"></div>
+    <p id="board-empty" class="empty" hidden>The journal holds no runs. Route work to start one.</p>
+
+    <details id="route-panel">
+      <summary>Route work</summary>
+      <form id="route-form">
+        <div class="row">
+          <label>Kind
+            <select id="route-kind">
+              <option value="defect">defect — /debug</option>
+              <option value="idea">idea — /brainstorm</option>
+              <option value="epic">epic — child tickets</option>
+              <option value="ticket" selected>ticket — run an existing id</option>
+            </select>
+          </label>
+          <label>Host
+            <select id="route-host">
+              <option value="claude-code">claude-code</option>
+              <option value="grok">grok</option>
+              <option value="omp">omp</option>
+            </select>
+          </label>
+          <label>Agent <span class="muted">(optional)</span>
+            <input id="route-agent" type="text" placeholder="ic5">
+          </label>
+        </div>
+        <p id="model-preview" class="model-preview" aria-live="polite">Model map: not read yet.</p>
+
+        <div id="ticket-box" class="row">
+          <label>Ticket id
+            <input id="route-ticket" type="text" placeholder="CDT-672" required>
+          </label>
+          <label>Autopilot
+            <select id="route-autopilot">
+              <option value="bare">bare — gates self-answer at the default</option>
+              <option value="auto" selected>auto — the run picks the bump</option>
+              <option value="patch">patch</option>
+              <option value="minor">minor</option>
+              <option value="major">major</option>
+              <option value="master">master — land, no release</option>
+            </select>
+          </label>
+        </div>
+        <p id="command-preview" class="model-preview" hidden></p>
+
+        <div id="work-box">
+          <label>Title <input id="route-title" type="text" required></label>
+          <label>Premise <textarea id="route-text" rows="3" required></textarea></label>
+        </div>
+        <div id="children-box" hidden>
+          <label>Children <span class="muted">(one per line: Title | premise)</span>
+            <textarea id="route-children" rows="3"></textarea>
+          </label>
+        </div>
+        <button type="submit">Route</button>
+        <p id="route-result" class="result" role="status" hidden></p>
+      </form>
+    </details>
 
     <div class="panels">
       <div class="panel">
@@ -42,39 +102,43 @@
     </div>
   </section>
 
+  <aside id="detail" class="detail" aria-label="Run detail" hidden>
+    <div class="detail-head">
+      <div class="detail-id">
+        <h2 id="detail-run">—</h2>
+        <p id="detail-badge" class="badge" data-state="unknown">—</p>
+      </div>
+      <button id="detail-close" type="button" aria-label="Close the run detail">Close</button>
+    </div>
+
+    <div class="actions" role="group" aria-label="Operator actions">
+      <button id="action-stop" type="button" hidden>Stop</button>
+      <button id="action-resume" type="button" hidden>Resume</button>
+      <button id="action-retry" type="button" hidden>Retry</button>
+    </div>
+    <p id="detail-refusal" class="refusal" role="status" hidden></p>
+
+    <dl id="detail-fields" class="fields"></dl>
+
+    <section class="detail-block">
+      <h3>Premise</h3>
+      <p id="detail-premise" class="premise">—</p>
+    </section>
+
+    <section class="detail-block">
+      <h3>Output tail <span id="output-meta" class="muted"></span></h3>
+      <pre id="detail-output" class="output" tabindex="0"></pre>
+    </section>
+
+    <section class="detail-block">
+      <h3>Journal</h3>
+      <ol id="detail-events" class="events"></ol>
+    </section>
+  </aside>
+
   <section id="chat">
     <h2>Chat with the Chief</h2>
     <ol id="thread" class="thread"></ol>
-    <form id="route-form">
-      <h3>Route work</h3>
-      <div class="row">
-        <label>Kind
-          <select id="route-kind">
-            <option value="defect">defect — /debug</option>
-            <option value="idea">idea — /brainstorm</option>
-            <option value="epic">epic — child tickets</option>
-          </select>
-        </label>
-        <label>Host
-          <select id="route-host">
-            <option value="claude-code">claude-code</option>
-            <option value="grok">grok</option>
-            <option value="omp">omp</option>
-          </select>
-        </label>
-        <label>Agent <span class="muted">(optional)</span>
-          <input id="route-agent" type="text" placeholder="ic5">
-        </label>
-      </div>
-      <label>Title <input id="route-title" type="text" required></label>
-      <label>Premise <textarea id="route-text" rows="3" required></textarea></label>
-      <div id="children-box" hidden>
-        <label>Children <span class="muted">(one per line: Title | premise)</span>
-          <textarea id="route-children" rows="3"></textarea>
-        </label>
-      </div>
-      <button type="submit">Route</button>
-    </form>
     <form id="correction-form">
       <h3>Correction</h3>
       <div class="row">

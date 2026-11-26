@@ -162,6 +162,12 @@ type StartRequest struct {
 	// parses or builds host frames); nil means this start names no
 	// first-turn route, and the loop journals nothing.
 	PremiseFrame PremiseFrame
+	// OperatorResume is the operator-resume switch (SPEC-045 M5): this spawn
+	// is the chief's operator resume of a halted run, so the supervision gate
+	// accepts the run's CURRENT halt reason and not only the watchdog's
+	// stalled finding. The resume itself stays the one machine call
+	// (run.Machine.Resume) and the closed run_resumed kind.
+	OperatorResume bool
 }
 
 // PremiseFrame renders the work premise into one host wire frame — the
@@ -248,12 +254,11 @@ func (a *Agent) Supervise(ctx context.Context, eng *journal.Engine, req StartReq
 	}
 
 	// A run parked in a halt the agent does not resume is refused before any
-	// lease write: only halted:stalled resumes, and only after the takeover
-	// below.
+	// lease write: halted:stalled resumes on the takeover below, and so does
+	// the operator's resume of the run's current halt reason (SPEC-045 M5).
 	if st0, err := m.State(ctx); err != nil {
 		return err
-	} else if st0.Status == journal.StatusHalted &&
-		(st0.Halt == nil || st0.Halt.Reason != run.ReasonStalled) {
+	} else if st0.Status == journal.StatusHalted && !resumesHalt(st0, req.OperatorResume) {
 		return fmt.Errorf("%w: %s", ErrHaltState, st0.Name())
 	}
 
@@ -264,9 +269,11 @@ func (a *Agent) Supervise(ctx context.Context, eng *journal.Engine, req StartReq
 
 	// A watchdog halt names an owner that stopped proving liveness. The
 	// restarting agent is the liveness coming back, so it resumes and spends
-	// the reason's retry budget; every other halt belongs elsewhere.
+	// the reason's retry budget; an operator resume spends one retry of the
+	// run's current halt reason the same way (SPEC-045 M5). Every other halt
+	// belongs elsewhere.
 	if st, err := m.State(ctx); err == nil && st.Status == journal.StatusHalted &&
-		st.Halt != nil && st.Halt.Reason == run.ReasonStalled {
+		resumesHalt(st, req.OperatorResume) {
 		if err := m.Resume(ctx, a.owner(), token); err != nil {
 			return err
 		}
@@ -284,6 +291,15 @@ func (a *Agent) Supervise(ctx context.Context, eng *journal.Engine, req StartReq
 	}
 	return a.supervise(ctx, m, token, req.RunID, proc,
 		&premiseDelivery{text: req.Premise, frame: req.PremiseFrame})
+}
+
+// resumesHalt is the supervision gate's one decision (SPEC-045 M5): a watchdog
+// halt always resumes — the restarting agent is the liveness coming back — and
+// any other named halt resumes only under the operator-resume switch. The
+// retry budget is not read here: run.Machine.Resume and journal replay fence
+// it, so a spent budget refuses the resume row and writes nothing.
+func resumesHalt(st *journal.State, operator bool) bool {
+	return st.Halt != nil && (st.Halt.Reason == run.ReasonStalled || operator)
 }
 
 // killOrphan stops the live runner a dead supervisor recorded, journaled
@@ -854,6 +870,10 @@ func (a *Agent) deliverSteers(ctx context.Context, m *run.Machine, token int64,
 // two — and the supervising process, on seeing the unanswered stop intent,
 // steps aside. The `node-agent start` signal path calls it in-process for the
 // same result.
+//
+// A claimed run takes the verb too (SPEC-045 M4): it holds no recorded runner
+// yet, so nothing is signalled and nothing that implies a signal is journaled —
+// the stop is the named halt alone.
 func (a *Agent) Stop(ctx context.Context, eng *journal.Engine, runID string, grace time.Duration) error {
 	if grace < 0 {
 		return fmt.Errorf("%w: %s", ErrGraceInvalid, grace)
@@ -868,6 +888,14 @@ func (a *Agent) Stop(ctx context.Context, eng *journal.Engine, runID string, gra
 	st, err := m.State(ctx)
 	if err != nil {
 		return err
+	}
+	if st.Status == journal.StatusClaimed {
+		if err := m.Halt(ctx, st.Owner, st.Token, run.ReasonOperatorHalt,
+			"stopped by the operator before the run recorded a runner"); err != nil {
+			return err
+		}
+		removeRunFiles(runID)
+		return nil
 	}
 	if st.Status != journal.StatusRunning {
 		return fmt.Errorf("%w: %s is %s", ErrNotRunning, runID, st.Name())
