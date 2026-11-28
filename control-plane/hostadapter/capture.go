@@ -5,6 +5,9 @@ import (
 	"fmt"
 	"strings"
 	"sync"
+	"time"
+
+	"github.com/cold-dark-void/claude-dev-team/control-plane/journal"
 )
 
 // Capture records the session id of one runner session from its output
@@ -24,6 +27,9 @@ type Capture struct {
 	// session id has landed: once the session is open, a response with the
 	// same id is a prompt answer, not a failed handshake.
 	handshakeErr string
+	// lastOut is the moment the stream last landed (SPEC-044 CDT-671 AC2): the
+	// progress reading, stamped from the bytes, never parsed out of them.
+	lastOut time.Time
 }
 
 // NewCapture returns the capture of one host session.
@@ -33,6 +39,7 @@ func NewCapture(h Host) *Capture { return &Capture{host: h} }
 // host's matrix AC-4 source names. Later ids never overwrite an earlier
 // one: the id captured at start is the id every resume rides.
 func (c *Capture) Write(p []byte) (int, error) {
+	c.stamp(p)
 	if !ValidHost(c.host) {
 		// An unknown host names no source; the stream still passes through.
 		return len(p), nil
@@ -47,6 +54,33 @@ func (c *Capture) Write(p []byte) (int, error) {
 		c.line = append(c.line, b)
 	}
 	return len(p), nil
+}
+
+// stamp records the moment the stream last landed. It is a fact about the
+// bytes, not a reading of the host, so an unknown host stamps as well: the
+// progress time answers "the capture saw the stream then", nothing more
+// (SPEC-044 CDT-671 AC2).
+func (c *Capture) stamp(p []byte) {
+	if len(p) == 0 {
+		return
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.lastOut = time.Now().UTC()
+}
+
+// LastOutputTS returns the time the capture last saw the host's stream, in the
+// journal's timestamp shape, and "" when it has seen nothing at all. It
+// satisfies the agent package's ProgressSource seam, which is how the node
+// agent carries the progress time without parsing host output (SPEC-044
+// CDT-671 AC2).
+func (c *Capture) LastOutputTS() string {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.lastOut.IsZero() {
+		return ""
+	}
+	return journal.FormatTS(c.lastOut)
 }
 
 // consumeLine parses one complete output line for the session id, and — on a

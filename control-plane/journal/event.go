@@ -18,6 +18,7 @@ const (
 	KindRunStarted   Kind = "run_started"    // claimed -> running
 	KindStintStarted Kind = "stint_started"  // one stint of the workflow begins
 	KindHeartbeat    Kind = "heartbeat"      // the owner is alive (watchdog input)
+	KindRunProgress  Kind = "run_progress"   // the session's last output time (liveness is not the point)
 	KindSideEffect   Kind = "side_effect"    // intent row, then outcome row (AC3)
 	KindRunHalted    Kind = "run_halted"     // running -> halted:<reason> (AC6)
 	KindRunResumed   Kind = "run_resumed"    // halted:<reason> -> running (spends retry budget)
@@ -29,7 +30,7 @@ const (
 // AllKinds is the closed set, in schema order.
 var AllKinds = []Kind{
 	KindRunClaimed, KindLeaseAcquire, KindRunStarted, KindStintStarted,
-	KindHeartbeat, KindSideEffect, KindRunHalted, KindRunResumed,
+	KindHeartbeat, KindRunProgress, KindSideEffect, KindRunHalted, KindRunResumed,
 	KindRepair, KindRunCompleted, KindRunFailed,
 }
 

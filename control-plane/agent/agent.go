@@ -235,6 +235,11 @@ type premiseDelivery struct {
 	// the rest of this supervision.
 	since time.Time
 	done  bool
+	// undelivered names the bounded-wait cause once the pair has closed with
+	// the premise never reaching the child (SPEC-044 CDT-671 AC1). The empty
+	// string means nothing to halt for: a delivered turn, a frame with no
+	// renderer, and a write failure are all records, not this halt.
+	undelivered string
 }
 
 // Supervise drives one run to its end and journals every step of it
@@ -537,6 +542,10 @@ func (a *Agent) supervise(ctx context.Context, m *run.Machine, token int64,
 	// sessionID names the capture id this attempt has already journaled
 	// (SPEC-044 CDT-661 AC1); the empty string means nothing has landed.
 	sessionID := ""
+	// progressTS names the last output time this supervision has journaled
+	// (SPEC-044 CDT-671 AC2); the empty string means the runner carries no
+	// capture, or nothing has landed yet.
+	progressTS := ""
 
 	// A transport the client opens gets its handshake before the loop turns:
 	// the host answers nothing until the frames land, so the capture, the
@@ -594,6 +603,11 @@ func (a *Agent) supervise(ctx context.Context, m *run.Machine, token int64,
 			if sessionID == "" {
 				sessionID = a.journalSessionID(ctx, m, token, runID)
 			}
+			// The progress time rides the capture seam the session id rides: the
+			// loop asks for the reading and journals it as its own row, never a
+			// heartbeat row, so the replay carries it on the state (SPEC-044
+			// CDT-671 AC2).
+			progressTS = a.journalProgress(ctx, m, token, runID, progressTS)
 			// A handshake that cannot complete ends the supervision here: an
 			// ACP child whose session never opened idles forever, so the run
 			// lands in the named halt instead of riding on (SPEC-044
@@ -613,6 +627,14 @@ func (a *Agent) supervise(ctx context.Context, m *run.Machine, token int64,
 					return err
 				}
 				pd.done = settled
+				// A premise the bounded session wait closed undelivered never
+				// reaches this child: the run gets its name instead of riding
+				// on, the same narrowing CDT-679 AC3 made for the handshake
+				// (SPEC-044 CDT-671 AC1). The closed pair is journaled first,
+				// so the record stands under the halt.
+				if pd.undelivered != "" {
+					return a.haltPremise(ctx, m, token, runID, proc, pd.undelivered)
+				}
 			}
 			if done, err := a.deliverSteers(ctx, m, token, runID, proc); done {
 				// A stop intent without an outcome means the stop verb owns
@@ -645,6 +667,24 @@ type capturedRunner interface {
 	CapturedSessionID() string
 }
 
+// ProgressSource is the capture contract for the run's progress signal
+// (SPEC-044 CDT-671 AC2): the time the capture last saw the host's output
+// stream — the same stream the transcript tail reads — in the journal's
+// timestamp shape, and "" when it has seen nothing. The capture stamps the
+// bytes; the agent only asks, so no second parser of host output appears on
+// this side. hostadapter.Capture satisfies it, the same writer the session id
+// rides.
+type ProgressSource interface {
+	LastOutputTS() string
+}
+
+// capturedProgress is the runner shape that carries an output capture: the
+// native runner over a ProgressSource stdout sink. The container runner and a
+// capture-less start carry none, report no progress time, and journal no row.
+type capturedProgress interface {
+	CapturedOutputTS() string
+}
+
 // HandshakeSource is the reading of a transport the client opens (SPEC-044
 // CDT-679 AC3): it reports the JSON-RPC error the host's session/new response
 // carried, and "" while the handshake can still land. The capture parses the
@@ -670,6 +710,41 @@ func (a *Agent) capturedID() string {
 		return ""
 	}
 	return src.CapturedSessionID()
+}
+
+// capturedOutputTS reports the last output time the runner's capture holds,
+// "" when the runner carries no output capture — the container runner and a
+// capture-less start (SPEC-044 CDT-671 AC2).
+func (a *Agent) capturedOutputTS() string {
+	src, ok := a.Runner.(capturedProgress)
+	if !ok {
+		return ""
+	}
+	return src.CapturedOutputTS()
+}
+
+// journalProgress journals the capture's last output time when it has advanced
+// past the time this supervision last recorded, and answers the time now on the
+// journal. The row is the progress reading and nothing else: it is
+// run_progress, never a heartbeat, so it carries no liveness and spends no
+// stall limit (SPEC-044 CDT-671 AC2).
+//
+// The advance test is what bounds the row count: the timestamp is second
+// precision, so a chattering stream costs at most one row a second and a quiet
+// one costs none. An empty reading — no capture, nothing seen yet — journals
+// nothing, so the journal never carries a guessed time. A failed write is
+// never a new failure mode for the run: the reading returns unchanged and the
+// next tick retries it, the way the session row does.
+func (a *Agent) journalProgress(ctx context.Context, m *run.Machine, token int64,
+	runID, journaled string) string {
+	ts := a.capturedOutputTS()
+	if ts == "" || ts == journaled {
+		return journaled
+	}
+	if err := m.Progress(ctx, a.owner(), token, ts); err != nil {
+		return journaled
+	}
+	return ts
 }
 
 // journalSessionID journals the session id the runner's capture holds —
@@ -805,6 +880,23 @@ func (a *Agent) haltHandshake(ctx context.Context, m *run.Machine, token int64,
 	return fmt.Errorf("%w: %s", ErrHandshakeFailed, cause)
 }
 
+// haltPremise stops the child and lands the run in the named halt
+// halted:premise_undelivered (SPEC-044 CDT-671 AC1). It runs after the
+// undelivered premise pair has closed, so the record stands and only the
+// ride-on ends: a session that never took its premise never started work, and
+// the run gets a name instead of looking healthy forever. The machine call
+// presents the live lease token, so a supervisor whose lease moved writes
+// nothing and leaves the run to its real owner.
+func (a *Agent) haltPremise(ctx context.Context, m *run.Machine, token int64,
+	runID string, proc Process, cause string) error {
+	a.stopQuiet(proc, DefaultGrace)
+	if err := m.Halt(ctx, a.owner(), token, run.ReasonPremiseUndelivered, cause); err != nil {
+		return fmt.Errorf("%w: %s (halt refused: %w)", ErrPremiseUndelivered, cause, err)
+	}
+	removeRunFiles(runID)
+	return fmt.Errorf("%w: %s", ErrPremiseUndelivered, cause)
+}
+
 // runnerExit is the terminal step: the host CLI exited on its own. A clean
 // exit completes the run; a failing exit fails it with the reason the exit
 // code names.
@@ -867,7 +959,9 @@ func (a *Agent) stopQuiet(proc Process, grace time.Duration) {
 // host cannot render yet retries on the next tick until
 // Agent.premiseSessionWait expires, and the pair then closes undelivered with
 // the cause: an unrenderable premise is a record, never a hang and never the
-// reconciler's pending intent.
+// reconciler's pending intent. Past that bound the record also ends the ride-on
+// — pd.undelivered names the cause and the supervision halts the run
+// (SPEC-044 CDT-671 AC1).
 func (a *Agent) deliverPremise(ctx context.Context, m *run.Machine, token int64,
 	runID string, proc Process, pd *premiseDelivery, sessionID string) (bool, error) {
 	st, err := m.State(ctx)
@@ -909,6 +1003,7 @@ func (a *Agent) deliverPremise(ctx context.Context, m *run.Machine, token int64,
 	}
 	if !ok {
 		cause := "the start carries no premise frame renderer"
+		bounded := false
 		if pd.frame != nil {
 			if pd.since.IsZero() {
 				pd.since = nowOr(a.Now)
@@ -919,9 +1014,19 @@ func (a *Agent) deliverPremise(ctx context.Context, m *run.Machine, token int64,
 			}
 			cause = fmt.Sprintf("no captured session id within %s: the host's "+
 				"first-turn frame names the session", wait)
+			bounded = true
 		}
-		return true, a.settlePremise(ctx, m, token, runID, attempt, pending, text,
-			sessionID, cause)
+		if err := a.settlePremise(ctx, m, token, runID, attempt, pending, text,
+			sessionID, cause); err != nil {
+			return true, err
+		}
+		// The bounded wait is the AC1 trigger: this session opened no turn the
+		// premise could ride, and it will not. A start that names no
+		// first-turn route keeps CDT-665 AC6's ride-on.
+		if bounded {
+			pd.undelivered = cause
+		}
+		return true, nil
 	}
 
 	seq := int64(0)

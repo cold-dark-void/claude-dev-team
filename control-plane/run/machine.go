@@ -205,11 +205,20 @@ func (m *Machine) StartWithCaps(ctx context.Context, owner string, token int64, 
 	if err != nil {
 		return err
 	}
+	// The no-progress bound is the start's own knob, resolved the same way
+	// (env over a default) and journaled on the same row, so a reading surface
+	// flags from the journal and never from a constant it owns (SPEC-044
+	// CDT-671 AC3).
+	progressSecs, _, err := NoProgressSeconds(m.getenv())
+	if err != nil {
+		return err
+	}
 	_, _, err = m.mutate(ctx, owner, token,
 		func(_ context.Context, _ *journal.Tx, _ *journal.State) (transition, error) {
 			ev, err := m.event(journal.KindRunStarted,
 				journal.StartPayload{StallLimitS: secs, Model: model,
-					WallclockCapS: wallclockCapS, IterationCapS: iterationCapS})
+					WallclockCapS: wallclockCapS, IterationCapS: iterationCapS,
+					ProgressLimitS: progressSecs})
 			if err != nil {
 				return transition{}, err
 			}
@@ -254,6 +263,32 @@ func (m *Machine) Heartbeat(ctx context.Context, owner string, token int64) erro
 	return err
 }
 
+// Progress journals the last session output time (SPEC-044 CDT-671 AC2) as its
+// own run_progress row. It is a reading, not liveness: it never refreshes the
+// heartbeat, so the watchdog keeps the stall limit as its only trigger for a
+// silent session.
+//
+// lastOutputTS is the capture's reading in the canonical timestamp shape. The
+// empty string — a runner with no output capture, the container runner — is
+// refused: no row lands, so the journal never carries a guessed time and the
+// caller treats the refusal as "nothing to record", not as a run failure.
+func (m *Machine) Progress(ctx context.Context, owner string, token int64,
+	lastOutputTS string) error {
+	if _, err := journal.ParseTS(lastOutputTS); err != nil {
+		return fmt.Errorf("%w: a progress row needs the capture's output time", journal.ErrInvalid)
+	}
+	_, _, err := m.mutate(ctx, owner, token,
+		func(_ context.Context, _ *journal.Tx, _ *journal.State) (transition, error) {
+			ev, err := m.event(journal.KindRunProgress,
+				journal.ProgressPayload{LastOutputTS: lastOutputTS})
+			if err != nil {
+				return transition{}, err
+			}
+			return then(ev), nil
+		})
+	return err
+}
+
 // Named halt states (AC6).
 const (
 	ReasonStalled         = "stalled"
@@ -266,6 +301,13 @@ const (
 	// refused, died, or stayed silent past the bounded wait. The takeover
 	// does not re-spawn it — the halt names the transport, not the owner.
 	ReasonHandshakeFailed = "handshake_failed"
+	// ReasonPremiseUndelivered is the named halt of a start that carried a work
+	// premise and whose session never took it: the bounded session wait
+	// (agent.DefaultPremiseSessionWait) expired with no delivered
+	// agent.premise row. The closed undelivered pair stays the record; what
+	// ends is the ride-on (SPEC-044 CDT-671 AC1). The takeover does not select
+	// it — a silent host re-spawns on the operator's resume, not on a scan.
+	ReasonPremiseUndelivered = "premise_undelivered"
 )
 
 // errNotStalled cancels a watchdog halt inside the transaction. It is not a

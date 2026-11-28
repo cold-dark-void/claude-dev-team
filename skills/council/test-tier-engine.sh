@@ -28,6 +28,17 @@ else
 fi
 
 TMP="$(mktemp -d "${TMPDIR:-/tmp}/tier-engine-test.XXXXXX")"
+
+# CDT-594 AC18: a preflight plan carries 2 phase-2 spawn slots per claim
+# (paranoid+skeptic; claim_id null for a single-claim scope). Finalizing a
+# 1-bundle evidence set is a declared dropped spawn — exit 7, no report.
+# Give every render in this suite the full flavor pair.
+EVID="$TMP/evidence-pair.json"
+jq -c '. + [{tool_use_id: "tu-2",
+             raw_blob: "second investigator bundle for the flavor pair",
+             file_line: "agents/council-judge.md:2",
+             reproducible_command: "head -5 agents/council-judge.md"}]' \
+  "$FIX/evidence.json" > "$EVID"
 trap 'rm -rf "$TMP"; hermetic_cleanup' EXIT
 REPO="$TMP/repo"; mkdir -p "$REPO"; git init -q "$REPO"
 
@@ -140,7 +151,7 @@ expect_rc "--tier is case-sensitive" 2
 # ---- finalize: light report ---------------------------------------------------
 plan_in_repo "$TMP/plan-light.json" --scope claim --scope-arg "x" --tier light \
   --grading-reason "triage: docs-only change"
-bash "$ENGINE" finalize --plan-file "$TMP/plan-light.json" --evidence-file "$FIX/evidence.json" \
+bash "$ENGINE" finalize --plan-file "$TMP/plan-light.json" --evidence-file "$EVID" \
   --judge-output "$FIX/judge.json" --report-out "$TMP/light.md" >/dev/null 2>&1
 grep_file "light report frontmatter carries council_tier" 'council_tier: "light"' "$TMP/light.md"
 grep_file "light report frontmatter carries grading_reason" \
@@ -160,13 +171,13 @@ ngrep_file "healthy light run has no degradation marker" \
 
 # ---- finalize: full report keeps real briefs ---------------------------------
 bash "$ENGINE" preflight --scope claim --scope-arg "x" > "$TMP/plan-full.json"
-bash "$ENGINE" finalize --plan-file "$TMP/plan-full.json" --evidence-file "$FIX/evidence.json" \
+bash "$ENGINE" finalize --plan-file "$TMP/plan-full.json" --evidence-file "$EVID" \
   --judge-output "$FIX/judge.json" --report-out "$TMP/full.md" >/dev/null 2>&1
 grep_file "full report frontmatter carries council_tier" 'council_tier: "full"' "$TMP/full.md"
 ngrep_file "full report has no Phase-4 skip note" '_Phase 4 skipped' "$TMP/full.md"
 
 # ---- finalize: pre-tiering plan files still finalize (default full) ----------
-bash "$ENGINE" finalize --plan-file "$FIX/plan-unbound.json" --evidence-file "$FIX/evidence.json" \
+bash "$ENGINE" finalize --plan-file "$FIX/plan-unbound.json" --evidence-file "$EVID" \
   --judge-output "$FIX/judge.json" --report-out "$TMP/legacy.md" >/dev/null 2>&1
 grep_file "plan without council_tier defaults to full" 'council_tier: "full"' "$TMP/legacy.md"
 
@@ -174,7 +185,7 @@ grep_file "plan without council_tier defaults to full" 'council_tier: "full"' "$
 bash "$ENGINE" preflight --scope claim --scope-arg "x" --tier light \
   --grading-reason 'he said "ship it"
 newline + back\slash' > "$TMP/plan-evil.json"
-bash "$ENGINE" finalize --plan-file "$TMP/plan-evil.json" --evidence-file "$FIX/evidence.json" \
+bash "$ENGINE" finalize --plan-file "$TMP/plan-evil.json" --evidence-file "$EVID" \
   --judge-output "$FIX/judge.json" --report-out "$TMP/evil.md" >/dev/null 2>&1
 ok "grading_reason stays one YAML line (embedded newline collapsed)" \
   bash -c "[ \"\$(grep -c '^grading_reason:' '$TMP/evil.md')\" = 1 ] \
@@ -188,7 +199,7 @@ ok "embedded quotes/backslashes are escaped, not emitted raw" \
   bash "$ENGINE" preflight --scope claim --scope-arg "x" --tier light \
     --grading-reason "clear-low (files=1<=5, loc=4<=100, no critical-area signal)" \
     --task-id CDT-126-9 > plan.json
-  bash "$ENGINE" finalize --plan-file plan.json --evidence-file "$FIX/evidence.json" \
+  bash "$ENGINE" finalize --plan-file plan.json --evidence-file "$EVID" \
     --judge-output "$FIX/judge.json" --task-id CDT-126-9 >/dev/null 2>&1
 ) || { echo "FAIL: task-bound light finalize"; fail=1; }
 if jq -e '.["CDT-126-9"][0]
@@ -219,7 +230,7 @@ ok "index-writer rejects the pre-CDT-126 4-arg form" test $? -eq 1
 # attacker-chosen multi-line content land raw at column 0 inside the YAML fences.
 bash "$ENGINE" preflight --scope claim --scope-arg "x" --tier light \
   --grading-reason 'routine {{CROSS_REVIEW_RANKINGS}} tail' > "$TMP/plan-inj.json"
-bash "$ENGINE" finalize --plan-file "$TMP/plan-inj.json" --evidence-file "$FIX/evidence.json" \
+bash "$ENGINE" finalize --plan-file "$TMP/plan-inj.json" --evidence-file "$EVID" \
   --judge-output "$FIX/judge.json" --report-out "$TMP/inj.md" \
   --cross-review-rankings 'attacker line one
 injected_key: "attacker-controlled"
@@ -235,7 +246,7 @@ ok "the legitimate rankings value still renders in its own section" \
 jq '.council_tier = "bogus"' "$TMP/plan-light.json" > "$TMP/plan-bad.json"
 (
   cd "$REPO" || exit 1
-  bash "$ENGINE" finalize --plan-file "$TMP/plan-bad.json" --evidence-file "$FIX/evidence.json" \
+  bash "$ENGINE" finalize --plan-file "$TMP/plan-bad.json" --evidence-file "$EVID" \
     --judge-output "$FIX/judge.json" --task-id CDT-126-BAD >/dev/null 2>&1
 )
 ok "malformed council_tier fails closed without aborting the run (no exit 6)" test $? -eq 0
@@ -377,7 +388,7 @@ printf '%s\n' '{"verdicts":[{"claim_id":"c1","claim":"float conf","verdict":"VER
   cd "$REPO" || exit 1
   bash "$ENGINE" preflight --scope claim --scope-arg "float conf" --tier light \
     --grading-reason "cdt-181 float conf" --task-id CDT-181-fin-float > plan-float.json
-  bash "$ENGINE" finalize --plan-file plan-float.json --evidence-file "$FIX/evidence.json" \
+  bash "$ENGINE" finalize --plan-file plan-float.json --evidence-file "$EVID" \
     --judge-output "$TMP/judge-float.json" --task-id CDT-181-fin-float >/dev/null 2>&1
 ) || { echo "FAIL: task-bound finalize with float judge conf exited non-zero"; fail=1; }
 assert_conf "finalize float 90.7 → index mvc=90 type number" CDT-181-fin-float max_verdict_confidence 90
@@ -402,7 +413,7 @@ jq 'del(.task_id) | .task_id = ""' "$TMP/plan-unbound-181.json" > "$TMP/plan-unb
 (
   cd "$REPO" || exit 1
   bash "$ENGINE" finalize --plan-file "$TMP/plan-unbound-181b.json" \
-    --evidence-file "$FIX/evidence.json" --judge-output "$FIX/judge.json" \
+    --evidence-file "$EVID" --judge-output "$FIX/judge.json" \
     --report-out "$TMP/unbound-181.md" >/dev/null 2>&1
 )
 ok "unbound finalize exit 0" test $? -eq 0

@@ -1311,6 +1311,19 @@ type Check struct {
 	// Stalled is the watchdog reading: the heartbeat is past the stall
 	// limit the run_started row journaled.
 	Stalled bool `json:"stalled"`
+	// LastProgressTS is the last session output time the run's run_progress
+	// rows journaled (SPEC-044 CDT-671 AC2): a reading beside Stalled, never a
+	// substitute for it. The empty string is the reading for a run whose runner
+	// carries no output capture — the container runner — and for one whose
+	// session has written nothing yet. It is never filled in from the
+	// heartbeat.
+	LastProgressTS string `json:"last_progress_ts"`
+	// NoProgress is the progress reading, not the watchdog's: the run is
+	// running, it carries a progress time, and the quiet since that time passes
+	// the no-progress bound its own run_started row journaled (SPEC-044
+	// CDT-671 AC3). The flag halts nothing and spends no retry budget, and a run
+	// with no progress time is never flagged.
+	NoProgress bool `json:"no_progress"`
 	// PendingEffects are the recorded effects with no outcome row — an
 	// effect whose outcome never landed is the reconciler's work list.
 	PendingEffects []string `json:"pending_effects,omitempty"`
@@ -1336,10 +1349,18 @@ func (c *Chief) Checks(ctx context.Context) ([]Check, error) {
 		if err != nil {
 			return nil, err
 		}
-		chk := Check{RunID: id, State: st.Name(), Repairs: len(st.Repairs)}
+		chk := Check{RunID: id, State: st.Name(), Repairs: len(st.Repairs),
+			LastProgressTS: st.ProgressTS}
 		if st.Status == journal.StatusRunning && st.StallLimitS > 0 &&
 			st.SinceHeartbeat(now) > time.Duration(st.StallLimitS)*time.Second {
 			chk.Stalled = true
+		}
+		// The progress flag is a reading beside the stall, never an action: no
+		// halt, no retry budget, and a run with no progress time has nothing to
+		// judge (SPEC-044 CDT-671 AC3).
+		if st.Status == journal.StatusRunning && st.ProgressLimitS > 0 && st.ProgressTS != "" &&
+			st.SinceProgress(now) > time.Duration(st.ProgressLimitS)*time.Second {
+			chk.NoProgress = true
 		}
 		for _, e := range st.PendingEffects() {
 			chk.PendingEffects = append(chk.PendingEffects, e.Effect+" "+e.Key)

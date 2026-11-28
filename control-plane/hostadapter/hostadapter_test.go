@@ -271,6 +271,44 @@ func TestCaptureSurvivesSplitWrites(t *testing.T) {
 	}
 }
 
+// SPEC-044 CDT-671 AC2: the capture carries the progress time — the moment the
+// stream last landed — on the same seam the session id rides. An unseen stream
+// answers the empty reading, never a guess, and an empty write does not move
+// the clock.
+func TestCaptureCarriesTheLastOutputTime(t *testing.T) {
+	cap := NewCapture(HostGrok)
+	if got := cap.LastOutputTS(); got != "" {
+		t.Errorf("LastOutputTS before any write = %q, want the empty reading", got)
+	}
+	before := time.Now().UTC().Add(-time.Second)
+	if _, err := cap.Write(nil); err != nil {
+		t.Fatal(err)
+	}
+	if got := cap.LastOutputTS(); got != "" {
+		t.Errorf("LastOutputTS after an empty write = %q, want the empty reading", got)
+	}
+	if _, err := io.WriteString(cap, "{}\n"); err != nil {
+		t.Fatal(err)
+	}
+	got, err := journal.ParseTS(cap.LastOutputTS())
+	if err != nil {
+		t.Fatalf("LastOutputTS = %q: %v", cap.LastOutputTS(), err)
+	}
+	if got.Before(before) {
+		t.Errorf("last output time = %s, want this write, not %s",
+			journal.FormatTS(got), journal.FormatTS(before))
+	}
+	// The reading is a fact about the bytes: an unknown host parses nothing and
+	// still stamps the stream.
+	unknown := NewCapture(Host("no-such-host"))
+	if _, err := io.WriteString(unknown, "{}\n"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := journal.ParseTS(unknown.LastOutputTS()); err != nil {
+		t.Errorf("an unknown host carries no progress time: %v", err)
+	}
+}
+
 // AC2 + AC7: the Grok ACP capture is pinned to a live probe transcript.
 // testdata/grok-acp-session-frames.jsonl is the recorded exchange of the ACP
 // handshake run 2026-11-24 against grok 1.0.92 from a scratch working

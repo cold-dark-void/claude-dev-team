@@ -100,6 +100,32 @@ func TestTheBoardGroupsRunsByTicketWithAttempts(t *testing.T) {
 	}
 }
 
+// SPEC-044 CDT-671 AC2: the board's checks line renders the last session output
+// time beside the stalled reading, and names the absence for a runner with no
+// output capture.
+func TestChecksLineRendersTheProgressTime(t *testing.T) {
+	js := webAsset(t, "app.js")
+
+	// The stalled reading keeps its place on the line, and the progress time
+	// rides beside it.
+	mustMatch(t, "app.js", js,
+		regexp.MustCompile(`(?s)function checkLine\(c\) \{.*c\.stalled.*STALLED.*last_progress_ts.*\}`))
+	mustMatch(t, "app.js", js,
+		regexp.MustCompile(`progress \$\{c\.last_progress_ts\}`))
+	if !strings.Contains(js, `"no progress time"`) {
+		t.Error("the checks line guesses for a runner with no output capture: it must " +
+			"name the absence")
+	}
+}
+
+// SPEC-044 CDT-671 AC3: the board flags a run whose session stopped making
+// progress, on the checks line, beside STALLED.
+func TestChecksLineFlagsNoProgress(t *testing.T) {
+	js := webAsset(t, "app.js")
+	mustMatch(t, "app.js", js,
+		regexp.MustCompile(`(?s)function checkLine\(c\) \{.*c\.stalled.*STALLED.*c\.no_progress.*NO_PROGRESS`))
+}
+
 // AC7: Stop, Resume, and Retry are gated on the run's state, the Resume
 // button is hidden entirely on a host with no resume route, and a refusal
 // renders the API's verbatim typed message.

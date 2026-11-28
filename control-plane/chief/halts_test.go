@@ -68,6 +68,62 @@ func TestHaltPageCarriesReasonAndBudget(t *testing.T) {
 	}
 }
 
+// SPEC-044 CDT-671 AC1/AC4: a run that journaled agent.start and heartbeats only
+// lands halted:premise_undelivered (control-plane/agent's
+// TestSuperviseSilentSessionHaltsPremiseUndelivered), and this is the page intent
+// that follows it. The halt is outside the M1 selection set, so the takeover
+// answers nothing and the halt scan's one existing page path (CDT-664) pages it:
+// the intent row lands on the record.
+func TestPremiseUndeliveredHaltPagesThroughTheHaltScan(t *testing.T) {
+	eng := newEngine(t)
+	ag := &fakeAgent{}
+	seedHalt(t, eng, "r1", run.ReasonPremiseUndelivered,
+		"no captured session id within 30s: the host's first-turn frame names the session")
+	phone := &fakePhone{}
+	c := newTestChief(t, eng, ag, &fakeTickets{}, &fakeModels{}, phone)
+
+	ctx := context.Background()
+	rep, err := c.TakeoverScan(ctx)
+	if err != nil {
+		t.Fatalf("takeover scan: %v", err)
+	}
+	if got := strings.Join(runIDsOf(rep.Taken), ","); got != "" {
+		t.Errorf("takeover took %q, want nothing: the selection set stays closed", got)
+	}
+
+	halts, err := c.ScanHalts(ctx)
+	if err != nil {
+		t.Fatalf("scan: %v", err)
+	}
+	if len(halts) != 1 || halts[0].Reason != run.ReasonPremiseUndelivered ||
+		halts[0].Budget != 1 || !halts[0].Notified {
+		t.Fatalf("halts = %+v, want the premise halt paged", halts)
+	}
+	pages := phone.recorded()
+	if len(pages) != 1 || !strings.Contains(pages[0], "run r1 halted: premise_undelivered") {
+		t.Fatalf("pages = %q, want the one premise page", pages)
+	}
+	// No re-spawn of a silent host: the resume and retry verbs stay the way back.
+	if n := len(ag.requests()); n != 0 {
+		t.Errorf("agent starts = %d, want 0", n)
+	}
+
+	path, err := c.notifyPath()
+	if err != nil {
+		t.Fatal(err)
+	}
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read the page record: %v", err)
+	}
+	for _, want := range []string{`"kind":"intent"`, `"run_id":"r1"`,
+		`"reason":"premise_undelivered"`} {
+		if !strings.Contains(string(raw), want) {
+			t.Errorf("page record %s lacks %s", raw, want)
+		}
+	}
+}
+
 // The record's intent line is the dedupe: a re-scan and a restarted chief
 // never page a halt twice.
 func TestRestartNeverPagesTwice(t *testing.T) {

@@ -724,6 +724,54 @@ the agent writes frames, never builds them.
   change (a defect fix in the CDT-626 route contract — no new capability);
   `.claude-plugin/plugin.json` and `CHANGELOG.md` are untouched.
 
+### CDT-671
+
+- **AC1.** A run whose start carries a work premise but whose session never
+  takes it halts with a named reason: when the bounded session wait
+  (`agent.DefaultPremiseSessionWait`, the same bound that closes the
+  undelivered pair) expires after `agent.start` with no `agent.premise`
+  outcome row of `delivered: true`, the supervisor stops the child and
+  lands the run in `halted:premise_undelivered` instead of riding on. The
+  closed undelivered pair stays a journal record — M17's record rule
+  holds; what ends is the ride-on, the same narrowing CDT-679 AC3 made for
+  the handshake transport, now covering the transports whose hosts open no
+  session on their own (the CDT-600 dogfood shape: `run_claimed`,
+  `run_started`, `agent.start`, then heartbeats only, `stalled: false`).
+  A start that carries no premise journals no premise row and never halts
+  under this AC. The takeover scan never selects
+  `halted:premise_undelivered` — the M1 selection set stays closed; the
+  page is the halt scan's one existing page path (CDT-664), and the resume
+  and retry verbs are the way back.
+  Verify: bash control-plane/test.sh
+- **AC2.** The run carries a progress signal separate from the heartbeat:
+  the last session output time. The reading is the time the runner's
+  output capture last saw the host's stream — the same stream the
+  transcript tail reads — carried through the capture seam the session id
+  rides (the `SessionSource` shape, no second parser of host output), and
+  the supervision loop journals it as its own row, never a heartbeat row,
+  so the replay carries it on the state. `GET /v1/checks` reports the
+  progress time per run beside the stalled reading, and the web board
+  renders it on the checks line. A run whose runner carries no output
+  capture — the container runner — carries no progress time, and the
+  reading names that, never a guess.
+  Verify: bash control-plane/test.sh
+- **AC3.** A run whose session stops making progress is flagged, not
+  halted: the no-progress bound is a journaled knob — it rides the
+  `run_started` payload the way the stall limit does (an env override over
+  a default, journaled in seconds, replayed on the state), never a
+  constant in the watchdog. `/v1/checks` flags a `running` run whose
+  quiet-since-progress exceeds the bound — `NO_PROGRESS` on the checks
+  line, beside `STALLED` — and the flag never halts the run or spends
+  retry budget: the heartbeat stall limit stays the only halt trigger for
+  a silent session.
+  Verify: bash control-plane/test.sh
+- **AC4.** The suite covers a runner that starts and stays silent: a run
+  that journals `agent.start` and heartbeats only lands
+  `halted:premise_undelivered` past the premise bound with the page intent
+  recorded, and a run whose output stops past the no-progress bound shows
+  `NO_PROGRESS` on `/v1/checks` while its heartbeat stays fresh.
+  Verify: bash control-plane/test.sh
+
 ## Validation
 
 - Spec reviewed and promoted to ACTIVE
@@ -946,6 +994,8 @@ the agent writes frames, never builds them.
 
 | Date | Change |
 |------|--------|
+| 2026-11-28 | CDT-671 shipped: the run carries a progress signal and a silent premise gets a name. `halted:premise_undelivered` (retry budget 1, takeover-refused, new vertex and edge in `docs/internal/control-plane/lifecycle-graph.json`) lands through `agent.haltPremise` when the bounded session wait closes the `agent.premise` pair undelivered: the closed pair stays the record, the ride-on ends, a start with no premise journals no pair and halts under no premise AC, and a start that names no first-turn renderer keeps riding on (AC1). The last session output time is a reading of its own — the new `run_progress` kind (closed set: `schema.sql` + `AllKinds`) carries the `hostadapter.Capture` stamp off the same seam the session id rides, `State.last_progress_ts` with `SinceProgress` replays it, and the supervision loop journals it on the poll tick when it advances, never as a heartbeat (AC2). `progress_limit_s` rides the `run_started` payload — `DEVTEAM_NO_PROGRESS_LIMIT` over a 10-minute default, above every stall limit in the map — and `Check.NoProgress` flags a running run whose quiet-since-progress passes its own bound on `/v1/checks` and the board, halting nothing and spending no retry budget, so the heartbeat stall limit stays the only halt trigger for a silent session (AC3). AC4's proofs: `TestSuperviseSilentSessionHaltsPremiseUndelivered` + `TestPremiseUndeliveredHaltPagesThroughTheHaltScan`, and `TestChecksFlagsNoProgressWhileTheHeartbeatStaysFresh`. The plugin version pair is untouched. |
+| 2026-11-28 | CDT-671 scoped: a run whose session never starts work looks healthy forever. New `### CDT-671` AC1–AC4 — `halted:premise_undelivered` ends M17's ride-on when the bounded session wait expires with no delivered premise (the CDT-600 dogfood shape), a last-session-output progress signal rides the capture seam separate from the heartbeat onto `/v1/checks` and the web board, and the no-progress bound is a journaled knob on the `run_started` payload that flags `NO_PROGRESS` without halting. The takeover selection set stays closed; the plugin version pair is untouched. |
 | 2026-11-27 | CDT-679: Grok runs start. The Grok host spec carries the ACP client handshake as data — `grokHandshakeFrames(cwd)`: `initialize` (client capabilities `terminal: false`, P-GK-CTR-3c), `notifications/initialized`, `session/new` with the run's cwd — and `hostadapter.Adapter.Start`/`Resume` hand it to the agent as `StartRequest.Handshake`, the CDT-665 M16 shape: the agent writes frames, never encodes them. The node agent performs the handshake before its poll loop, journal-first as an `agent.handshake` intent/outcome pair keyed `agent:handshake:<run>#<attempt>` under the live lease token, writing the frames with the runner's `Steer` seam; the cwd it journals is the directory the child inherits at spawn. The capture keeps the CDT-661 path and gains one reading: a `session/new` response that carries a JSON-RPC error is reported beside the id (`HandshakeSource.HandshakeError`). A handshake that cannot complete stops the child and halts the run in a new named halt, `handshake_failed` (retry budget 1, takeover-refused), for the three causes AC3 names — the JSON-RPC error, a child that dies before the id lands, and the bounded wait that expires empty — so an ACP child never idles as `running`; this narrows CDT-665 AC6's ride-on rule for the handshake transport. Claude Code, omp, and mini-swe name no handshake and their starts are unchanged. New M18, `### CDT-679` AC1–AC6, the `handshake_failed` vertex and edge in `docs/internal/control-plane/lifecycle-graph.json`. `control-plane/VERSION` `0.3.0` → `0.3.1` (a defect fix — a Grok run never reached work; no new capability); the plugin version pair is untouched. |
 | 2026-11-25 | CDT-665: the run's work premise reaches the spawned session's first turn. The chief carries the route's premise text onto the start (`hostadapter.StartRequest.Premise` → `agent.StartRequest.Premise`), the node agent delivers it journal-first as an `agent.premise` intent/outcome pair keyed `agent:premise:<run>#<attempt>` (one closed pair per run, keyed by the attempt that opened the session, under the live lease token), and the host adapter's per-host spec owns the first-turn frame: the Claude Code stream-json user message, the Grok ACP `session/prompt` (waiting on the captured session id, probe P-GK-ACP-1, because the frame names the session), and the omp RPC `{"type":"steer","message":…}` command; mini-swe's matrix cell (c) refuses a start that carries a premise. The takeover re-delivery rule is `deliverSteers` generalized — a CLOSED pair writes no second turn and journals no new row, a PENDING intent is performed once from the text the row carries — and M3's one spawn path is untouched. The bounded session-id poll closes an unrenderable premise with `delivered: false` and the named cause: never a halt, never a hang. New M16/M17, `### CDT-665` AC1–AC7, and `docs/internal/control-plane/native-runner.md` § "CDT-644" D4 names the premise frame in the runner contract. `control-plane/VERSION` `0.2.2` → `0.3.0` (a new capability that completes the CDT-626 route contract: a chief-routed run reaches `completed` without a human); the plugin version pair is untouched. TL review landed in the same change: the first-turn renderer attaches from the host's SPEC on every `Adapter.Start` and `Adapter.Resume` of that host — never on the request's premise text — so a re-adoption that carries no text performs the pending row (AC4, proved unmasked by `TestTakeoverRedeliversThePendingPremiseRowFromTheJournal`: empty premise, no caller-supplied frame), a premise-less spawn on mini-swe attaches nothing and is not refused, the outcome of a re-delivery names the attempt its intent opened, AC2 reads per-run (M16's rule is run-wide), and M16 names the pre-intent window it does not claim. |
 | 2026-11-24 | CDT-664 (CDT-660 TL-review follow-ups): the chief's run record survives a refused start — two starts for one run id share one `runRecord`, so registration keeps a confirmed start's `Cap`, an errored start deletes only an unconfirmed record, and a confirmed start re-creates the record a refused sibling removed (M3's bookkeeping); the halt scan re-reads the takeover's answer before it pages, closing the intent row with the outcome `suppressed: the takeover answered the halt` (M9/AC9). Prose letters: M8/AC15 state the shutdown truth (chiefd never releases the lease — the release is the reconciler's `Machine.Repair` path, which the no-run-event rule forbids on shutdown), M3 names the `Cap` field and the `chief.hostFromJournal` split (first matching intent, one `ErrNotSteerable`), M1 records the no-lease-row selection, M6 the unreadable-lease continue, S1 the unconfirmed bucket and the per-process log-line dedup, and the loose `adopts` verb becomes "takes over". `control-plane/VERSION` `0.2.1` → `0.2.2`. |

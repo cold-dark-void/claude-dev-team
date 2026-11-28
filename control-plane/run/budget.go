@@ -12,6 +12,50 @@ import (
 // docs/internal/control-plane/run-budget.md § Precedence owns.
 const EnvStallLimit = "DEVTEAM_STALL_LIMIT"
 
+// EnvNoProgressLimit overrides the no-progress bound, in seconds: the quiet
+// window past which the checks reading flags a running run's session as making
+// no progress (SPEC-044 CDT-671 AC3). It is the top of this knob's chain, the
+// same shape EnvStallLimit has for the watchdog.
+const EnvNoProgressLimit = "DEVTEAM_NO_PROGRESS_LIMIT"
+
+// DefaultNoProgressLimit is the bound a run journals when the env layer names
+// none: ten minutes with nothing on the host's output stream. It sits above
+// every stall limit in the run-budget map (the widest is opus at 270 s), so the
+// flag reads a session that stopped, not one mid-stint. The flag halts nothing
+// and spends no retry budget, so this number is not a halt trigger and CDT-610's
+// hold on wall-clock tuning does not reach it — the heartbeat stall limit stays
+// the only halt trigger for a silent session.
+const DefaultNoProgressLimit = 10 * time.Minute
+
+// ResolveNoProgressLimit returns the bound and the layer it came from
+// ("env" | "default"). The chain is env over a default, so the number is
+// journaled per run and no reading surface carries a constant of its own
+// (SPEC-044 CDT-671 AC3).
+func ResolveNoProgressLimit(getenv func(string) string) (time.Duration, string, error) {
+	if getenv == nil {
+		getenv = os.Getenv
+	}
+	if raw := getenv(EnvNoProgressLimit); raw != "" {
+		secs, err := strconv.Atoi(raw)
+		if err != nil || secs <= 0 {
+			return 0, "", fmt.Errorf("%w: %s=%q is not a positive integer number of seconds",
+				ErrConfig, EnvNoProgressLimit, raw)
+		}
+		return time.Duration(secs) * time.Second, "env", nil
+	}
+	return DefaultNoProgressLimit, "default", nil
+}
+
+// NoProgressSeconds is the journaled form of ResolveNoProgressLimit (whole
+// seconds, as journal.StartPayload carries it).
+func NoProgressSeconds(getenv func(string) string) (int64, string, error) {
+	d, source, err := ResolveNoProgressLimit(getenv)
+	if err != nil {
+		return 0, "", err
+	}
+	return int64(d / time.Second), source, nil
+}
+
 // BudgetRow is one row of the run-budget map: the two SPEC-033 caps a model
 // tier is proposed to run under.
 //
@@ -121,13 +165,19 @@ func StallLimitSeconds(model string, getenv func(string) string) (int64, string,
 // handshake_failed   one re-spawn per operator resume (CDT-679): the host may
 //
 //	answer the next handshake; the agent never loops on it
+//
+// premise_undelivered one re-spawn per operator resume (CDT-671): the premise
+//
+//	travels with the spawn, so the next start can deliver it; the scan never
+//	re-spawns a silent host on its own
 var RetryBudgets = map[string]int{
-	"stalled":          2,
-	"lease_lost":       1,
-	"reconcile_failed": 3,
-	"budget_exhausted": 0,
-	"operator_halt":    0,
-	"handshake_failed": 1,
+	"stalled":             2,
+	"lease_lost":          1,
+	"reconcile_failed":    3,
+	"budget_exhausted":    0,
+	"operator_halt":       0,
+	"handshake_failed":    1,
+	"premise_undelivered": 1,
 }
 
 // RetryBudget returns the budget for a named halt reason.

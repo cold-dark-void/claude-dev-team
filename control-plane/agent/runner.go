@@ -99,6 +99,18 @@ func (n Native) HandshakeError() string {
 	return src.HandshakeError()
 }
 
+// CapturedOutputTS reports the last output time the runner's stdout sink has
+// stamped (SPEC-044 CDT-671 AC2): the time the capture saw the host's stream,
+// read through ProgressSource. A nil sink, io.Discard, and any plain writer
+// carry no capture and report "" — no progress time, never a guess.
+func (n Native) CapturedOutputTS() string {
+	src, ok := n.Stdout.(ProgressSource)
+	if !ok {
+		return ""
+	}
+	return src.LastOutputTS()
+}
+
 // Start spawns spec.Command as a child process of this agent. The child
 // inherits the agent's environment — its logins, its PATH, its credential
 // files (docs/internal/control-plane/credentials.md § AC-9 native rows).

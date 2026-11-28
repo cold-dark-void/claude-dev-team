@@ -70,4 +70,11 @@ var (
 	// session the client asked for (SPEC-044 CDT-679 AC3). The run lands in
 	// the named halt halted:handshake_failed; the error names the cause.
 	ErrHandshakeFailed = errors.New("agent: the host session handshake failed")
+
+	// ErrPremiseUndelivered ends a supervision whose session never took the
+	// work premise it started with (SPEC-044 CDT-671 AC1): the bounded session
+	// wait expired after the spawn with no delivered agent.premise row. The
+	// run lands in the named halt halted:premise_undelivered; the error names
+	// the cause. A start that carries no premise never raises it.
+	ErrPremiseUndelivered = errors.New("agent: the run premise was never delivered to the session")
 )

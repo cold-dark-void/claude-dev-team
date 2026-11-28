@@ -155,10 +155,20 @@
       "notes": "The client handshake never opened the host session (CDT-679): the session/new response carried a JSON-RPC error, the child died before the session id landed, or the bounded wait expired with no id. An ACP child idles forever, so the named halt replaces the ride-on rule of CDT-665 AC6."
     },
     {
+      "id": "halted:premise_undelivered",
+      "kind": "run-state",
+      "label": "Halted: premise undelivered",
+      "order": 19,
+      "terminal": false,
+      "defined_at": "control-plane/journal/state.go:30",
+      "source": "control-plane/run/machine.go:275",
+      "notes": "The start carried a work premise and its session never took it: the bounded session wait expired after agent.start with no delivered agent.premise row (CDT-671 AC1). The closed undelivered pair stays the record. The takeover never selects this state, so the resume and retry verbs are the way back."
+    },
+    {
       "id": "completed",
       "kind": "run-state",
       "label": "Completed",
-      "order": 19,
+      "order": 20,
       "terminal": true,
       "defined_at": "control-plane/journal/state.go:17",
       "source": "control-plane/journal/event.go:25",
@@ -168,7 +178,7 @@
       "id": "failed",
       "kind": "run-state",
       "label": "Failed",
-      "order": 20,
+      "order": 21,
       "terminal": true,
       "defined_at": "control-plane/journal/state.go:18",
       "source": "control-plane/journal/event.go:26",
@@ -741,6 +751,19 @@
       "defined_at": "control-plane/journal/replay.go:319",
       "source": "control-plane/agent/agent.go:297",
       "notes": "The node agent names the halt when the host session it asked for never opened (SPEC-044 CDT-679 AC3). The takeover does not re-spawn it; the halt names the transport."
+    },
+    {
+      "id": "running-halted-premise_undelivered",
+      "from": "running",
+      "to": "halted:premise_undelivered",
+      "event": "run_halted",
+      "kind": "transition",
+      "gate": "",
+      "label": "Premise undelivered",
+      "guards": [],
+      "defined_at": "control-plane/journal/replay.go:338",
+      "source": "control-plane/agent/agent.go:828",
+      "notes": "The node agent names the halt when the bounded session wait closes the premise pair undelivered (SPEC-044 CDT-671 AC1). A start with no premise journals no pair and never reaches this edge."
     }
   ],
   "kill_test_boundaries": [

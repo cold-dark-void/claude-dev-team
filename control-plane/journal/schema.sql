@@ -49,6 +49,7 @@ CREATE TABLE IF NOT EXISTS events (
                     'run_started',
                     'stint_started',
                     'heartbeat',
+                    'run_progress',
                     'side_effect',
                     'run_halted',
                     'run_resumed',

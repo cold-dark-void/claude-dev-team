@@ -989,6 +989,138 @@ func TestStartWithCapsRefusesANegativeCapAndWritesNothing(t *testing.T) {
 	}
 }
 
+// SPEC-044 CDT-671 AC2: Progress journals the last session output time as its
+// own run_progress row. It is not liveness: the heartbeat reading stays where
+// the last beat left it, and it stays its own kind so the replay can tell the
+// two apart.
+func TestProgressJournalsTheOutputTime(t *testing.T) {
+	m, eng, clk := newTestMachine(t, "CDT-671", "sonnet")
+	ctx := context.Background()
+	token, err := m.Claim(ctx, "runner-a", "CDT-671", "orchestrate", "sonnet")
+	if err != nil {
+		t.Fatal(err)
+	}
+	// A claimed run has no session, so it carries no output time.
+	if err := m.Progress(ctx, "runner-a", token, journal.FormatTS(clk.now())); !errors.Is(err, journal.ErrTransition) {
+		t.Fatalf("Progress from claimed: err = %v, want %v", err, journal.ErrTransition)
+	}
+	if err := m.Start(ctx, "runner-a", token, "sonnet"); err != nil {
+		t.Fatal(err)
+	}
+	beatTS := clk.now()
+	if err := m.Heartbeat(ctx, "runner-a", token); err != nil {
+		t.Fatal(err)
+	}
+	clk.advance(30 * time.Second)
+	outTS := clk.now()
+	if err := m.Progress(ctx, "runner-a", token, journal.FormatTS(outTS)); err != nil {
+		t.Fatalf("Progress: %v", err)
+	}
+
+	st, err := m.State(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if st.ProgressTS != journal.FormatTS(outTS) {
+		t.Errorf("progress time = %q, want %q", st.ProgressTS, journal.FormatTS(outTS))
+	}
+	if st.HeartbeatTS != journal.FormatTS(beatTS) {
+		t.Errorf("heartbeat time = %q, want the beat's time %q — a progress row is "+
+			"never liveness", st.HeartbeatTS, journal.FormatTS(beatTS))
+	}
+	if n := countKind(t, eng, "CDT-671", journal.KindRunProgress); n != 1 {
+		t.Errorf("run_progress rows = %d, want the one row", n)
+	}
+	if n := countKind(t, eng, "CDT-671", journal.KindHeartbeat); n != 1 {
+		t.Errorf("heartbeat rows = %d, want the one beat: Progress writes no heartbeat", n)
+	}
+
+	// No reading means no row: a runner with no output capture reports nothing,
+	// and the run never journals a guessed time.
+	before := st.LastSeq
+	if err := m.Progress(ctx, "runner-a", token, ""); !errors.Is(err, journal.ErrInvalid) {
+		t.Errorf("Progress with no reading: err = %v, want %v", err, journal.ErrInvalid)
+	}
+	st, err = m.State(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if st.LastSeq != before {
+		t.Errorf("last seq moved %d -> %d: a reading-less Progress writes nothing",
+			before, st.LastSeq)
+	}
+}
+
+// SPEC-044 CDT-671 AC3: the no-progress bound is a journaled knob. It rides the
+// run_started row the way the stall limit does — env over a default, in seconds
+// — so a reading surface judges the flag from the journal and never from a
+// constant it owns.
+func TestStartJournalsTheNoProgressBound(t *testing.T) {
+	ctx := context.Background()
+
+	t.Run("the default rides the row", func(t *testing.T) {
+		m, _, _ := newTestMachine(t, "CDT-671-def", "sonnet")
+		token, err := m.Claim(ctx, "runner-a", "CDT-671", "orchestrate", "sonnet")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := m.Start(ctx, "runner-a", token, "sonnet"); err != nil {
+			t.Fatal(err)
+		}
+		st, err := m.State(ctx)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if want := int64(DefaultNoProgressLimit / time.Second); st.ProgressLimitS != want {
+			t.Errorf("no-progress bound = %d, want the default %d", st.ProgressLimitS, want)
+		}
+	})
+
+	t.Run("the env layer overrides it", func(t *testing.T) {
+		m, _, _ := newTestMachine(t, "CDT-671-env", "sonnet")
+		m.Getenv = func(k string) string {
+			if k == EnvNoProgressLimit {
+				return "45"
+			}
+			return ""
+		}
+		token, err := m.Claim(ctx, "runner-a", "CDT-671", "orchestrate", "sonnet")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := m.Start(ctx, "runner-a", token, "sonnet"); err != nil {
+			t.Fatal(err)
+		}
+		st, err := m.State(ctx)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if st.ProgressLimitS != 45 {
+			t.Errorf("no-progress bound = %d, want the env value 45", st.ProgressLimitS)
+		}
+	})
+
+	t.Run("a broken override refuses the start", func(t *testing.T) {
+		m, eng, _ := newTestMachine(t, "CDT-671-bad", "sonnet")
+		m.Getenv = func(k string) string {
+			if k == EnvNoProgressLimit {
+				return "0"
+			}
+			return ""
+		}
+		token, err := m.Claim(ctx, "runner-a", "CDT-671", "orchestrate", "sonnet")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := m.Start(ctx, "runner-a", token, "sonnet"); !errors.Is(err, ErrConfig) {
+			t.Fatalf("Start with a zero bound: err = %v, want %v", err, ErrConfig)
+		}
+		if n := countKind(t, eng, "CDT-671-bad", journal.KindRunStarted); n != 0 {
+			t.Errorf("run_started rows = %d, want none: a refused start writes nothing", n)
+		}
+	})
+}
+
 // countKind counts one run's rows of one event kind.
 func countKind(t *testing.T, eng *journal.Engine, runID string, kind journal.Kind) int {
 	t.Helper()

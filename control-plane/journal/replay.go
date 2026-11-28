@@ -35,6 +35,12 @@ type StartPayload struct {
 	Model         string `json:"model,omitempty"`
 	WallclockCapS int64  `json:"wallclock_cap_s,omitempty"`
 	IterationCapS int64  `json:"iteration_cap_s,omitempty"`
+	// ProgressLimitS is the no-progress bound in seconds (SPEC-044 CDT-671 AC3):
+	// how long a running session may go with no output before the checks reading
+	// flags it. It flags, it does not halt — StallLimitS stays the watchdog's
+	// only trigger. Optional, like the caps: an absent key means the run carries
+	// no bound, so every pre-CDT-671 run_started row replays unchanged.
+	ProgressLimitS int64 `json:"progress_limit_s,omitempty"`
 }
 
 // StintPayload is stint_started. Stint is 1-based and strictly sequential.
@@ -47,6 +53,15 @@ type StintPayload struct {
 type HeartbeatPayload struct {
 	Owner string `json:"owner"`
 	Token int64  `json:"token"`
+}
+
+// ProgressPayload is run_progress: the time the runner's output capture last
+// saw the host's stream (SPEC-044 CDT-671 AC2). It is a reading, not liveness —
+// a run can progress with no heartbeat and beat with no progress — so the row
+// never refreshes State.HeartbeatTS. LastOutputTS is required: a runner with no
+// output capture journals no row, so no row ever carries a guessed time.
+type ProgressPayload struct {
+	LastOutputTS string `json:"last_output_ts"`
 }
 
 // HaltPayload is run_halted: a named halt state with a reason and a retry
@@ -136,6 +151,8 @@ func (s *State) apply(ev Event) error {
 		return s.applyStint(ev)
 	case KindHeartbeat:
 		return s.applyHeartbeat(ev)
+	case KindRunProgress:
+		return s.applyProgress(ev)
 	case KindSideEffect:
 		return s.applySideEffect(ev)
 	case KindRunHalted:
@@ -229,12 +246,19 @@ func (s *State) applyStarted(ev Event) error {
 		return fmt.Errorf("%w: run_started needs a non-negative wallclock_cap_s (%d) and iteration_cap_s (%d)",
 			ErrReplayInconsistent, p.WallclockCapS, p.IterationCapS)
 	}
+	// The no-progress bound is optional and 0 is the unset encoding, so only a
+	// negative one is inconsistent (SPEC-044 CDT-671 AC3).
+	if p.ProgressLimitS < 0 {
+		return fmt.Errorf("%w: run_started needs a non-negative progress_limit_s (%d)",
+			ErrReplayInconsistent, p.ProgressLimitS)
+	}
 	if s.Status != StatusClaimed {
 		return fmt.Errorf("%w: run_started from %s", ErrTransition, s.Name())
 	}
 	s.StallLimitS = p.StallLimitS
 	s.WallclockCapS = p.WallclockCapS
 	s.IterationCapS = p.IterationCapS
+	s.ProgressLimitS = p.ProgressLimitS
 	if p.Model != "" {
 		s.Model = p.Model
 	}
@@ -275,6 +299,27 @@ func (s *State) applyHeartbeat(ev Event) error {
 			ErrStaleToken, p.Token, p.Owner, s.Token, s.Owner)
 	}
 	s.HeartbeatTS = ev.TS
+	s.touch(ev)
+	return nil
+}
+
+// applyProgress folds one run_progress row in (SPEC-044 CDT-671 AC2). The row
+// is legal from running only — a claimed run has no session to read output
+// from — and it moves the progress reading alone: HeartbeatTS is untouched, so
+// the watchdog keeps its own input.
+func (s *State) applyProgress(ev Event) error {
+	var p ProgressPayload
+	if err := json.Unmarshal(ev.Payload, &p); err != nil {
+		return fmt.Errorf("%w: run_progress: %v", ErrReplayInconsistent, err)
+	}
+	if s.Status != StatusRunning {
+		return fmt.Errorf("%w: run_progress from %s", ErrTransition, s.Name())
+	}
+	if _, err := ParseTS(p.LastOutputTS); err != nil {
+		return fmt.Errorf("%w: run_progress needs a canonical last_output_ts (%q)",
+			ErrReplayInconsistent, p.LastOutputTS)
+	}
+	s.ProgressTS = p.LastOutputTS
 	s.touch(ev)
 	return nil
 }

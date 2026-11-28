@@ -830,6 +830,125 @@ func (c *sessionCapture) SessionID() string {
 	return c.id
 }
 
+// progressCapture is the test shape of hostadapter.Capture's output reading
+// (SPEC-044 CDT-671 AC2): it stamps every stream write it sees and answers the
+// last one through the seam, so the agent asks for the reading and never parses
+// host output.
+type progressCapture struct {
+	mu   sync.Mutex
+	last time.Time
+}
+
+func (c *progressCapture) Write(p []byte) (int, error) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if len(p) > 0 {
+		c.last = time.Now().UTC()
+	}
+	return len(p), nil
+}
+
+func (c *progressCapture) LastOutputTS() string {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.last.IsZero() {
+		return ""
+	}
+	return journal.FormatTS(c.last)
+}
+
+// progressRows returns one run's run_progress payloads, in seq order.
+func progressRows(t *testing.T, eng *journal.Engine, runID string) []journal.ProgressPayload {
+	t.Helper()
+	rows, err := eng.Events(context.Background(), runID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var out []journal.ProgressPayload
+	for _, r := range rows {
+		if r.Kind != journal.KindRunProgress {
+			continue
+		}
+		var p journal.ProgressPayload
+		if err := json.Unmarshal(r.Payload, &p); err != nil {
+			t.Fatalf("run_progress payload %s: %v", r.Payload, err)
+		}
+		out = append(out, p)
+	}
+	return out
+}
+
+// AC2: the supervision loop journals the capture's last output time as its own
+// run_progress row — never a heartbeat row — so the replay carries the progress
+// time on the state beside the heartbeat reading.
+func TestSuperviseJournalsTheProgressTime(t *testing.T) {
+	eng := newEngine(t)
+	// The 1 s stall limit newEngine pins makes the beat fire every 500 ms; a
+	// starved beat on a loaded runner would halt this run (CDT-656 precedent).
+	t.Setenv("DEVTEAM_STALL_LIMIT", "270")
+	runID := "CDT-671"
+	pc := &progressCapture{}
+	a := &Agent{Runner: Native{Stdout: pc, Stderr: io.Discard}}
+
+	// The host writes its stream, then goes quiet.
+	if err := a.Supervise(context.Background(), eng,
+		startReq(runID, `printf 'hello\n'; sleep 0.5`)); err != nil {
+		t.Fatalf("supervise: %v", err)
+	}
+
+	rows := progressRows(t, eng, runID)
+	if len(rows) < 1 {
+		t.Fatalf("run_progress rows = %d, want the row the capture fed", len(rows))
+	}
+	want := pc.LastOutputTS()
+	for _, p := range rows {
+		if p.LastOutputTS == "" {
+			t.Fatalf("run_progress row %+v carries no output time", p)
+		}
+	}
+	if got := rows[len(rows)-1].LastOutputTS; got != want {
+		t.Errorf("last progress row = %q, want the capture's %q", got, want)
+	}
+	st := state(t, eng, runID)
+	if st.ProgressTS != want {
+		t.Errorf("state progress time = %q, want %q", st.ProgressTS, want)
+	}
+	// The row is its own kind: this run's child lives half a second, so the
+	// 270 s stall limit keeps the beat out of the window and no heartbeat row
+	// exists to confuse with it.
+	if n := rowsByKind(t, eng, runID, journal.KindHeartbeat); n != 0 {
+		t.Errorf("heartbeat rows = %d, want 0: the progress rows are not liveness rows", n)
+	}
+	if n := rowsByKind(t, eng, runID, journal.KindRunProgress); n != len(rows) {
+		t.Errorf("run_progress rows = %d, want %d", n, len(rows))
+	}
+}
+
+// AC2 boundary: a runner with no output capture — the container runner, and a
+// native start whose sink is a plain writer — journals no progress row and
+// carries no progress time. The reading names the absence, never a guess.
+func TestSuperviseWithNoCaptureJournalsNoProgressRow(t *testing.T) {
+	eng := newEngine(t)
+	runID := "CDT-671"
+	a := nativeAgent() // Stdout is io.Discard: no ProgressSource behind it
+
+	if err := a.Supervise(context.Background(), eng,
+		startReq(runID, `printf 'hello\n'; sleep 0.2`)); err != nil {
+		t.Fatalf("supervise: %v", err)
+	}
+	if n := len(progressRows(t, eng, runID)); n != 0 {
+		t.Errorf("run_progress rows = %d, want 0: a capture-less runner has no "+
+			"progress time to report", n)
+	}
+	if st := state(t, eng, runID); st.ProgressTS != "" {
+		t.Errorf("state progress time = %q, want the empty reading, never a guess",
+			st.ProgressTS)
+	}
+	if got := (Native{Stdout: io.Discard}).CapturedOutputTS(); got != "" {
+		t.Errorf("CapturedOutputTS on a plain writer = %q, want \"\"", got)
+	}
+}
+
 // lateSessionRunner reports its capture id only after a delay: the poll
 // loop must retry on the tick that names the id and treat the earlier
 // unnamed ticks as nothing at all.
@@ -1220,9 +1339,10 @@ func TestSupervisePremiseWaitsForTheCapturedSessionID(t *testing.T) {
 	}
 }
 
-// The bounded poll: a start whose runner never names a session cannot render
-// the frame. The pair closes undelivered with the reason, and the run rides on
-// unharmed — an un-renderable premise is never a halt and never a hang.
+// SPEC-044 CDT-671 AC1 narrows CDT-665 AC6's ride-on rule: the bounded poll
+// still closes the pair undelivered with its reason (M17's record rule holds),
+// and the run now lands in the named halt instead of riding on — a session
+// that never took its premise never starts work.
 func TestSupervisePremiseClosesUndeliveredPastTheSessionWait(t *testing.T) {
 	eng := newEngine(t)
 	runID := "CDT-665"
@@ -1232,8 +1352,9 @@ func TestSupervisePremiseClosesUndeliveredPastTheSessionWait(t *testing.T) {
 	req := startReq(runID, "sleep 1")
 	req.Premise = "A premise no frame can carry."
 	req.PremiseFrame = premiseTestFrame
-	if err := a.Supervise(context.Background(), eng, req); err != nil {
-		t.Fatalf("supervise: %v", err)
+	err := a.Supervise(context.Background(), eng, req)
+	if !errors.Is(err, ErrPremiseUndelivered) {
+		t.Fatalf("supervise err = %v, want %v", err, ErrPremiseUndelivered)
 	}
 
 	key := "agent:premise:" + runID + "#1"
@@ -1250,8 +1371,85 @@ func TestSupervisePremiseClosesUndeliveredPastTheSessionWait(t *testing.T) {
 	if n := countEffectRows(t, eng, runID, EffectPremise); n != 2 {
 		t.Errorf("agent.premise rows = %d, want one closed pair", n)
 	}
+	h := haltedRow(t, eng, runID)
+	if h.Reason != run.ReasonPremiseUndelivered {
+		t.Errorf("halt reason = %q, want %q", h.Reason, run.ReasonPremiseUndelivered)
+	}
+	if !strings.Contains(h.Detail, "session") {
+		t.Errorf("halt detail %q names no cause", h.Detail)
+	}
+}
+
+// AC1/AC4: the CDT-600 dogfood shape. A runner that starts and stays silent —
+// agent.start, then heartbeats only, stalled: false — halts by name past the
+// premise bound instead of looking healthy forever. The closed undelivered
+// pair stays the record, and the halt carries its retry budget.
+func TestSuperviseSilentSessionHaltsPremiseUndelivered(t *testing.T) {
+	eng := newEngine(t)
+	runID := "CDT-671"
+	// The bound is wider than the beat (half the 1 s stall limit), so the
+	// journal carries the dogfood's shape before the halt: agent.start, then
+	// heartbeats only.
+	a := &Agent{Runner: Native{Stdout: io.Discard, Stderr: io.Discard},
+		PremiseSessionWait: 1200 * time.Millisecond}
+
+	// The child idles: the host opened no session and writes nothing. The
+	// supervisor's own heartbeats keep the stall limit met, so nothing else
+	// can name this run.
+	req := startReq(runID, "sleep 30")
+	req.Premise = "A premise the silent session never takes."
+	req.PremiseFrame = premiseTestFrame
+	done := supervise(t, a, eng, req)
+
+	waitFor(t, eng, runID, func(st *journal.State) bool {
+		return st.Status == journal.StatusHalted
+	}, "the premise halt")
+	if err := <-done; !errors.Is(err, ErrPremiseUndelivered) {
+		t.Fatalf("supervise err = %v, want %v", err, ErrPremiseUndelivered)
+	}
+
+	st := state(t, eng, runID)
+	if st.Name() != "halted:"+run.ReasonPremiseUndelivered {
+		t.Fatalf("state = %s, want halted:%s", st.Name(), run.ReasonPremiseUndelivered)
+	}
+	if st.Halt.Budget != 1 || st.Halt.Remaining != 1 {
+		t.Errorf("halt budget = %d/%d, want 1/1", st.Halt.Remaining, st.Halt.Budget)
+	}
+	// The ride-on journal shape stands: agent.start and heartbeats landed, and
+	// the premise pair closed undelivered — the record, not a pending intent.
+	if s := effectByKey(t, eng, runID, "agent:start:"+runID+"#1"); s.Pending() {
+		t.Errorf("spawn pair = %+v, want the closed agent.start record", s)
+	}
+	if n := rowsByKind(t, eng, runID, journal.KindHeartbeat); n < 1 {
+		t.Errorf("heartbeat rows = %d, want the heartbeats of a live supervisor", n)
+	}
+	e := effectByKey(t, eng, runID, "agent:premise:"+runID+"#1")
+	if e.Pending() || !strings.Contains(string(e.Outcome), `"delivered":false`) {
+		t.Errorf("premise pair = %+v, want the closed undelivered record", e)
+	}
+	if n := countEffectRows(t, eng, runID, EffectPremise); n != 2 {
+		t.Errorf("agent.premise rows = %d, want one closed pair", n)
+	}
+}
+
+// AC1 boundary: a start that carries no premise journals no premise row and
+// never halts under this AC — the silent session of a premise-less start rides
+// on exactly as before.
+func TestSuperviseSilentSessionWithNoPremiseNeverHaltsPremiseUndelivered(t *testing.T) {
+	eng := newEngine(t)
+	runID := "CDT-671"
+	a := &Agent{Runner: Native{Stdout: io.Discard, Stderr: io.Discard},
+		PremiseSessionWait: 250 * time.Millisecond}
+
+	if err := a.Supervise(context.Background(), eng, startReq(runID, "sleep 1")); err != nil {
+		t.Fatalf("supervise: %v", err)
+	}
+	if n := countEffectRows(t, eng, runID, EffectPremise); n != 0 {
+		t.Errorf("agent.premise rows = %d, want 0: a premise-less start journals none", n)
+	}
 	if st := state(t, eng, runID); st.Name() != "completed" {
-		t.Errorf("state = %s, want completed: an undelivered premise harms no run", st.Name())
+		t.Errorf("state = %s, want completed: a premise-less start halts under no premise AC",
+			st.Name())
 	}
 }
 

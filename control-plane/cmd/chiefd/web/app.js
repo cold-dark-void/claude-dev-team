@@ -216,6 +216,10 @@ function slotLine(s) {
 function checkLine(c) {
   const bits = [c.state];
   if (c.stalled) bits.push("STALLED");
+  if (c.no_progress) bits.push("NO_PROGRESS");
+  // The progress time is the session's own signal, beside the heartbeat's.
+  // A runner with no output capture has none, and the line says so (CDT-671).
+  bits.push(c.last_progress_ts ? `progress ${c.last_progress_ts}` : "no progress time");
   if (c.pending_effects && c.pending_effects.length) {
     bits.push(`pending: ${c.pending_effects.join(", ")}`);
   }

@@ -21,12 +21,13 @@ const (
 // HaltReasons is the closed set of named halt states (AC6). Each one carries a
 // reason and a retry budget in State.Halt; the budgets live in the run package.
 var HaltReasons = []string{
-	"stalled",          // the watchdog saw no heartbeat inside the stall limit
-	"lease_lost",       // the owner's fencing token stopped matching
-	"reconcile_failed", // the reconciler could not repair the difference
-	"budget_exhausted", // the run budget ran out
-	"operator_halt",    // a human stopped it
-	"handshake_failed", // the host never opened the session the client asked for (CDT-679)
+	"stalled",             // the watchdog saw no heartbeat inside the stall limit
+	"lease_lost",          // the owner's fencing token stopped matching
+	"reconcile_failed",    // the reconciler could not repair the difference
+	"budget_exhausted",    // the run budget ran out
+	"operator_halt",       // a human stopped it
+	"handshake_failed",    // the host never opened the session the client asked for (CDT-679)
+	"premise_undelivered", // the session never took the work premise it started with (CDT-671)
 }
 
 func ValidHaltReason(s string) bool {
@@ -112,6 +113,21 @@ type State struct {
 	HeartbeatTS   string `json:"last_heartbeat_ts,omitempty"`
 	Stint         int    `json:"stint"`
 
+	// ProgressTS is the last session output time, journaled by the run's own
+	// run_progress rows (SPEC-044 CDT-671 AC2): the time the runner's output
+	// capture last saw the host's stream. Empty is a reading, not a gap — the
+	// container runner and a capture-less start carry no output capture, so
+	// they carry no progress time, and nothing here stands in for one.
+	ProgressTS string `json:"last_progress_ts,omitempty"`
+
+	// ProgressLimitS is the no-progress bound in seconds, journaled at
+	// run_started (SPEC-044 CDT-671 AC3): the quiet window past which the
+	// checks reading flags the session. 0 means the run carries no bound, so
+	// nothing is flagged. It is a journaled number, never a tuned constant in
+	// the reader, and it halts nothing — StallLimitS stays the watchdog's only
+	// trigger.
+	ProgressLimitS int64 `json:"progress_limit_s,omitempty"`
+
 	ClaimCount     int    `json:"claims"`
 	LeaseTakeovers int    `json:"lease_takeovers"`
 	EventCount     int64  `json:"events"`
@@ -185,6 +201,25 @@ func (s *State) SinceHeartbeat(now time.Time) time.Duration {
 		ts = s.LastTS
 	}
 	t, err := time.Parse(tsLayout, ts)
+	if err != nil {
+		return 0
+	}
+	d := now.UTC().Sub(t)
+	if d < 0 {
+		return 0
+	}
+	return d
+}
+
+// SinceProgress is how long the run's session has gone with no output. A run
+// that carries no progress time has no reading to judge, so the answer is 0
+// (SPEC-044 CDT-671 AC2: never a guess). A stall is judged against
+// State.StallLimitS; this is a separate signal and halts nothing.
+func (s *State) SinceProgress(now time.Time) time.Duration {
+	if s == nil || s.ProgressTS == "" {
+		return 0
+	}
+	t, err := time.Parse(tsLayout, s.ProgressTS)
 	if err != nil {
 		return 0
 	}

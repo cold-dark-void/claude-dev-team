@@ -629,6 +629,131 @@ func TestReportsFoldJournalAndQueueState(t *testing.T) {
 	}
 }
 
+// seedRunningAs leaves one running run owned by a named owner and answers its
+// machine and token, so a reading test journals exactly the rows it means to.
+func seedRunningAs(t *testing.T, eng *journal.Engine, runID, owner string) (*run.Machine, int64) {
+	t.Helper()
+	m := run.New(eng, runID)
+	token, err := m.Claim(context.Background(), owner, "CDT-1", "debug", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := m.Start(context.Background(), owner, token, ""); err != nil {
+		t.Fatal(err)
+	}
+	return m, token
+}
+
+// SPEC-044 CDT-671 AC2: the checks reading carries the last session output time
+// beside the stalled reading, and the API carries the key for every run — a run
+// whose runner has no output capture reads as no progress time, never as a
+// guess.
+func TestChecksReportsTheProgressTime(t *testing.T) {
+	eng := newEngine(t)
+	ctx := context.Background()
+	m, token := seedRunningAs(t, eng, "r-progress", "node-agent-1")
+	outTS := journal.FormatTS(time.Now().UTC())
+	if err := m.Progress(ctx, "node-agent-1", token, outTS); err != nil {
+		t.Fatalf("progress: %v", err)
+	}
+	seedRunningAs(t, eng, "r-quiet", "node-agent-2")
+	c := newTestChief(t, eng, &fakeAgent{}, &fakeTickets{}, &fakeModels{}, &fakePhone{})
+
+	checks, err := c.Checks(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	byID := map[string]Check{}
+	for _, ck := range checks {
+		byID[ck.RunID] = ck
+	}
+	if got := byID["r-progress"]; got.State != "running" || got.Stalled ||
+		got.LastProgressTS != outTS {
+		t.Errorf("r-progress = %+v, want the running run with its progress time %q",
+			got, outTS)
+	}
+	if got := byID["r-quiet"]; got.State != "running" || got.LastProgressTS != "" {
+		t.Errorf("r-quiet = %+v, want no progress time: the reading names the "+
+			"absence, never a guess", got)
+	}
+
+	// The API carries the key for both runs.
+	srv := httptest.NewServer(c.Handler())
+	t.Cleanup(srv.Close)
+	body := string(get(t, srv, "/v1/checks"))
+	if n := strings.Count(body, `"last_progress_ts"`); n != 2 {
+		t.Errorf("last_progress_ts keys = %d, want one per run: %s", n, body)
+	}
+	if !strings.Contains(body, `"last_progress_ts":"`+outTS+`"`) {
+		t.Errorf("checks %s does not carry the progress time", body)
+	}
+}
+
+// SPEC-044 CDT-671 AC3/AC4: a running run whose output stopped past the
+// journaled no-progress bound is flagged on /v1/checks while its heartbeat
+// stays fresh. The flag halts nothing and spends no retry budget; a run inside
+// the bound, and a run with no progress time at all, are never flagged.
+func TestChecksFlagsNoProgressWhileTheHeartbeatStaysFresh(t *testing.T) {
+	eng := newEngine(t)
+	t.Setenv("DEVTEAM_NO_PROGRESS_LIMIT", "2")
+	ctx := context.Background()
+
+	m, token := seedRunningAs(t, eng, "r-quiet", "node-agent-1")
+	old := journal.FormatTS(time.Now().UTC().Add(-10 * time.Second))
+	if err := m.Progress(ctx, "node-agent-1", token, old); err != nil {
+		t.Fatalf("progress: %v", err)
+	}
+	if err := m.Heartbeat(ctx, "node-agent-1", token); err != nil {
+		t.Fatal(err)
+	}
+	m2, token2 := seedRunningAs(t, eng, "r-live", "node-agent-2")
+	if err := m2.Progress(ctx, "node-agent-2", token2,
+		journal.FormatTS(time.Now().UTC())); err != nil {
+		t.Fatalf("progress: %v", err)
+	}
+	seedRunningAs(t, eng, "r-nocap", "node-agent-3") // no output capture
+
+	c := newTestChief(t, eng, &fakeAgent{}, &fakeTickets{}, &fakeModels{}, &fakePhone{})
+	checks, err := c.Checks(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	byID := map[string]Check{}
+	for _, ck := range checks {
+		byID[ck.RunID] = ck
+	}
+	if got := byID["r-quiet"]; !got.NoProgress || got.Stalled ||
+		got.LastProgressTS != old || got.State != "running" {
+		t.Errorf("r-quiet = %+v, want NO_PROGRESS beside a fresh heartbeat", got)
+	}
+	if got := byID["r-live"]; got.NoProgress || got.State != "running" {
+		t.Errorf("r-live = %+v, want no flag: the output is inside the bound", got)
+	}
+	if got := byID["r-nocap"]; got.NoProgress || got.LastProgressTS != "" {
+		t.Errorf("r-nocap = %+v, want no flag: a run with no progress time has "+
+			"nothing to judge", got)
+	}
+
+	// The flag is a reading, not an action: no halt row, the run runs on, and
+	// no reason's retry budget moved.
+	for _, id := range []string{"r-quiet", "r-live", "r-nocap"} {
+		st, err := eng.RunState(ctx, id)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if st.Status != journal.StatusRunning || st.Halt != nil || len(st.Halts) != 0 {
+			t.Errorf("%s = %s halts %+v, want running with no halt row", id, st.Name(), st.Halts)
+		}
+	}
+
+	srv := httptest.NewServer(c.Handler())
+	t.Cleanup(srv.Close)
+	if got := string(get(t, srv, "/v1/checks")); !strings.Contains(got,
+		`"no_progress":true`) {
+		t.Errorf("checks %s carries no NO_PROGRESS flag", got)
+	}
+}
+
 // M3 (SPEC-044): the takeover registers the runRecord bookkeeping — the host
 // the re-spawn rides — so the run reports, the checks reading, and the steer
 // path resolve a taken-over run with no special case. A taken-over run is an

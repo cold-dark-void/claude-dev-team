@@ -8,6 +8,7 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+	"time"
 )
 
 // seed builds a full lifecycle through the engine and returns the rows back, so
@@ -262,6 +263,106 @@ func TestReplayRefusesIllegalJournals(t *testing.T) {
 				t.Fatalf("Replay err = %v, want %v", err, tc.want)
 			}
 		})
+	}
+}
+
+// SPEC-044 CDT-671 AC2: the last session output time is its own row, never a
+// heartbeat row. Replay carries it on the state and leaves the liveness
+// reading alone, so the watchdog cannot ride on it.
+func TestReplayCarriesTheProgressTime(t *testing.T) {
+	claim := mustSeq(t, mustEvent(t, "A", KindRunClaimed,
+		ClaimPayload{Owner: "w", Token: 1}), 1)
+	start := mustSeq(t, mustEvent(t, "A", KindRunStarted, StartPayload{StallLimitS: 60}), 2)
+	beat := Event{Seq: 3, TS: "2026-11-16T00:01:00Z", RunID: "A", Kind: KindHeartbeat,
+		Payload: mustJSON(t, HeartbeatPayload{Owner: "w", Token: 1})}
+	prog := Event{Seq: 4, TS: "2026-11-16T00:02:00Z", RunID: "A", Kind: KindRunProgress,
+		Payload: mustJSON(t, ProgressPayload{LastOutputTS: "2026-11-16T00:01:30Z"})}
+
+	st, err := Replay([]Event{claim, start, beat, prog})
+	if err != nil {
+		t.Fatalf("Replay: %v", err)
+	}
+	if st.ProgressTS != "2026-11-16T00:01:30Z" {
+		t.Errorf("progress time = %q, want the captured output time", st.ProgressTS)
+	}
+	if st.HeartbeatTS != "2026-11-16T00:01:00Z" {
+		t.Errorf("heartbeat time = %q, want the beat's own row: a progress row is "+
+			"never liveness", st.HeartbeatTS)
+	}
+	now := time.Date(2026, 11, 16, 0, 3, 0, 0, time.UTC)
+	if got := st.SinceProgress(now); got != 90*time.Second {
+		t.Errorf("SinceProgress = %s, want 90s", got)
+	}
+	if got := st.SinceHeartbeat(now); got != 120*time.Second {
+		t.Errorf("SinceHeartbeat = %s, want 120s — unchanged by the progress row", got)
+	}
+
+	// The row is progress from running only: a claimed run has no session.
+	early := Event{Seq: 2, TS: "2026-11-16T00:01:00Z", RunID: "A", Kind: KindRunProgress,
+		Payload: mustJSON(t, ProgressPayload{LastOutputTS: "2026-11-16T00:01:00Z"})}
+	if _, err := Replay([]Event{claim, early}); !errors.Is(err, ErrTransition) {
+		t.Errorf("run_progress from claimed: err = %v, want %v", err, ErrTransition)
+	}
+	// A timestamp outside the canonical shape is refused, never guessed at.
+	bad := Event{Seq: 3, TS: "2026-11-16T00:02:00Z", RunID: "A", Kind: KindRunProgress,
+		Payload: mustJSON(t, ProgressPayload{LastOutputTS: "2026-11-16 00:01:30"})}
+	if _, err := Replay([]Event{claim, start, bad}); !errors.Is(err, ErrReplayInconsistent) {
+		t.Errorf("run_progress with a loose ts: err = %v, want %v",
+			err, ErrReplayInconsistent)
+	}
+	// A journal written before CDT-671 carries no progress row and replays with
+	// no progress time — the reading names the absence, never a guess.
+	old, err := Replay([]Event{claim, start, beat})
+	if err != nil {
+		t.Fatalf("Replay of a pre-CDT-671 log: %v", err)
+	}
+	if old.ProgressTS != "" {
+		t.Errorf("progress time = %q, want empty for a run that carries none",
+			old.ProgressTS)
+	}
+	if d := old.SinceProgress(now); d != 0 {
+		t.Errorf("SinceProgress of a run with no progress time = %s, want 0", d)
+	}
+}
+
+// SPEC-044 CDT-671 AC3: the no-progress bound rides the run_started payload and
+// replays onto the state, so the flag is judged from the journal. A row written
+// before the knob exists carries no bound, and the reading says so.
+func TestReplayCarriesTheNoProgressBound(t *testing.T) {
+	claim := mustSeq(t, mustEvent(t, "A", KindRunClaimed,
+		ClaimPayload{Owner: "w", Token: 1}), 1)
+	start := mustSeq(t, mustEvent(t, "A", KindRunStarted,
+		StartPayload{StallLimitS: 60, ProgressLimitS: 90}), 2)
+	st, err := Replay([]Event{claim, start})
+	if err != nil {
+		t.Fatalf("Replay: %v", err)
+	}
+	if st.ProgressLimitS != 90 {
+		t.Errorf("no-progress bound = %d, want 90", st.ProgressLimitS)
+	}
+	if st.StallLimitS != 60 {
+		t.Errorf("stall limit = %d, want 60 — the two limits stay separate", st.StallLimitS)
+	}
+
+	// The knob is optional and 0 is the unset encoding, so only a negative one
+	// is inconsistent, and the knob-free payload keeps its pre-CDT-671 bytes.
+	if got := string(mustJSON(t, StartPayload{StallLimitS: 60, Model: "opus"})); got !=
+		`{"stall_limit_s":60,"model":"opus"}` {
+		t.Fatalf("bound-free payload = %s, want the pre-CDT-671 bytes", got)
+	}
+	old := Event{Seq: 2, TS: "2026-11-16T00:00:00Z", RunID: "A", Kind: KindRunStarted,
+		Payload: json.RawMessage(`{"stall_limit_s":60,"model":"opus"}`)}
+	unset, err := Replay([]Event{claim, old})
+	if err != nil {
+		t.Fatalf("Replay of a bound-free start: %v", err)
+	}
+	if unset.ProgressLimitS != 0 {
+		t.Errorf("no-progress bound = %d, want unset", unset.ProgressLimitS)
+	}
+	neg := mustSeq(t, mustEvent(t, "A", KindRunStarted,
+		StartPayload{StallLimitS: 60, ProgressLimitS: -1}), 2)
+	if _, err := Replay([]Event{claim, neg}); !errors.Is(err, ErrReplayInconsistent) {
+		t.Errorf("negative bound: err = %v, want %v", err, ErrReplayInconsistent)
 	}
 }
 
