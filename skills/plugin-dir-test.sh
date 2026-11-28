@@ -956,18 +956,52 @@ derive_target() {
 # file under $TMP and runs it with a fresh bash process (never `bash -c` on
 # raw extracted text — the embedded single quotes / $'\t' ANSI-C quoting
 # would need a second escaping pass to survive as one shell argument). Sets
-# globals RESOLVE_OUT / RESOLVE_RC. $FOREIGN (established above, for the
+# globals RESOLVE_OUT / RESOLVE_RC. Returns 1 with a loud FATAL (empty stdout,
+# RESOLVE_RC=1) when a multiline terminator carries trailing text and the
+# `|| _pdh_hit=""` fallback cannot be split — the caller's (d) assertions then
+# fail with their own site labels. $FOREIGN (established above, for the
 # branch-1-bypass proof) has neither skills/memory-store/embed-one.sh nor
 # skills/plugin-dir.sh, so the dev-checkout fast path in the ORIGINAL site
 # expression cannot short-circuit here — moot in practice since extraction
 # already excludes that guard, kept as a belt-and-braces fixture property.
 resolver_exec() {
-  local family="$1" text="$2" home="$3" script
+  local family="$1" text="$2" home="$3" script stripped
   script="$TMP/cdt234-resolver-exec.sh"
+  stripped=""
+  if [ "$family" = "multiline" ]; then
+    # CDT-236 G3: the block ends `… ) || _pdh_hit=""`, which flattens the
+    # command-substitution status to 0, and a trailing `printf %s
+    # "$_pdh_hit"` (the only way to read the value back) makes the script
+    # status printf's. Split the terminator so the substitution status is
+    # saved BEFORE the `||` fallback runs, keep the fallback's semantics,
+    # and exit on that saved status. RESOLVE_RC is then the pipeline's own
+    # status, so clause (d)'s exit half bites for this family too.
+    #
+    # CDT-236 TL round (strip fidelity): the split is an END-ANCHORED sed,
+    # while the extraction anchor (:928) is a substring scan. A terminator
+    # with trailing text (e.g. `… ) || _pdh_hit=""  ;;` in a case arm) is
+    # therefore found by extraction and NOT stripped: the fallback would stay
+    # inside the assignment, `$?` would read 0, and clause (d)'s exit half
+    # would be silently vacuous again — the exact class this fix closes.
+    # Verify the split applied; a site whose fallback cannot be split is a
+    # loud failure, never an assertion of a status the harness cannot capture.
+    stripped=$(printf '%s\n' "$text" | sed 's/) || _pdh_hit=""[[:space:]]*$/)/')
+    if printf '%s\n' "$stripped" | grep -qF '|| _pdh_hit=""'; then
+      echo "  FATAL: terminator ') || _pdh_hit=\"\"' is not the last text on its line — cannot split the fallback; clause (d) exit status would be vacuous" >&2
+      RESOLVE_OUT=""
+      RESOLVE_RC=1
+      return 1
+    fi
+  fi
   {
-    printf '%s\n' "$text"
     if [ "$family" = "multiline" ]; then
+      printf '%s\n' "$stripped"
+      printf '__pdh_rc=$?\n'
+      printf '[ "$__pdh_rc" -ne 0 ] && _pdh_hit=""\n'
       printf 'printf %%s "$_pdh_hit"\n'
+      printf 'exit "$__pdh_rc"\n'
+    else
+      printf '%s\n' "$text"
     fi
   } > "$script"
   RESOLVE_OUT=$(cd "$FOREIGN" && env -u CLAUDE_PLUGIN_ROOT HOME="$home" bash "$script" 2>/dev/null)
@@ -1023,7 +1057,10 @@ if [ "$resolver_count" -gt 0 ]; then
     printf 'cdv-10\n' > "$CACHE_BASE_234/cold-dark-void/dev-team/10.0.0/$target"
     resolver_exec "$family" "$resolver_text" "$TMP/home"
     assert_rc "$site_label (a) numeric-not-lexical rc" "$RESOLVE_RC" 0
-    assert_contains "$site_label (a) resolves /10.0.0/ not /2.0.0/" "$RESOLVE_OUT" "/10.0.0/"
+    # CDT-236 G1: SPEC-002 (a) claims the resolved path, so assert EQUALITY with
+    # the fixture path — containment in /10.0.0/ passes a resolver that returns
+    # a truncated, prefixed, or wrong-directory path.
+    assert_eq "$site_label (a) resolves the cold-dark-void/10.0.0 fixture path exactly" "$RESOLVE_OUT" "$CACHE_BASE_234/cold-dark-void/dev-team/10.0.0/$target"
 
     # (b) 1.0.0 beats 1.0.0-pre.4 (tilde map still load-bearing)
     rm_under_tmp "$TMP/home"
@@ -1047,7 +1084,9 @@ if [ "$resolver_count" -gt 0 ]; then
     printf 'cdv\n' > "$CACHE_BASE_234/cold-dark-void/dev-team/1.2.3/$target"
     resolver_exec "$family" "$resolver_text" "$TMP/home"
     assert_rc "$site_label (c) equal-VER rc" "$RESOLVE_RC" 0
-    assert_contains "$site_label (c) prefers cold-dark-void" "$RESOLVE_OUT" "/cache/cold-dark-void/dev-team/1.2.3/"
+    # CDT-236 G1: same tightening as (a) — equality with the cold-dark-void
+    # fixture path, not containment in the slug/VER substring.
+    assert_eq "$site_label (c) equal-VER resolves the cold-dark-void fixture path exactly" "$RESOLVE_OUT" "$CACHE_BASE_234/cold-dark-void/dev-team/1.2.3/$target"
 
     # (d) empty cache -> empty stdout, not a bare '/', not a non-zero exit (AC8)
     rm_under_tmp "$TMP/home"
@@ -1088,12 +1127,16 @@ else
 fi
 
 # --- T5c: resolver uniformity (AC7) -----------------------------------------
-# The 9 single-line embed-one.sh sites MUST be identical to the canonical
+# The 11 single-line embed-one.sh sites MUST be identical to the canonical
 # home (skills/agent-memory/protocol.md) after stripping LEADING WHITESPACE
 # only — strict byte-identity is explicitly NOT required and MUST NOT be
-# gated (indentation legitimately differs by host document). The 3 multiline
-# sites are exempt from uniformity (differing host indentation/control
-# flow); they are covered by the behavioural gate above only.
+# gated (indentation legitimately differs by host document). The canonical
+# home itself is SKIPPED in the loop below: a site compared with itself is a
+# tautology (CDT-236 G2). 10 single-line copies are checked (11 single-line
+# sites minus the canonical home); the floor 8 tolerates the loss of 2 copies
+# and fails loudly at 7. The 3 multiline sites are exempt from uniformity
+# (differing host indentation/control flow); they are covered by the
+# behavioural gate above only.
 echo "== CDT-234 resolver uniformity (AC7) =="
 CANON_FILE="skills/agent-memory/protocol.md"
 canon_line=""
@@ -1121,14 +1164,21 @@ else
     fi
     r_file=$(printf '%s' "$hit" | cut -d: -f1)
     r_line=$(printf '%s' "$hit" | cut -d: -f2)
+    # CDT-236 G2: the canonical home compared against itself is a tautology —
+    # it can never fail, so it asserts nothing and inflates the PASS count.
+    # Only the copies prove the rule.
+    [ "$r_file" = "$CANON_FILE" ] && continue
     site_line=$(sed -n "${r_line}p" "$REPO_ROOT/$r_file" | sed -E 's/^[[:space:]]*//')
     uniform_checked=$((uniform_checked + 1))
     assert_eq "uniformity $r_file:$r_line matches canonical (leading-ws-insensitive)" "$site_line" "$canon_text"
   done
-  if [ "$uniform_checked" -eq 0 ]; then
+  # Vacuity floor (CDT-236 G2): 10 single-line copies are checked (11
+  # single-line sites minus the canonical home); the floor 8 tolerates the loss
+  # of 2 copies and fails loudly at 7.
+  if [ "$uniform_checked" -lt 8 ]; then
     FAIL=$((FAIL + 1))
-    echo "  FAIL uniformity gate checked ZERO single-line sites"
-    _pdt_fail_label "uniformity gate checked ZERO single-line sites"
+    echo "  FAIL uniformity gate checked only $uniform_checked single-line sites (floor 8)"
+    _pdt_fail_label "uniformity gate checked only $uniform_checked single-line sites (floor 8)"
   fi
 fi
 
