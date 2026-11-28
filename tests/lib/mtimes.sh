@@ -4,6 +4,10 @@
 # stock macOS; these helpers branch on the date/stat flavor instead.
 #
 #   touch_ago FILE SECONDS            Set mtime to SECONDS before now.
+#                                     Epoch arithmetic pinned to UTC: no local
+#                                     wall-clock round-trip, so a DST fall-back
+#                                     repeated hour cannot shift the mtime by
+#                                     ±3600 s (CDT-600).
 #   touch_when FILE "YYYY-MM-DD HH:MM:SS"
 #                                     Set mtime to that LOCAL wall-clock time.
 #   find_mtimes DIR                   One "<epoch> <path>" line per entry under
@@ -19,10 +23,12 @@
 touch_ago() {
   _ta_f=$1; _ta_s=$2
   _ta_then=$(( $(date +%s) - _ta_s ))
-  _ta_fmt=$(date -d "@$_ta_then" '+%Y%m%d%H%M.%S' 2>/dev/null) \
-    || _ta_fmt=$(date -r "$_ta_then" '+%Y%m%d%H%M.%S' 2>/dev/null) \
+  # TZ=UTC on both legs: the format string and its `touch -t` parse share a
+  # zone with no DST, so the epoch round-trip is exact (CDT-600).
+  _ta_fmt=$(TZ=UTC date -d "@$_ta_then" '+%Y%m%d%H%M.%S' 2>/dev/null) \
+    || _ta_fmt=$(TZ=UTC date -r "$_ta_then" '+%Y%m%d%H%M.%S' 2>/dev/null) \
     || return 1
-  touch -t "$_ta_fmt" "$_ta_f"
+  TZ=UTC touch -t "$_ta_fmt" "$_ta_f"
 }
 
 touch_when() {

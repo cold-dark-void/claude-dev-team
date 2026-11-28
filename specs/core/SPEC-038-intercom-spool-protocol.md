@@ -1859,6 +1859,28 @@ cycle; the CDT-529 ACs pin it.
   (no new `commands/*.md`). The bot token never appears in argv, logs,
   spool files, or error text.
 
+### CDT-600
+
+- **AC1.** `touch_ago` in `tests/lib/mtimes.sh` sets the target mtime
+  exactly the requested seconds in the past via epoch arithmetic with
+  `TZ` pinned to UTC for the `date` format call and the `touch -t`
+  call: no local wall-clock round-trip, so a DST fall-back repeated
+  hour cannot resolve the ambiguous wall clock to the other instance
+  and shift a set mtime by ±3600 s. The helper stays GNU/BSD-safe.
+  Verify: bash skills/intercom/test-sidecar.sh
+- **AC2.** `bash skills/intercom/test-sidecar.sh` prints
+  `VERIFY exit=0` under the host's local TZ on a DST-zone host (all
+  legs pass, including the AC6 staleness-window legs whose heartbeat
+  fixture mtimes come from `touch_ago`).
+  Verify: bash skills/intercom/test-sidecar.sh
+- **AC3.** `TZ=UTC bash skills/intercom/test-sidecar.sh` prints
+  `VERIFY exit=0` — the hardening does not regress the UTC-invoked
+  path used green at the v1.28.3 fold gate.
+  Verify: bash skills/intercom/test-sidecar.sh
+- **AC4.** [process] `bash skills/intercom/test-poller.sh` prints
+  `VERIFY exit=0` — the shared `touch_ago` helper hardening leaves the
+  sibling intercom suite that consumes it green.
+
 ## Test
 
 - Owner-continuity pin: non-owner send/ask leaves `away_sid`
