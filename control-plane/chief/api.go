@@ -34,6 +34,7 @@ import (
 //	GET  /v1/standup                     the stand-up report (AC2)
 //	GET  /v1/halts                       named halts, reason + retry budget (AC5)
 //	GET  /v1/graph                       the C3 lifecycle graph (AC3)
+//	GET  /v1/version                     the served build identity (SPEC-043 CDT-678 AC1)
 func (c *Chief) Handler() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("POST /v1/route", c.apiRoute)
@@ -51,6 +52,7 @@ func (c *Chief) Handler() http.Handler {
 	mux.HandleFunc("GET /v1/standup", c.apiStandup)
 	mux.HandleFunc("GET /v1/halts", c.apiHalts)
 	mux.HandleFunc("GET /v1/graph", c.apiGraph)
+	mux.HandleFunc("GET /v1/version", c.apiVersion)
 	return mux
 }
 
@@ -257,6 +259,17 @@ func (c *Chief) apiGraph(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, g)
+}
+
+// apiVersion serves GET /v1/version: the identity stamped into this binary at
+// build time (SPEC-043 CDT-678 AC1). The values are the binary's own, never a
+// file read, so the answer names the code that is running — what the verify
+// row and the web UI show. An unstamped binary answers DefaultVersion ("dev")
+// and an empty commit. The read writes nothing.
+func (c *Chief) apiVersion(w http.ResponseWriter, r *http.Request) {
+	writeJSON(w, http.StatusOK, map[string]any{
+		"version": c.version, "commit": c.commit,
+	})
 }
 
 // decodeBody reads one JSON request body. An empty body is an empty object,

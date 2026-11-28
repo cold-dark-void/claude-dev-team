@@ -14,6 +14,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/cold-dark-void/claude-dev-team/control-plane/chief"
 	"github.com/cold-dark-void/claude-dev-team/control-plane/journal"
 	runmachine "github.com/cold-dark-void/claude-dev-team/control-plane/run"
 )
@@ -65,6 +66,22 @@ func TestRunRefusesANonLoopbackAddr(t *testing.T) {
 	if !strings.Contains(stderr.String(), "must be loopback") ||
 		!strings.Contains(stderr.String(), "0.0.0.0:8090") {
 		t.Errorf("stderr = %q, want the typed loopback refusal naming the address", stderr.String())
+	}
+}
+
+// AC1 (SPEC-043 CDT-678): the usage text is the operator's list of the API's
+// verbs, and it names the version verb. The test binary is an unstamped build,
+// so the same test proves the degrade: the identity is "dev" with no commit —
+// the process never claims a release it was not built from.
+func TestUsageNamesTheVersionVerb(t *testing.T) {
+	for _, verb := range []string{"POST /v1/route", "GET  /v1/graph", "GET  /v1/version"} {
+		if !strings.Contains(usage, verb) {
+			t.Errorf("the usage block names no %q verb", verb)
+		}
+	}
+	if version != chief.DefaultVersion || commit != "" {
+		t.Errorf("unstamped build stamp = %q %q, want %q and an empty commit",
+			version, commit, chief.DefaultVersion)
 	}
 }
 

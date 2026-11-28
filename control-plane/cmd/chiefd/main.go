@@ -38,6 +38,16 @@ const (
 	exitUsage   = 64
 )
 
+// version and commit are the build stamp (SPEC-043 CDT-678 AC1): the M4 build
+// (skills/control-plane/units.sh cp_build) sets them with -ldflags -X
+// main.version=<control-plane/VERSION> -X main.commit=<short sha>.
+// A binary built without the stamp keeps chief.DefaultVersion ("dev") and the
+// empty commit, and GET /v1/version serves exactly that.
+var (
+	version = chief.DefaultVersion
+	commit  = ""
+)
+
 const usage = `chiefd — the Chief of the control plane: one API, one web UI, no second interface.
 
 Usage:
@@ -58,6 +68,7 @@ The API (the only interface; the web UI consumes it):
   GET  /v1/standup                    the stand-up report
   GET  /v1/halts                      named halts, reason + retry budget
   GET  /v1/graph                      the C3 lifecycle graph
+  GET  /v1/version                    the served build identity
 
 The web UI (CDT-652) rides the same port: http://127.0.0.1:8090/ serves the
 run board, the run detail pane with the operator actions (CDT-672), and the
@@ -149,7 +160,8 @@ func run(args []string, stdout, stderr io.Writer) int {
 		syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 
-	ch := chief.New(eng, a, chief.WithBaseContext(ctx))
+	ch := chief.New(eng, a, chief.WithBaseContext(ctx),
+		chief.WithVersion(version, commit))
 	go ch.Watch(ctx, chief.DefaultWatchInterval)
 
 	srv := &http.Server{Addr: *addr, Handler: withUI(ch.Handler())}

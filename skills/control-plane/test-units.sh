@@ -7,8 +7,10 @@
 # bash-4/GNU-only constructs (SPEC-021 C1-C7).
 #
 # Coverage: the M5 chiefd template and the D1 rule (no node-agent unit), M3
-# paths + modes, M4 build argv, M5 reload + enable, the legacy-unit purge,
-# M12 write-only-when-differs, the CDT-670 restart-on-replace rule and its
+# paths + modes, M4 build argv and the CDT-678 AC4 identity stamp (the
+# VERSION + short sha, plus the dev/empty degrade), M5 reload + enable,
+# the legacy-unit purge, M12 write-only-when-differs, the CDT-670
+# restart-on-replace rule and its
 # idempotent re-run, M9 uninstall + reset-failed + Windows steps +
 # journal intact, AC4 sudo-deny and the approved-digest-only pin, M7 exit
 # codes (0/2/63), AC11 nothing new on PATH, AC5 checkout guard.
@@ -213,7 +215,7 @@ OUT=$(bash -c '. "$1" >/dev/null 2>&1; for f in cp_install cp_uninstall cp_build
   cp_publish cp_publish_fn cp_checkout_root cp_host_goos cp_host_goarch \
   cp_deny_token cp_run cp_sudo_guard cp_assert_image_pin cp_windows_steps \
   cp_shape_guard cp_targets_ready cp_systemctl cp_remove cp_systemctl_soft \
-  cp_purge_legacy_units; do \
+  cp_purge_legacy_units cp_build_stamp; do \
   type "$f" >/dev/null 2>&1 || exit 1; done' _ "$UNITS" 2>&1)
 RC=$?
 if [ "$RC" -eq 0 ]; then
@@ -425,7 +427,7 @@ fi
 for needle in '--rm' '--user' '-e HOME=/tmp/gohome' '-e GOOS=linux' '-e GOARCH=amd64' \
   'CGO_ENABLED=0' 'GOCACHE=/tmp/gocache' 'GOMODCACHE=/tmp/gomodcache' \
   '-e GOFLAGS=-buildvcs=false' 'go build -o dist/node-agent ./cmd/node-agent' \
-  'go build -o dist/chiefd ./cmd/chiefd'; do
+  'go build -o dist/chiefd -ldflags'; do
   if grep -qF -e "$needle" "$DOCKER_LOG"; then
     ok "build argv carries: $needle (M4)"
   else
@@ -436,6 +438,59 @@ if grep -qF -e "--user $(id -u):$(id -g)" "$DOCKER_LOG"; then
   ok "build runs as the host user --user \$(id -u):\$(id -g) (M4)"
 else
   bad "build did not pass --user \$(id -u):\$(id -g)"
+fi
+
+# ---- 3b. CDT-678 AC4: the build stamps the chiefd identity -------------------
+# The stamp is the checkout's control-plane/VERSION plus its short commit. The
+# scratch checkout above carries neither (hermetic_init ceilings git discovery
+# at the hermetic root), so the argv names the degrade — 'dev' and no commit —
+# and the build still succeeds. A checkout that carries both stamps them in.
+# The stamp rides chiefd only: node-agent serves no version.
+
+if grep -qF -e '-ldflags -X main.version=dev -X main.commit= ./cmd/chiefd' "$DOCKER_LOG"; then
+  ok "CDT-678 AC4: no VERSION and no git metadata stamps dev/empty and the build succeeds"
+else
+  bad "CDT-678 AC4 degrade: chiefd argv is $(grep -o -e 'go build -o dist/chiefd.*' "$DOCKER_LOG" | head -n 1)"
+fi
+if grep -F -e 'go build -o dist/node-agent' "$DOCKER_LOG" | grep -qF -e '-ldflags'; then
+  bad "CDT-678 AC4: the node-agent build carries a stamp — only chiefd serves a version"
+else
+  ok "CDT-678 AC4: the stamp rides the chiefd build only"
+fi
+
+STAMPED="$SCRATCH/stamped"
+STAMP_BIN="$SCRATCH/stampbin"
+STAMP_LOG="$SCRATCH/stamp-docker.log"
+mkdir -p "$STAMPED/control-plane/cmd/node-agent" "$STAMPED/control-plane/cmd/chiefd" "$STAMP_BIN"
+printf 'module github.com/cold-dark-void/claude-dev-team/control-plane\n' >"$STAMPED/control-plane/go.mod"
+printf '0.4.0\n' >"$STAMPED/control-plane/VERSION"
+cat >"$STAMP_BIN/git" <<'FAKE'
+#!/usr/bin/env bash
+# fake git — the checkout's short sha, with the trailing newline git prints.
+printf 'deadbeef\n'
+FAKE
+chmod 755 "$STAMP_BIN/git"
+: >"$STAMP_LOG"
+STAMP_OUT=$(env CP_FAKE_DOCKER_LOG="$STAMP_LOG" PATH="$STAMP_BIN:$PATH" \
+  bash -c '. "$1" >/dev/null 2>&1; cp_build "$2"' _ "$UNITS" "$STAMPED" 2>&1)
+STAMP_RC=$?
+if [ "$STAMP_RC" -eq 0 ] &&
+  grep -qF -e '-ldflags -X main.version=0.4.0 -X main.commit=deadbeef ./cmd/chiefd' "$STAMP_LOG"; then
+  ok "CDT-678 AC4: cp_build stamps control-plane/VERSION + the short commit into chiefd"
+else
+  bad "CDT-678 AC4 stamp: rc=$STAMP_RC argv=$(grep -o -e 'go build -o dist/chiefd.*' "$STAMP_LOG" | head -n 1) out=$STAMP_OUT"
+fi
+# A VERSION value that is not one clean token is not a release name: the stamp
+# degrades to dev and never hands the linker a split flag.
+printf '0.4.0 not-a-release\n' >"$STAMPED/control-plane/VERSION"
+: >"$STAMP_LOG"
+env CP_FAKE_DOCKER_LOG="$STAMP_LOG" PATH="$STAMP_BIN:$PATH" \
+  bash -c '. "$1" >/dev/null 2>&1; cp_build "$2"' _ "$UNITS" "$STAMPED" >"$SCRATCH/junk.out" 2>&1
+JUNK_RC=$?
+if [ "$JUNK_RC" -eq 0 ] && grep -qF -e '-ldflags -X main.version=dev -X main.commit=deadbeef ./cmd/chiefd' "$STAMP_LOG"; then
+  ok "CDT-678 AC4: a VERSION that is not one clean token degrades to dev (the build does not fail)"
+else
+  bad "CDT-678 AC4 junk VERSION: argv=$(grep -o -e 'go build -o dist/chiefd.*' "$STAMP_LOG" | head -n 1) out=$(cat "$SCRATCH/junk.out")"
 fi
 if grep -qF -e 'fake-binary node-agent linux/amd64' "$CHECKOUT/control-plane/dist/node-agent" &&
   grep -qF -e 'fake-binary chiefd linux/amd64' "$CHECKOUT/control-plane/dist/chiefd"; then

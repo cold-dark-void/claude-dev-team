@@ -27,7 +27,7 @@ banner, and stops at the first failure:
 |-------|-------|--------|
 | `preflight` | `preflight.sh` (`cp_preflight`) | Reads the node: platform, systemd user manager, `/etc/wsl.conf`, checkout, docker, the image pin, the runner selection. Writes nothing (SPEC-043 M2, AC9). |
 | `build (journal CLI)` | `setup.sh` (`cp_build_journal`) | Builds `control-plane/dist/journalctl` — the verify tool. It is never an install target, so it is built first: a failure leaves nothing installed. |
-| `build` | `units.sh` (`cp_build`) | Builds `node-agent` and `chiefd` for the host GOOS/GOARCH inside the approved digest. Outputs land in `control-plane/dist/` (git-ignored). |
+| `build` | `units.sh` (`cp_build`) | Builds `node-agent` and `chiefd` for the host GOOS/GOARCH inside the approved digest. The chiefd build stamps the identity `GET /v1/version` serves: `-ldflags -X main.version=<control-plane/VERSION> -X main.commit=<short sha>` (`cp_build_stamp`); a checkout with no readable `VERSION` and no git metadata stamps `dev` with no commit and the build still succeeds (SPEC-043 CDT-678 AC1/AC4). Outputs land in `control-plane/dist/` (git-ignored). |
 | `install` | `units.sh` (`cp_install`) | Places both binaries at `%h/.local/bin/` (mode 755), writes the chiefd unit to `%h/.config/systemd/user/` (mode 644), removes a `dev-team-node-agent.service` an earlier install left behind and resets failed units when it does, runs `systemctl --user daemon-reload`, then `enable --now` on the chiefd unit. When it wrote the chiefd binary or the unit file it then runs `systemctl --user restart dev-team-chiefd.service` (SPEC-043 CDT-670 AC1). The node agent ships as a CLI with no unit (SPEC-043 M3/M5). |
 | `verify` | `setup.sh` (`cp_verify`) | Prints the SPEC-043 M6 table and exits per the code contract below. |
 
@@ -59,9 +59,9 @@ One row per check, each with a fix-it line on every WARN and FAIL, then the
 | Row id | Reads |
 |--------|-------|
 | `controlplane.units.chiefd` | `systemctl --user is-active` and `is-enabled` on `dev-team-chiefd.service` — the only unit phase 1 ships (M5). |
-| `controlplane.chiefd.currency` | The unit's `ExecMainStartTimestamp` against the mtime of the installed `%h/.local/bin/chiefd`. Started at or after the binary write → PASS; started before it → FAIL with `systemctl --user restart dev-team-chiefd.service`; an unreadable timestamp or mtime → WARN, never a spurious FAIL (CDT-670 AC3). |
+| `controlplane.chiefd.currency` | The unit's `ExecMainStartTimestamp` against the mtime of the installed `%h/.local/bin/chiefd`. Started at or after the binary write → PASS; started before it → FAIL with `systemctl --user restart dev-team-chiefd.service`; an unreadable timestamp or mtime → WARN, never a spurious FAIL (CDT-670 AC3). The detail also names the `version` and `commit` the running chiefd answers on `GET http://127.0.0.1:8090/v1/version` — the identity stamped into the binary that is running (CDT-678 AC2). A version read that fails, answers no `version` field, or has no HTTP client on `PATH` is named in the detail as unreadable: the verdict stays the start-vs-mtime rule, the row never fails on a read it cannot make. |
 | `controlplane.node-agent` | The **installed** `%h/.local/bin/node-agent` answers `status-node` with exit 0 — a binary row: the agent ships no unit, so nothing supervises it (M5/M6). The `control-plane/dist/` build output is not an install: with only that copy present the row is a WARN that names the install path. |
-| `controlplane.chiefd.api` | HTTP GET on `http://127.0.0.1:8090/v1/runs`. Loopback only, always. |
+| `controlplane.chiefd.api` | HTTP GET on `http://127.0.0.1:8090/v1/runs`. Loopback only, always. The same API answers `GET /v1/version` with the `version` and `commit` stamped into the running binary (`dev` and an empty commit when the build carried no stamp) — the one source the currency row and the web UI both read (CDT-678 AC1/AC3). |
 | `controlplane.probe` | The journal state of run `devteam-setup-probe`. With no journal file the row is a WARN `no journal` and the read is skipped — `journalctl` creates a database it is only asked to read, and `--status` writes nothing (M1). |
 | `controlplane.probe.lease` | Present only on the M12 takeover: the lease of a `running` probe is past `last_heartbeat_ts + stall_limit_s`, so the driver ran exactly one takeover `start`. |
 | `controlplane.probe.hygiene` | No runner process, no pidfile, no leftover container (AC13). |
@@ -134,7 +134,12 @@ takeover scan re-supervises the in-flight run. It never writes
 the command to run.
 
 `controlplane.chiefd.currency` proves the result on the next table: PASS when
-the running process started at or after the installed binary's mtime.
+the running process started at or after the installed binary's mtime, with a
+detail that names the `version` and `commit` that process serves on
+`GET http://127.0.0.1:8090/v1/version` (SPEC-043 CDT-678 AC2). Its
+detail names the `version` and `commit` that process serves on
+`GET http://127.0.0.1:8090/v1/version`, so the table tells you which build is
+running, not only that it is current (CDT-678 AC2).
 
 ## Linger: the documented continue/skip answer (SPEC-043 M10, AC10)
 

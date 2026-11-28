@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/cold-dark-void/claude-dev-team/control-plane/agent"
+	"github.com/cold-dark-void/claude-dev-team/control-plane/hostadapter"
 	"github.com/cold-dark-void/claude-dev-team/control-plane/queue"
 	"github.com/cold-dark-void/claude-dev-team/control-plane/run"
 )
@@ -112,6 +113,69 @@ func TestAPIQueueAnswersFromTheLedger(t *testing.T) {
 	if got := get(t, srv, "/v1/queue"); !strings.Contains(string(got),
 		`"state":"held"`) {
 		t.Errorf("queue = %s, want the held slot", got)
+	}
+}
+
+// AC1 (SPEC-043 CDT-678): GET /v1/version names the build that is serving.
+// The values are the binary's own — WithVersion carries what the build stamped
+// in — and a chief built with no stamp answers DefaultVersion with no commit,
+// so it never claims a release it is not. The verb rides the one interface and
+// writes nothing.
+func TestAPIVersionNamesTheServedBuild(t *testing.T) {
+	eng := newEngine(t)
+	seams := func() []Option {
+		return []Option{WithTickets(&fakeTickets{}), WithModelMap(&fakeModels{}),
+			WithPhone(&fakePhone{})}
+	}
+
+	unstamped := NewWithAdapter(eng, &hostadapter.Adapter{Agent: &fakeAgent{}}, seams()...)
+	usrv := httptest.NewServer(unstamped.Handler())
+	t.Cleanup(usrv.Close)
+	var doc struct {
+		Version string `json:"version"`
+		Commit  string `json:"commit"`
+	}
+	if err := json.Unmarshal(get(t, usrv, "/v1/version"), &doc); err != nil {
+		t.Fatal(err)
+	}
+	if doc.Version != DefaultVersion || doc.Commit != "" {
+		t.Errorf("unstamped /v1/version = %+v, want %q with an empty commit",
+			doc, DefaultVersion)
+	}
+
+	stamped := NewWithAdapter(eng, &hostadapter.Adapter{Agent: &fakeAgent{}},
+		append(seams(), WithVersion("0.4.0", "deadbeef"))...)
+	ssrv := httptest.NewServer(stamped.Handler())
+	t.Cleanup(ssrv.Close)
+	if err := json.Unmarshal(get(t, ssrv, "/v1/version"), &doc); err != nil {
+		t.Fatal(err)
+	}
+	if doc.Version != "0.4.0" || doc.Commit != "deadbeef" {
+		t.Errorf("/v1/version = %+v, want the stamped version and commit", doc)
+	}
+
+	// An empty stamped version is the unstamped build: the answer is "dev",
+	// never a blank release name.
+	blank := NewWithAdapter(eng, &hostadapter.Adapter{Agent: &fakeAgent{}},
+		append(seams(), WithVersion("", "deadbeef"))...)
+	bsrv := httptest.NewServer(blank.Handler())
+	t.Cleanup(bsrv.Close)
+	if err := json.Unmarshal(get(t, bsrv, "/v1/version"), &doc); err != nil {
+		t.Fatal(err)
+	}
+	if doc.Version != DefaultVersion {
+		t.Errorf("/v1/version with an empty stamp = %+v, want %q", doc, DefaultVersion)
+	}
+
+	// The read writes nothing: the board is byte-identical across the read,
+	// and the verb takes no write method.
+	before := string(get(t, ssrv, "/v1/runs"))
+	_ = get(t, ssrv, "/v1/version")
+	if after := string(get(t, ssrv, "/v1/runs")); after != before {
+		t.Errorf("the board changed across the version read: %s then %s", before, after)
+	}
+	if status, body := postStatus(t, ssrv, "/v1/version", `{}`); status != http.StatusMethodNotAllowed {
+		t.Errorf("POST /v1/version = %d %s, want 405", status, body)
 	}
 }
 

@@ -17,6 +17,8 @@
 # Function inventory:
 #   cp_install / cp_uninstall      the two modes
 #   cp_build                       the M4 build inside the approved digest
+#   cp_build_stamp                 the chiefd identity stamp (version + commit)
+#                                  cp_build hands the linker (CDT-678 AC1/AC4)
 #   cp_unit_name/cp_unit_path      dev-team-<service>.service, in the user unit dir
 #   cp_unit_text                   the M5 unit template (chiefd only) — it stamps
 #                                  WorkingDirectory, DEVTEAM_MROOT and the probed
@@ -78,6 +80,9 @@ CP_UNIT_SERVICES='chiefd' # the one supervised service (M5) — no node-agent un
 # A surviving one is enabled, its binary is gone, and Restart=on-failure
 # restart-loops it, so both modes stop, disable, and remove it.
 CP_LEGACY_UNITS='dev-team-node-agent.service'
+# The chiefd identity stamp cp_build_stamp computes and cp_build hands the
+# linker (SPEC-043 CDT-678 AC1). Empty until a build sets it.
+CP_BUILD_LDFLAGS=''
 # Command words this module must never execute (SPEC-043 MUST NOT).
 CP_DENY_TOKENS='sudo su pkexec'
 # The last cp_publish outcome: 'written' | 'mode' | 'same'. The restart trigger
@@ -361,6 +366,28 @@ cp_systemctl() {
 
 # ---- the M4 build ------------------------------------------------------------
 
+cp_build_stamp() { # cp_build_stamp <checkout-root> — sets CP_BUILD_LDFLAGS
+  # The chiefd identity stamp (SPEC-043 CDT-678 AC1/AC4): the checkout's
+  # control-plane/VERSION and its short commit, stamped into the binary at
+  # build time. A checkout with no readable VERSION, no git metadata, or a
+  # value that is not a single clean token degrades to 'dev'/empty — the build
+  # never fails on the stamp and never claims a release it cannot name.
+  local root="$1" ver='' sha=''
+  CP_BUILD_LDFLAGS=''
+  # One clean token, or it is not a release name. tr takes the CR out; the
+  # command substitution takes the newline out.
+  ver=$(head -n 1 "$root/control-plane/VERSION" 2>/dev/null | tr -d '\r')
+  case "$ver" in
+    '' | *[[:space:]]* | *[!0-9A-Za-z.+-]*) ver='dev' ;;
+  esac
+  sha=$(git -C "$root" rev-parse --short HEAD 2>/dev/null | head -n 1 | tr -d '\r') || sha=''
+  case "$sha" in
+    *[!0-9a-f]*) sha='' ;;
+  esac
+  CP_BUILD_LDFLAGS="-X main.version=$ver -X main.commit=$sha"
+  return 0
+}
+
 cp_build() { # cp_build <checkout-root> — node-agent + chiefd into control-plane/dist
   local root="$1" goos goarch pkg out rc=0
   goos=$(cp_host_goos) || {
@@ -379,8 +406,15 @@ cp_build() { # cp_build <checkout-root> — node-agent + chiefd into control-pla
     printf 'control-plane: cannot create control-plane/dist in %s\n' "$root" >&2
     return 2
   fi
+  cp_build_stamp "$root"
   for pkg in $CP_SERVICES; do
     out="dist/$pkg"
+    # chiefd carries its identity so GET /v1/version can name it (CDT-678 AC1).
+    set -- go build -o "$out"
+    if [ "$pkg" = 'chiefd' ]; then
+      set -- "$@" -ldflags "$CP_BUILD_LDFLAGS"
+    fi
+    set -- "$@" "./cmd/$pkg"
     # --user keeps the outputs owned by the invoking user. The caches live under
     # container /tmp, so no build cache lands on the checkout (M4).
     cp_run docker run --rm \
@@ -391,7 +425,7 @@ cp_build() { # cp_build <checkout-root> — node-agent + chiefd into control-pla
       -e GOCACHE=/tmp/gocache -e GOMODCACHE=/tmp/gomodcache \
       -e GOFLAGS=-buildvcs=false \
       "$CP_IMAGE" \
-      go build -o "$out" "./cmd/$pkg" || rc=$?
+      "$@" || rc=$?
     if [ "$rc" -ne 0 ]; then
       printf 'control-plane: build FAILED for %s (rc %s, SPEC-043 M4)\n' "$pkg" "$rc" >&2
       return 2

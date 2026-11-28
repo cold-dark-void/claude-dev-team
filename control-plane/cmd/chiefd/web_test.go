@@ -342,6 +342,8 @@ func TestNewEndpointsServeOnTheLoopbackHandler(t *testing.T) {
 		{"/v1/runs/CDT-672/events", []string{`"events":`}},
 		{"/v1/runs/CDT-672/output?lines=20", []string{`"lines":[]`, `"reason":`}},
 		{"/v1/model?agent=ic5", []string{`"model":"sonnet"`, `"source":"map"`}},
+		{"/v1/version", []string{`"version":"` + fixtureVersion + `"`,
+			`"commit":"` + fixtureCommit + `"`}},
 	} {
 		status, got := getStatus(t, srv, tc.path)
 		if status != http.StatusOK {
@@ -366,6 +368,42 @@ func TestNewEndpointsServeOnTheLoopbackHandler(t *testing.T) {
 	}
 }
 
+// AC3 (CDT-678): the page names the build it is talking to. The version and
+// commit come from GET /v1/version — the one API, no UI-only endpoint, no
+// build step — read once at load, and they land through textContent. A failed
+// read renders no version at all rather than one the binary did not serve.
+func TestThePageShowsTheServedBuildIdentity(t *testing.T) {
+	page := webAsset(t, "index.html")
+	js := webAsset(t, "app.js")
+
+	mustMatch(t, "index.html", page, regexp.MustCompile(`<span id="build-version" class="muted"></span>`))
+	mustMatch(t, "app.js", js, regexp.MustCompile(`getJSON\("/v1/version"\)`))
+	mustMatch(t, "app.js", js, regexp.MustCompile(`\$\("build-version"\)\.textContent = `+"`chiefd"))
+	// The failed read clears the line: the page renders no version, never a
+	// guessed one.
+	mustMatch(t, "app.js", js,
+		regexp.MustCompile(`(?s)catch \(err\) \{.*\$\("build-version"\)\.textContent = "";`))
+	// Read once at load — the identity is the binary's and cannot change under
+	// a live board — so the page never polls it.
+	mustMatch(t, "app.js", js, regexp.MustCompile(`(?m)^loadVersion\(\);$`))
+	if strings.Contains(js, "setInterval(loadVersion") {
+		t.Error("the page polls the version: the build identity is read once at load")
+	}
+	// The shipped markup carries no version of its own.
+	if regexp.MustCompile(`<span id="build-version"[^>]*>[^<]+<`).MatchString(page) {
+		t.Error("index.html ships a version: the page shows only what the API serves")
+	}
+}
+
+// fixtureVersion and fixtureCommit stand in for the build stamp (SPEC-043
+// CDT-678 AC1): the values -ldflags -X carries into a built chiefd. The
+// fixture chief serves them, so the page's version line is proved against the
+// API, never against a value the page carries.
+const (
+	fixtureVersion = "0.4.0-fixture"
+	fixtureCommit  = "cafebabe"
+)
+
 // fixtureChief builds a Chief over a temp journal with one running run and a
 // deterministic Model map, and never touches the host: the phase-event read is
 // injected and no run is started, stopped, resumed, or retried.
@@ -389,6 +427,7 @@ func fixtureChief(t *testing.T) (*journal.Engine, *chief.Chief) {
 
 	c := chief.NewWithAdapter(eng, hostadapter.New(&agent.Agent{}),
 		chief.WithModelMap(fixtureModels{}),
+		chief.WithVersion(fixtureVersion, fixtureCommit),
 		chief.WithPhaseEvents(func(context.Context, string) ([]spool.Record, error) {
 			return nil, nil
 		}))

@@ -61,6 +61,8 @@
 #               only — never exported, never written to node.json)
 #   CP_PROBE_COMMAND      the no-op the probe spawns (default `true`)
 #   CP_HTTP_URL / CP_HTTP_TIMEOUT / CP_HTTP_WAIT            the chiefd API row
+#   CP_VERSION_URL  the /v1/version read the currency row shows (default: the
+#               CP_HTTP_URL origin + /v1/version)
 #   CP_DOCKER_PS_TIMEOUT  the leftover-container probe
 #
 # Hermetic suite: skills/control-plane/test.sh.
@@ -86,6 +88,9 @@ CP_PROBE_COMMAND="${CP_PROBE_COMMAND:-true}"
 # default tier's stall limit is the 108 s the WARN row quotes.
 CP_PROBE_LEASE_LIMIT_DEFAULT=108
 CP_HTTP_URL="${CP_HTTP_URL:-http://127.0.0.1:8090/v1/runs}"
+# The version verb of the same loopback API (SPEC-043 CDT-678 AC2): the origin
+# the API row reads, so one knob moves both.
+CP_VERSION_URL="${CP_VERSION_URL:-${CP_HTTP_URL%/v1/*}/v1/version}"
 CP_HTTP_TIMEOUT="${CP_HTTP_TIMEOUT:-5}"
 CP_HTTP_WAIT="${CP_HTTP_WAIT:-10}"
 CP_DOCKER_PS_TIMEOUT="${CP_DOCKER_PS_TIMEOUT:-10}"
@@ -539,13 +544,51 @@ cp_row_unit() {
   return 0
 }
 
+cp_served_version_clause() {
+  # The version clause of the chiefd currency row (SPEC-043 CDT-678 AC2): what
+  # the running chiefd answers on GET $CP_VERSION_URL — the identity stamped
+  # into the binary that is running, read from the same loopback API the api
+  # row probes, bounded by $CP_HTTP_TIMEOUT. The clause always prints, and
+  # every failure path prints the unreadable form: the currency row never
+  # fails on this read (CDT-670 AC3).
+  local tool='' body='' rc=0 ver='' sha=''
+  if command -v curl >/dev/null 2>&1; then
+    tool='curl'
+  elif command -v wget >/dev/null 2>&1; then
+    tool='wget'
+  else
+    printf 'the served version is unreadable (no HTTP client on PATH)'
+    return 0
+  fi
+  if [ "$tool" = 'curl' ]; then
+    body=$(curl -fsS -m "$CP_HTTP_TIMEOUT" "$CP_VERSION_URL" 2>&1) || rc=$?
+  else
+    body=$(wget -q -T "$CP_HTTP_TIMEOUT" -t 1 -O - "$CP_VERSION_URL" 2>&1) || rc=$?
+  fi
+  if [ "$rc" -ne 0 ]; then
+    printf 'the served version is unreadable (GET %s exit %s)' "$CP_VERSION_URL" "$rc"
+    return 0
+  fi
+  ver=$(cp_json_field version "$body")
+  sha=$(cp_json_field commit "$body")
+  if [ -z "$ver" ]; then
+    printf 'the served version is unreadable (GET %s answers no version field)' "$CP_VERSION_URL"
+    return 0
+  fi
+  printf 'it serves version %s commit %s (GET %s — SPEC-043 CDT-678 AC2)' \
+    "$ver" "${sha:-unstamped}" "$CP_VERSION_URL"
+  return 0
+}
+
 cp_row_chiefd_currency() {
   # CDT-670 AC3: the running chiefd is the installed chiefd. The unit's
   # main-process start time must not predate the installed binary's mtime — an
   # install that replaced the binary under a live unit leaves a daemon running
   # superseded code (the install restarts it, AC1; this row proves it). An
-  # unreadable read is WARN, never a spurious FAIL.
-  local id='controlplane.chiefd.currency' unit bin mtime start
+  # unreadable read is WARN, never a spurious FAIL. CDT-678 AC2 adds the
+  # identity the running process serves: the verdict stays the start-vs-mtime
+  # rule, the detail names the version and commit.
+  local id='controlplane.chiefd.currency' unit bin mtime start served
   cp_row_guard "$id" || return 0
   unit=$(cp_unit_name chiefd)
   bin=$(cp_bin_path chiefd)
@@ -557,19 +600,20 @@ cp_row_chiefd_currency() {
   fi
   mtime=$(cp_file_mtime_epoch "$bin") || mtime=''
   start=$(cp_unit_start_epoch "$unit") || start=''
+  served=$(cp_served_version_clause)
   if [ -z "$mtime" ] || [ -z "$start" ]; then
     record_status "$id" 'controlplane' 'WARN' \
-      "chiefd currency is unreadable (binary mtime ${mtime:-unreadable}, process start ${start:-unreadable}) — the row never fails on a read it cannot make (SPEC-043 CDT-670 AC3)" \
+      "chiefd currency is unreadable (binary mtime ${mtime:-unreadable}, process start ${start:-unreadable}) — the row never fails on a read it cannot make (SPEC-043 CDT-670 AC3); $served" \
       "systemctl --user show $unit -p ExecMainStartTimestamp --value" || return 0
     return 0
   fi
   if [ "$start" -ge "$mtime" ]; then
     record_status "$id" 'controlplane' 'PASS' \
-      "the running chiefd started after the installed binary was written (process start $start, binary mtime $mtime — SPEC-043 CDT-670 AC3)" '' || return 0
+      "the running chiefd started after the installed binary was written (process start $start, binary mtime $mtime — SPEC-043 CDT-670 AC3); $served" '' || return 0
     return 0
   fi
   cp_row_absent "$id" \
-    "the running chiefd started before the installed binary was written (process start $start, binary mtime $mtime) — the unit runs a superseded binary" \
+    "the running chiefd started before the installed binary was written (process start $start, binary mtime $mtime) — the unit runs a superseded binary; $served" \
     "systemctl --user restart $unit" || return 0
   return 0
 }

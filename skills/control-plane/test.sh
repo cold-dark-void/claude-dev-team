@@ -13,7 +13,9 @@
 # and the M11 runner override, AC1/AC2/AC3 (one unit + reset-failed), AC6
 # read-only runner, AC7 WSL2 rows, AC8/AC9 fail-closed, AC10 linger, AC11 dist
 # path, AC13 hygiene, the CDT-670 chiefd currency row (PASS / FAIL with the
-# restart command / WARN on an unreadable read, AC3), the M5 ExecStart target
+# restart command / WARN on an unreadable read, AC3) and the CDT-678 AC2
+# served-version display on it (the /v1/version read, the dev/unstamped name,
+# the unreadable-read degrade), the M5 ExecStart target
 # run for real by the fake manager, and the record-status single home.
 #
 # Run: bash skills/control-plane/test.sh   (exit 0 clean, 1 on any FAIL)
@@ -394,6 +396,9 @@ cat >"$FAKE_BIN/curl" <<'FAKE'
 # ${CP_FAKE_CHIEF_DB:-$DEVTEAM_MROOT/.claude/runs/run.db}. Pointing that at
 # another file models a chiefd that resolved a different $MROOT, which is how
 # the CDT-666 "the served journal is the project's" row is exercised.
+# The /v1/version verb answers the identity the running binary carries
+# (CDT-678 AC2): CP_FAKE_CHIEF_VERSION + CP_FAKE_CHIEF_COMMIT, with
+# CP_FAKE_VERSION_FAIL and CP_FAKE_VERSION_NO_FIELD for the degrade paths.
 printf '%s\n' "$*" >>"${CP_FAKE_CURL_LOG:-/dev/null}"
 if [ "${CP_FAKE_CURL_FAIL:-0}" = "1" ]; then
   printf 'curl: (7) Failed to connect to 127.0.0.1 port 8090\n' >&2
@@ -401,18 +406,32 @@ if [ "${CP_FAKE_CURL_FAIL:-0}" = "1" ]; then
 fi
 out=''
 wfmt=0
+url=''
 while [ $# -gt 0 ]; do
   case "$1" in
     -o) out="${2:-}"; shift 2 ;;
     -w) wfmt=1; shift 2 ;;
     -m) shift 2 ;;
     -*) shift ;;
-    *) shift ;;
+    *) url=$1; shift ;;
   esac
 done
 body='{"runs":[]}'
+is_version=0
+case "$url" in
+  */v1/version)
+    is_version=1
+    if [ "${CP_FAKE_VERSION_FAIL:-0}" = "1" ]; then
+      printf 'curl: (7) Failed to connect to 127.0.0.1 port 8090\n' >&2
+      exit 7
+    fi
+    if [ "${CP_FAKE_VERSION_NO_FIELD:-0}" != "1" ]; then
+      body="{\"version\":\"${CP_FAKE_CHIEF_VERSION:-dev}\",\"commit\":\"${CP_FAKE_CHIEF_COMMIT:-}\"}"
+    fi
+    ;;
+esac
 db="${CP_FAKE_CHIEF_DB:-${DEVTEAM_MROOT:-}/.claude/runs/run.db}"
-if [ -n "$db" ] && [ -f "$db" ]; then
+if [ "$is_version" = 0 ] && [ -n "$db" ] && [ -f "$db" ]; then
   runs=''
   while IFS= read -r rid; do
     [ -n "$rid" ] || continue
@@ -506,6 +525,9 @@ reset_state() { # fresh install targets, fresh logs, WSL2-with-systemd node
   export CP_FAKE_EXEC_LOG="$EXEC_LOG" CP_FAKE_UNIT_DIR="$UNIT_DIR"
   export CP_FAKE_SHOW_EMPTY=0 CP_FAKE_CHIEF_DB=''
   export CP_FAKE_START_TS=now
+  # The identity the running chiefd serves on GET /v1/version (CDT-678 AC2).
+  export CP_FAKE_CHIEF_VERSION='0.4.0' CP_FAKE_CHIEF_COMMIT='abc1234'
+  export CP_FAKE_VERSION_FAIL=0 CP_FAKE_VERSION_NO_FIELD=0
   # The host CLI the native runner spawns lives in a user CLI dir the install
   # probes (CDT-666): ~/.grok/bin. The service PATH is what resolves it.
   mkdir -p "$HOME/.grok/bin"
@@ -1735,6 +1757,60 @@ for _shape in empty garbage none; do
     bad "CDT-670 AC3 unreadable ($_shape): rc=$RC currency=$(status_of controlplane.chiefd.currency) row=$(row_of controlplane.chiefd.currency)"
   fi
 done
+reset_state
+
+# ---- 11d. the CDT-678 served-version display on the currency row (AC2) -------
+# The verdict stays the CDT-670 AC3 start-vs-mtime rule; the detail additionally
+# names the version + commit the running chiefd answers on its /v1/version verb.
+# A read that cannot be made is named, never a FAIL.
+
+reset_state
+run_setup
+if [ "$RC" -eq 0 ] && [ "$(status_of controlplane.chiefd.currency)" = 'PASS' ] &&
+  row_of controlplane.chiefd.currency | grep -qF -e 'it serves version 0.4.0 commit abc1234'; then
+  ok "CDT-678 AC2: the currency row names the version + commit the running chiefd serves"
+else
+  bad "CDT-678 AC2 served version: rc=$RC currency=$(status_of controlplane.chiefd.currency) row=$(row_of controlplane.chiefd.currency)"
+fi
+if grep -qF -e 'http://127.0.0.1:8090/v1/version' "$CURL_LOG"; then
+  ok "CDT-678 AC2: the read is the /v1/version verb of the loopback API"
+else
+  bad "CDT-678 AC2 read target: $(tr '\n' '|' <"$CURL_LOG")"
+fi
+reset_state
+export CP_FAKE_CHIEF_VERSION='dev' CP_FAKE_CHIEF_COMMIT=''
+run_setup
+if [ "$RC" -eq 0 ] && [ "$(status_of controlplane.chiefd.currency)" = 'PASS' ] &&
+  row_of controlplane.chiefd.currency | grep -qF -e 'it serves version dev commit unstamped'; then
+  ok "CDT-678 AC1/AC2: an unstamped chiefd is named as dev with no commit"
+else
+  bad "CDT-678 unstamped: rc=$RC currency=$(status_of controlplane.chiefd.currency) row=$(row_of controlplane.chiefd.currency)"
+fi
+for _shape in failed no-field; do
+  reset_state
+  if [ "$_shape" = 'failed' ]; then
+    export CP_FAKE_VERSION_FAIL=1
+  else
+    export CP_FAKE_VERSION_NO_FIELD=1
+  fi
+  run_setup
+  if [ "$RC" -eq 0 ] && [ "$(status_of controlplane.chiefd.currency)" = 'PASS' ] &&
+    row_of controlplane.chiefd.currency | grep -qF -e 'the served version is unreadable'; then
+    ok "CDT-678 AC2: an unreadable version read ($_shape) is named, the verdict stays PASS"
+  else
+    bad "CDT-678 AC2 degrade ($_shape): rc=$RC currency=$(status_of controlplane.chiefd.currency) row=$(row_of controlplane.chiefd.currency)"
+  fi
+done
+reset_state
+export CP_FAKE_START_TS=-86400 CP_FAKE_VERSION_FAIL=1
+run_setup
+if [ "$RC" -eq 2 ] && [ "$(status_of controlplane.chiefd.currency)" = 'FAIL' ] &&
+  row_of controlplane.chiefd.currency | grep -qF -e 'superseded binary; the served version is unreadable' &&
+  row_of controlplane.chiefd.currency | grep -qF -e 'started before the installed binary'; then
+  ok "CDT-678 AC2: a failed version read does not soften the stale FAIL verdict (rc 2)"
+else
+  bad "CDT-678 AC2 stale: rc=$RC currency=$(status_of controlplane.chiefd.currency) row=$(row_of controlplane.chiefd.currency)"
+fi
 reset_state
 
 # ---- 12. the record-and-render pair is shared, not copied -------------------

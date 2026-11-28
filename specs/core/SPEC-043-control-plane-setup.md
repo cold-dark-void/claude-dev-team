@@ -620,3 +620,46 @@ is-system-running` → `running` (rc 0).
 - **AC5.** [process] The change is proven by the control-plane shell suites
   (`skills/control-plane/test.sh`, `skills/control-plane/test-units.sh`)
   plus `tools/spec-lint.sh`.
+
+### CDT-678
+
+- **AC1.** The version read: `GET /v1/version` on the chiefd API answers 200
+  JSON whose `version` field is the value `control-plane/VERSION` carried when
+  the binary was built and whose `commit` field is the short commit sha of the
+  checkout it was built from, stamped into the binary at build time. A binary
+  built without the stamp answers `version` `dev` and an empty `commit` — it
+  never claims a release it is not. The verb rides the one interface
+  (CDT-650 AC6): it is registered in `chief.Handler`'s route table
+  (`control-plane/chief/api.go`) like every other read, writes nothing, and
+  `control-plane/cmd/chiefd/main.go`'s usage text names it.
+  Verify: bash control-plane/test.sh
+- **AC2.** The currency row shows the served version: `controlplane.chiefd.currency`
+  keeps the CDT-670 AC3 status contract — the running chiefd's process start
+  time against the installed binary's mtime — and its detail names the
+  `version` and `commit` the running chiefd answers with on
+  `GET http://127.0.0.1:8090/v1/version` (loopback only). A failed or
+  unreadable version read degrades: the status still follows the unchanged
+  start-vs-mtime rule and the detail says the version could not be read — the
+  row never fails on a read it cannot make (CDT-670 AC3).
+  Verify: bash skills/control-plane/test.sh
+- **AC3.** The web UI shows the served version: the page reads `GET /v1/version`
+  and renders the `version` and `commit` the running chiefd serves; a failed
+  read renders no version rather than a wrong one. No UI-only endpoint and no
+  build step — the display rides the one API and the shipped static bytes
+  (CDT-652).
+  Verify: bash control-plane/test.sh
+- **AC4.** The build stamps the served identity: the M4 build (`cp_build`)
+  compiles chiefd with the `version` and `commit` values above — the checkout's
+  `control-plane/VERSION` and the checkout's short commit — and a checkout with
+  no readable VERSION file or no git metadata degrades to `dev`/empty without
+  failing the build. `control-plane/VERSION` moves `0.3.0` → `0.4.0` in the
+  same change; `.claude-plugin/plugin.json` and `CHANGELOG.md` are untouched.
+  Verify: bash skills/control-plane/test-units.sh
+- **AC5.** Docs stay true: `skills/control-plane/SKILL.md` documents the
+  currency row's served-version display and the endpoint, `commands/setup.md`
+  names both, and the api.go route comment lists the verb; docs-drift passes.
+  Verify: bash skills/docs-drift/test.sh
+- **AC6.** [process] The change is proven by the Go suite
+  (`control-plane/test.sh`), the control-plane shell suites
+  (`skills/control-plane/test.sh`, `skills/control-plane/test-units.sh`),
+  and `tools/spec-lint.sh`.

@@ -714,6 +714,22 @@ async function loadGraph() {
   }
 }
 
+// --- The served build identity ---------------------------------------
+// GET /v1/version answers the identity stamped into the running binary
+// (SPEC-043 CDT-678 AC3) — the build's own, never a copy the page carries. It
+// cannot change under a live page, so the read happens once at load. A failed
+// read renders no version: a blank line is honest, a version the binary did
+// not serve is not.
+async function loadVersion() {
+  try {
+    const v = await getJSON("/v1/version");
+    const commit = v.commit ? ` (${v.commit})` : "";
+    $("build-version").textContent = `chiefd ${v.version}${commit}`;
+  } catch (err) {
+    $("build-version").textContent = "";
+  }
+}
+
 // --- Wiring ---------------------------------------------------------
 $("ticket-groups").addEventListener("click", (ev) => {
   const pick = ev.target.closest("button.run-pick");
@@ -730,4 +746,5 @@ syncRouteForm();
 showModelDefault();
 refreshBoard();
 loadGraph();
+loadVersion();
 setInterval(refreshBoard, 5000);

@@ -66,6 +66,12 @@ func SurfaceFor(kind string) (Surface, bool) {
 // come back on the route response instead of only in the run's journal.
 const DefaultStartWait = 10 * time.Second
 
+// DefaultVersion is the version an unstamped binary serves on
+// GET /v1/version (SPEC-043 CDT-678 AC1): the build stamp is the only source
+// of a release name, so a binary built without it says "dev" and names no
+// commit.
+const DefaultVersion = "dev"
+
 // Chief is the single point of contact of control plane Option C+ (CDT-626):
 // it routes work to the existing Surfaces and reports from run state. It
 // holds no state of its own beyond the runs it started in this process: the
@@ -91,6 +97,14 @@ type Chief struct {
 	// Empty lets the intercom CLI resolve its own sid (INTERCOM_SID, then
 	// CLAUDE_SESSION_ID, then the newest transcript).
 	SID string
+
+	// version and commit are the build identity this Chief serves: the
+	// control-plane/VERSION and short commit the binary was built from,
+	// stamped in at build time (SPEC-043 CDT-678 AC1). An unstamped binary
+	// keeps DefaultVersion and the empty commit — it never claims a release
+	// it is not.
+	version string
+	commit  string
 
 	// baseCtx is the context the supervision of a routed run lives under —
 	// the chiefd lifetime, never one HTTP request. Defaults to
@@ -174,6 +188,20 @@ func WithBaseContext(ctx context.Context) Option {
 	return func(c *Chief) { c.baseCtx = ctx }
 }
 
+// WithVersion stamps the build identity GET /v1/version serves (SPEC-043
+// CDT-678 AC1) — the values chiefd carries in from -ldflags -X. An empty
+// version is the unstamped build: it answers DefaultVersion and the commit it
+// carries, never a release name.
+func WithVersion(version, commit string) Option {
+	return func(c *Chief) {
+		if version == "" {
+			version = DefaultVersion
+		}
+		c.version = version
+		c.commit = commit
+	}
+}
+
 // WithPluginRoot points the plugin-CLI seams at one plugin root. The
 // default is defaultPluginRoot: the $MROOT checkout itself, refused unless
 // it carries the dev-team manifest.
@@ -246,6 +274,7 @@ func NewWithAdapter(eng *journal.Engine, ad *hostadapter.Adapter, opts ...Option
 		Queue:        queue.New(eng),
 		Now:          time.Now,
 		StartWait:    DefaultStartWait,
+		version:      DefaultVersion,
 		baseCtx:      context.Background(),
 		mroot:        journal.MROOT,
 		runs:         map[string]*runRecord{},
