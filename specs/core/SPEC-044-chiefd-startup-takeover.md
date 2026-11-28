@@ -772,6 +772,30 @@ the agent writes frames, never builds them.
   `NO_PROGRESS` on `/v1/checks` while its heartbeat stays fresh.
   Verify: bash control-plane/test.sh
 
+### CDT-675
+
+- **AC1.** `agent.runnerExit` never journals `run_failed` over a named halt:
+  when the replayed run state is `journal.StatusHalted` (the stop verb's halt
+  row is already closed, so the `pendingEffect(EffectStop)` fence no longer
+  fires), the late child exit removes the run files (pidfile, steer file) and
+  returns without journaling. The halt survives; a resumed run (state
+  `running`) is unaffected and its exit failures still reach `Machine.Fail`
+  through the normal path. `control-plane/agent/agent.go` `runnerExit`.
+- **AC2.** A deterministic regression test exists with no sleeps: it journals
+  the stop verb's trail (claim, start, stop intent, stop outcome, halt) so the
+  pair is CLOSED when the exit is processed, spawns a real exiting child, and
+  asserts the state stays `halted:operator_halt`, zero `run_failed` rows, and
+  the pidfile removed. `control-plane/agent/agent_test.go`
+  `TestRunnerExitAfterOperatorHaltLeavesTheHalt`. Verify: bash
+  control-plane/test.sh
+- **AC3.** `bash control-plane/test.sh` exits 0 (`VERIFY exit=0`) with the
+  guard in place. Verify: bash control-plane/test.sh
+- **AC4.** `[process]` The broad fence over every named halt is the ruling:
+  each halt is a closed, token-fenced close, and each halt path already stops
+  its child — a late exit is the consequence of that stop, never an
+  independent signal; the stalled-halt auto-resume (`resumesHalt`) is
+  protected by the fence. Tech-lead review APPROVE, 2026-11-28.
+
 ## Validation
 
 - Spec reviewed and promoted to ACTIVE
@@ -994,6 +1018,7 @@ the agent writes frames, never builds them.
 
 | Date | Change |
 |------|--------|
+| 2026-11-28 | CDT-675 shipped: `agent.runnerExit` fences a named halt. A child that exits after the stop verb's halt row is a late consequence of that stop, not an independent failure signal: with the replayed state at `journal.StatusHalted` the guard removes the run files and journals nothing, so `run_failed` (legal from a spent halt) can no longer flip a just-stopped run to failed. The fence covers every named halt — each halt path already stops its child — and it protects the stalled-halt auto-resume (`resumesHalt`) from a racing exit. New `### CDT-675` AC1–AC4; proof `TestRunnerExitAfterOperatorHaltLeavesTheHalt` (deterministic, no sleeps). The plugin version pair is untouched. |
 | 2026-11-28 | CDT-671 shipped: the run carries a progress signal and a silent premise gets a name. `halted:premise_undelivered` (retry budget 1, takeover-refused, new vertex and edge in `docs/internal/control-plane/lifecycle-graph.json`) lands through `agent.haltPremise` when the bounded session wait closes the `agent.premise` pair undelivered: the closed pair stays the record, the ride-on ends, a start with no premise journals no pair and halts under no premise AC, and a start that names no first-turn renderer keeps riding on (AC1). The last session output time is a reading of its own — the new `run_progress` kind (closed set: `schema.sql` + `AllKinds`) carries the `hostadapter.Capture` stamp off the same seam the session id rides, `State.last_progress_ts` with `SinceProgress` replays it, and the supervision loop journals it on the poll tick when it advances, never as a heartbeat (AC2). `progress_limit_s` rides the `run_started` payload — `DEVTEAM_NO_PROGRESS_LIMIT` over a 10-minute default, above every stall limit in the map — and `Check.NoProgress` flags a running run whose quiet-since-progress passes its own bound on `/v1/checks` and the board, halting nothing and spending no retry budget, so the heartbeat stall limit stays the only halt trigger for a silent session (AC3). AC4's proofs: `TestSuperviseSilentSessionHaltsPremiseUndelivered` + `TestPremiseUndeliveredHaltPagesThroughTheHaltScan`, and `TestChecksFlagsNoProgressWhileTheHeartbeatStaysFresh`. The plugin version pair is untouched. |
 | 2026-11-28 | CDT-671 scoped: a run whose session never starts work looks healthy forever. New `### CDT-671` AC1–AC4 — `halted:premise_undelivered` ends M17's ride-on when the bounded session wait expires with no delivered premise (the CDT-600 dogfood shape), a last-session-output progress signal rides the capture seam separate from the heartbeat onto `/v1/checks` and the web board, and the no-progress bound is a journaled knob on the `run_started` payload that flags `NO_PROGRESS` without halting. The takeover selection set stays closed; the plugin version pair is untouched. |
 | 2026-11-27 | CDT-679: Grok runs start. The Grok host spec carries the ACP client handshake as data — `grokHandshakeFrames(cwd)`: `initialize` (client capabilities `terminal: false`, P-GK-CTR-3c), `notifications/initialized`, `session/new` with the run's cwd — and `hostadapter.Adapter.Start`/`Resume` hand it to the agent as `StartRequest.Handshake`, the CDT-665 M16 shape: the agent writes frames, never encodes them. The node agent performs the handshake before its poll loop, journal-first as an `agent.handshake` intent/outcome pair keyed `agent:handshake:<run>#<attempt>` under the live lease token, writing the frames with the runner's `Steer` seam; the cwd it journals is the directory the child inherits at spawn. The capture keeps the CDT-661 path and gains one reading: a `session/new` response that carries a JSON-RPC error is reported beside the id (`HandshakeSource.HandshakeError`). A handshake that cannot complete stops the child and halts the run in a new named halt, `handshake_failed` (retry budget 1, takeover-refused), for the three causes AC3 names — the JSON-RPC error, a child that dies before the id lands, and the bounded wait that expires empty — so an ACP child never idles as `running`; this narrows CDT-665 AC6's ride-on rule for the handshake transport. Claude Code, omp, and mini-swe name no handshake and their starts are unchanged. New M18, `### CDT-679` AC1–AC6, the `handshake_failed` vertex and edge in `docs/internal/control-plane/lifecycle-graph.json`. `control-plane/VERSION` `0.3.0` → `0.3.1` (a defect fix — a Grok run never reached work; no new capability); the plugin version pair is untouched. |

@@ -909,13 +909,17 @@ func (a *Agent) haltPremise(ctx context.Context, m *run.Machine, token int64,
 func (a *Agent) runnerExit(ctx context.Context, m *run.Machine, token int64,
 	runID string, proc Process, exitErr error, hs *handshake) error {
 	// A stop in flight owns the close (the stop verb journals the outcome and
-	// the halt); a completion in flight means the run is already closed. A
-	// replay failure is not falsified into a read: the error carries up.
+	// the halt); a completion in flight means the run is already closed; and a
+	// named halt is the close the stop verb already made — halted:<reason> is
+	// not terminal, so a child that exits after the halt row would otherwise
+	// journal run_failed over the operator's halt, which a spent budget allows
+	// (CDT-675). A replay failure is not falsified into a read: the error
+	// carries up.
 	st, err := m.State(ctx)
 	if err != nil {
 		return err
 	}
-	if pendingEffect(st, EffectStop) || st.IsTerminal() {
+	if pendingEffect(st, EffectStop) || st.IsTerminal() || st.Status == journal.StatusHalted {
 		removeRunFiles(runID)
 		return nil
 	}

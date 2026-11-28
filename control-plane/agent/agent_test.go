@@ -2090,3 +2090,75 @@ func TestSuperviseHandshakeExitWithACapturedIDCompletesTheRun(t *testing.T) {
 		t.Errorf("run_halted rows = %d, want none", n)
 	}
 }
+
+// ---------------------------------------------------------------------------
+// SPEC-045 CDT-675 — a late child exit cannot overwrite an operator halt
+// ---------------------------------------------------------------------------
+
+// CDT-675 (TL review P3 d): the stop verb closes its own pair — intent,
+// signal, outcome — and then journals the named halt, so the state the exit
+// races is halted:operator_halt. That state is not terminal and its budget is
+// spent, and run_failed is legal from a spent halt, so an unfenced late exit
+// from the SIGTERM'd child flips the run the operator just stopped to failed.
+func TestRunnerExitAfterOperatorHaltLeavesTheHalt(t *testing.T) {
+	eng := newEngine(t)
+	runID := "CDT-675"
+	ctx := context.Background()
+	a := nativeAgent()
+	owner := a.owner()
+	m := run.New(eng, runID)
+	m.Getenv = func(string) string { return stallLimit }
+	token, err := m.Claim(ctx, owner, "CDT-675", "orchestrate", "sonnet")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := m.Start(ctx, owner, token, "sonnet"); err != nil {
+		t.Fatal(err)
+	}
+	// The stop verb's trail in its own order (Agent.Stop): journal the intent,
+	// signal the child, close the outcome, journal the halt. The pair is closed
+	// by the time the halt lands, so pendingEffect(EffectStop) is false on the
+	// exit's read — the fence the halt reason has to supply. The verbs carry the
+	// lease owner, which is this supervisor's own identity: the exit that follows
+	// is its own, so it rides the same token.
+	seq, _, err := m.Intent(ctx, owner, token, "agent:stop:"+runID+"#1", EffectStop,
+		map[string]any{"grace_s": 1, "pid": 1234})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := m.Outcome(ctx, owner, token, seq, EffectStop,
+		map[string]any{"stopped": true}); err != nil {
+		t.Fatal(err)
+	}
+	if err := m.Halt(ctx, owner, token, run.ReasonOperatorHalt,
+		"stopped by the operator (pid 1234)"); err != nil {
+		t.Fatal(err)
+	}
+	if got := state(t, eng, runID).Name(); got != "halted:operator_halt" {
+		t.Fatalf("state after the stop verb = %s, want halted:operator_halt", got)
+	}
+	if err := writePIDFile(runID, 1234, os.Getpid()); err != nil {
+		t.Fatal(err)
+	}
+
+	// The late exit: a real child that exits nonzero, the shape of the wait
+	// result the SIGTERM'd runner carries.
+	proc, err := nativeAgent().Runner.Start(Spec{Command: "sh", Args: []string{"-c", "exit 3"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	exitErr := proc.Wait()
+
+	if err := a.runnerExit(ctx, m, token, runID, proc, exitErr, &handshake{}); err != nil {
+		t.Fatalf("runnerExit: %v", err)
+	}
+	if got := state(t, eng, runID).Name(); got != "halted:operator_halt" {
+		t.Errorf("state = %s, want halted:operator_halt — the halt the operator named stands", got)
+	}
+	if n := rowsByKind(t, eng, runID, journal.KindRunFailed); n != 0 {
+		t.Errorf("run_failed rows = %d, want none — the exit does not fail a halted run", n)
+	}
+	if _, err := os.Stat(pidPath(runID)); !os.IsNotExist(err) {
+		t.Errorf("pidfile stat err = %v, want not exist", err)
+	}
+}
