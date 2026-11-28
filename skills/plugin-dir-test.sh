@@ -1884,6 +1884,13 @@ cp "$LIB" "$GOOD_ROOT/skills/plugin-dir.sh"
 # Assertion 1: the stale copy answers authoritatively for ITSELF, and it is
 # the wrong root (lexically-higher slug beats an actually-higher version —
 # the CDT-166 defect this build predates).
+#
+# Reach boundary (CDT-240; CDT-234 G3 precedent: write the boundary down).
+# The script V1.1 runs is the pre-CDT-166 stub the heredoc below writes into
+# $STALE_ROOT — this harness authors the fixture, so NO product code executes
+# and no mutation of skills/plugin-dir.sh can fail V1.1. It is a permanent
+# negative proof of the DEFECT's shape, not a check on the product. The
+# product-graded assertions in this block are V1.3, V1.4 and V2.
 out=$(
   cd "$FOREIGN" &&
   env -u CLAUDE_PLUGIN_ROOT HOME="$TMP/home" bash "$STALE_ROOT/skills/plugin-dir.sh"
@@ -1897,6 +1904,13 @@ assert_eq "T7-V1.1 stale pre-CDT-166 copy resolves itself (wrong root)" "$out" "
 # `head -1` pass this assertion for the wrong reason). `sort | tail -1` is
 # also the honest model of the forbidden pre-CDT-166 spelling: lexically-
 # highest path wins, not highest version.
+#
+# Reach boundary (CDT-240; CDT-234 G3 precedent: write the boundary down).
+# The pipeline below is composed in THIS harness: it runs find/sort/tail/
+# xargs over the fixture tree and never invokes skills/plugin-dir.sh, so no
+# mutation of the product can fail V1.2. It is a permanent negative proof
+# that the rejected delegation mechanism reaches the stale root, not a check
+# on the product.
 readdir_order=$(find "$CACHE_233" -name plugin-dir.sh 2>/dev/null)
 find_any=$(printf '%s\n' "$readdir_order" | sort | tail -1 | xargs -r dirname | xargs -r dirname)
 assert_eq "T7-V1.2 find-any-then-delegate (sort|tail -1) reaches stale root" "$find_any" "$STALE_ROOT"
@@ -1919,15 +1933,20 @@ assert_eq "T7-V1.3 canonical stanza resolves correct root, not stale" "$pdh" "$G
 
 # Assertion 4 (honest counter-nuance, recorded not hidden): a MODERN copy
 # planted at the SAME stale path self-corrects to cold-dark-void. Here VER
-# decides outright — path_ver_pick (skills/plugin-dir.sh:58-71) sorts
+# decides outright — path_ver_pick (skills/plugin-dir.sh:65-78) sorts
 # `-k1,1V` on the <VER> segment first, and 2.0.0 > 1.0.0 regardless of slug,
-# so the SLUG=cold-dark-void tiebreak (`-k2,2n`) never executes in this
-# fixture. The load-bearing fact this assertion actually proves is
-# LOCATION-INDEPENDENCE: plugin-dir.sh reads no $0/BASH_SOURCE anywhere in
-# its resolution logic, so a modern copy answers the same way regardless of
-# which path on disk happens to be executing it. This is the strongest
-# argument against the verdict: you cannot tell a stale copy from a modern
-# one by path alone, only by running it. V2 below is what proves argv
+# so the equal-VER tie-break key (`-k2,2n`, the CDT-508 channel rank:
+# dev-team 2 > dev-team-edge 1 > other 0) never executes in this fixture and
+# V1.4 asserts NOTHING about it — delete `-k2,2n` from path_ver_pick and no V1
+# assertion moves (CDT-240 reach boundary). The equal-VER tie-break is covered
+# by CDT-232's `stanza equal-VER prefers cold-dark-void` (with the CDT-166
+# product-CLI pair `CDT-166 equal-VER …`) and the channel lock by CDT-508's
+# `CDT-508 equal-VER lock prefers dev-team`, not here. The load-bearing fact
+# V1.4 does prove is LOCATION-INDEPENDENCE: plugin-dir.sh reads no
+# $0/BASH_SOURCE anywhere in its resolution logic, so a modern copy answers the
+# same way regardless of which path on disk happens to be executing it. That is
+# the strongest argument against the verdict: you cannot tell a stale copy from
+# a modern one by path alone, only by running it. V2 below is what proves argv
 # cannot be trusted to tell them apart either.
 cp "$LIB" "$STALE_ROOT/skills/plugin-dir.sh"
 out=$(
@@ -1944,9 +1963,21 @@ assert_eq "T7-V1.4 (honest limitation) modern copy at stale path self-corrects t
 # entirely, so an unknown trailing flag is silently accepted and rc stays 0
 # — which is the same shape as an older copy silently accepting a version
 # tag it does not understand and answering with a stale root.
+#
+# Reach (CDT-240 AC1): the verdict's mechanism is `main()`'s dispatch, not one
+# subcommand, so the contract is asserted on `root`, `file` AND `dir`.
+# cmd_file/cmd_dir consume only the argv they need, so all three ignore a
+# trailing tag today; hardening the `file` path alone while the verdict stands
+# is the drift the `root`-only tripwire could not see.
+# Reach (CDT-240 AC2): "silently" is asserted too — stderr MUST be empty. A
+# build that WARNS on the unknown flag and still exits 0 keeps an exit-code
+# check green while the verdict's word stops being true.
 echo "== CDT-233 T7 V2: re-open tripwire (@pm AC-D) =="
-v2_out=$(bash "$REPO_ROOT/skills/plugin-dir.sh" root --pdh-contract=2 2>/dev/null)
+V2_ERR="$TMP/v2-stderr"
+: > "$V2_ERR"
+v2_out=$(bash "$REPO_ROOT/skills/plugin-dir.sh" root --pdh-contract=2 2>"$V2_ERR")
 v2_rc=$?
+v2_err=$(cat "$V2_ERR")
 if [ "$v2_rc" -eq 0 ] && [ -n "$v2_out" ]; then
   PASS=$((PASS + 1))
   echo "  ok  T7-V2 plugin-dir.sh root --pdh-contract=2 exits 0 with a root (verdict's premise holds)"
@@ -1957,6 +1988,25 @@ else
   echo "       (an older copy silently accepts a version tag and answers rc 0 with a stale root)."
   echo "       Re-open the versioned-bootstrap-contract question or update the verdict."
 fi
+assert_eq "T7-V2 plugin-dir.sh root --pdh-contract=2 is silent (stderr empty)" "$v2_err" ""
+
+# v2_contract <label> <argv…> — the same contract on another subcommand:
+# rc 0, a non-empty resolved path, nothing on stderr. Run from $REPO_ROOT so
+# the dev-checkout tier answers — the copy under test, on any host.
+v2_contract() {
+  local _label="$1"; shift
+  local _out _err _rc
+  _out=$( cd "$REPO_ROOT" && bash "$REPO_ROOT/skills/plugin-dir.sh" "$@" 2>"$V2_ERR" )
+  _rc=$?
+  _err=$(cat "$V2_ERR")
+  assert_rc "$_label exits 0 (verdict's premise holds)" "$_rc" 0
+  assert_ne "$_label prints a non-empty resolved path" "$_out" ""
+  assert_eq "$_label is silent (stderr empty)" "$_err" ""
+}
+v2_contract "T7-V2 plugin-dir.sh file skills/plugin-dir.sh --pdh-contract=2" \
+  file skills/plugin-dir.sh --pdh-contract=2
+v2_contract "T7-V2 plugin-dir.sh dir skills/plugin-dir.sh --pdh-contract=2" \
+  dir skills/plugin-dir.sh --pdh-contract=2
 
 echo
 echo "PASS=$PASS FAIL=$FAIL"
