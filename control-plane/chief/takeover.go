@@ -123,8 +123,10 @@ func takeoverSelect(st *journal.State, lease run.Lease, hasLease bool,
 			return takeoverCandidate{}, false
 		}
 	default:
-		// halted:<lease_lost|reconcile_failed|budget_exhausted|operator_halt>,
-		// completed, failed, and new (M1's refuse list).
+		// halted:<lease_lost|reconcile_failed|budget_exhausted|operator_halt|
+		// handshake_failed>, completed, failed, and new (M1's refuse list).
+		// The handshake halt names the transport, not a dead owner: an
+		// unattended re-spawn would idle on the same refusal (CDT-679 AC3).
 		return takeoverCandidate{}, false
 	}
 	return takeoverCandidate{RunID: st.RunID, State: name, Owner: st.Owner,

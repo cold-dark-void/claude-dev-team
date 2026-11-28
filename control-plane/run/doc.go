@@ -13,8 +13,8 @@
 //	claimed | running | halted:<reason> → failed
 //
 // halted:<reason> is one of stalled, lease_lost, reconcile_failed,
-// budget_exhausted, operator_halt. Each carries a reason and a retry budget in
-// journal.State.Halt; RetryBudgets fixes the budgets.
+// budget_exhausted, operator_halt, handshake_failed. Each carries a reason and
+// a retry budget in journal.State.Halt; RetryBudgets fixes the budgets.
 //
 // One owner per run (AC4): every mutating call presents (owner, fencing token).
 // The token is monotonic per run and lives in journal's lease table; a token at

@@ -261,6 +261,11 @@ const (
 	ReasonReconcileFailed = "reconcile_failed"
 	ReasonBudgetExhausted = "budget_exhausted"
 	ReasonOperatorHalt    = "operator_halt"
+	// ReasonHandshakeFailed is the named halt of a host session that never
+	// opened: the client sent its handshake (SPEC-044 CDT-679) and the host
+	// refused, died, or stayed silent past the bounded wait. The takeover
+	// does not re-spawn it — the halt names the transport, not the owner.
+	ReasonHandshakeFailed = "handshake_failed"
 )
 
 // errNotStalled cancels a watchdog halt inside the transaction. It is not a

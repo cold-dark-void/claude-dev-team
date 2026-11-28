@@ -249,6 +249,22 @@ func intentFields(raw json.RawMessage) map[string]string {
 	return out
 }
 
+// intentInt returns the named integer field of an intent payload, 0 when the
+// payload carries no such number. intentFields keeps strings only, and the
+// handshake row names its attempt as a number.
+func intentInt(raw json.RawMessage, name string) int {
+	var raws map[string]json.RawMessage
+	if len(raw) == 0 || json.Unmarshal(raw, &raws) != nil {
+		return 0
+	}
+	var n int
+	v, ok := raws[name]
+	if !ok || json.Unmarshal(v, &n) != nil {
+		return 0
+	}
+	return n
+}
+
 // firstString returns the first named field that carries a string.
 func firstString(fields map[string]string, names ...string) string {
 	for _, n := range names {

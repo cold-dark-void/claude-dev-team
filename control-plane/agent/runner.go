@@ -87,6 +87,18 @@ func (n Native) CapturedSessionID() string {
 	return src.SessionID()
 }
 
+// HandshakeError reports the session refusal the runner's stdout sink captured
+// (SPEC-044 CDT-679 AC3): the JSON-RPC error on the host's session/new
+// response. A nil sink, io.Discard, and any plain writer carry no reading and
+// report "".
+func (n Native) HandshakeError() string {
+	src, ok := n.Stdout.(HandshakeSource)
+	if !ok {
+		return ""
+	}
+	return src.HandshakeError()
+}
+
 // Start spawns spec.Command as a child process of this agent. The child
 // inherits the agent's environment — its logins, its PATH, its credential
 // files (docs/internal/control-plane/credentials.md § AC-9 native rows).

@@ -261,6 +261,25 @@ ticket and ACs). Code identifiers use `takeover`.
   spawn (a ticket-store read at the re-adoption, which the chief does not
   have: its `TicketStore` writes only), so it stays a named gap, not a
   guarantee.
+- **M18 — An ACP session is opened by its client.** A host whose transport
+  is client-driven names its handshake in the host's spec, and the handshake
+  rides the spawn as data (`StartRequest.Handshake`), exactly like the
+  command, argv, and the premise frame of M16: the agent writes frames and
+  never assembles host wire frames itself. The node agent performs the
+  handshake before its poll loop and journals it as a `side_effect` of the
+  effect name `agent.handshake`, keyed `agent:handshake:<run>#<attempt>`,
+  under the live lease token — the intent row carries the attempt and the cwd
+  the child inherits, the outcome row carries `delivered`, the attempt, and
+  the frame count. It rides every spawn of that host: the first attempt and a
+  takeover re-spawn alike, because the re-spawn's child is a new agent on that
+  transport. The capture stays the single CDT-661 path: the session id is
+  captured from the response that names it and is journaled as the
+  `agent.session` pair; the handshake adds no second capture and no second
+  id. A handshake that cannot complete is a halt, not a ride: M17's ride-on
+  rule covers the frame that names an id the run never got, and an
+  unopened ACP session never gets one — the child idles forever, so the
+  supervisor stops the child and lands the named halt
+  (`handshake_failed`).
 - **M17 — The premise is never a hang and never a halt.** A first-turn
   frame that names the session (the ACP transport, probe P-GK-ACP-1)
   renders on the poll tick that captures the id. The agent retries the
@@ -375,6 +394,16 @@ ticket and ACs). Code identifiers use `takeover`.
   M15.
 
 ## Acceptance criteria
+
+Grok's ACP transport is client-driven: the client must send `initialize`,
+then `notifications/initialized`, then `session/new` before the agent
+answers anything (probe P-GK-ACP-1 ran the handshake by hand; the node
+agent never did, so a Grok run spawned, waited for a session id that never
+arrived, timed the premise out at the 30 s bound, and sat `running` — run
+`test-sidecar-sh-fails-after-dst-transitions-local-`, 2026-11-27). These
+ACs close the client half of the handshake. The handshake frames travel as
+data on the host's spec, the way the premise renderer does (CDT-665 M16):
+the agent writes frames, never builds them.
 
 ### CDT-660
 
@@ -645,6 +674,56 @@ ticket and ACs). Code identifiers use `takeover`.
   change (a new capability that completes the CDT-626 route contract);
   `.claude-plugin/plugin.json` and `CHANGELOG.md` are untouched.
 
+### CDT-679
+
+- **AC1.** Every Grok ACP start performs the client handshake: the node
+  agent writes, on the child's stdin and in order, `initialize` (client
+  capabilities `terminal: false`, the P-GK-CTR-3c adapter constraint),
+  `notifications/initialized`, and `session/new` naming the run's cwd — the
+  working directory the child actually inherits. The handshake rides every
+  ACP spawn: the first attempt and a takeover re-spawn alike (the re-spawn
+  is a fresh `Adapter.Start` whose child is a new ACP agent). The delivery
+  is journaled intent-then-outcome under the live lease token, the
+  CDT-661/665 side-effect pattern. The frames are data the host's spec
+  carries — the adapter's spec owns the encoding; the agent never assembles
+  host wire frames itself. Claude Code and omp name no handshake: their
+  hosts open sessions on their own transports, and their starts are
+  unchanged.
+  Verify: bash control-plane/test.sh
+- **AC2.** The captured session id stays the CDT-661 path, unchanged: the
+  handshake adds no second capture. The node agent's capture reads
+  `result.sessionId` off the `session/new` response, journals it as the
+  `agent.session` pair exactly as before, and the premise then renders as
+  the first `session/prompt` naming that id — the `agent.premise` outcome
+  closes `delivered: true` with the session id in it, on the first poll
+  tick after the capture, not after the 30 s bound.
+  Verify: bash control-plane/test.sh
+- **AC3.** A handshake that cannot complete halts the run: a `session/new`
+  response that carries a JSON-RPC error, a child that dies before the
+  session id lands, or a capture still empty at the bounded wait — the
+  supervisor stops the child and the run lands in a named halt whose
+  reason says the handshake failed. It never stays `running` with an idle
+  host that is waiting for its client. This narrows CDT-665 AC6's ride-on
+  rule for the handshake transport: an undelivered premise there was a
+  record because the child might exit on its own; an ACP child does not —
+  it idles forever, so the named halt is the ride.
+  Verify: bash control-plane/test.sh
+- **AC4.** A test drives the full handshake against the recorded probe
+  transcript `control-plane/hostadapter/testdata/grok-acp-session-frames.jsonl`:
+  the client frames the suite feeds a fake child are the P-GK-ACP-1 shapes,
+  the fake child answers from the transcript, and the captured session id
+  renders the premise `session/prompt` frame against the fixture — the
+  premise the probe's session would have received.
+  Verify: bash control-plane/test.sh
+- **AC5.** [process] A live Chief run on Grok delivers its premise: the
+  run's journal carries `agent.premise` outcome `delivered: true` and the
+  run reaches work — the AC4 suite proves the mechanics, this one proves
+  the host answered live. Evidence lands in this spec's Validation record,
+  not in the suite.
+- **AC6.** Version: `control-plane/VERSION` reads `0.5.1` in the same
+  change (a defect fix in the CDT-626 route contract — no new capability);
+  `.claude-plugin/plugin.json` and `CHANGELOG.md` are untouched.
+
 ## Validation
 
 - Spec reviewed and promoted to ACTIVE
@@ -697,10 +776,12 @@ ticket and ACs). Code identifiers use `takeover`.
   transport. The `session/new` response (`id: 1`) is the frame that names the
   id, as `result.sessionId`; the `initialize` response names none, and the
   notification frames carry it as `params.sessionId` from frame 7 of 29 —
-  frames the capture deliberately does not read. The probe's first four frames
-  are pinned as
-  `control-plane/hostadapter/testdata/grok-acp-session-frames.jsonl` and read
-  by the suite. No open gap.
+  frames the capture deliberately does not read. The probe's exchange is pinned
+  as
+  `control-plane/hostadapter/testdata/grok-acp-session-frames.jsonl`: the four
+  recorded response frames, then the three client frames the probe sent, with
+  `__CWD__` where it named its scratch directory. Both suites read the file, so
+  no lane carries a mirror of the wire bytes. No open gap.
 - `go build ./... && go vet ./... && go test ./...` green in the
   digest-pinned G-02 image (`golang:1.27-bookworm@sha256:4fa7c968…`): all 13
   packages ok
@@ -731,6 +812,110 @@ ticket and ACs). Code identifiers use `takeover`.
   (`TestStartAndResumeCarryTheRendererWithNoPremise`) pins that `Start` and
   `Resume` carry the renderer for every steerable host, and that a host whose
   spec names no first-turn frame answers nil with no refusal.
+- The Grok ACP client handshake (CDT-679 AC1–AC4): the Grok host spec carries
+  the three client frames as data — `initialize` with client capabilities
+  `terminal: false` (P-GK-CTR-3c), `notifications/initialized`, and
+  `session/new` naming the directory the child inherits at spawn
+  (`control-plane/hostadapter/hostadapter_test.go`,
+  `TestGrokHandshakeFramesAreTheProbeShapes`); the frames ride every Grok start,
+  the takeover re-spawn included, and a host that names none carries nil
+  (`TestHandshakeFramesRideEveryGrokSpawn`). The node agent writes them
+  journal-first as an `agent.handshake` intent/outcome pair keyed
+  `agent:handshake:<run>#<attempt>` under the live lease token, records the
+  inherited cwd on the intent and the frame count on the outcome, and builds no
+  frame
+  (`control-plane/agent/agent_test.go`,
+  `TestSuperviseWritesTheHandshakeThenDeliversThePremise`,
+  `TestSuperviseWithNoHandshakeJournalsNoHandshakeRow`); the capture reports the
+  `session/new` refusal beside the id (`TestCaptureReportsTheSessionNewRefusal`);
+  and the three failures land the named halt `halted:handshake_failed` with the
+  child stopped — the JSON-RPC error, the child that dies before capture, and
+  the bounded wait that expires with no session id
+  (`TestSuperviseHandshakeHaltsOnTheSessionNewError`,
+  `TestSuperviseHandshakeHaltsWhenTheChildDiesBeforeTheSessionID`,
+  `TestSuperviseHandshakeHaltsPastTheBoundedWait`). Each of those judgements
+  reads the capture, never the loop's tick snapshot, so an exit that races the
+  tick with an id already captured completes the run instead of taking the halt
+  (`TestSuperviseHandshakeExitWithACapturedIDCompletesTheRun`). The end-to-end
+  proof feeds a
+  fake child the P-GK-ACP-1 frame shapes, answers it from
+  `control-plane/hostadapter/testdata/grok-acp-session-frames.jsonl`, and asserts
+  the captured `result.sessionId`, the closed handshake row, the rendered premise
+  `session/prompt` frame, `delivered: true`, and `completed`
+  (`TestGrokACPSessionOpensThroughTheAgent`). `handshake_failed` joins the closed
+  halt set — journal `HaltReasons`, `run.RetryBudgets` (1), the lifecycle graph
+  vertex and its `running → halted` edge — and sits on the takeover refuse list,
+  so a handshake that never opened cannot idle as `running` (AC3 narrows CDT-665
+  AC6's ride-on rule). The pair's crash window is closed the CDT-661 way: an
+  `agent.handshake` intent with no outcome is self-evidencing — the row names
+  the attempt it opened and the cwd its frames carried, the frames went to a
+  child's stdin no reality re-probes, and the takeover re-spawn performs no
+  replay — so the pass adopts it and the run never lands
+  `halted:reconcile_failed` (`control-plane/reconcile/reconcile_test.go`,
+  `TestPendingHandshakeIntentIsSelfEvidencing`,
+  `TestPendingHandshakeIntentClosesWithNoReality`); a row that names no attempt
+  has no evidence and keeps the halt
+  (`TestHandshakeIntentWithNoAttemptIsNotSelfEvidencing`).
+  The client frames have one home: both suites read them from
+  `control-plane/hostadapter/testdata/grok-acp-session-frames.jsonl`, where the
+  probe's recorded responses are followed by the probe's three requests
+  (`__CWD__` names each lane's directory), and the capture proves it reads no id
+  and no refusal off its own client frames
+  (`TestGrokACPCaptureReadsTheProbeTranscript`). `control-plane/VERSION` reads
+  `0.3.1` (AC6).
+- CDT-679 gate run (2026-11-27, digest-pinned G-02 image, go1.27.4):
+  `go build ./... && go vet ./...` clean, `gofmt -l agent chief hostadapter
+  journal run lifecycle reconcile cmd queue spool killtest` clean, and
+  `bash control-plane/test.sh` (`go test ./... -count=1`) green in 12 of the 13
+  packages (`agent` 24.1 s, `hostadapter` 1.0 s, `journal` 1.8 s, `killtest`
+  49.7 s, `lifecycle`, `run`, `queue`, `reconcile`, `spool`, `cmd/*`) with
+  `chief` the one red: `TestAutopilotSeamRunsThePluginParser` and
+  `TestTheAPIServesTheTicketRouteAndItsRefusals` are deterministic there because
+  the image carries no `jq` for `skills/orchestrate/parse-flags.sh`, and both
+  reproduce on the full-tree `git archive HEAD` baseline (`2d8de57`) in the same
+  image. The takeover lease/retry cases move with load, not with this diff:
+  `TestTakeoverSetSelection` appeared in one full-suite run (the CDT-661 lease
+  flake named above) and `chief` in isolation is red only on the `jq` pair, 3/3
+  runs. `-race` is clean on `./agent ./hostadapter` (25.9 s / 2.0 s). Every
+  CDT-679 test is green at `-count=10` (`agent` 10.7 s, `hostadapter` 2.4 s).
+- CDT-679 review-round-1 rework gate run (2026-11-27, same digest-pinned G-02
+  image): `go build ./... && go vet ./...` clean and
+  `gofmt -l agent chief hostadapter journal run lifecycle reconcile cmd queue
+  spool killtest` clean. `bash control-plane/test.sh` green in 12 of the 13
+  packages (`agent` 24.3 s, `hostadapter` 1.0 s, `reconcile` 2.7 s, `killtest`
+  49.7 s); `chief` is red only on the `jq`-absent pair named above plus the
+  takeover lease flake, and the `git archive HEAD` baseline in the same image is
+  red on the same set — 3 of 3 probe rounds at baseline against 1 of 3 here
+  (`TestTakeoverSetSelection`, `TestRetryStartsANewRunWithTheSameTicket`), and
+  both are green at `-count=5` in isolation. `./reconcile ./agent ./hostadapter`
+  are green at `-count=5` (8.4 s / 118.2 s / 4.0 s) and clean under `-race`.
+  Mutation checks: turning the `agent.handshake` self-evidence branch off fails
+  `TestPendingHandshakeIntentIsSelfEvidencing` alone; judging `runnerExit` from a
+  stale id fails `TestSuperviseHandshakeExitWithACapturedIDCompletesTheRun`
+  alone; one byte of drift in the fixture's client frames fails
+  `TestGrokHandshakeFramesAreTheProbeShapes` and
+  `TestGrokACPSessionOpensThroughTheAgent`. Spec-lint (SPEC-008) clean,
+  docs-drift green (3 waived), traceability report-only (1 pre-existing).
+- AC5 (live Grok run reaches `agent.premise` `delivered: true`) — `[process]`,
+  LANDED 2026-11-27: the fixed binary was deployed to `~/.local/bin/chiefd`
+  (prior binary kept at `~/.local/bin/chiefd.pre-CDT-679`), the live
+  `dev-team-chiefd.service` restarted (chiefd pid 281410, journal
+  `.claude/runs/run.db`), and a minimal live run routed through
+  `POST /v1/route` (`{"kind":"defect","title":"cdt-679-live-acp-handshake-proof",
+  "host":"grok"}`). Run `cdt-679-live-acp-handshake-proof` journal reading:
+  `agent.start` outcome pid 283287 (seq 161); the `agent.handshake` closed pair
+  `delivered: true, frames: 3` (seq 163→164); `agent.session` captured
+  `01a21c89-0525-78d2-b292-4e682593c8ae` (seq 165→166); `agent.premise`
+  outcome `delivered: true` naming that session id (seq 167→168) — the
+  premise landed as the session's first turn within ~20 s of the spawn,
+  where the pre-fix run `test-sidecar-sh-fails-after-dst-transitions-local-`
+  (2026-11-27) timed out at the 30 s bound with `delivered: false`. The host
+  reached work: the grok session transcript
+  (`~/.grok/sessions/…/01a21c89-0525-78d2-b292-4e682593c8ae/chat_history.jsonl`)
+  shows the premise received, one tool call executed against the repo
+  (read `CHANGELOG.md` line 1), and the agent's text reply. The node agent
+  runs inside chiefd (`control-plane/cmd/chiefd/main.go:138` `agent.New()`),
+  so the fixed binary ride is chiefd itself.
 - Spec-lint (SPEC-008) and docs-drift green on the landed diff
 - CDT-665 gate run (2026-11-25, digest-pinned G-02 image, go1.27.4):
   `go build ./... && go vet ./...` clean, `gofmt -l agent chief hostadapter`
@@ -761,6 +946,7 @@ ticket and ACs). Code identifiers use `takeover`.
 
 | Date | Change |
 |------|--------|
+| 2026-11-27 | CDT-679: Grok runs start. The Grok host spec carries the ACP client handshake as data — `grokHandshakeFrames(cwd)`: `initialize` (client capabilities `terminal: false`, P-GK-CTR-3c), `notifications/initialized`, `session/new` with the run's cwd — and `hostadapter.Adapter.Start`/`Resume` hand it to the agent as `StartRequest.Handshake`, the CDT-665 M16 shape: the agent writes frames, never encodes them. The node agent performs the handshake before its poll loop, journal-first as an `agent.handshake` intent/outcome pair keyed `agent:handshake:<run>#<attempt>` under the live lease token, writing the frames with the runner's `Steer` seam; the cwd it journals is the directory the child inherits at spawn. The capture keeps the CDT-661 path and gains one reading: a `session/new` response that carries a JSON-RPC error is reported beside the id (`HandshakeSource.HandshakeError`). A handshake that cannot complete stops the child and halts the run in a new named halt, `handshake_failed` (retry budget 1, takeover-refused), for the three causes AC3 names — the JSON-RPC error, a child that dies before the id lands, and the bounded wait that expires empty — so an ACP child never idles as `running`; this narrows CDT-665 AC6's ride-on rule for the handshake transport. Claude Code, omp, and mini-swe name no handshake and their starts are unchanged. New M18, `### CDT-679` AC1–AC6, the `handshake_failed` vertex and edge in `docs/internal/control-plane/lifecycle-graph.json`. `control-plane/VERSION` `0.3.0` → `0.3.1` (a defect fix — a Grok run never reached work; no new capability); the plugin version pair is untouched. |
 | 2026-11-25 | CDT-665: the run's work premise reaches the spawned session's first turn. The chief carries the route's premise text onto the start (`hostadapter.StartRequest.Premise` → `agent.StartRequest.Premise`), the node agent delivers it journal-first as an `agent.premise` intent/outcome pair keyed `agent:premise:<run>#<attempt>` (one closed pair per run, keyed by the attempt that opened the session, under the live lease token), and the host adapter's per-host spec owns the first-turn frame: the Claude Code stream-json user message, the Grok ACP `session/prompt` (waiting on the captured session id, probe P-GK-ACP-1, because the frame names the session), and the omp RPC `{"type":"steer","message":…}` command; mini-swe's matrix cell (c) refuses a start that carries a premise. The takeover re-delivery rule is `deliverSteers` generalized — a CLOSED pair writes no second turn and journals no new row, a PENDING intent is performed once from the text the row carries — and M3's one spawn path is untouched. The bounded session-id poll closes an unrenderable premise with `delivered: false` and the named cause: never a halt, never a hang. New M16/M17, `### CDT-665` AC1–AC7, and `docs/internal/control-plane/native-runner.md` § "CDT-644" D4 names the premise frame in the runner contract. `control-plane/VERSION` `0.2.2` → `0.3.0` (a new capability that completes the CDT-626 route contract: a chief-routed run reaches `completed` without a human); the plugin version pair is untouched. TL review landed in the same change: the first-turn renderer attaches from the host's SPEC on every `Adapter.Start` and `Adapter.Resume` of that host — never on the request's premise text — so a re-adoption that carries no text performs the pending row (AC4, proved unmasked by `TestTakeoverRedeliversThePendingPremiseRowFromTheJournal`: empty premise, no caller-supplied frame), a premise-less spawn on mini-swe attaches nothing and is not refused, the outcome of a re-delivery names the attempt its intent opened, AC2 reads per-run (M16's rule is run-wide), and M16 names the pre-intent window it does not claim. |
 | 2026-11-24 | CDT-664 (CDT-660 TL-review follow-ups): the chief's run record survives a refused start — two starts for one run id share one `runRecord`, so registration keeps a confirmed start's `Cap`, an errored start deletes only an unconfirmed record, and a confirmed start re-creates the record a refused sibling removed (M3's bookkeeping); the halt scan re-reads the takeover's answer before it pages, closing the intent row with the outcome `suppressed: the takeover answered the halt` (M9/AC9). Prose letters: M8/AC15 state the shutdown truth (chiefd never releases the lease — the release is the reconciler's `Machine.Repair` path, which the no-run-event rule forbids on shutdown), M3 names the `Cap` field and the `chief.hostFromJournal` split (first matching intent, one `ErrNotSteerable`), M1 records the no-lease-row selection, M6 the unreadable-lease continue, S1 the unconfirmed bucket and the per-process log-line dedup, and the loose `adopts` verb becomes "takes over". `control-plane/VERSION` `0.2.1` → `0.2.2`. |
 | 2026-11-24 | CDT-661: the host session id is journaled and adoption resumes it — the node agent journals the id its runner's capture holds as an `agent.session` `side_effect` intent/outcome pair under the live lease token (AC1), the Grok ACP transport joins the captured hosts by reading `result.sessionId` off the `session/new` response frame pinned to a recorded probe transcript (AC2, AC7), the takeover resumes the journaled session through `hostadapter.Adapter.Resume` with `hostadapter.ResumeRoute` gating CDT-660's fresh re-spawn fallback (AC3/AC4), `effectEvidence` treats a pending `agent.session` intent as self-evidencing so the two-append crash window never halts the run `halted:reconcile_failed` (a state the takeover refuses), and the restart kill test proves the same host session survives the crash (AC5). `control-plane/VERSION` `0.2.0` → `0.2.1` (AC6). `### CDT-661` AC1–AC7. |

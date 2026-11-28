@@ -57,6 +57,13 @@ const (
 	// no second one; a pending intent is the crash window the re-adoption
 	// performs.
 	EffectPremise = "agent.premise"
+	// EffectHandshake is the client half of a transport the client opens
+	// (SPEC-044 CDT-679 AC1): the frames the agent wrote on the child's
+	// stdin, journaled intent-then-outcome per attempt, keyed
+	// "agent:handshake:<run>#<attempt>". The rows record a delivery of frames
+	// whose encoding the host's spec owns — the agent writes frames, it never
+	// builds one.
+	EffectHandshake = "agent.handshake"
 )
 
 // agentRunsRelPath is where the agent records its live processes, under the
@@ -162,6 +169,13 @@ type StartRequest struct {
 	// parses or builds host frames); nil means this start names no
 	// first-turn route, and the loop journals nothing.
 	PremiseFrame PremiseFrame
+	// Handshake renders the client frames the host's transport needs before it
+	// answers anything (SPEC-044 CDT-679 AC1). The host adapter resolves it
+	// from the host's spec, so a takeover re-spawn — a fresh start whose child
+	// is a new agent on a client-driven transport — carries it as well. nil
+	// means this host opens its session on its own transport: Claude Code and
+	// omp name no handshake and their starts are unchanged.
+	Handshake HandshakeFrames
 	// OperatorResume is the operator-resume switch (SPEC-045 M5): this spawn
 	// is the chief's operator resume of a halted run, so the supervision gate
 	// accepts the run's CURRENT halt reason and not only the watchdog's
@@ -187,6 +201,28 @@ type StartRequest struct {
 // frame's request id (the attempt number): the transport echoes it back and
 // nothing on this side correlates on it.
 type PremiseFrame func(sessionID, premise string, seq int) (frame string, ok bool)
+
+// HandshakeFrames renders the client frames of one host transport — the closed
+// list its host adapter's spec owns (SPEC-044 CDT-679 AC1). cwd is the working
+// directory the child inherits at spawn, which the frame names. The agent
+// writes the frames in order on the child's stdin; it never assembles a host
+// wire frame itself, the same seam the premise frame rides.
+type HandshakeFrames func(cwd string) []string
+
+// handshake is one spawn's client-handshake contract as the supervision loop
+// holds it: the frames to write, the working directory the child inherited, and
+// the stamp the bounded wait for the captured session id runs from.
+type handshake struct {
+	frames HandshakeFrames
+	dir    string
+
+	// since stamps the write; the bounded session-id wait (AC3) runs from it.
+	since time.Time
+}
+
+// active reports whether this spawn has a client handshake to complete. A
+// false answer leaves the supervision exactly as CDT-665 left it.
+func (h *handshake) active() bool { return h != nil && h.frames != nil }
 
 // premiseDelivery is one attempt's first-turn contract as the supervision
 // loop holds it: what to deliver, how to render it, and the loop's own
@@ -294,12 +330,13 @@ func (a *Agent) Supervise(ctx context.Context, eng *journal.Engine, req StartReq
 		}
 	}
 
-	proc, err := a.spawn(ctx, m, token, req.RunID, command, args, req.Env)
+	proc, dir, err := a.spawn(ctx, m, token, req.RunID, command, args, req.Env)
 	if err != nil {
 		return err
 	}
 	return a.supervise(ctx, m, token, req.RunID, proc,
-		&premiseDelivery{text: req.Premise, frame: req.PremiseFrame})
+		&premiseDelivery{text: req.Premise, frame: req.PremiseFrame},
+		&handshake{frames: req.Handshake, dir: dir})
 }
 
 // resumesHalt is the supervision gate's one decision (SPEC-045 M5): a watchdog
@@ -404,11 +441,16 @@ func (a *Agent) claim(ctx context.Context, m *run.Machine, req StartRequest) (in
 // between its intent row and the spawn — and the recovery performs that
 // pending effect instead of repeating it (the C2 kill-test rule: the
 // recovery completes the work, it does not duplicate it).
+//
+// It also answers the working directory the child inherits, which is the
+// directory a client-opened transport names in its session/new frame
+// (SPEC-044 CDT-679 AC1) — the one read here, at the spawn, never a per-run
+// setting the agent invents.
 func (a *Agent) spawn(ctx context.Context, m *run.Machine, token int64,
-	runID, command string, args, extraEnv []string) (Process, error) {
+	runID, command string, args, extraEnv []string) (Process, string, error) {
 	st, err := m.State(ctx)
 	if err != nil {
-		return nil, err
+		return nil, "", err
 	}
 	var (
 		seq     int64
@@ -423,14 +465,15 @@ func (a *Agent) spawn(ctx context.Context, m *run.Machine, token int64,
 		var err error
 		seq, _, err = m.Intent(ctx, a.owner(), token, key, EffectStart, intent)
 		if err != nil {
-			return nil, err
+			return nil, "", err
 		}
 	}
 
+	dir := inheritedDir()
 	proc, err := a.Runner.Start(Spec{Command: command, Args: args, Env: extraEnv,
 		Name: containerName(runID)})
 	if err != nil {
-		return nil, err
+		return nil, "", err
 	}
 	rec := pidRecord{RunnerPID: proc.PID(), SupervisorPID: os.Getpid(),
 		StartedTS: time.Now().Unix()}
@@ -442,27 +485,41 @@ func (a *Agent) spawn(ctx context.Context, m *run.Machine, token int64,
 	}
 	if err := writePIDRecord(runID, rec); err != nil {
 		_ = proc.Stop(0)
-		return nil, err
+		return nil, "", err
 	}
 	outcome := map[string]any{"pid": proc.PID(), "attempt": attempt}
 	if _, err := m.Outcome(ctx, a.owner(), token, seq, EffectStart, outcome); err != nil {
 		_ = proc.Stop(0)
-		return nil, err
+		return nil, "", err
 	}
 	// Progress is liveness: a stint journals the attempt that just began.
 	if err := m.Stint(ctx, a.owner(), token, fmt.Sprintf("attempt %d", attempt)); err != nil {
 		_ = proc.Stop(0)
-		return nil, err
+		return nil, "", err
 	}
-	return proc, nil
+	return proc, dir, nil
 }
 
-// supervise is the supervision loop: the work premise delivered as the
-// session's first turn, heartbeats, steers, and the terminal exit. It returns
-// when the run ends, the lease is lost, or the caller cancels the supervision
-// context for a quiet shutdown.
+// inheritedDir is the working directory a runner child inherits from this
+// agent process: the native runner passes no Spec.Dir and the container
+// runner mounts this same path at itself, so the child runs here. An
+// unreadable cwd answers "" — the frames still carry the transport, and the
+// host falls back to its own directory.
+func inheritedDir() string {
+	wd, err := os.Getwd()
+	if err != nil {
+		return ""
+	}
+	return wd
+}
+
+// supervise is the supervision loop: the client handshake that opens the
+// session, the work premise delivered as that session's first turn,
+// heartbeats, steers, and the terminal exit. It returns when the run ends, the
+// lease is lost, the handshake is proven dead (SPEC-044 CDT-679 AC3), or the
+// caller cancels the supervision context for a quiet shutdown.
 func (a *Agent) supervise(ctx context.Context, m *run.Machine, token int64,
-	runID string, proc Process, pd *premiseDelivery) error {
+	runID string, proc Process, pd *premiseDelivery, hs *handshake) error {
 	st, err := m.State(ctx)
 	if err != nil {
 		_ = proc.Stop(0)
@@ -480,6 +537,19 @@ func (a *Agent) supervise(ctx context.Context, m *run.Machine, token int64,
 	// sessionID names the capture id this attempt has already journaled
 	// (SPEC-044 CDT-661 AC1); the empty string means nothing has landed.
 	sessionID := ""
+
+	// A transport the client opens gets its handshake before the loop turns:
+	// the host answers nothing until the frames land, so the capture, the
+	// premise, and the steers all speak to the session these frames open
+	// (SPEC-044 CDT-679 AC1). A cancelled context is the quiet shutdown of
+	// M8 — it writes no row, so the write is skipped and the loop exits below.
+	if hs.active() && ctx.Err() == nil {
+		if err := a.deliverHandshake(ctx, m, token, runID, proc, hs); err != nil {
+			a.stopQuiet(proc, 0)
+			return err
+		}
+		hs.since = nowOr(a.Now)
+	}
 
 	for {
 		select {
@@ -524,6 +594,16 @@ func (a *Agent) supervise(ctx context.Context, m *run.Machine, token int64,
 			if sessionID == "" {
 				sessionID = a.journalSessionID(ctx, m, token, runID)
 			}
+			// A handshake that cannot complete ends the supervision here: an
+			// ACP child whose session never opened idles forever, so the run
+			// lands in the named halt instead of riding on (SPEC-044
+			// CDT-679 AC3). The check is after the capture read, so a session
+			// id that landed on this tick closes the handshake.
+			if hs.active() {
+				if cause := a.handshakeHaltCause(hs, sessionID); cause != "" {
+					return a.haltHandshake(ctx, m, token, runID, proc, cause)
+				}
+			}
 			// The premise is the session's first turn, so it rides ahead of
 			// the steers on the same tick (SPEC-044 CDT-665).
 			if !pd.done {
@@ -543,7 +623,7 @@ func (a *Agent) supervise(ctx context.Context, m *run.Machine, token int64,
 				return err
 			}
 		case exitErr := <-proc.Done():
-			return a.runnerExit(ctx, m, token, runID, proc, exitErr)
+			return a.runnerExit(ctx, m, token, runID, proc, exitErr, hs)
 		}
 	}
 }
@@ -565,6 +645,33 @@ type capturedRunner interface {
 	CapturedSessionID() string
 }
 
+// HandshakeSource is the reading of a transport the client opens (SPEC-044
+// CDT-679 AC3): it reports the JSON-RPC error the host's session/new response
+// carried, and "" while the handshake can still land. The capture parses the
+// host's frames — the agent asks for the reading and never parses host output
+// itself, the same seam SessionSource holds.
+//
+// It is the one shape for both ends of that seam: the stdout sink satisfies it
+// (Native.HandshakeError reads through it) and the agent asks the runner, which
+// carries no reading (the container runner, a capture-less start) and answers
+// "", so only the bounded wait names its halt.
+type HandshakeSource interface {
+	HandshakeError() string
+}
+
+// capturedID reports the session id the runner's stdout capture holds right
+// now, "" when the runner carries no capture. The handshake's judgements ask
+// this and never the loop's tick snapshot: the snapshot only advances when a
+// journal write lands, so a capture that already holds the id must not read as
+// an open handshake (SPEC-044 CDT-661 AC1, CDT-679 AC3).
+func (a *Agent) capturedID() string {
+	src, ok := a.Runner.(capturedRunner)
+	if !ok {
+		return ""
+	}
+	return src.CapturedSessionID()
+}
+
 // journalSessionID journals the session id the runner's capture holds —
 // once per attempt (SPEC-044 CDT-661 AC1): the intent row and its outcome
 // row, both carrying the id and the attempt number, keyed
@@ -579,11 +686,7 @@ type capturedRunner interface {
 // adoption fallback covers a run whose host never named an id.
 func (a *Agent) journalSessionID(ctx context.Context, m *run.Machine, token int64,
 	runID string) string {
-	src, ok := a.Runner.(capturedRunner)
-	if !ok {
-		return ""
-	}
-	id := src.CapturedSessionID()
+	id := a.capturedID()
 	if id == "" {
 		return ""
 	}
@@ -607,11 +710,112 @@ func (a *Agent) journalSessionID(ctx context.Context, m *run.Machine, token int6
 	return id
 }
 
+// deliverHandshake writes the client handshake frames on the child's stdin,
+// journaled intent-then-outcome under the live lease token (SPEC-044
+// CDT-679 AC1, the CDT-661/CDT-665 side-effect pattern). The frames come from
+// the host's spec through HandshakeFrames: the agent writes them and never
+// builds one.
+//
+// The pair is keyed to the attempt that spawned the child, so a takeover
+// re-spawn — a fresh ACP agent, which needs its own handshake — writes its own
+// frames and journals its own pair under the next attempt's key: the handshake
+// rides every spawn, and no spawn re-performs a pair for a child that is gone.
+//
+// A crash between the two appends leaves the one pending intent the reconciler
+// cannot re-prove: the frames went to the stdin of a child that died with them,
+// and the re-spawn performs no replay. The row is self-evidencing instead — the
+// reconciler adopts it from its own payload and the run keeps running
+// (control-plane/reconcile § effects, the CDT-661 AC1 rule for agent.session).
+//
+// A frame the child never read is the closed row with delivered false: the
+// exit path names the run's cause (the handshake halt, AC3), so the write
+// error is a record here, never a second failure mode.
+func (a *Agent) deliverHandshake(ctx context.Context, m *run.Machine, token int64,
+	runID string, proc Process, hs *handshake) error {
+	st, err := m.State(ctx)
+	if err != nil {
+		return err
+	}
+	attempt := countEffects(st, EffectStart)
+	if attempt < 1 {
+		attempt = 1
+	}
+	key := fmt.Sprintf("agent:handshake:%s#%d", runID, attempt)
+	seq, _, err := m.Intent(ctx, a.owner(), token, key, EffectHandshake,
+		map[string]any{"attempt": attempt, "cwd": hs.dir})
+	if err != nil {
+		return err
+	}
+	frames := hs.frames(hs.dir)
+	var writeErr error
+	for _, f := range frames {
+		if writeErr = proc.Steer(f); writeErr != nil {
+			break
+		}
+	}
+	outcome := map[string]any{"delivered": writeErr == nil, "attempt": attempt,
+		"frames": len(frames)}
+	if writeErr != nil {
+		outcome["error"] = writeErr.Error()
+	}
+	if _, err := m.Outcome(ctx, a.owner(), token, seq, EffectHandshake, outcome); err != nil {
+		return err
+	}
+	return nil
+}
+
+// handshakeHaltCause names why a client handshake cannot complete, and ""
+// while it can still land (SPEC-044 CDT-679 AC3): the host answered the
+// session/new request with a JSON-RPC error, or the bounded wait for the
+// captured session id ran out with nothing captured. The bound is the premise
+// session wait — the same host answer both the premise and this halt wait for.
+// The id is the capture's reading as well as the loop's: an id the host named is
+// an open session, whatever this tick journaled.
+func (a *Agent) handshakeHaltCause(hs *handshake, sessionID string) string {
+	if sessionID != "" || a.capturedID() != "" {
+		return ""
+	}
+	if src, ok := a.Runner.(HandshakeSource); ok {
+		if msg := src.HandshakeError(); msg != "" {
+			return fmt.Sprintf("the host's session/new response carries a "+
+				"JSON-RPC error (%s)", msg)
+		}
+	}
+	if !hs.since.IsZero() {
+		if wait := a.premiseSessionWait(); nowOr(a.Now).Sub(hs.since) >= wait {
+			return fmt.Sprintf("no captured session id within %s: the host never "+
+				"answered the client handshake", wait)
+		}
+	}
+	return ""
+}
+
+// haltHandshake stops the child and lands the run in the named halt
+// halted:handshake_failed (SPEC-044 CDT-679 AC3): an ACP child that never
+// opened its session idles forever, so the run gets a name instead of riding
+// on. The machine call presents the live lease token, so a supervisor whose
+// lease moved writes nothing and leaves the run to its real owner.
+func (a *Agent) haltHandshake(ctx context.Context, m *run.Machine, token int64,
+	runID string, proc Process, cause string) error {
+	a.stopQuiet(proc, DefaultGrace)
+	if err := m.Halt(ctx, a.owner(), token, run.ReasonHandshakeFailed, cause); err != nil {
+		return fmt.Errorf("%w: %s (halt refused: %w)", ErrHandshakeFailed, cause, err)
+	}
+	removeRunFiles(runID)
+	return fmt.Errorf("%w: %s", ErrHandshakeFailed, cause)
+}
+
 // runnerExit is the terminal step: the host CLI exited on its own. A clean
 // exit completes the run; a failing exit fails it with the reason the exit
 // code names.
+//
+// On a transport the client opens, an exit before the session id landed is the
+// handshake's failure, not the exit code: the child died with no session, so
+// it never ran the run's work (SPEC-044 CDT-679 AC3). "Landed" is the capture's
+// own reading, not the loop's tick snapshot — an exit that races the tick must
+// not label a run whose capture already holds the id.
 func (a *Agent) runnerExit(ctx context.Context, m *run.Machine, token int64,
-	runID string, proc Process, exitErr error) error {
+	runID string, proc Process, exitErr error, hs *handshake) error {
 	// A stop in flight owns the close (the stop verb journals the outcome and
 	// the halt); a completion in flight means the run is already closed. A
 	// replay failure is not falsified into a read: the error carries up.
@@ -624,6 +828,11 @@ func (a *Agent) runnerExit(ctx context.Context, m *run.Machine, token int64,
 		return nil
 	}
 	code := exitCode(exitErr)
+	if hs.active() && a.capturedID() == "" {
+		cause := fmt.Sprintf("the %s child exited (code %d) before its session/new "+
+			"response named a session id", a.Runner.Name(), code)
+		return a.haltHandshake(ctx, m, token, runID, proc, cause)
+	}
 	if code == 0 {
 		err := m.Complete(ctx, a.owner(), token, map[string]any{"exit_code": 0}, nil)
 		removeRunFiles(runID)

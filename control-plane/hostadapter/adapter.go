@@ -157,6 +157,7 @@ func (a *Adapter) Start(ctx context.Context, eng *journal.Engine,
 		RunID: req.RunID, Ticket: req.Ticket, Workflow: req.Workflow,
 		Model: req.Model, Command: sp.Command, Args: sp.Args, Env: sp.Env,
 		Premise: req.Premise, PremiseFrame: premiseFrame,
+		Handshake: handshakeFramesOf(req.Host),
 		// SPEC-046 M7: the caps that ride this runner's environment are
 		// journaled on the same start, so a retry and a takeover re-spawn
 		// read the run's own values back from the journal.
@@ -259,6 +260,9 @@ func (a *Adapter) Resume(ctx context.Context, eng *journal.Engine,
 		RunID: req.RunID, Ticket: req.Ticket, Workflow: req.Workflow,
 		Model: req.Model, Command: rs.Command, Args: args,
 		PremiseFrame: premiseFrame, OperatorResume: req.OperatorResume,
+		// The re-spawn's child is a new agent on the host's transport, so the
+		// handshake rides it too (SPEC-044 CDT-679 AC1).
+		Handshake: handshakeFramesOf(req.Host),
 	})
 	return cap, err
 }
@@ -327,6 +331,21 @@ func premiseFrameOf(h Host, premise string) (agent.PremiseFrame, error) {
 		return nil, nil
 	}
 	return agent.PremiseFrame(sp.PremiseFrame), nil
+}
+
+// handshakeFramesOf resolves the client handshake one spawn carries (SPEC-044
+// CDT-679 AC1). It is gated on the host's SPEC, never on the caller's request:
+// a host that opens its session on its own transport — Claude Code, omp,
+// mini-swe — answers nil and its start is byte-unchanged. Every spawn of a
+// host that names frames carries them, so a takeover re-spawn writes the
+// handshake its new child needs. An unknown host is refused by launchOf or the
+// route check before this runs; its nil answer travels nothing.
+func handshakeFramesOf(h Host) agent.HandshakeFrames {
+	sp, err := specOf(h)
+	if err != nil || sp.HandshakeFrames == nil {
+		return nil
+	}
+	return agent.HandshakeFrames(sp.HandshakeFrames)
 }
 
 // SteerRequest is one correction for one running host session.

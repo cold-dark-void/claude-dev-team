@@ -428,8 +428,8 @@ func (p *pass) effects(runID string) error {
 
 // effectEvidence asks reality whether the effect behind an intent landed. The
 // intent names its subject in a path or a branch field; anything else has no
-// evidence a reconciler may read. One effect is self-evidencing and needs no
-// reality at all: agent.session.
+// evidence a reconciler may read. Two effects are self-evidencing and need no
+// reality at all: agent.session and agent.handshake.
 func (p *pass) effectEvidence(e journal.RecordedEffect) (string, bool) {
 	if e.Effect == agent.EffectSession {
 		// SPEC-044 CDT-661 AC1: the session-id row IS the record — the
@@ -445,6 +445,28 @@ func (p *pass) effectEvidence(e journal.RecordedEffect) (string, bool) {
 			return "the journal row names host session " + id, true
 		}
 		return "", false
+	}
+	if e.Effect == agent.EffectHandshake {
+		// SPEC-044 CDT-679 AC1: the handshake row IS the record of the client
+		// frames — they go to the stdin of the run's own child, which is dead
+		// by the time a reconciler looks, so no external reality re-proves a
+		// frame write. The intent payload names the attempt it opened (and
+		// the cwd its frames carried), which is everything the row can prove.
+		// The pending intent is the crash window between the row and the
+		// write, and the takeover re-spawn performs no replay: it hands the
+		// new ACP child its own handshake under the next attempt's key.
+		// Halting that window would cost the whole run, the CDT-661 AC1 rule
+		// (the takeover refuses halted:reconcile_failed).
+		attempt := intentInt(e.Intent, "attempt")
+		if attempt < 1 {
+			return "", false
+		}
+		if cwd := firstString(intentFields(e.Intent), "cwd"); cwd != "" {
+			return fmt.Sprintf("the journal row names the client handshake of "+
+				"attempt %d in %s", attempt, cwd), true
+		}
+		return fmt.Sprintf("the journal row names the client handshake of attempt %d",
+			attempt), true
 	}
 	if !p.realityOK {
 		return "", false

@@ -38,7 +38,23 @@ type spec struct {
 	// nil is the matrix refusal — mini-swe, the host with no steerable
 	// route.
 	PremiseFrame func(sessionID, premise string, seq int) (frame string, ok bool)
+
+	// HandshakeFrames encodes the client half of the host's session
+	// transport (SPEC-044 CDT-679): the frames the node agent writes on the
+	// child's stdin, in order, before the host answers anything. cwd is the
+	// working directory the child inherited at spawn. nil means the host
+	// opens its session on its own transport — Claude Code, omp, and
+	// mini-swe name no handshake.
+	HandshakeFrames func(cwd string) []string
 }
+
+// The ACP request ids of the client handshake, pinned to the recorded probe
+// transcript (P-GK-ACP-1): initialize answers id 0, session/new answers id 1.
+// The capture reads the session/new answer — and its error — by that id.
+const (
+	acpInitializeRequestID = 0
+	acpSessionNewRequestID = 1
+)
 
 // resumeSpec is the AC-4 named resume invocation of one host: a distinct
 // headless invocation, not the steerable launch. The resume flags live on
@@ -125,6 +141,31 @@ func grokPromptFrame(sessionID, message string, seq int) string {
 		"params", json.RawMessage(omniJSON(
 			"sessionId", sessionID,
 			"prompt", []any{json.RawMessage(omniJSON("type", "text", "text", message))})))
+}
+
+// grokHandshakeFrames is the client half of Grok's ACP transport (SPEC-044
+// CDT-679 AC1, probe P-GK-ACP-1): `initialize`, `notifications/initialized`,
+// and `session/new` naming the working directory. The agent answers nothing
+// before them, so a spawn that writes no handshake idles forever.
+//
+// The client capabilities are the P-GK-CTR-3c adapter constraint:
+// `terminal: false`. With terminal capability the agent issues `terminal/*`
+// client requests the node agent never answers, and the turn stalls
+// (P-GK-CTR-3b, the recorded failed variant); the `fs` cells are the probe's
+// — the node agent answers no client request at all.
+func grokHandshakeFrames(cwd string) []string {
+	return []string{
+		omniJSON("jsonrpc", "2.0", "id", acpInitializeRequestID, "method", "initialize",
+			"params", json.RawMessage(omniJSON(
+				"protocolVersion", 1,
+				"clientCapabilities", json.RawMessage(omniJSON(
+					"terminal", false,
+					"fs", json.RawMessage(omniJSON(
+						"readTextFile", false, "writeTextFile", false))))))),
+		omniJSON("jsonrpc", "2.0", "method", "notifications/initialized"),
+		omniJSON("jsonrpc", "2.0", "id", acpSessionNewRequestID, "method", "session/new",
+			"params", json.RawMessage(omniJSON("cwd", cwd, "mcpServers", []any{}))),
+	}
 }
 
 // ompSteerFrame is omp's RPC steer command (P-OMP-C-C): it enters the
@@ -214,6 +255,9 @@ var specs = map[Host]spec{
 		// frames can name it.
 		SteerFrame:   grokPromptFrame,
 		PremiseFrame: frameNeedsSession(grokPromptFrame),
+		// ACP is client-driven: these three frames open the session whose
+		// id the capture reads and the premise names (CDT-679 AC1).
+		HandshakeFrames: grokHandshakeFrames,
 	},
 
 	// omp — RPC mode is the steerable route (P-OMP-C-C: the

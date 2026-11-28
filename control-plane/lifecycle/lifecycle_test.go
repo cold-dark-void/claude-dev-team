@@ -243,7 +243,7 @@ func TestEdgeGuardRefusesAnAmbiguousEventPair(t *testing.T) {
 		{"running", "run_halted", []string{
 			"running-halted-stalled", "running-halted-lease_lost",
 			"running-halted-reconcile_failed", "running-halted-budget_exhausted",
-			"running-halted-operator_halt",
+			"running-halted-operator_halt", "running-halted-handshake_failed",
 		}},
 		{"claimed", "run_halted", []string{"claimed-halted-stalled", "claimed-halted-operator_halt"}},
 	}
@@ -364,8 +364,8 @@ func TestLoadIsSilentOnSharedEventPairs(t *testing.T) {
 			t.Errorf("edge %q is not in any (from, event) group", e.ID)
 		}
 	}
-	if n := groups["running\x00run_halted"]; n != 5 {
-		t.Errorf("running + run_halted edges = %d, want 5", n)
+	if n := groups["running\x00run_halted"]; n != 6 {
+		t.Errorf("running + run_halted edges = %d, want 6", n)
 	}
 	if n := groups["claimed\x00run_halted"]; n != 2 {
 		t.Errorf("claimed + run_halted edges = %d, want 2", n)

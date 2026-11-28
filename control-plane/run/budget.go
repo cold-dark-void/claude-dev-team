@@ -118,12 +118,16 @@ func StallLimitSeconds(model string, getenv func(string) string) (int64, string,
 // reconcile_failed   the reconciler gets three passes (AC5 loop, wave 2 owns it)
 // budget_exhausted   no budget: the budget is the thing that ran out
 // operator_halt      no budget: only an operator resumes that run
+// handshake_failed   one re-spawn per operator resume (CDT-679): the host may
+//
+//	answer the next handshake; the agent never loops on it
 var RetryBudgets = map[string]int{
 	"stalled":          2,
 	"lease_lost":       1,
 	"reconcile_failed": 3,
 	"budget_exhausted": 0,
 	"operator_halt":    0,
+	"handshake_failed": 1,
 }
 
 // RetryBudget returns the budget for a named halt reason.

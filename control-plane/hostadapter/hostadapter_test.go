@@ -272,28 +272,24 @@ func TestCaptureSurvivesSplitWrites(t *testing.T) {
 }
 
 // AC2 + AC7: the Grok ACP capture is pinned to a live probe transcript.
-// testdata/grok-acp-session-frames.jsonl is the recorded stdout of the ACP
+// testdata/grok-acp-session-frames.jsonl is the recorded exchange of the ACP
 // handshake run 2026-11-24 against grok 1.0.92 from a scratch working
 // directory (probe P-GK-ACP-1, reproduced by probe P-GK-ACP-2 the same day):
 //
 //	printf '<initialize>\n<initialized>\n<session/new>\n' \
 //	  | grok agent --always-approve stdio
 //
-// It carries the initialize response (no session id), two session/setup
-// notifications, and the session/new response (id 1) that names the id as
-// result.sessionId. The reproduction's full 29-frame transcript shows the
-// notifications naming the id as params.sessionId from frame 7 — ten frames
-// before the response answers — and the capture reads none of them.
+// Its first four lines are the recorded stdout: the initialize response (no
+// session id), two session/setup notifications, and the session/new response
+// (id 1) that names the id as result.sessionId. Its last three lines are the
+// client frames the probe sent — the canonical bytes of the handshake, read by
+// both suites (acpProbeClientFrames). The reproduction's full 29-frame
+// transcript shows the notifications naming the id as params.sessionId from
+// frame 7 — ten frames before the response answers — and the capture reads none
+// of them.
 func TestGrokACPCaptureReadsTheProbeTranscript(t *testing.T) {
 	const want = "01a20e68-d7e1-7bc0-9eb8-915deef0e64b"
-	raw, err := os.ReadFile(filepath.Join("testdata", "grok-acp-session-frames.jsonl"))
-	if err != nil {
-		t.Fatalf("read the recorded probe transcript: %v", err)
-	}
-	lines := strings.Split(string(raw), "\n")
-	if len(lines) < 4 {
-		t.Fatalf("the transcript carries %d lines, want the four recorded frames", len(lines))
-	}
+	lines := acpProbeFrames(t)
 	// The frame that opens the session is the response, not the initialize
 	// answer: the probe's initialize result names no session id.
 	if id := specs[HostGrok].SessionIDFromLine(lines[0]); id != "" {
@@ -307,16 +303,34 @@ func TestGrokACPCaptureReadsTheProbeTranscript(t *testing.T) {
 		}
 	}
 	cap := NewCapture(HostGrok)
-	for _, l := range lines {
-		if l == "" {
-			continue
-		}
+	for _, l := range lines[:acpTranscriptFrames] {
 		if _, err := io.WriteString(cap, l+"\n"); err != nil {
 			t.Fatal(err)
 		}
 	}
 	if got := cap.SessionID(); got != want {
 		t.Errorf("SessionID = %q, want the session/new response's id %q", got, want)
+	}
+	if cap.HandshakeError() != "" {
+		t.Errorf("HandshakeError = %q, want empty: no response refused", cap.HandshakeError())
+	}
+	// The client's own frames are the only other JSON on the probe's wire, and
+	// the capture must read no id and no refusal from them — in particular not
+	// a refusal from the session/new request, which shares the response's id.
+	for _, l := range lines[acpTranscriptFrames:] {
+		if id := specs[HostGrok].SessionIDFromLine(l); id != "" {
+			t.Errorf("the client's session/new request names %q, want no session id", id)
+		}
+		if _, err := io.WriteString(cap, l+"\n"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if got := cap.SessionID(); got != want {
+		t.Errorf("SessionID after the client frames = %q, want %q", got, want)
+	}
+	if cap.HandshakeError() != "" {
+		t.Errorf("HandshakeError = %q, want empty: the client's own request is not a refusal",
+			cap.HandshakeError())
 	}
 }
 
@@ -1016,4 +1030,339 @@ func newEngine(t *testing.T) *journal.Engine {
 // output reads.
 func agentNative(out io.Writer) *agent.Agent {
 	return &agent.Agent{Runner: agent.Native{Stdout: out, Stderr: io.Discard}}
+}
+
+// ---------------------------------------------------------------------------
+// SPEC-044 CDT-679 — the ACP client handshake opens the Grok session
+// ---------------------------------------------------------------------------
+
+// The client frames of probe P-GK-ACP-1 (/tmp/cdt661-acp2-C1ruMk/req.jsonl,
+// grok 1.0.92, 2026-11-24) — the P-GK-CTR-3c adapter constraint, client
+// capabilities terminal: false — live in the probe transcript, not in a test
+// const. Byte-exactness is the point: the host answers nothing before these
+// bytes, so the encoding the spec owns is the contract, and the fixture is the
+// one place those bytes are written down. The agent lane reads the same file
+// (control-plane/agent/agent_test.go, acpHandshakeFrames).
+const (
+	// acpTranscriptFrames is the line count of the recorded server frames —
+	// the transcript's first lines, the ones the probe's child answered with.
+	acpTranscriptFrames = 4
+	// acpClientFrames is the count of the client frames that follow them, and
+	// acpCWDToken stands where the probe named its scratch directory.
+	acpClientFrames = 3
+	acpCWDToken     = "__CWD__"
+)
+
+// acpProbeFrames reads the probe transcript into its non-empty lines: the
+// recorded server frames, then the recorded client frames.
+func acpProbeFrames(t *testing.T) []string {
+	t.Helper()
+	raw, err := os.ReadFile(filepath.Join("testdata", "grok-acp-session-frames.jsonl"))
+	if err != nil {
+		t.Fatalf("read the recorded probe transcript: %v", err)
+	}
+	var lines []string
+	for _, l := range strings.Split(string(raw), "\n") {
+		if strings.TrimSpace(l) != "" {
+			lines = append(lines, l)
+		}
+	}
+	if len(lines) != acpTranscriptFrames+acpClientFrames {
+		t.Fatalf("the transcript carries %d frames, want the %d recorded answers "+
+			"and the %d client frames", len(lines), acpTranscriptFrames, acpClientFrames)
+	}
+	return lines
+}
+
+// acpProbeClientFrames is the probe's client half — the three frames the host
+// needed before it answered anything, naming cwd in its session/new request.
+func acpProbeClientFrames(t *testing.T, cwd string) []string {
+	t.Helper()
+	lines := acpProbeFrames(t)[acpTranscriptFrames:]
+	out := make([]string, len(lines))
+	for i, l := range lines {
+		out[i] = strings.ReplaceAll(l, acpCWDToken, cwd)
+	}
+	return out
+}
+
+// AC1: the Grok spec carries the handshake as data — the P-GK-ACP-1 shapes in
+// order, naming the cwd the child inherited — and no other host names one.
+func TestGrokHandshakeFramesAreTheProbeShapes(t *testing.T) {
+	if specs[HostGrok].HandshakeFrames == nil {
+		t.Fatal("the Grok spec names no client handshake: a Grok run spawns a child " +
+			"that idles forever waiting for its client")
+	}
+	got := specs[HostGrok].HandshakeFrames("/tmp/cdt679-probe")
+	want := acpProbeClientFrames(t, "/tmp/cdt679-probe")
+	if len(got) != len(want) {
+		t.Fatalf("handshake = %d frames, want the three the probe sent", len(got))
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Errorf("frame %d = %s\n            want %s", i, got[i], want[i])
+		}
+	}
+	for _, h := range []Host{HostClaudeCode, HostOmp, HostMiniSwe} {
+		if specs[h].HandshakeFrames != nil {
+			t.Errorf("%s names a client handshake: its host opens the session on its "+
+				"own transport, so its start must be unchanged", h)
+		}
+		if frames := handshakeFramesOf(h); frames != nil {
+			t.Errorf("handshakeFramesOf(%s) answers frames, want nil", h)
+		}
+	}
+}
+
+// AC1: the handshake rides every Grok spawn — the start and the takeover
+// re-spawn alike — because each spawn's child is a new ACP agent.
+func TestHandshakeFramesRideEveryGrokSpawn(t *testing.T) {
+	f := &fakeAgent{}
+	a := newFakeAdapter(f)
+	eng := newEngine(t)
+	if _, err := a.Start(context.Background(), eng, startReq(HostGrok)); err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	if _, err := a.Resume(context.Background(), eng, resumeReq(HostGrok)); err != nil {
+		t.Fatalf("Resume: %v", err)
+	}
+	if len(f.starts) != 2 {
+		t.Fatalf("starts = %d, want the start and the resume", len(f.starts))
+	}
+	for i, verb := range []string{"Start", "Resume"} {
+		hs := f.starts[i].Handshake
+		if hs == nil {
+			t.Fatalf("%s carries no client handshake: the re-spawn's child is a new "+
+				"ACP agent that answers nothing until its client speaks", verb)
+		}
+		if got := hs("/tmp/wt"); len(got) != acpClientFrames ||
+			got[acpClientFrames-1] != acpProbeClientFrames(t, "/tmp/wt")[acpClientFrames-1] {
+			t.Errorf("%s handshake = %v, want the three probe frames naming the cwd", verb, got)
+		}
+	}
+	for _, h := range []Host{HostClaudeCode, HostOmp} {
+		ff := &fakeAgent{}
+		if _, err := newFakeAdapter(ff).Start(context.Background(), eng, startReq(h)); err != nil {
+			t.Fatalf("Start(%s): %v", h, err)
+		}
+		if ff.lastStart().Handshake != nil {
+			t.Errorf("Start(%s) carries a handshake, want nil — its start is unchanged", h)
+		}
+	}
+}
+
+// AC3: the capture reads the JSON-RPC error off the session/new response, so
+// the node agent can name the halt without parsing host output. A frame that
+// answers with a result, a notification, and any answer after the session
+// opened are not handshake failures.
+func TestCaptureReportsTheSessionNewRefusal(t *testing.T) {
+	const refusal = `{"jsonrpc":"2.0","id":1,"error":{"code":-32603,` +
+		`"message":"couldn't create session"}}`
+	cap := NewCapture(HostGrok)
+	for _, l := range []string{
+		`{"jsonrpc":"2.0","method":"_x.ai/session/setup","params":{"sessionId":null}}`,
+		`{"jsonrpc":"2.0","id":0,"result":{"protocolVersion":1}}`,
+	} {
+		if _, err := io.WriteString(cap, l+"\n"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if got := cap.HandshakeError(); got != "" {
+		t.Errorf("HandshakeError = %q before the answer, want empty", got)
+	}
+	if _, err := io.WriteString(cap, refusal+"\n"); err != nil {
+		t.Fatal(err)
+	}
+	got := cap.HandshakeError()
+	if !strings.Contains(got, "couldn't create session") || !strings.Contains(got, "-32603") {
+		t.Errorf("HandshakeError = %q, want the code and message of the refusal", got)
+	}
+	if cap.SessionID() != "" {
+		t.Errorf("SessionID = %q, want empty: an error response names no session",
+			cap.SessionID())
+	}
+
+	// After the session opens, the same id is a prompt answer: the premise
+	// frame and the steer frame reuse the request-id space (the transport
+	// echoes it and nothing correlates on it), so a late error never reopens
+	// a completed handshake.
+	opened := NewCapture(HostGrok)
+	for _, l := range []string{
+		`{"jsonrpc":"2.0","id":1,"result":{"sessionId":"sess-acp-1"}}`,
+		refusal,
+	} {
+		if _, err := io.WriteString(opened, l+"\n"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if opened.SessionID() != "sess-acp-1" {
+		t.Fatalf("SessionID = %q, want the captured id", opened.SessionID())
+	}
+	if got := opened.HandshakeError(); got != "" {
+		t.Errorf("HandshakeError = %q after the session opened, want empty", got)
+	}
+	// A host with no client-opened transport carries no handshake reading.
+	if NewCapture(HostClaudeCode).HandshakeError() != "" {
+		t.Error("the Claude Code capture reports a handshake error")
+	}
+}
+
+// acpShAgent is the CDT-679 integration seam: a real node agent over a real
+// journal whose child stands in for `grok agent --always-approve stdio`. The
+// child consumes the three client frames its stdin is fed, answers with the
+// recorded probe transcript, and reads its next frame — the premise's
+// session/prompt — into $CDT679_TEST_PROMPT_OUT. No test execs a host CLI.
+type acpShAgent struct{ A *agent.Agent }
+
+const acpShChild = `read a; read b; read c; ` +
+	`printf '%s\n%s\n%s\n' "$a" "$b" "$c" > "$CDT679_TEST_HANDSHAKE_OUT"; ` +
+	`sed -n '1p;4p' "$CDT679_TEST_TRANSCRIPT"; ` +
+	`read p; printf '%s\n' "$p" > "$CDT679_TEST_PROMPT_OUT"`
+
+func (s *acpShAgent) Supervise(ctx context.Context, eng *journal.Engine,
+	req agent.StartRequest, sessionOut io.Writer) error {
+	req.Command, req.Args = "sh", []string{"-c", acpShChild}
+	s.A.Runner = agent.Native{Stdout: sessionOut}
+	return s.A.Supervise(ctx, eng, req)
+}
+
+func (s *acpShAgent) Stop(ctx context.Context, eng *journal.Engine,
+	runID string, grace time.Duration) error {
+	return s.A.Stop(ctx, eng, runID, grace)
+}
+
+func (s *acpShAgent) Steer(ctx context.Context, eng *journal.Engine,
+	runID, message string) error {
+	return s.A.Steer(ctx, eng, runID, message)
+}
+
+func (s *acpShAgent) Status(ctx context.Context, eng *journal.Engine,
+	runID string) (agent.StatusReport, error) {
+	return s.A.Status(ctx, eng, runID)
+}
+
+// AC1/AC2/AC4 end to end on the real host spec: the node agent writes the
+// probe's three frames in order, the capture reads result.sessionId off the
+// session/new response of the recorded transcript, the premise renders as the
+// first session/prompt naming that id, and the pair closes delivered.
+func TestGrokACPSessionOpensThroughTheAgent(t *testing.T) {
+	eng := newEngine(t)
+	dir := t.TempDir()
+	handshakeOut := filepath.Join(dir, "handshake.txt")
+	promptOut := filepath.Join(dir, "prompt.txt")
+	t.Setenv("CDT679_TEST_HANDSHAKE_OUT", handshakeOut)
+	t.Setenv("CDT679_TEST_PROMPT_OUT", promptOut)
+	t.Setenv("CDT679_TEST_TRANSCRIPT", filepath.Join("testdata", "grok-acp-session-frames.jsonl"))
+	const wantSession = "01a20e68-d7e1-7bc0-9eb8-915deef0e64b"
+
+	a := &Adapter{Agent: &acpShAgent{A: agentNative(io.Discard)}}
+	runID := "run-acp"
+	if _, err := a.Start(context.Background(), eng, StartRequest{
+		RunID: runID, Host: HostGrok,
+		Ticket: "CDT-679", Workflow: "orchestrate", Model: "sonnet",
+		Premise: testPremise,
+	}); err != nil {
+		t.Fatalf("start: %v", err)
+	}
+
+	raw, err := os.ReadFile(handshakeOut)
+	if err != nil {
+		t.Fatalf("handshake output: %v", err)
+	}
+	lines := strings.Split(strings.TrimRight(string(raw), "\n"), "\n")
+	if len(lines) != acpClientFrames {
+		t.Fatalf("the child read %d frames, want the three the probe sent: %q", len(lines), raw)
+	}
+	wd, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantFrames := acpProbeClientFrames(t, wd)
+	for i := range wantFrames {
+		if lines[i] != wantFrames[i] {
+			t.Errorf("frame %d = %s\n            want %s", i, lines[i], wantFrames[i])
+		}
+	}
+	var sessionNew struct {
+		JSONRPC string `json:"jsonrpc"`
+		ID      int    `json:"id"`
+		Method  string `json:"method"`
+		Params  struct {
+			Cwd        string   `json:"cwd"`
+			MCPServers []string `json:"mcpServers"`
+		} `json:"params"`
+	}
+	if err := json.Unmarshal([]byte(lines[2]), &sessionNew); err != nil {
+		t.Fatalf("session/new frame is not JSON: %v (%q)", err, lines[2])
+	}
+	if sessionNew.JSONRPC != "2.0" || sessionNew.ID != 1 ||
+		sessionNew.Method != "session/new" || sessionNew.Params.MCPServers == nil {
+		t.Errorf("session/new frame = %q, want the probe's frame shape", lines[2])
+	}
+	if sessionNew.Params.Cwd != wd {
+		t.Errorf("session/new names cwd %q, want the directory the child inherited %q",
+			sessionNew.Params.Cwd, wd)
+	}
+
+	// The premise is the frame after the handshake, and it names the session
+	// the transcript's session/new response opened.
+	praw, err := os.ReadFile(promptOut)
+	if err != nil {
+		t.Fatalf("premise output: %v", err)
+	}
+	var prompt struct {
+		JSONRPC string `json:"jsonrpc"`
+		Method  string `json:"method"`
+		Params  struct {
+			SessionID string `json:"sessionId"`
+			Prompt    []struct {
+				Type string `json:"type"`
+				Text string `json:"text"`
+			} `json:"prompt"`
+		} `json:"params"`
+	}
+	if err := json.Unmarshal(praw, &prompt); err != nil {
+		t.Fatalf("premise frame is not JSON: %v (%q)", err, praw)
+	}
+	if prompt.Method != "session/prompt" || prompt.Params.SessionID != wantSession {
+		t.Errorf("premise frame = %q, want the session/prompt naming %s", praw, wantSession)
+	}
+	if len(prompt.Params.Prompt) != 1 || prompt.Params.Prompt[0].Text != testPremise {
+		t.Errorf("premise frame carries %v, want the premise text", prompt.Params.Prompt)
+	}
+
+	st, err := eng.RunState(context.Background(), runID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if st.Name() != "completed" {
+		t.Fatalf("state = %s, want completed", st.Name())
+	}
+	handshakeRow := effectRow(t, eng, runID, "agent:handshake:"+runID+"#1")
+	if handshakeRow.Pending() {
+		t.Errorf("the handshake intent is pending: %+v", handshakeRow)
+	}
+	premiseRow := effectRow(t, eng, runID, "agent:premise:"+runID+"#1")
+	if !strings.Contains(string(premiseRow.Outcome), `"delivered":true`) {
+		t.Errorf("premise outcome %s, want delivered true", premiseRow.Outcome)
+	}
+	if !strings.Contains(string(premiseRow.Outcome), `"session_id":"`+wantSession+`"`) {
+		t.Errorf("premise outcome %s does not name the captured session", premiseRow.Outcome)
+	}
+}
+
+// effectRow is the record of one effect key on the replayed state.
+func effectRow(t *testing.T, eng *journal.Engine, runID, key string) journal.RecordedEffect {
+	t.Helper()
+	st, err := eng.RunState(context.Background(), runID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, e := range st.Effects {
+		if e.Key == key {
+			return e
+		}
+	}
+	t.Fatalf("run %s carries no effect keyed %s", runID, key)
+	return journal.RecordedEffect{}
 }

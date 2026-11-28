@@ -1465,3 +1465,430 @@ func TestStopAClaimedRunJournalsTheHaltAlone(t *testing.T) {
 		t.Errorf("pidfile stat err = %v, want not exist", err)
 	}
 }
+
+// ---------------------------------------------------------------------------
+// SPEC-044 CDT-679 — the client handshake opens a Grok ACP session
+// ---------------------------------------------------------------------------
+
+// acpCapture is the test shape of hostadapter.Capture for the ACP transport:
+// it reads result.sessionId off a response frame and the JSON-RPC error off
+// the session/new answer, satisfying SessionSource and HandshakeSource the way
+// the real capture does. The real parser and its recorded transcript live in
+// control-plane/hostadapter — the agent asks for the readings and never parses
+// host output itself.
+// COPY-ACCEPTED: divergence-expected — a capture-less agent test needs the
+// source shape locally; hostadapter imports this package, so the real parser
+// cannot be imported here. It reads the same frame fields as
+// hostadapter.Capture; the frames it parses come from the shared fixture.
+type acpCapture struct {
+	mu      sync.Mutex
+	line    []byte
+	id      string
+	handErr string
+}
+
+// Write consumes the stream byte by byte and parses each complete line: a
+// frame arrives split across writes (the runner drains in 32 KB chunks and the
+// probe's response frames are larger than that), so a partial frame is
+// buffered, never parsed.
+func (c *acpCapture) Write(p []byte) (int, error) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	for _, b := range p {
+		if b == '\n' {
+			c.consumeLine()
+			c.line = c.line[:0]
+			continue
+		}
+		c.line = append(c.line, b)
+	}
+	return len(p), nil
+}
+
+func (c *acpCapture) consumeLine() {
+	line := strings.TrimSpace(string(c.line))
+	if line == "" || line[0] != '{' {
+		return
+	}
+	var frame struct {
+		ID     *int `json:"id"`
+		Result struct {
+			SessionID string `json:"sessionId"`
+		} `json:"result"`
+		Error *struct {
+			Code    int    `json:"code"`
+			Message string `json:"message"`
+		} `json:"error"`
+	}
+	if json.Unmarshal([]byte(line), &frame) != nil {
+		return
+	}
+	switch {
+	case frame.Result.SessionID != "" && c.id == "":
+		c.id = frame.Result.SessionID
+	case c.id == "" && frame.ID != nil && *frame.ID == 1 && frame.Error != nil:
+		c.handErr = fmt.Sprintf("code %d: %s", frame.Error.Code, frame.Error.Message)
+	}
+}
+
+func (c *acpCapture) SessionID() string {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.id
+}
+
+func (c *acpCapture) HandshakeError() string {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.handErr
+}
+
+// The probe transcript's layout: the frames the agent answered with, then the
+// three frames the probe's client sent, with acpCWDToken where the probe named
+// its scratch directory.
+const (
+	acpServerFrameCount = 4
+	acpClientFrameCount = 3
+	acpCWDToken         = "__CWD__"
+)
+
+// acpFixturePath is the recorded probe transcript, read across the package
+// boundary: the fake child answers from it and the client frames come from it
+// (SPEC-044 CDT-679 AC4). control-plane/hostadapter owns the file and imports
+// this package, so no test helper crosses that way — the fixture is the one
+// home of the probe's bytes for both lanes.
+func acpFixturePath() string {
+	p, err := filepath.Abs(filepath.Join("..", "hostadapter", "testdata",
+		"grok-acp-session-frames.jsonl"))
+	if err != nil {
+		panic(err)
+	}
+	return p
+}
+
+// acpFixture is acpFixturePath with the suite's own failure verb.
+func acpFixture(t *testing.T) string {
+	t.Helper()
+	p := acpFixturePath()
+	if _, err := os.Stat(p); err != nil {
+		t.Fatalf("the recorded probe transcript: %v", err)
+	}
+	return p
+}
+
+// acpFixtureClientFrames is the transcript's client half, read once. A missing
+// or reshaped fixture is a broken suite, so it fails loudly from a renderer the
+// product calls with no *testing.T in hand.
+var acpFixtureClientFrames = sync.OnceValue(func() []string {
+	raw, err := os.ReadFile(acpFixturePath())
+	if err != nil {
+		panic("read the recorded probe transcript: " + err.Error())
+	}
+	var lines []string
+	for _, l := range strings.Split(string(raw), "\n") {
+		if strings.TrimSpace(l) != "" {
+			lines = append(lines, l)
+		}
+	}
+	if len(lines) != acpServerFrameCount+acpClientFrameCount {
+		panic(fmt.Sprintf("the probe transcript carries %d frames, want the %d recorded "+
+			"answers and the %d client frames",
+			len(lines), acpServerFrameCount, acpClientFrameCount))
+	}
+	return lines[acpServerFrameCount:]
+})
+
+// acpHandshakeFrames is the P-GK-ACP-1 client handshake — the shapes the suite
+// feeds a fake child (SPEC-044 CDT-679 AC4) — read from the transcript
+// hostadapter owns, naming the directory this test's child inherits.
+// control-plane/hostadapter owns the encoder and pins these bytes in
+// TestGrokHandshakeFramesAreTheProbeShapes; reading them from the fixture is
+// what keeps the two lanes from drifting.
+func acpHandshakeFrames(cwd string) []string {
+	out := make([]string, acpClientFrameCount)
+	for i, l := range acpFixtureClientFrames() {
+		out[i] = strings.ReplaceAll(l, acpCWDToken, cwd)
+	}
+	return out
+}
+
+// acpFiles points the seam child's stdin capture and frame outputs at a
+// directory of its own.
+func acpFiles(t *testing.T) (framesOut, promptOut string) {
+	t.Helper()
+	dir := t.TempDir()
+	framesOut = filepath.Join(dir, "handshake.txt")
+	promptOut = filepath.Join(dir, "prompt.txt")
+	t.Setenv("CDT679_TEST_HANDSHAKE_OUT", framesOut)
+	t.Setenv("CDT679_TEST_PROMPT_OUT", promptOut)
+	t.Setenv("CDT679_TEST_TRANSCRIPT", acpFixture(t))
+	return framesOut, promptOut
+}
+
+// readFramesLines returns the frames one child read, in order.
+func readFramesLines(t *testing.T, path string) []string {
+	t.Helper()
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("frames output: %v", err)
+	}
+	return strings.Split(strings.TrimRight(string(raw), "\n"), "\n")
+}
+
+// haltedRow reads the run's halt record.
+func haltedRow(t *testing.T, eng *journal.Engine, runID string) journal.Halt {
+	t.Helper()
+	st := state(t, eng, runID)
+	if st.Halt == nil {
+		t.Fatalf("run %s carries no halt (state %s)", runID, st.Name())
+	}
+	return *st.Halt
+}
+
+// AC1/AC2: the handshake rides the spawn in order, the session id is captured
+// off the transcript's session/new response on the CDT-661 path, and the
+// premise renders as the frame that names it — the delivery rides the tick
+// that captured the id, and the pair lands once under the live attempt.
+func TestSuperviseWritesTheHandshakeThenDeliversThePremise(t *testing.T) {
+	eng := newEngine(t)
+	runID := "CDT-679"
+	framesOut, promptOut := acpFiles(t)
+	const wantSession = "01a20e68-d7e1-7bc0-9eb8-915deef0e64b"
+
+	cap := &acpCapture{}
+	a := &Agent{Runner: Native{Stdout: cap, Stderr: io.Discard}}
+	req := startReq(runID,
+		`read a; read b; read c; `+
+			`printf '%s\n%s\n%s\n' "$a" "$b" "$c" > "$CDT679_TEST_HANDSHAKE_OUT"; `+
+			`sed -n '1p;4p' "$CDT679_TEST_TRANSCRIPT"; `+
+			`read p; printf '%s\n' "$p" > "$CDT679_TEST_PROMPT_OUT"`)
+	req.Premise = "Fix the redirect: the handshake opens the session."
+	req.PremiseFrame = premiseTestFrame
+	req.Handshake = acpHandshakeFrames
+
+	if err := a.Supervise(context.Background(), eng, req); err != nil {
+		raw, _ := os.ReadFile(framesOut)
+		t.Fatalf("supervise: %v (capture id %q, handshake error %q, frames read: %q)",
+			err, cap.SessionID(), cap.HandshakeError(), raw)
+	}
+
+	wd, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := readFramesLines(t, framesOut)
+	want := acpHandshakeFrames(wd)
+	if len(got) != len(want) {
+		t.Fatalf("the child read %d frames, want the three the probe sent: %v", len(got), got)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Errorf("frame %d = %s\n            want %s", i, got[i], want[i])
+		}
+	}
+
+	key := "agent:handshake:" + runID + "#1"
+	e := effectByKey(t, eng, runID, key)
+	if e.Effect != EffectHandshake || e.Pending() {
+		t.Fatalf("handshake effect = %+v, want a closed agent.handshake row pair", e)
+	}
+	if !strings.Contains(string(e.Intent), `"cwd":"`+wd+`"`) {
+		t.Errorf("intent %s does not carry the directory the child inherited", e.Intent)
+	}
+	for _, raw := range [][]byte{e.Intent, e.Outcome} {
+		if !strings.Contains(string(raw), `"attempt":1`) {
+			t.Errorf("row %s does not carry the attempt", raw)
+		}
+	}
+	if !strings.Contains(string(e.Outcome), `"frames":3`) {
+		t.Errorf("outcome %s does not record the frames written", e.Outcome)
+	}
+	if !strings.Contains(string(e.Outcome), `"delivered":true`) {
+		t.Errorf("outcome %s does not close the delivery", e.Outcome)
+	}
+	if n := countKeyRows(t, eng, runID, key); n != 1 {
+		t.Errorf("rows keyed %s = %d, want the one intent", key, n)
+	}
+	if n := countEffectRows(t, eng, runID, EffectHandshake); n != 2 {
+		t.Errorf("agent.handshake rows = %d, want the intent and its outcome", n)
+	}
+
+	// AC2: the capture path is CDT-661's, unchanged — the id off the
+	// session/new response, journaled once for the attempt.
+	sess := effectByKey(t, eng, runID, "agent:session:"+runID+"#1")
+	if !strings.Contains(string(sess.Outcome), `"session_id":"`+wantSession+`"`) {
+		t.Errorf("session outcome %s, want the transcript's session id", sess.Outcome)
+	}
+
+	praw, err := os.ReadFile(promptOut)
+	if err != nil {
+		t.Fatalf("premise output: %v", err)
+	}
+	sessionID, delivered := readFirstFrame(t, promptOut)
+	if sessionID != wantSession || delivered != req.Premise {
+		t.Errorf("premise frame = (%q, %q), want the captured id and the premise (%q) — got %s",
+			sessionID, delivered, req.Premise, praw)
+	}
+	premise := effectByKey(t, eng, runID, "agent:premise:"+runID+"#1")
+	if !strings.Contains(string(premise.Outcome), `"delivered":true`) {
+		t.Errorf("premise outcome %s, want delivered true on the capture tick", premise.Outcome)
+	}
+	if st := state(t, eng, runID); st.Name() != "completed" {
+		t.Errorf("state = %s, want completed", st.Name())
+	}
+}
+
+// AC3: a session/new response that carries a JSON-RPC error stops the child and
+// lands the run in the named halt, on the tick that read the refusal — never
+// idle as running.
+func TestSuperviseHandshakeHaltsOnTheSessionNewError(t *testing.T) {
+	eng := newEngine(t)
+	runID := "CDT-679"
+	acpFiles(t)
+	cap := &acpCapture{}
+	a := &Agent{Runner: Native{Stdout: cap, Stderr: io.Discard}}
+
+	// The child answers the handshake with the refusal, then idles: an ACP
+	// child that never opened its session waits forever, which is the defect.
+	req := startReq(runID,
+		`read a; read b; read c; `+
+			`printf '%s\n' '{"jsonrpc":"2.0","id":1,"error":{"code":-32603,`+
+			`"message":"session load was superseded"}}'; `+
+			`sleep 30`)
+	req.Handshake = acpHandshakeFrames
+
+	err := a.Supervise(context.Background(), eng, req)
+	if !errors.Is(err, ErrHandshakeFailed) {
+		t.Fatalf("supervise err = %v, want ErrHandshakeFailed", err)
+	}
+	st := state(t, eng, runID)
+	if st.Name() != "halted:handshake_failed" {
+		t.Fatalf("state = %s, want the named halt", st.Name())
+	}
+	h := haltedRow(t, eng, runID)
+	if h.Reason != run.ReasonHandshakeFailed ||
+		!strings.Contains(h.Detail, "session/new") ||
+		!strings.Contains(h.Detail, "session load was superseded") {
+		t.Errorf("halt = %+v, want a reason that names the handshake failure", h)
+	}
+	if n := rowsByKind(t, eng, runID, journal.KindRunHalted); n != 1 {
+		t.Errorf("run_halted rows = %d, want exactly one", n)
+	}
+	if rec, err := readPIDFile(runID); err != nil || rec.RunnerPID != 0 {
+		t.Errorf("pidfile survived the halt: %+v (err %v)", rec, err)
+	}
+}
+
+// AC3: a child that dies before the session id lands is the same named halt —
+// not the exit code, and never a run left running on a dead host.
+func TestSuperviseHandshakeHaltsWhenTheChildDiesBeforeTheSessionID(t *testing.T) {
+	eng := newEngine(t)
+	runID := "CDT-679"
+	acpFiles(t)
+	cap := &acpCapture{}
+	a := &Agent{Runner: Native{Stdout: cap, Stderr: io.Discard}}
+
+	req := startReq(runID, `read a; read b; read c; exit 3`)
+	req.Handshake = acpHandshakeFrames
+
+	err := a.Supervise(context.Background(), eng, req)
+	if !errors.Is(err, ErrHandshakeFailed) {
+		t.Fatalf("supervise err = %v, want ErrHandshakeFailed", err)
+	}
+	st := state(t, eng, runID)
+	if st.Name() != "halted:handshake_failed" {
+		t.Fatalf("state = %s, want the named halt, not the exit code's failure", st.Name())
+	}
+	h := haltedRow(t, eng, runID)
+	if !strings.Contains(h.Detail, "exited") || !strings.Contains(h.Detail, "session/new") {
+		t.Errorf("halt = %+v, want a detail that names the early child death", h)
+	}
+	if n := countEffectRows(t, eng, runID, EffectHandshake); n != 2 {
+		t.Errorf("agent.handshake rows = %d, want the closed pair the write landed", n)
+	}
+}
+
+// AC3: a capture that is still empty at the bounded wait is the named halt. The
+// child answered initialize and nothing else — the shape of a host that waits
+// for a client that already spoke.
+func TestSuperviseHandshakeHaltsPastTheBoundedWait(t *testing.T) {
+	eng := newEngine(t)
+	runID := "CDT-679"
+	acpFiles(t)
+	cap := &acpCapture{}
+	a := &Agent{Runner: Native{Stdout: cap, Stderr: io.Discard},
+		PremiseSessionWait: 250 * time.Millisecond}
+
+	req := startReq(runID,
+		`read a; read b; read c; sed -n '1p' "$CDT679_TEST_TRANSCRIPT"; sleep 30`)
+	req.Handshake = acpHandshakeFrames
+
+	err := a.Supervise(context.Background(), eng, req)
+	if !errors.Is(err, ErrHandshakeFailed) {
+		t.Fatalf("supervise err = %v, want ErrHandshakeFailed", err)
+	}
+	st := state(t, eng, runID)
+	if st.Name() != "halted:handshake_failed" {
+		t.Fatalf("state = %s, want the named halt, never an idle running run", st.Name())
+	}
+	h := haltedRow(t, eng, runID)
+	if !strings.Contains(h.Detail, "no captured session id within 250ms") {
+		t.Errorf("halt = %+v, want a detail that names the bounded wait", h)
+	}
+	if cap.SessionID() != "" {
+		t.Errorf("capture = %q, want empty: the initialize response names no session",
+			cap.SessionID())
+	}
+	if cap.HandshakeError() != "" {
+		t.Errorf("HandshakeError = %q, want empty: no response refused", cap.HandshakeError())
+	}
+}
+
+// AC1 boundary: a start that names no handshake writes no frames to the child
+// and journals no handshake row — Claude Code and omp open their sessions on
+// their own transports, and their starts are unchanged.
+func TestSuperviseWithNoHandshakeJournalsNoHandshakeRow(t *testing.T) {
+	eng := newEngine(t)
+	runID := "CDT-679"
+	a := nativeAgent()
+
+	if err := a.Supervise(context.Background(), eng,
+		startReq(runID, `printf 'sess-1\n'; sleep 0.2`)); err != nil {
+		t.Fatalf("supervise: %v", err)
+	}
+	if n := countEffectRows(t, eng, runID, EffectHandshake); n != 0 {
+		t.Errorf("agent.handshake rows = %d, want 0: this start names no handshake", n)
+	}
+	if st := state(t, eng, runID); st.Name() != "completed" {
+		t.Errorf("state = %s, want completed", st.Name())
+	}
+}
+
+// AC3 boundary: an exit is judged from the capture, never from the loop's tick
+// snapshot. The capture names the session id from the first moment and the
+// child exits before the 100 ms poll tick ever turns, so the loop's snapshot is
+// still empty when the exit lands — the run completes, it is not labelled a
+// handshake failure (SPEC-044 CDT-679).
+func TestSuperviseHandshakeExitWithACapturedIDCompletesTheRun(t *testing.T) {
+	eng := newEngine(t)
+	runID := "CDT-679"
+	acpFiles(t)
+	a := &Agent{Runner: &lateSessionRunner{
+		Native: Native{Stdout: io.Discard, Stderr: io.Discard},
+		id:     "sess-race", since: time.Now(), late: -time.Second,
+	}}
+
+	req := startReq(runID, `exit 0`)
+	req.Handshake = acpHandshakeFrames
+
+	if err := a.Supervise(context.Background(), eng, req); err != nil {
+		t.Fatalf("supervise: %v", err)
+	}
+	if st := state(t, eng, runID); st.Name() != "completed" {
+		t.Fatalf("state = %s, want completed: the capture already held the session id, "+
+			"so the exit is the run's own, not the handshake's", st.Name())
+	}
+	if n := rowsByKind(t, eng, runID, journal.KindRunHalted); n != 0 {
+		t.Errorf("run_halted rows = %d, want none", n)
+	}
+}

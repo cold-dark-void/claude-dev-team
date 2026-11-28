@@ -65,4 +65,9 @@ var (
 	// session state is absent on the node: the one-time operator login has
 	// not happened, and a container started without it is unauthenticated.
 	ErrHostStateMissing = errors.New("agent: host CLI session state is missing on this node")
+
+	// ErrHandshakeFailed ends a supervision whose host never opened the
+	// session the client asked for (SPEC-044 CDT-679 AC3). The run lands in
+	// the named halt halted:handshake_failed; the error names the cause.
+	ErrHandshakeFailed = errors.New("agent: the host session handshake failed")
 )

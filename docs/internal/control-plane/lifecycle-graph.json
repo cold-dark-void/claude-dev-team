@@ -145,10 +145,20 @@
       "notes": "A human stopped the run. This is the named state a gate halt lands on."
     },
     {
+      "id": "halted:handshake_failed",
+      "kind": "run-state",
+      "label": "Halted: handshake failed",
+      "order": 18,
+      "terminal": false,
+      "defined_at": "control-plane/journal/state.go:29",
+      "source": "control-plane/run/machine.go:252",
+      "notes": "The client handshake never opened the host session (CDT-679): the session/new response carried a JSON-RPC error, the child died before the session id landed, or the bounded wait expired with no id. An ACP child idles forever, so the named halt replaces the ride-on rule of CDT-665 AC6."
+    },
+    {
       "id": "completed",
       "kind": "run-state",
       "label": "Completed",
-      "order": 18,
+      "order": 19,
       "terminal": true,
       "defined_at": "control-plane/journal/state.go:17",
       "source": "control-plane/journal/event.go:25",
@@ -158,7 +168,7 @@
       "id": "failed",
       "kind": "run-state",
       "label": "Failed",
-      "order": 19,
+      "order": 20,
       "terminal": true,
       "defined_at": "control-plane/journal/state.go:18",
       "source": "control-plane/journal/event.go:26",
@@ -718,6 +728,19 @@
       "defined_at": "control-plane/run/machine.go:473",
       "source": "control-plane/run/doc.go:13",
       "notes": "A halt the operator will not resume."
+    },
+    {
+      "id": "running-halted-handshake_failed",
+      "from": "running",
+      "to": "halted:handshake_failed",
+      "event": "run_halted",
+      "kind": "transition",
+      "gate": "",
+      "label": "Handshake failure",
+      "guards": [],
+      "defined_at": "control-plane/journal/replay.go:319",
+      "source": "control-plane/agent/agent.go:297",
+      "notes": "The node agent names the halt when the host session it asked for never opened (SPEC-044 CDT-679 AC3). The takeover does not re-spawn it; the halt names the transport."
     }
   ],
   "kill_test_boundaries": [

@@ -221,8 +221,10 @@ func TestGraphEndpointServesTheLifecycleJSON(t *testing.T) {
 			states++
 		}
 	}
-	if phases != 7 || states != 9 {
-		t.Errorf("vertices = %d phases, %d states, want 7 and 9", phases, states)
+	// 10 run-states: claimed, running, the six named halts (incl.
+	// handshake_failed, CDT-679), completed, failed.
+	if phases != 7 || states != 10 {
+		t.Errorf("vertices = %d phases, %d states, want 7 and 10", phases, states)
 	}
 }
 

@@ -26,6 +26,7 @@ var HaltReasons = []string{
 	"reconcile_failed", // the reconciler could not repair the difference
 	"budget_exhausted", // the run budget ran out
 	"operator_halt",    // a human stopped it
+	"handshake_failed", // the host never opened the session the client asked for (CDT-679)
 }
 
 func ValidHaltReason(s string) bool {

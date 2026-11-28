@@ -813,6 +813,83 @@ func TestPendingSessionIntentIsSelfEvidencing(t *testing.T) {
 	}
 }
 
+// SPEC-044 CDT-679 AC1: a pending agent.handshake intent is self-evidencing the
+// way agent.session is. The row IS the record of the client frames — they go to
+// the stdin of the run's own child, and no external reality re-proves a frame
+// write. Nothing replays it either: the takeover re-spawn hands its new ACP
+// child its own handshake under the next attempt's key. The pass adopts and
+// closes the row from its own payload and the run never halts —
+// halted:reconcile_failed is a state the takeover refuses, so the microsecond
+// crash window between the row and the write must not cost the run.
+func TestPendingHandshakeIntentIsSelfEvidencing(t *testing.T) {
+	f := newFixture(t)
+	owner := "runner-a"
+	token := f.claimStart("CDT-679", owner, "sonnet")
+
+	m := f.machine("CDT-679")
+	key := "agent:handshake:CDT-679#1"
+	if _, _, err := m.Intent(context.Background(), owner, token, key,
+		agent.EffectHandshake,
+		map[string]any{"attempt": 1, "cwd": "/tmp/cdt679-probe"}); err != nil {
+		t.Fatal(err)
+	}
+	if st := f.state("CDT-679"); len(st.PendingEffects()) != 1 {
+		t.Fatalf("the intent is not pending: %+v", st.Effects)
+	}
+
+	rep := f.reconcile(aliveProbe)
+	if !hasActionTarget(rep, ActionAdopt, key) {
+		t.Fatalf("no adopt repair for %s; findings %+v", key, rep.Findings)
+	}
+	st := f.state("CDT-679")
+	if st.Name() != "running" {
+		t.Fatalf("state = %s, want running: a self-evidencing intent must not "+
+			"halt the run (the takeover refuses halted:reconcile_failed)", st.Name())
+	}
+	if len(st.PendingEffects()) != 0 {
+		t.Fatalf("the intent is still pending: %+v", st.Effects)
+	}
+	if len(st.Effects) != 1 || !strings.Contains(string(st.Effects[0].Outcome), "attempt 1") {
+		t.Fatalf("outcome row does not adopt the handshake from the intent payload: %+v",
+			st.Effects)
+	}
+	if !strings.Contains(string(st.Effects[0].Outcome), "/tmp/cdt679-probe") {
+		t.Fatalf("outcome row %s drops the cwd the frames named: %+v",
+			st.Effects[0].Outcome, st.Effects)
+	}
+	if second := f.reconcile(aliveProbe); second.EventsAppended != 0 {
+		t.Fatalf("second pass journaled %d events", second.EventsAppended)
+	}
+}
+
+// Self-evidence needs an anchor in the row. A handshake intent that names no
+// attempt proves nothing, so the pass defers it like any unprovable effect and
+// the run lands in the reconciler's halt — the handshake case is not a blanket
+// pass for the effect name.
+func TestHandshakeIntentWithNoAttemptIsNotSelfEvidencing(t *testing.T) {
+	f := newFixture(t)
+	owner := "runner-a"
+	token := f.claimStart("CDT-679", owner, "sonnet")
+
+	m := f.machine("CDT-679")
+	key := "agent:handshake:CDT-679#1"
+	if _, _, err := m.Intent(context.Background(), owner, token, key,
+		agent.EffectHandshake, map[string]any{"cwd": "/tmp/cdt679-probe"}); err != nil {
+		t.Fatal(err)
+	}
+
+	rep := f.reconcile(aliveProbe)
+	if hasActionTarget(rep, ActionAdopt, key) {
+		t.Fatalf("an intent that names no attempt was adopted; findings %+v", rep.Findings)
+	}
+	if !hasActionTarget(rep, ActionDeferred, key) {
+		t.Fatalf("no deferred repair for %s; findings %+v", key, rep.Findings)
+	}
+	if st := f.state("CDT-679"); st.Name() != "halted:reconcile_failed" {
+		t.Fatalf("state = %s, want halted:reconcile_failed", st.Name())
+	}
+}
+
 // Self-evidencing means no reality: even a pass whose reality scan failed
 // closes a pending agent.session intent from the row's own payload.
 func TestPendingSessionIntentClosesWithNoReality(t *testing.T) {
@@ -861,5 +938,56 @@ func TestPendingSessionIntentClosesWithNoReality(t *testing.T) {
 	}
 	if len(st.PendingEffects()) != 0 {
 		t.Fatalf("the session intent survived the pass: %+v", st.PendingEffects())
+	}
+}
+
+// The handshake row is self-evidencing the same way: its evidence is the row,
+// not the repository, so a pass whose reality scan failed closes it too.
+func TestPendingHandshakeIntentClosesWithNoReality(t *testing.T) {
+	tmp := t.TempDir()
+	db := filepath.Join(tmp, "run.db")
+	eng, err := journal.OpenPath(context.Background(), db)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = eng.Close() })
+
+	owner := "runner-a"
+	clk := &clock{t: time.Date(2026, 11, 16, 12, 0, 0, 0, time.UTC)}
+	m := run.New(eng, "CDT-679")
+	m.Now = clk.now
+	token, err := m.Claim(context.Background(), owner, "CDT-679", "orchestrate", "sonnet")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := m.Start(context.Background(), owner, token, "sonnet"); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := m.Intent(context.Background(), owner, token,
+		"agent:handshake:CDT-679#1", agent.EffectHandshake,
+		map[string]any{"attempt": 1, "cwd": "/tmp/cdt679-probe"}); err != nil {
+		t.Fatal(err)
+	}
+
+	rep, err := Run(context.Background(), eng, Paths{
+		MROOT: tmp,
+		Now:   clk.now,
+		Probe: aliveProbe,
+	})
+	if err != nil {
+		t.Fatalf("Run with no repository: %v", err)
+	}
+	if rep.RealityError == "" {
+		t.Fatal("RealityError is empty; the scan failure is unreported")
+	}
+	st, err := eng.RunState(context.Background(), "CDT-679")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if st.Name() != "running" {
+		t.Fatalf("state = %s, want running with the reality scan failed", st.Name())
+	}
+	if len(st.PendingEffects()) != 0 {
+		t.Fatalf("the handshake intent survived the pass: %+v", st.PendingEffects())
 	}
 }
