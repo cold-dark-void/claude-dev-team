@@ -24,7 +24,8 @@ var stalledState = string(journal.StatusHalted) + ":" + run.ReasonStalled
 // takeoverCandidate is one run the takeover scan selects (SPEC-044 M1). It
 // carries what the takeover path needs to re-supervise the run through the
 // host adapter: the run id, the replayed state it was found in, the
-// journaled work (the run_claimed payload), and the lease owner the records
+// journaled work (the run_claimed payload), the caps the run's own
+// run_started row journaled (SPEC-046 M7), and the lease owner the records
 // name — the node the Runner lives on (M12).
 type takeoverCandidate struct {
 	RunID    string
@@ -33,6 +34,11 @@ type takeoverCandidate struct {
 	Ticket   string
 	Workflow string
 	Model    string
+	// WallclockCapS and IterationCapS are the run's journaled budget caps:
+	// 0 for a run that carries none. The re-spawn re-injects them, because the
+	// takeover reconstructs the run from the journal alone (SPEC-046 AC8).
+	WallclockCapS int64
+	IterationCapS int64
 }
 
 // takeoverSet folds every run's replayed state and returns the closed
@@ -122,7 +128,8 @@ func takeoverSelect(st *journal.State, lease run.Lease, hasLease bool,
 		return takeoverCandidate{}, false
 	}
 	return takeoverCandidate{RunID: st.RunID, State: name, Owner: st.Owner,
-		Ticket: st.Ticket, Workflow: st.Workflow, Model: st.Model}, true
+		Ticket: st.Ticket, Workflow: st.Workflow, Model: st.Model,
+		WallclockCapS: st.WallclockCapS, IterationCapS: st.IterationCapS}, true
 }
 
 // TakeoverOutcome is what one takeover pass did with one selected run
@@ -434,6 +441,14 @@ func (c *Chief) takeoverSpawn(ctx context.Context, cand takeoverCandidate,
 	errc := c.startSupervised(cand.RunID, hostadapter.StartRequest{
 		RunID: cand.RunID, Ticket: cand.Ticket, Workflow: cand.Workflow,
 		Model: cand.Model, Host: host,
+		// The caps the run's own run_started row journaled ride the re-spawn
+		// (SPEC-046 M7/AC8): the takeover rebuilds the run from the journal,
+		// so a run the operator capped keeps its cap across the crash. A run
+		// that carried none re-spawns with none — the takeover invents no
+		// budget. The resume branch carries neither: it re-uses the session by
+		// id and re-execs nothing.
+		RunCaps: hostadapter.RunCaps{WallclockCapS: cand.WallclockCapS,
+			IterationCapS: cand.IterationCapS},
 		// No Premise: the re-adoption reads the run's work premise out of
 		// the journal's own premise row (SPEC-044 CDT-665) — a closed pair
 		// means the session already got its turn, a pending intent carries

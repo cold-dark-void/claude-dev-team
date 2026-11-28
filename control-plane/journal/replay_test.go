@@ -6,6 +6,7 @@ import (
 	"errors"
 	"path/filepath"
 	"reflect"
+	"strings"
 	"testing"
 )
 
@@ -36,7 +37,8 @@ func seed(t *testing.T, runID string) []Event {
 
 	add(KindRunClaimed, ClaimPayload{Owner: "w1", Token: 1, Ticket: runID,
 		Workflow: "orchestrate", Model: "opus"})
-	add(KindRunStarted, StartPayload{StallLimitS: 270, Model: "opus"})
+	add(KindRunStarted, StartPayload{StallLimitS: 270, Model: "opus",
+		WallclockCapS: 3600, IterationCapS: 7200})
 	add(KindStintStarted, StintPayload{Stint: 1, Label: "wave 1"})
 	add(KindHeartbeat, HeartbeatPayload{Owner: "w1", Token: 1})
 
@@ -191,6 +193,9 @@ func TestReplayProjectsEveryKind(t *testing.T) {
 	}
 	if st.StallLimitS != 270 {
 		t.Errorf("stall limit = %d, want 270", st.StallLimitS)
+	}
+	if st.WallclockCapS != 3600 || st.IterationCapS != 7200 {
+		t.Errorf("caps = %d/%d, want 3600/7200", st.WallclockCapS, st.IterationCapS)
 	}
 	if len(st.Halts) != 2 || st.Halt != nil {
 		t.Errorf("halts = %+v, halt = %+v", st.Halts, st.Halt)
@@ -492,5 +497,169 @@ func TestAppendCheckedWritesNothingOnIllegalTransition(t *testing.T) {
 	rows, _ = e.Events(ctx, "A")
 	if len(rows) != 1 {
 		t.Fatalf("journal = %d rows, want 1", len(rows))
+	}
+}
+
+// SPEC-046 M7: the run_started payload carries the operator's budget caps and
+// State carries them, so the API, retry, and takeover read them from the journal.
+func TestReplayCarriesTheJournaledCaps(t *testing.T) {
+	evs := []Event{
+		mustSeq(t, mustEvent(t, "A", KindRunClaimed, ClaimPayload{Owner: "w", Token: 1}), 1),
+		mustSeq(t, mustEvent(t, "A", KindRunStarted,
+			StartPayload{StallLimitS: 60, WallclockCapS: 3600, IterationCapS: 7200}), 2),
+	}
+	st, err := Replay(evs)
+	if err != nil {
+		t.Fatalf("Replay: %v", err)
+	}
+	if st.WallclockCapS != 3600 || st.IterationCapS != 7200 {
+		t.Fatalf("caps = %d/%d, want 3600/7200", st.WallclockCapS, st.IterationCapS)
+	}
+	if st.StallLimitS != 60 {
+		t.Errorf("stall limit = %d, want 60", st.StallLimitS)
+	}
+}
+
+// The caps are optional. A payload that carries neither key replays green and
+// leaves both unset, and the payload for a caps-free start keeps its old bytes.
+func TestReplayOfAnOldStartRowLeavesTheCapsUnset(t *testing.T) {
+	if got := string(mustJSON(t, StartPayload{StallLimitS: 60, Model: "opus"})); got !=
+		`{"stall_limit_s":60,"model":"opus"}` {
+		t.Fatalf("caps-free payload = %s, want the pre-SPEC-046 bytes", got)
+	}
+
+	claim := mustSeq(t, mustEvent(t, "A", KindRunClaimed,
+		ClaimPayload{Owner: "w", Token: 1, Ticket: "A", Workflow: "orchestrate"}), 1)
+	// The stored row shape every journal written before SPEC-046 has.
+	start := Event{Seq: 2, TS: "2026-11-16T00:00:00Z", RunID: "A", Kind: KindRunStarted,
+		Payload: json.RawMessage(`{"stall_limit_s":60,"model":"opus"}`)}
+	st, err := Replay([]Event{claim, start})
+	if err != nil {
+		t.Fatalf("Replay of an old row: %v", err)
+	}
+	if st.WallclockCapS != 0 || st.IterationCapS != 0 {
+		t.Fatalf("caps = %d/%d, want 0/0 (unset)", st.WallclockCapS, st.IterationCapS)
+	}
+	// State stays JSON-stable: unset caps add no keys, so an old state reader
+	// sees the same JSON as before.
+	raw := string(mustJSON(t, st))
+	for _, needle := range []string{`"wallclock_cap_s"`, `"iteration_cap_s"`} {
+		if strings.Contains(raw, needle) {
+			t.Errorf("state JSON carries %s for unset caps:\n%s", needle, raw)
+		}
+	}
+}
+
+// An explicit zero is the unset encoding (State: 0 = unset). The route refuses a
+// zero cap before any row is written (SPEC-046 M3); replay reads it as unset.
+func TestReplayTreatsAZeroCapAsUnset(t *testing.T) {
+	claim := mustSeq(t, mustEvent(t, "A", KindRunClaimed, ClaimPayload{Owner: "w", Token: 1}), 1)
+	start := Event{Seq: 2, TS: "2026-11-16T00:00:00Z", RunID: "A", Kind: KindRunStarted,
+		Payload: json.RawMessage(`{"stall_limit_s":60,"wallclock_cap_s":0,"iteration_cap_s":0}`)}
+	st, err := Replay([]Event{claim, start})
+	if err != nil {
+		t.Fatalf("Replay: %v", err)
+	}
+	if st.WallclockCapS != 0 || st.IterationCapS != 0 {
+		t.Fatalf("caps = %d/%d, want 0/0", st.WallclockCapS, st.IterationCapS)
+	}
+}
+
+// SPEC-046 M7: replay refuses a cap that is present and negative. A present
+// zero is the unset encoding, not a refusal (SPEC-046 M7).
+func TestReplayRefusesANegativeCap(t *testing.T) {
+	cases := []struct {
+		name    string
+		payload string
+	}{
+		{"negative wallclock cap", `{"stall_limit_s":60,"wallclock_cap_s":-1}`},
+		{"negative iteration cap", `{"stall_limit_s":60,"iteration_cap_s":-1}`},
+		{"both caps negative", `{"stall_limit_s":60,"wallclock_cap_s":-3600,"iteration_cap_s":-2}`},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			claim := mustSeq(t, mustEvent(t, "A", KindRunClaimed,
+				ClaimPayload{Owner: "w", Token: 1}), 1)
+			start := Event{Seq: 2, TS: "2026-11-16T00:00:00Z", RunID: "A",
+				Kind: KindRunStarted, Payload: json.RawMessage(tc.payload)}
+			_, err := Replay([]Event{claim, start})
+			if !errors.Is(err, ErrReplayInconsistent) {
+				t.Fatalf("Replay err = %v, want ErrReplayInconsistent", err)
+			}
+		})
+	}
+}
+
+// AppendChecked takes the extended payload through the real write path.
+func TestAppendCheckedAcceptsTheJournaledCaps(t *testing.T) {
+	e, err := OpenPath(context.Background(), filepath.Join(t.TempDir(), "run.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = e.Close() })
+	ctx := context.Background()
+
+	for _, ev := range []Event{
+		mustEvent(t, "A", KindRunClaimed, ClaimPayload{Owner: "w", Token: 1,
+			Ticket: "A", Workflow: "orchestrate"}),
+		mustEvent(t, "A", KindRunStarted,
+			StartPayload{StallLimitS: 60, WallclockCapS: 5400, IterationCapS: 12}),
+	} {
+		if _, _, err := e.AppendChecked(ctx, ev); err != nil {
+			t.Fatalf("append %s: %v", ev.Kind, err)
+		}
+	}
+	rows, err := e.Events(ctx, "A")
+	if err != nil {
+		t.Fatal(err)
+	}
+	st, err := Replay(rows)
+	if err != nil {
+		t.Fatalf("Replay: %v", err)
+	}
+	if st.WallclockCapS != 5400 || st.IterationCapS != 12 {
+		t.Fatalf("caps = %d/%d, want 5400/12", st.WallclockCapS, st.IterationCapS)
+	}
+}
+
+// The caps survive a takeover and a re-claim, which is how retry and takeover
+// recover them (SPEC-046 M7/M10). The re-claim consistency check is unchanged:
+// a re-claim that moves the ticket or the workflow is still refused.
+func TestReplayCapsSurviveATakeoverReclaim(t *testing.T) {
+	evs := []Event{
+		mustSeq(t, mustEvent(t, "A", KindRunClaimed,
+			ClaimPayload{Owner: "w1", Token: 1, Ticket: "A", Workflow: "orchestrate"}), 1),
+		mustSeq(t, mustEvent(t, "A", KindRunStarted,
+			StartPayload{StallLimitS: 60, WallclockCapS: 3600, IterationCapS: 4}), 2),
+		mustSeq(t, mustEvent(t, "A", KindLeaseAcquire,
+			LeasePayload{Owner: "w2", Token: 2, Reason: "takeover"}), 3),
+	}
+	st, err := Replay(evs)
+	if err != nil {
+		t.Fatalf("takeover: %v", err)
+	}
+	if st.WallclockCapS != 3600 || st.IterationCapS != 4 {
+		t.Fatalf("caps after takeover = %d/%d, want 3600/4", st.WallclockCapS, st.IterationCapS)
+	}
+
+	reclaim := mustSeq(t, mustEvent(t, "A", KindRunClaimed,
+		ClaimPayload{Owner: "w2", Token: 3, Ticket: "A", Workflow: "orchestrate"}), 4)
+	st, err = Replay(append(append([]Event(nil), evs...), reclaim))
+	if err != nil {
+		t.Fatalf("re-claim: %v", err)
+	}
+	if st.WallclockCapS != 3600 || st.IterationCapS != 4 {
+		t.Fatalf("caps after re-claim = %d/%d, want 3600/4", st.WallclockCapS, st.IterationCapS)
+	}
+
+	sameToken := mustSeq(t, mustEvent(t, "A", KindRunClaimed,
+		ClaimPayload{Owner: "w2", Token: 2, Ticket: "A", Workflow: "orchestrate"}), 4)
+	if _, err := Replay(append(append([]Event(nil), evs...), sameToken)); !errors.Is(err, ErrStaleToken) {
+		t.Fatalf("re-claim with a stale token err = %v, want ErrStaleToken", err)
+	}
+	moved := mustSeq(t, mustEvent(t, "A", KindRunClaimed,
+		ClaimPayload{Owner: "w2", Token: 3, Ticket: "A", Workflow: "epic"}), 4)
+	if _, err := Replay(append(append([]Event(nil), evs...), moved)); !errors.Is(err, ErrReplayInconsistent) {
+		t.Fatalf("re-claim that moves the workflow err = %v, want ErrReplayInconsistent", err)
 	}
 }

@@ -70,6 +70,63 @@
             </select>
           </label>
         </div>
+        <details id="route-advanced">
+          <summary>Advanced <span class="muted">(run options — an empty field composes nothing)</span></summary>
+          <p class="hint">The Chief validates every value with the plugin's own parsers and
+            answers a refusal. The words below are hints, not a gate.</p>
+          <div class="row">
+            <label>Tier
+              <input id="route-tier" type="text" list="tier-words" placeholder="standard" autocomplete="off">
+              <span class="muted field-hint">light · standard · full</span>
+              <datalist id="tier-words">
+                <option value="light"></option>
+                <option value="standard"></option>
+                <option value="full"></option>
+              </datalist>
+            </label>
+            <label>Council tier
+              <input id="route-council-tier" type="text" list="council-tier-words" placeholder="full" autocomplete="off">
+              <span class="muted field-hint">skip · light · full</span>
+              <datalist id="council-tier-words">
+                <option value="skip"></option>
+                <option value="light"></option>
+                <option value="full"></option>
+              </datalist>
+            </label>
+          </div>
+          <div class="row">
+            <label>Max LOC
+              <input id="route-max-loc" type="text" list="max-loc-words" placeholder="unbound" autocomplete="off">
+              <span class="muted field-hint">a positive integer, or unbound</span>
+              <datalist id="max-loc-words">
+                <option value="unbound"></option>
+              </datalist>
+            </label>
+            <label>Concurrency
+              <input id="route-concurrency" type="number" placeholder="1">
+              <span class="muted field-hint">parallel spawns, at least 1</span>
+            </label>
+          </div>
+          <div class="row">
+            <label>With advisor
+              <input id="route-advisor" type="text" list="advisor-words" placeholder="true" autocomplete="off">
+              <span class="muted field-hint">true for the bare flag, or a model token</span>
+              <datalist id="advisor-words">
+                <option value="true"></option>
+              </datalist>
+            </label>
+          </div>
+          <div class="row">
+            <label>Wallclock cap <span class="muted">(seconds)</span>
+              <input id="route-wallclock-cap" type="number" placeholder="seconds">
+              <span class="muted field-hint">sets AUTOPILOT_WALLCLOCK_CAP for this run only</span>
+            </label>
+            <label>Iteration cap <span class="muted">(stints)</span>
+              <input id="route-iteration-cap" type="number" placeholder="stints">
+              <span class="muted field-hint">sets AUTOPILOT_ITERATION_CAP for this run only</span>
+            </label>
+          </div>
+        </details>
         <p id="command-preview" class="model-preview" hidden></p>
 
         <div id="work-box">

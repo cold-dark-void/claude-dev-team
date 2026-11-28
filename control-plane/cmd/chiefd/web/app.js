@@ -335,6 +335,10 @@ function renderDetail(d) {
   pair(fields, "Node", d.owner);
   pair(fields, "Queue", d.queue_position ? `#${d.queue_position} waiting` : d.slot);
   pair(fields, "Runner", d.runner_type);
+  // The budget caps in effect (SPEC-046 M9). The composed command the run
+  // carries is its premise, printed under its own heading above.
+  pair(fields, "Wallclock cap", d.wallclock_cap_s ? `${d.wallclock_cap_s} s` : "");
+  pair(fields, "Iteration cap", d.iteration_cap_s ? `${d.iteration_cap_s} stints` : "");
   gateActions(d);
 }
 
@@ -488,8 +492,57 @@ const EPIC_KIND = "epic";
 
 // The autopilot vocabulary is the plugin's own (skills/autopilot/parse-flags.sh);
 // the Chief validates the token through that parser, so the form's select is a
-// picker over the same six tokens, never a second parser.
-//
+// picker over the same six tokens, never a second parser. The Advanced
+// section's fields are free text for the same reason: the Chief's seams are
+// the gate, so the page carries the vocabularies as hints only.
+
+// ADVANCED_INPUTS names the Advanced section's controls in the SPEC-046 M1
+// order: the input id, the JSON name it posts, and whether its value composes
+// into the command line. The two caps do not (SPEC-046 M5) — they ride the
+// run's runner environment, so the preview never shows them.
+const ADVANCED_INPUTS = [
+  ["route-tier", "tier", true],
+  ["route-council-tier", "council_tier", true],
+  ["route-max-loc", "max_loc", true],
+  ["route-concurrency", "concurrency", true],
+  ["route-advisor", "with_advisor", true],
+  ["route-wallclock-cap", "wallclock_cap", false],
+  ["route-iteration-cap", "iteration_cap", false],
+];
+
+// advancedValue reads one control's text. Empty is empty: the Chief composes
+// nothing for it and refuses only an illegal value (SPEC-046 AC2).
+function advancedValue(id) {
+  return $(id).value.trim();
+}
+
+// advancedOptions are the seven SPEC-046 M1 fields the route body carries. An
+// empty field posts an empty string; the Chief treats it as absent.
+function advancedOptions() {
+  const opts = {};
+  for (const [id, name] of ADVANCED_INPUTS) opts[name] = advancedValue(id);
+  return opts;
+}
+
+// advancedFlags previews the command-line options in the SPEC-046 M2 pinned
+// order: --tier, --council-tier, --max-loc, --concurrency N (the plugin's
+// two-token form), then --with-advisor[=<model>]. Only a filled field
+// composes. The autopilot token is appended last by composedCommands.
+function advancedFlags() {
+  const parts = [];
+  const tier = advancedValue("route-tier");
+  if (tier) parts.push(`--tier=${tier}`);
+  const councilTier = advancedValue("route-council-tier");
+  if (councilTier) parts.push(`--council-tier=${councilTier}`);
+  const maxLoc = advancedValue("route-max-loc");
+  if (maxLoc) parts.push(`--max-loc=${maxLoc}`);
+  const concurrency = advancedValue("route-concurrency");
+  if (concurrency) parts.push(`--concurrency ${concurrency}`);
+  const advisor = advancedValue("route-advisor");
+  if (advisor) parts.push(advisor === "true" ? "--with-advisor" : `--with-advisor=${advisor}`);
+  return parts;
+}
+
 // composedCommands previews the command a ticket route composes. The
 // authoritative command is the route response's `command` field, which the
 // route result prints. The page cannot read a ticket record's kind, so the
@@ -501,6 +554,12 @@ function composedCommands() {
   if (!id) return null;
   const token = $("route-autopilot").value;
   const flag = token === "bare" ? "--autopilot" : `--autopilot=${token}`;
+  const advanced = advancedFlags();
+  if (advanced.length) {
+    // SPEC-046 M4: an epic id applies none of these options, so the preview
+    // names no /epic command — the Chief refuses that route by name.
+    return { ticket: `/orchestrate ${id} ${advanced.join(" ")} ${flag}`, epic: "" };
+  }
   return {
     ticket: `/orchestrate ${id} ${flag}`,
     epic: `/epic ${id} ${flag}`,
@@ -511,6 +570,7 @@ function syncRouteForm() {
   const kind = $("route-kind").value;
   const ticket = kind === TICKET_KIND;
   $("ticket-box").hidden = !ticket;
+  $("route-advanced").hidden = !ticket;
   $("work-box").hidden = ticket;
   $("children-box").hidden = kind !== EPIC_KIND;
   $("route-ticket").required = ticket;
@@ -519,15 +579,29 @@ function syncRouteForm() {
   const preview = $("command-preview");
   const composed = ticket ? composedCommands() : null;
   preview.hidden = !composed;
-  preview.textContent = composed
-    ? `Preview (approximate): ${composed.ticket} — ${composed.epic} when the ` +
-      "id names an epic. The route reply names the command the run runs."
-    : "";
+  preview.textContent = composedPreview(composed);
+}
+
+// composedPreview words the two cases: a run-options-free route can ride
+// either surface, and a route that carries them rides /orchestrate alone.
+function composedPreview(composed) {
+  if (!composed) return "";
+  const capsNote = " The caps are not in it: they ride the run's environment.";
+  if (!composed.epic) {
+    return `Preview (approximate): ${composed.ticket}.` + capsNote +
+      " The route reply names the command the run runs." +
+      " An epic id applies none of these options: the Chief refuses the route.";
+  }
+  return `Preview (approximate): ${composed.ticket} — ${composed.epic} when the ` +
+    "id names an epic. The route reply names the command the run runs.";
 }
 
 $("route-kind").addEventListener("change", syncRouteForm);
 $("route-ticket").addEventListener("input", syncRouteForm);
 $("route-autopilot").addEventListener("change", syncRouteForm);
+for (const [id, , previews] of ADVANCED_INPUTS) {
+  if (previews) $(id).addEventListener("input", syncRouteForm);
+}
 
 // showModelDefault reads the Model map's default for the agent the form
 // names, so the operator sees the model before routing (SPEC-045 AC4).
@@ -551,6 +625,9 @@ $("route-form").addEventListener("submit", async (ev) => {
   if (kind === TICKET_KIND) {
     body.ticket_id = $("route-ticket").value.trim();
     body.autopilot = $("route-autopilot").value;
+    // The six run options ride the same request (SPEC-046 M1). Every field is
+    // posted, empty included: the Chief composes nothing for an empty one.
+    Object.assign(body, advancedOptions());
   } else {
     body.title = $("route-title").value;
     body.text = $("route-text").value;

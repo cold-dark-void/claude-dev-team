@@ -186,6 +186,21 @@ func (m *Machine) Claim(ctx context.Context, owner, ticket, workflow, model stri
 // The limit follows env > map > tier (AC6). CDT-610 gates any change to the
 // numbers behind it: phase 1 tunes none of them (AC9).
 func (m *Machine) Start(ctx context.Context, owner string, token int64, model string) error {
+	return m.StartWithCaps(ctx, owner, token, model, 0, 0)
+}
+
+// StartWithCaps is Start with the operator's per-run budget caps journaled on
+// the same run_started row (SPEC-046 M7): wall-clock seconds and an iteration
+// count, 0 for a cap the operator left unset. They are the start's own
+// parameters, like the stall limit, so they ride its payload — no new event
+// kind. The record is what makes a re-spawn faithful: a retry and a startup
+// takeover read the caps back from the replayed state and re-inject them, so
+// a run that survives a crash keeps the budget its route asked for.
+//
+// A negative cap is a caller defect: the replay rule refuses the append inside
+// the transaction, so the run stays claimed and writes nothing.
+func (m *Machine) StartWithCaps(ctx context.Context, owner string, token int64, model string,
+	wallclockCapS, iterationCapS int64) error {
 	secs, _, err := StallLimitSeconds(model, m.getenv())
 	if err != nil {
 		return err
@@ -193,7 +208,8 @@ func (m *Machine) Start(ctx context.Context, owner string, token int64, model st
 	_, _, err = m.mutate(ctx, owner, token,
 		func(_ context.Context, _ *journal.Tx, _ *journal.State) (transition, error) {
 			ev, err := m.event(journal.KindRunStarted,
-				journal.StartPayload{StallLimitS: secs, Model: model})
+				journal.StartPayload{StallLimitS: secs, Model: model,
+					WallclockCapS: wallclockCapS, IterationCapS: iterationCapS})
 			if err != nil {
 				return transition{}, err
 			}

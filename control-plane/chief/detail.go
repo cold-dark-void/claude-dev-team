@@ -11,17 +11,20 @@ import (
 	"github.com/cold-dark-void/claude-dev-team/control-plane/journal"
 )
 
-// RunDetail is one board row: the replayed RunStatus plus the four fields the
-// run detail view renders (SPEC-045 M7). Every one of them folds from the
-// journal — the premise from the run's agent.premise rows, the host from the
-// recorded start argv, the attempt from the run id (M2/M6), and the resume
-// capability from the host matrix's CapResume cell. The in-memory run capture
-// is never a source: a chiefd restart loses it, and the detail view is what
-// an operator reads after that restart.
+// RunDetail is one board row: the replayed RunStatus plus the fields the run
+// detail view renders (SPEC-045 M7, SPEC-046 M9). Every one of them folds from
+// the journal — the premise from the run's agent.premise rows, the host from
+// the recorded start argv, the attempt from the run id (M2/M6), the resume
+// capability from the host matrix's CapResume cell, and the budget caps from
+// the run's run_started row. The in-memory run capture is never a source: a
+// chiefd restart loses it, and the detail view is what an operator reads after
+// that restart.
 type RunDetail struct {
 	RunStatus
 	// Premise is the work premise the run was sent — the newest
-	// agent.premise row's text. Empty when the run carries none.
+	// agent.premise row's text. Empty when the run carries none. For a
+	// ticket route it is the composed command (SPEC-046 M9): the command
+	// line the run executes.
 	Premise string `json:"premise,omitempty"`
 	// Host is the matrix host the run's start record names
 	// (claude-code / grok / omp). Empty when no start row names a known
@@ -34,6 +37,13 @@ type RunDetail struct {
 	// the one copy of the verdict (SPEC-045 AC2/AC7). The UI hides the
 	// Resume button when it is false.
 	ResumeSupported bool `json:"resume_supported"`
+	// WallclockCapS and IterationCapS are the budget caps in effect
+	// (SPEC-046 M9): the operator's per-run caps the run's run_started row
+	// journals, in seconds and stints. 0 means unset — the run keeps the
+	// plugin's own budget — and renders absent, the shape every unset state
+	// field takes.
+	WallclockCapS int64 `json:"wallclock_cap_s,omitempty"`
+	IterationCapS int64 `json:"iteration_cap_s,omitempty"`
 }
 
 // Details reports every run with its detail fields (SPEC-045 AC3): the board
@@ -71,6 +81,7 @@ func (c *Chief) detailOf(ctx context.Context, rs RunStatus) RunDetail {
 	host, premise := detailFold(events)
 	d.Premise = premise
 	d.Host = string(host)
+	d.WallclockCapS, d.IterationCapS = capsFromJournal(events)
 	if host != "" {
 		d.ResumeSupported = hostadapter.ResumeRoute(host)
 	}
@@ -126,6 +137,25 @@ func detailFold(events []journal.Event) (hostadapter.Host, string) {
 		}
 	}
 	return host, premise
+}
+
+// capsFromJournal reads the budget caps the newest run_started row journals
+// (SPEC-046 M7/M9). The newest row wins, as in detailFold: a taken-over run
+// carries one start row per attempt and each re-spawn journals the caps it
+// re-injected. An absent payload, an undecodable row, and an unset cap all
+// answer 0 — the run keeps the plugin's own budget (SPEC-033 N14).
+func capsFromJournal(events []journal.Event) (wallclockCapS, iterationCapS int64) {
+	for _, ev := range events {
+		if ev.Kind != journal.KindRunStarted {
+			continue
+		}
+		var p journal.StartPayload
+		if jsonUnmarshal(ev.Payload, &p) != nil {
+			continue
+		}
+		wallclockCapS, iterationCapS = p.WallclockCapS, p.IterationCapS
+	}
+	return wallclockCapS, iterationCapS
 }
 
 // attemptSuffix is the attempt marker of the M2 run-id allocation: a ticket's

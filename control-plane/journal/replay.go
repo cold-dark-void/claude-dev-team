@@ -26,9 +26,15 @@ type LeasePayload struct {
 }
 
 // StartPayload is run_started. StallLimitS is the journaled watchdog limit.
+// WallclockCapS and IterationCapS are the operator's per-run budget caps
+// (SPEC-046 M7): wall-clock seconds and an iteration count. They are optional —
+// an absent key, like an explicit 0, means unset, so every run_started row
+// written before SPEC-046 replays unchanged.
 type StartPayload struct {
-	StallLimitS int64  `json:"stall_limit_s"`
-	Model       string `json:"model,omitempty"`
+	StallLimitS   int64  `json:"stall_limit_s"`
+	Model         string `json:"model,omitempty"`
+	WallclockCapS int64  `json:"wallclock_cap_s,omitempty"`
+	IterationCapS int64  `json:"iteration_cap_s,omitempty"`
 }
 
 // StintPayload is stint_started. Stint is 1-based and strictly sequential.
@@ -217,10 +223,18 @@ func (s *State) applyStarted(ev Event) error {
 	if p.StallLimitS < 1 {
 		return fmt.Errorf("%w: run_started needs stall_limit_s >= 1", ErrReplayInconsistent)
 	}
+	// The caps are optional and 0 is the unset encoding, so only a negative
+	// one is inconsistent (SPEC-046 M7).
+	if p.WallclockCapS < 0 || p.IterationCapS < 0 {
+		return fmt.Errorf("%w: run_started needs a non-negative wallclock_cap_s (%d) and iteration_cap_s (%d)",
+			ErrReplayInconsistent, p.WallclockCapS, p.IterationCapS)
+	}
 	if s.Status != StatusClaimed {
 		return fmt.Errorf("%w: run_started from %s", ErrTransition, s.Name())
 	}
 	s.StallLimitS = p.StallLimitS
+	s.WallclockCapS = p.WallclockCapS
+	s.IterationCapS = p.IterationCapS
 	if p.Model != "" {
 		s.Model = p.Model
 	}

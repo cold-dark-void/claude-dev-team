@@ -25,9 +25,9 @@
 // reading is the run's pending effects, repairs, and watchdog reading, and
 // the queue view is the C5 slot ledger (control-plane/queue). The stand-up
 // report composes those three. The run detail adds the fields the detail view
-// reads — the premise, the host, the attempt, and the host's resume route —
-// each folded from the journal, plus the bounded tail of the host transcript
-// (SPEC-045 M7).
+// reads — the premise, the host, the attempt, the host's resume route, and the
+// budget caps in effect — each folded from the journal, plus the bounded tail
+// of the host transcript (SPEC-045 M7, SPEC-046 M9).
 //
 // # Model selection
 //

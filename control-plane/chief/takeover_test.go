@@ -374,8 +374,18 @@ func seedStartIntent(t *testing.T, eng *journal.Engine, runID, command string) {
 // started, and one recorded spawn intent on command.
 func seedTakeoverRunning(t *testing.T, eng *journal.Engine, runID, owner, command string) {
 	t.Helper()
+	seedTakeoverRunningCaps(t, eng, runID, owner, command, 0, 0)
+}
+
+// seedTakeoverRunningCaps is seedTakeoverRunning with the operator's budget
+// caps journaled on the run_started row (SPEC-046 M7) — the shape a takeover
+// re-spawn must read back.
+func seedTakeoverRunningCaps(t *testing.T, eng *journal.Engine, runID, owner, command string,
+	wallclockCapS, iterationCapS int64) {
+	t.Helper()
 	m, token := claimAs(t, eng, runID, owner)
-	if err := m.Start(context.Background(), owner, token, takeoverModel); err != nil {
+	if err := m.StartWithCaps(context.Background(), owner, token, takeoverModel,
+		wallclockCapS, iterationCapS); err != nil {
 		t.Fatalf("start %s: %v", runID, err)
 	}
 	seedStartIntent(t, eng, runID, command)
@@ -485,7 +495,10 @@ func (f *takeoverAgent) journalTakeover(ctx context.Context, eng *journal.Engine
 	}
 	switch st.Status {
 	case journal.StatusClaimed:
-		if err := m.Start(ctx, owner, token, req.Model); err != nil {
+		// The real node agent journals the run-scoped caps on the start row
+		// (SPEC-046 M7); the seam mirrors it so the journal proof is real.
+		if err := m.StartWithCaps(ctx, owner, token, req.Model,
+			req.WallclockCapS, req.IterationCapS); err != nil {
 			return err
 		}
 	case journal.StatusHalted:
@@ -1284,5 +1297,86 @@ func TestTakeoverScanSpawnsFreshWhenNoSessionIsJournaled(t *testing.T) {
 	if !strings.Contains(strings.Join(calls[0].Request.Args, " "), "--verbose") {
 		t.Errorf("the fresh re-spawn argv = %v, want claude's headless launch",
 			calls[0].Request.Args)
+	}
+}
+
+// AC8 (SPEC-046 T6): the takeover re-spawn reconstructs the run from the
+// journal alone, so the caps its run_started row carries ride the re-spawn
+// through the one startSupervised seam. A run that carried no caps re-spawns
+// with none — the takeover invents no budget — and the journaled caps stay
+// the record: a takeover writes no new start row. The resume branch of the
+// same pass rides the unchanged resume seam and carries no caps (M7).
+func TestTakeoverRespawnCarriesTheJournaledCaps(t *testing.T) {
+	_ = captureTakeoverLog(t)
+	eng := newEngine(t)
+	ctx := context.Background()
+	seedTakeoverRunningCaps(t, eng, "r-caps", takeoverOwner, "grok", 5400, 12)
+	seedTakeoverRunning(t, eng, "r-plain", takeoverOwner, "grok")
+	seedTakeoverRunningCaps(t, eng, "r-resume", takeoverOwner, "claude", 1800, 8)
+	seedSessionRow(t, eng, "r-resume", "sess-caps", true)
+	if err := run.New(eng, "r-resume").Halt(ctx, takeoverOwner, 1,
+		run.ReasonStalled, "watchdog"); err != nil {
+		t.Fatalf("halt r-resume: %v", err)
+	}
+
+	ag := &takeoverAgent{now: takeoverClock(30 * time.Second)}
+	c := newTakeoverChief(t, eng, ag, &fakePhone{})
+	c.Now = takeoverClock(30 * time.Second)
+
+	rep, err := c.TakeoverScan(ctx)
+	if err != nil {
+		t.Fatalf("TakeoverScan: %v", err)
+	}
+	if len(rep.Taken) != 3 {
+		t.Fatalf("taken = %v, want the three selected runs (%s)",
+			runIDsOf(rep.Taken), joinReport(rep))
+	}
+	calls := ag.recorded()
+	if len(calls) != 3 {
+		t.Fatalf("starts = %d, want one per taken run", len(calls))
+	}
+	byRun := map[string]agent.StartRequest{}
+	for _, call := range calls {
+		byRun[call.RunID] = call.Request
+	}
+	caps := byRun["r-caps"]
+	if caps.WallclockCapS != 5400 || caps.IterationCapS != 12 {
+		t.Errorf("re-spawn caps = %d/%d, want the journaled 5400/12",
+			caps.WallclockCapS, caps.IterationCapS)
+	}
+	if caps.Command != "grok" {
+		t.Errorf("re-spawn command = %q, want the host the start record names", caps.Command)
+	}
+	plain := byRun["r-plain"]
+	if plain.WallclockCapS != 0 || plain.IterationCapS != 0 {
+		t.Errorf("re-spawn caps = %d/%d, want 0/0 for a run that carried none",
+			plain.WallclockCapS, plain.IterationCapS)
+	}
+	resume := byRun["r-resume"]
+	if resume.WallclockCapS != 0 || resume.IterationCapS != 0 {
+		t.Errorf("the takeover resume carried caps %d/%d; the resume seam carries none",
+			resume.WallclockCapS, resume.IterationCapS)
+	}
+	if got := strings.Join(resume.Args, " "); got != "-p --resume sess-caps" {
+		t.Errorf("resume argv = %q, want the unchanged by-id invocation", got)
+	}
+	for _, tc := range []struct {
+		runID             string
+		wallclock, iterat int64
+	}{
+		{"r-caps", 5400, 12}, {"r-resume", 1800, 8},
+	} {
+		if n := countRows(t, eng, tc.runID, journal.KindRunStarted, ""); n != 1 {
+			t.Errorf("%s run_started rows = %d, want the original one — the takeover writes no start",
+				tc.runID, n)
+		}
+		st, err := eng.RunState(ctx, tc.runID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if st.WallclockCapS != tc.wallclock || st.IterationCapS != tc.iterat {
+			t.Errorf("%s caps after the takeover = %d/%d, want the journaled %d/%d intact",
+				tc.runID, st.WallclockCapS, st.IterationCapS, tc.wallclock, tc.iterat)
+		}
 	}
 }

@@ -305,7 +305,7 @@ summary {
 summary:focus-visible { outline: 2px solid var(--signal); outline-offset: -2px; }
 form { padding: .2rem .8rem .8rem; }
 label { display: block; margin: .35rem 0; font-size: .88rem; }
-input[type="text"], textarea, select {
+input[type="text"], input[type="number"], textarea, select {
   width: 100%;
   padding: .3rem .45rem;
   font: .88rem/1.4 var(--mono);
@@ -317,6 +317,16 @@ input[type="text"], textarea, select {
 .row { display: flex; gap: .8rem; flex-wrap: wrap; }
 .row label { flex: 1; min-width: 9rem; }
 .row label.grow { flex: 3; min-width: 12rem; }
+/* A folded box stays folded: the author display rules above outrank the user
+agent's [hidden] rule, so the page states the fold itself. */
+[hidden] { display: none; }
+
+/* --- The Advanced section: the ticket route's run options ------------ */
+#route-advanced { margin-top: .6rem; border-color: var(--slate); }
+#route-advanced > summary { padding: .35rem .6rem; font-size: .84rem; }
+#route-advanced .hint { margin: 0 .6rem; font-size: .78rem; color: var(--slate); }
+#route-advanced .row { padding: 0 .6rem .5rem; }
+.field-hint { display: block; font-size: .74rem; }
 .model-preview { margin: .5rem 0; font: .78rem/1.4 var(--mono); color: var(--slate); }
 button {
   margin-top: .5rem;

@@ -1,12 +1,16 @@
 package chief
 
 import (
+	"bufio"
 	"context"
+	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"regexp"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -53,6 +57,11 @@ var ticketIDRE = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]*$`)
 // defaultAutopilot is the token a ticket route composes when the request
 // names none (SPEC-045 M3).
 const defaultAutopilot = "auto"
+
+// advisorOn is the with_advisor value that composes the valueless
+// --with-advisor flag; any other non-empty value is the model token
+// (SPEC-046 M1).
+const advisorOn = "true"
 
 // SurfaceFor returns the Surface one route kind names.
 func SurfaceFor(kind string) (Surface, bool) {
@@ -129,6 +138,16 @@ type Chief struct {
 	// (SPEC-045 M3): the vocabulary is the plugin's flag parser, never a
 	// chief copy.
 	autopilot AutopilotValidator
+
+	// options is the run-options seam of the ticket route (SPEC-046 M3): the
+	// tier, council-tier, and max-loc vocabularies are the plugin's own flag
+	// parser, never a chief copy.
+	options OptionsValidator
+
+	// advisor is the advisor-token seam of the ticket route (SPEC-046 M3):
+	// the model-token grammar is the plugin's own advisor parser
+	// (SPEC-039 M37), never a chief copy of the charset.
+	advisor AdvisorValidator
 
 	// phaseEvents is the C3 phase-event read the board's current-phase
 	// fold rides (control-plane/spool). Nil is the default spool read.
@@ -249,6 +268,16 @@ func WithAutopilot(v AutopilotValidator) Option {
 	return func(c *Chief) { c.autopilot = v }
 }
 
+// WithOptionValidator replaces the run-options seam (SPEC-046 M3).
+func WithOptionValidator(v OptionsValidator) Option {
+	return func(c *Chief) { c.options = v }
+}
+
+// WithAdvisorValidator replaces the advisor-token seam (SPEC-046 M3).
+func WithAdvisorValidator(v AdvisorValidator) Option {
+	return func(c *Chief) { c.advisor = v }
+}
+
 // WithSID pins the Intercom session id of the operator channel.
 func WithSID(sid string) Option { return func(c *Chief) { c.SID = sid } }
 
@@ -301,6 +330,12 @@ func NewWithAdapter(eng *journal.Engine, ad *hostadapter.Adapter, opts ...Option
 	if c.autopilot == nil {
 		c.autopilot = &bashAutopilotFlags{root: c.pluginRoot}
 	}
+	if c.options == nil {
+		c.options = &bashOptionFlags{root: c.pluginRoot}
+	}
+	if c.advisor == nil {
+		c.advisor = &bashAdvisorFlags{root: c.pluginRoot}
+	}
 	return c
 }
 
@@ -331,6 +366,103 @@ type RouteRequest struct {
 	// patch, minor, major, or master — validated by the plugin's own flag
 	// parser. Empty is auto.
 	Autopilot string `json:"autopilot,omitempty"`
+	// The run options of a ticket route (SPEC-046 M1). Every field is a
+	// string so "empty composes nothing" is one rule and the numeric fields
+	// keep the text form the validation seams pass to the plugin's parsers.
+	// An empty field composes nothing; a non-ticket kind refuses every one
+	// of them.
+	// WithAdvisor is off when empty, the bare --with-advisor when "true",
+	// and the --with-advisor=<model> token for any other non-empty value.
+	WithAdvisor string `json:"with_advisor,omitempty"`
+	// Tier is the pipeline cost tier: light, standard, or full.
+	Tier string `json:"tier,omitempty"`
+	// CouncilTier is the council tier: skip, light, or full.
+	CouncilTier string `json:"council_tier,omitempty"`
+	// MaxLoc is the per-run LOC cap: a positive integer or "unbound".
+	MaxLoc string `json:"max_loc,omitempty"`
+	// Concurrency is the spawn concurrency cap: a positive integer.
+	Concurrency string `json:"concurrency,omitempty"`
+	// WallclockCap and IterationCap are the run-budget caps, in seconds and
+	// stints. They never reach the command line (SPEC-046 M5): they ride the
+	// run's runner environment as AUTOPILOT_WALLCLOCK_CAP /
+	// AUTOPILOT_ITERATION_CAP.
+	WallclockCap string `json:"wallclock_cap,omitempty"`
+	IterationCap string `json:"iteration_cap,omitempty"`
+}
+
+// routeOptions are a ticket route's run options in the SPEC-046 M2
+// composition order — the order the fields are declared in. Every field
+// carries the request's own text; empty composes nothing. The route resolves
+// the autopilot token (its default is auto) before it fills Autopilot.
+type routeOptions struct {
+	Tier         string
+	CouncilTier  string
+	MaxLoc       string
+	Concurrency  string
+	WithAdvisor  string
+	Autopilot    string
+	WallclockCap string
+	IterationCap string
+}
+
+// runOptions reads the request's option fields, trimmed, into the
+// composition order. The autopilot token is the caller's — the route applies
+// its default before it composes.
+func (r RouteRequest) runOptions() routeOptions {
+	return routeOptions{
+		Tier:         strings.TrimSpace(r.Tier),
+		CouncilTier:  strings.TrimSpace(r.CouncilTier),
+		MaxLoc:       strings.TrimSpace(r.MaxLoc),
+		Concurrency:  strings.TrimSpace(r.Concurrency),
+		WithAdvisor:  strings.TrimSpace(r.WithAdvisor),
+		WallclockCap: strings.TrimSpace(r.WallclockCap),
+		IterationCap: strings.TrimSpace(r.IterationCap),
+	}
+}
+
+// optionField is one request option a refusal names: epicApplicable is false
+// for the options /orchestrate owns alone (SPEC-046 M4). The caps are
+// applicable to an epic route — they ride the run's environment, never the
+// command line (SPEC-046 M5).
+type optionField struct {
+	name           string
+	value          string
+	epicApplicable bool
+}
+
+// optionFields names the option fields the request carries, in M1 order, for
+// the refusal text of a kind that accepts none of them.
+func (r RouteRequest) optionFields() []string {
+	return r.presentOptionFields(false)
+}
+
+// orchestrateOnlyFields names the present fields that apply to /orchestrate
+// alone: the options an epic id refuses by name (SPEC-046 M4).
+func (r RouteRequest) orchestrateOnlyFields() []string {
+	return r.presentOptionFields(true)
+}
+
+// presentOptionFields lists the present option fields in M1 order. With
+// epicOnly set it keeps only the options an epic id does not apply
+// (SPEC-046 M4).
+func (r RouteRequest) presentOptionFields(epicOnly bool) []string {
+	fields := []optionField{
+		{"with_advisor", r.WithAdvisor, false}, {"tier", r.Tier, false},
+		{"council_tier", r.CouncilTier, false}, {"max_loc", r.MaxLoc, false},
+		{"concurrency", r.Concurrency, false},
+		{"wallclock_cap", r.WallclockCap, true}, {"iteration_cap", r.IterationCap, true},
+	}
+	var present []string
+	for _, f := range fields {
+		if strings.TrimSpace(f.value) == "" {
+			continue
+		}
+		if epicOnly && f.epicApplicable {
+			continue
+		}
+		present = append(present, f.name)
+	}
+	return present
 }
 
 // ChildRequest is one child ticket of an epic route.
@@ -386,7 +518,13 @@ func (c *Chief) Route(ctx context.Context, req RouteRequest) (*RouteResult, erro
 	}
 	// A ticket route names an id, not new work: its premise is the composed
 	// command, so the title and premise checks are the new-work kinds'.
+	// The run options are the ticket route's alone (SPEC-046 M1): every
+	// other kind refuses them before it writes a record.
 	if req.Kind != "ticket" {
+		if fields := req.optionFields(); len(fields) > 0 {
+			return nil, fmt.Errorf("%w: the %s route carries no run options (%s)",
+				ErrInvalid, req.Kind, strings.Join(fields, ", "))
+		}
 		if strings.TrimSpace(req.Title) == "" {
 			return nil, fmt.Errorf("%w: a route needs a title", ErrInvalid)
 		}
@@ -428,6 +566,16 @@ func (c *Chief) Route(ctx context.Context, req RouteRequest) (*RouteResult, erro
 		if err != nil {
 			return nil, err
 		}
+		opts := req.runOptions()
+		// The SPEC-046 M3 refusal order: syntax, then the parser seams, then
+		// the item read, then the M4 epic refusal — every refusal lands
+		// before any journal row. The numeric options are the syntax layer:
+		// the plugin owns no parser for them, and the check answers the caps
+		// the spawn carries (M5).
+		caps, err := validateRunOptionNumbers(opts)
+		if err != nil {
+			return nil, err
+		}
 		token := strings.TrimSpace(req.Autopilot)
 		if token == "" {
 			token = defaultAutopilot
@@ -435,24 +583,40 @@ func (c *Chief) Route(ctx context.Context, req RouteRequest) (*RouteResult, erro
 		if err := c.autopilot.Validate(ctx, token); err != nil {
 			return nil, err
 		}
+		if err := c.options.Validate(ctx, opts); err != nil {
+			return nil, err
+		}
+		if opts.WithAdvisor != "" {
+			if err := c.advisor.Validate(ctx, opts.WithAdvisor); err != nil {
+				return nil, err
+			}
+		}
+		opts.Autopilot = token
 		if !hostadapter.ValidHost(req.Host) {
 			return nil, fmt.Errorf("%w: %q is not one of %s", hostadapter.ErrUnknownHost,
 				req.Host, hostList())
 		}
+		// The item read is the SPEC-046 M8 lookup order: a local slug, then a
+		// frontmatter linear_id match, then the tracker-id passthrough. It
+		// refuses nothing — a grammar-valid id always routes.
 		item, err := c.ticketItem(id)
 		if err != nil {
 			return nil, err
 		}
 		if item.Kind == "epic" {
+			if fields := req.orchestrateOnlyFields(); len(fields) > 0 {
+				return nil, fmt.Errorf("%w: the epic route carries no orchestrate options (%s)",
+					ErrOrchestrateOnlyOption, strings.Join(fields, ", "))
+			}
 			// The run rides the epic surface: /epic, not /orchestrate.
 			surface = surfaces["epic"]
 			res.Surface = surface
 		}
-		res.Command = composeRunCommand(surface.Name, id, token)
+		res.Command = composeRunCommand(surface.Name, id, opts)
 		if res.RunID, err = c.nextAttempt(ctx, id); err != nil {
 			return nil, err
 		}
-		if err := c.startRun(ctx, req, res, id, res.Command); err != nil {
+		if err := c.startRun(ctx, req, res, id, res.Command, caps); err != nil {
 			return nil, err
 		}
 		return res, nil
@@ -474,7 +638,10 @@ func (c *Chief) Route(ctx context.Context, req RouteRequest) (*RouteResult, erro
 		} else if exists {
 			return nil, fmt.Errorf("%w: %s", ErrRunExists, ticket.Slug)
 		}
-		if err := c.startRun(ctx, req, res, ticket.Slug, req.Text); err != nil {
+		// A new-work kind carries no run options (SPEC-046 M1), so its start
+		// names no caps.
+		if err := c.startRun(ctx, req, res, ticket.Slug, req.Text,
+			hostadapter.RunCaps{}); err != nil {
 			return nil, err
 		}
 		return res, nil
@@ -491,27 +658,184 @@ func ticketRouteID(raw string) (string, error) {
 	return id, nil
 }
 
+// positiveIntRE is the integer grammar SPEC-046 M3 cites from CDT-573: an
+// integer of at least 1 — no sign, no leading zero, no fractional part.
+var positiveIntRE = regexp.MustCompile(`^[1-9][0-9]*$`)
+
+// validateRunOptionNumbers is the syntax layer of the ticket route's M3 order:
+// concurrency is the CDT-573 grammar, cited not copied, and the two caps are
+// positive integers with no upper ceiling (SPEC-033 N14). The plugin owns no
+// parser for these, so the check is mechanical here and it refuses before any
+// seam execs. It is also the route's only reader of the cap text: it answers
+// the values the spawn carries (SPEC-046 M5/M7), so no caller re-parses them.
+func validateRunOptionNumbers(opts routeOptions) (hostadapter.RunCaps, error) {
+	var caps hostadapter.RunCaps
+	// Concurrency composes onto the command line, so its value is checked and
+	// not carried; the two caps are the payload this returns.
+	if opts.Concurrency != "" {
+		if _, err := positiveIntField("concurrency", opts.Concurrency); err != nil {
+			return hostadapter.RunCaps{}, err
+		}
+	}
+	if opts.WallclockCap != "" {
+		n, err := positiveIntField("wallclock_cap", opts.WallclockCap)
+		if err != nil {
+			return hostadapter.RunCaps{}, err
+		}
+		caps.WallclockCapS = n
+	}
+	if opts.IterationCap != "" {
+		n, err := positiveIntField("iteration_cap", opts.IterationCap)
+		if err != nil {
+			return hostadapter.RunCaps{}, err
+		}
+		caps.IterationCapS = n
+	}
+	return caps, nil
+}
+
+// positiveIntField checks one numeric option against positiveIntRE and answers
+// its value. The only ceiling is int64: a cap the journal cannot carry refuses
+// here, never at the spawn (SPEC-046 M3).
+func positiveIntField(name, raw string) (int64, error) {
+	if !positiveIntRE.MatchString(raw) {
+		return 0, fmt.Errorf("%w: %s must be an integer of at least 1, got %q",
+			ErrIllegalOptionNumber, name, raw)
+	}
+	n, err := strconv.ParseInt(raw, 10, 64)
+	if err != nil {
+		return 0, fmt.Errorf("%w: %s %s is out of range: %v",
+			ErrIllegalOptionNumber, name, raw, err)
+	}
+	return n, nil
+}
+
 // ticketItem is one backlog item the local store holds. The read is the
 // store file the plugin's own ticket verbs own —
 // $MROOT/.claude/backlog/<id>.md (SPEC-045 M1) — and the ticket route only
 // reads it: the store gains no row from routing an existing id (AC8).
 type ticketItem struct {
 	// Kind is the item's frontmatter kind: epic, child, or empty for a
-	// plain ticket.
+	// plain ticket. The tracker-id passthrough has no item, so it answers
+	// the empty Kind: the route composes /orchestrate <ID> and neither the
+	// kind-epic switch nor the M4 epic refusal applies to it (SPEC-046 M8).
 	Kind string
 }
 
+// ticketItem resolves one ticket-route id against the local store in the
+// SPEC-046 M8 lookup order: (1) the id is a slug and names
+// $MROOT/.claude/backlog/<id>.md; (2) the id is a tracker id one item's
+// frontmatter carries as linear_id; (3) neither — the passthrough. The scan
+// is read-only and stays inside the store directory: chiefd gains no Linear
+// dependency and makes no network read (M8).
 func (c *Chief) ticketItem(id string) (ticketItem, error) {
 	root, err := c.mroot()
 	if err != nil {
 		return ticketItem{}, err
 	}
-	raw, err := os.ReadFile(filepath.Join(root, ".claude", "backlog", id+".md"))
-	if err != nil {
-		return ticketItem{}, fmt.Errorf("%w: %s has no item in the local store (%v)",
-			ErrUnknownTicket, id, err)
+	dir := filepath.Join(root, ".claude", "backlog")
+	raw, err := os.ReadFile(filepath.Join(dir, id+".md"))
+	if err == nil {
+		return ticketItem{Kind: frontmatterKind(raw)}, nil
 	}
-	return ticketItem{Kind: frontmatterKind(raw)}, nil
+	if !errors.Is(err, fs.ErrNotExist) {
+		// Only a missing item is a passthrough; a store the process cannot
+		// read is a visible failure, never a silent loss of the item's kind.
+		return ticketItem{}, fmt.Errorf("chief: cannot read the store item for %s: %w", id, err)
+	}
+	kind, err := linearIDKind(dir, id)
+	if err != nil {
+		return ticketItem{}, err
+	}
+	return ticketItem{Kind: kind}, nil
+}
+
+// linearIDKind answers the kind of the store item whose frontmatter carries
+// the tracker id as linear_id — the bridge skills/backlog/add.sh --linear-id
+// writes and skills/backlog/close.sh reads — and "" when no item carries it.
+// It reads the frontmatter header only. os.ReadDir hands the names in sorted
+// order, so a store that carries the id twice resolves the same item every time.
+func linearIDKind(dir, id string) (string, error) {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		if errors.Is(err, fs.ErrNotExist) {
+			return "", nil
+		}
+		return "", fmt.Errorf("chief: cannot read the backlog store %s: %w", dir, err)
+	}
+	for _, ent := range entries {
+		if ent.IsDir() || !strings.HasSuffix(ent.Name(), ".md") {
+			continue
+		}
+		lines, err := frontmatterLines(filepath.Join(dir, ent.Name()))
+		if err != nil {
+			// An item this process cannot read matches nothing; the entry the
+			// listing named can already be gone (the plugin owns the store).
+			continue
+		}
+		value := frontmatterValue(lines, "linear_id")
+		if value != "" && value == id {
+			return frontmatterValue(lines, "kind"), nil
+		}
+	}
+	return "", nil
+}
+
+// frontmatterHeaderLines bounds the header read: an item's frontmatter is the
+// short key block skills/backlog/add.sh writes, so a block longer than this is
+// not frontmatter and the scan stops rather than reading the item's body.
+const frontmatterHeaderLines = 64
+
+// frontmatterLines returns the lines of a file's YAML frontmatter block, and
+// reads no further: the read stops at the closing fence. A file in the
+// plain-ticket shape (no frontmatter) answers nil.
+func frontmatterLines(path string) ([]string, error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return nil, err
+	}
+	defer f.Close()
+	sc := bufio.NewScanner(f)
+	var lines []string
+	opened := false
+	for sc.Scan() {
+		line := strings.TrimRight(sc.Text(), "\r")
+		if !opened {
+			if !frontmatterFence(line) {
+				// Plain-ticket shape: no header, so nothing to read of it.
+				return nil, nil
+			}
+			opened = true
+			continue
+		}
+		if frontmatterFence(line) {
+			return lines, nil
+		}
+		lines = append(lines, line)
+		if len(lines) >= frontmatterHeaderLines {
+			break
+		}
+	}
+	if err := sc.Err(); err != nil {
+		return nil, err
+	}
+	return lines, nil
+}
+
+func frontmatterFence(line string) bool {
+	return strings.TrimRight(line, " \t") == "---"
+}
+
+// frontmatterValue returns the first value of a top-level frontmatter key, in
+// the shape skills/backlog/sweep.sh's fm_value reads: the key at column 1, the
+// value stripped of surrounding spaces.
+func frontmatterValue(lines []string, key string) string {
+	for _, line := range lines {
+		if value, found := strings.CutPrefix(line, key+":"); found {
+			return strings.Trim(value, " \t")
+		}
+	}
+	return ""
 }
 
 // frontmatterKind reads the kind key of an item's YAML frontmatter — the key
@@ -522,26 +846,62 @@ func frontmatterKind(raw []byte) string {
 	if len(lines) == 0 || strings.TrimRight(lines[0], "\r") != "---" {
 		return ""
 	}
+	var header []string
 	for _, line := range lines[1:] {
 		line = strings.TrimRight(line, "\r")
 		if line == "---" {
-			return ""
+			break
 		}
-		if value, found := strings.CutPrefix(line, "kind:"); found {
-			return strings.TrimSpace(value)
-		}
+		header = append(header, line)
 	}
-	return ""
+	return frontmatterValue(header, "kind")
+}
+
+// parserTokens are the option flags of skills/autopilot/parse-flags.sh's own
+// vocabulary — the tokens of the SPEC-046 M2 composition the plugin's flag
+// parser reads. One spelling serves the composition and the validation seam,
+// so no vocabulary is copied into the control plane. Only present fields
+// compose.
+func parserTokens(opts routeOptions) []string {
+	var tokens []string
+	if opts.Tier != "" {
+		tokens = append(tokens, "--tier="+opts.Tier)
+	}
+	if opts.CouncilTier != "" {
+		tokens = append(tokens, "--council-tier="+opts.CouncilTier)
+	}
+	if opts.MaxLoc != "" {
+		tokens = append(tokens, "--max-loc="+opts.MaxLoc)
+	}
+	return tokens
 }
 
 // composeRunCommand is the premise a ticket route sends: the Surface's
-// command line with the autopilot flag. The bare token names the valueless
-// flag (SPEC-045 M3).
-func composeRunCommand(workflow, id, token string) string {
-	if token == autopilotBare {
-		return "/" + workflow + " " + id + " --autopilot"
+// command line, then the run options in the SPEC-046 M2 pinned order — id
+// first, then --tier, --council-tier, --max-loc, --concurrency N,
+// --with-advisor[=<model>], and --autopilot[=<token>] last. Only a present
+// option composes, so an empty option set composes the SPEC-045 command byte
+// for byte. The caps are never part of the command (M5). A bare token names
+// the valueless flag (SPEC-045 M3).
+func composeRunCommand(workflow, id string, opts routeOptions) string {
+	args := append([]string{"/" + workflow, id}, parserTokens(opts)...)
+	if opts.Concurrency != "" {
+		// The plugin's own grammar is the two-token space form.
+		args = append(args, "--concurrency", opts.Concurrency)
 	}
-	return "/" + workflow + " " + id + " --autopilot=" + token
+	if opts.WithAdvisor != "" {
+		flag := "--with-advisor"
+		if opts.WithAdvisor != advisorOn {
+			flag += "=" + opts.WithAdvisor
+		}
+		args = append(args, flag)
+	}
+	if opts.Autopilot == autopilotBare {
+		args = append(args, "--autopilot")
+	} else {
+		args = append(args, "--autopilot="+opts.Autopilot)
+	}
+	return strings.Join(args, " ")
 }
 
 // nextAttempt answers the run id of one ticket's next attempt (SPEC-045 M2):
@@ -684,11 +1044,17 @@ func (c *Chief) startWait() time.Duration {
 // correction. For a ticket route the premise is the composed command and the
 // ticket is the existing id, which the attempt ladder keeps distinct from
 // the run id (SPEC-045 M1/M2).
+//
+// caps are the run's own budget caps (SPEC-046 M5/M7): they ride the
+// run-scoped environment channel and the run_started row, never the premise
+// command line. The host adapter is the one writer of the environment; the
+// chief hands it validated values — from the route's syntax check, or read
+// back from the journaled state by a retry. The zero value means no cap.
 func (c *Chief) startRun(ctx context.Context, req RouteRequest, res *RouteResult,
-	ticket, premise string) error {
+	ticket, premise string, caps hostadapter.RunCaps) error {
 	errc := c.startSupervised(res.RunID, hostadapter.StartRequest{
 		RunID: res.RunID, Ticket: ticket, Workflow: res.Surface.Name,
-		Model: res.Model, Host: req.Host, Premise: premise,
+		Model: res.Model, Host: req.Host, Premise: premise, RunCaps: caps,
 	})
 
 	wait := c.startWait()

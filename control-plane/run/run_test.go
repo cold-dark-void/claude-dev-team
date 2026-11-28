@@ -912,3 +912,95 @@ func TestRecoveryPlanReportsTheDifference(t *testing.T) {
 		t.Fatalf("events = %d, want 3 (claim, start, intent)", st.EventCount)
 	}
 }
+
+// SPEC-046 M7: the caps a run starts with ride its own run_started payload —
+// no new event kind — so a retry and a takeover re-spawn read them back from
+// the journal. Start alone keeps the payload bare: 0 means the run carries no
+// operator cap.
+func TestStartWithCapsJournalsTheCapsOnRunStarted(t *testing.T) {
+	ctx := context.Background()
+	m, eng, _ := newTestMachine(t, "CDT-677", "sonnet")
+	token, err := m.Claim(ctx, "runner-a", "CDT-677", "orchestrate", "sonnet")
+	if err != nil {
+		t.Fatalf("Claim: %v", err)
+	}
+	if err := m.StartWithCaps(ctx, "runner-a", token, "sonnet", 7200, 40); err != nil {
+		t.Fatalf("StartWithCaps: %v", err)
+	}
+	st, err := m.State(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if st.WallclockCapS != 7200 || st.IterationCapS != 40 {
+		t.Errorf("caps = %d/%d, want 7200/40", st.WallclockCapS, st.IterationCapS)
+	}
+	if n := countKind(t, eng, "CDT-677", journal.KindRunStarted); n != 1 {
+		t.Errorf("run_started rows = %d, want the one start (no new event kind)", n)
+	}
+}
+
+// A start that names no caps journals none: a run the operator left alone
+// keeps the budget the plugin derives for itself (SPEC-033 N14).
+func TestStartCarriesNoCaps(t *testing.T) {
+	ctx := context.Background()
+	m, _, _ := newTestMachine(t, "CDT-677-bare", "sonnet")
+	token, err := m.Claim(ctx, "runner-a", "CDT-677-bare", "orchestrate", "sonnet")
+	if err != nil {
+		t.Fatalf("Claim: %v", err)
+	}
+	if err := m.Start(ctx, "runner-a", token, "sonnet"); err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	st, err := m.State(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if st.WallclockCapS != 0 || st.IterationCapS != 0 {
+		t.Errorf("caps = %d/%d, want 0/0 (unset)", st.WallclockCapS, st.IterationCapS)
+	}
+}
+
+// A negative cap is a caller defect: the replay rule of SPEC-046 M7 refuses
+// the append inside the transaction, so the run stays claimed and writes
+// nothing.
+func TestStartWithCapsRefusesANegativeCapAndWritesNothing(t *testing.T) {
+	ctx := context.Background()
+	m, eng, _ := newTestMachine(t, "CDT-677-neg", "sonnet")
+	token, err := m.Claim(ctx, "runner-a", "CDT-677-neg", "orchestrate", "sonnet")
+	if err != nil {
+		t.Fatalf("Claim: %v", err)
+	}
+	for _, caps := range [2][2]int64{{-1, 0}, {0, -1}} {
+		if err := m.StartWithCaps(ctx, "runner-a", token, "sonnet",
+			caps[0], caps[1]); !errors.Is(err, journal.ErrReplayInconsistent) {
+			t.Fatalf("StartWithCaps(%d,%d) err = %v, want ErrReplayInconsistent",
+				caps[0], caps[1], err)
+		}
+	}
+	st, err := m.State(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if st.Status != journal.StatusClaimed {
+		t.Errorf("state = %s, want claimed (the refused start wrote nothing)", st.Name())
+	}
+	if n := countKind(t, eng, "CDT-677-neg", journal.KindRunStarted); n != 0 {
+		t.Errorf("run_started rows = %d, want none", n)
+	}
+}
+
+// countKind counts one run's rows of one event kind.
+func countKind(t *testing.T, eng *journal.Engine, runID string, kind journal.Kind) int {
+	t.Helper()
+	events, err := eng.Events(context.Background(), runID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	n := 0
+	for _, ev := range events {
+		if ev.Kind == kind {
+			n++
+		}
+	}
+	return n
+}

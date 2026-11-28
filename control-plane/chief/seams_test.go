@@ -2,6 +2,7 @@ package chief
 
 import (
 	"context"
+	"errors"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -224,4 +225,138 @@ func TestIntercomPageExecsTheSendVerb(t *testing.T) {
 	if !strings.Contains(argv, "\n") {
 		t.Error("the recorder should hold one line per call")
 	}
+}
+
+// --- SPEC-046 AC2: the run-option and advisor-token seams (M3) ------------
+
+// The options seam execs skills/autopilot/parse-flags.sh as argv with the
+// composed tokens of the present fields: the tier, council-tier, and max-loc
+// vocabularies stay the script's, and its exit-64 refusal is the seam's typed
+// refusal. An empty option set execs nothing.
+func TestOptionSeamExecsThePluginParser(t *testing.T) {
+	t.Run("the present tokens ride one argv", func(t *testing.T) {
+		root, log := plantSeam(t, "skills/autopilot/parse-flags.sh", "''")
+		v := &bashOptionFlags{root: func() (string, error) { return root, nil }}
+		err := v.Validate(context.Background(), routeOptions{
+			Tier: "light", CouncilTier: "skip", MaxLoc: "800", Concurrency: "4",
+			WithAdvisor: "model.1", Autopilot: "patch",
+			WallclockCap: "2700", IterationCap: "25"})
+		if err != nil {
+			t.Fatalf("validate: %v", err)
+		}
+		raw, err := os.ReadFile(log)
+		if err != nil {
+			t.Fatalf("the parser never ran: %v", err)
+		}
+		lines := strings.Split(strings.TrimSpace(string(raw)), "\n")
+		if len(lines) != 1 {
+			t.Fatalf("parser calls = %q, want one exec for the option set", raw)
+		}
+		// Only the parser's own vocabulary composes: concurrency, the advisor
+		// token, and the caps are checked elsewhere (SPEC-046 M3/M5).
+		if want := "--tier=light --council-tier=skip --max-loc=800"; lines[0] != want {
+			t.Errorf("argv = %q, want %q", lines[0], want)
+		}
+	})
+	t.Run("an empty option set execs nothing", func(t *testing.T) {
+		root, log := plantSeam(t, "skills/autopilot/parse-flags.sh", "''")
+		v := &bashOptionFlags{root: func() (string, error) { return root, nil }}
+		if err := v.Validate(context.Background(), routeOptions{}); err != nil {
+			t.Fatalf("validate: %v", err)
+		}
+		if _, err := os.Stat(log); !os.IsNotExist(err) {
+			t.Errorf("the parser ran for an empty option set (stat: %v)", err)
+		}
+	})
+	t.Run("the parser's exit 64 is a typed refusal", func(t *testing.T) {
+		root, _ := plantAutopilotParser(t, 64)
+		v := &bashOptionFlags{root: func() (string, error) { return root, nil }}
+		err := v.Validate(context.Background(), routeOptions{Tier: "Standard"})
+		if !errors.Is(err, ErrIllegalRunOption) {
+			t.Fatalf("err = %v, want ErrIllegalRunOption", err)
+		}
+	})
+	t.Run("the real parser admits its own vocabulary", func(t *testing.T) {
+		v := &bashOptionFlags{root: func() (string, error) { return "../..", nil }}
+		ctx := context.Background()
+		sets := []routeOptions{
+			{Tier: "light", CouncilTier: "skip", MaxLoc: "1"},
+			{Tier: "standard", CouncilTier: "light", MaxLoc: "unbound"},
+			{Tier: "full", CouncilTier: "full", MaxLoc: "1200"},
+		}
+		for _, opts := range sets {
+			if err := v.Validate(ctx, opts); err != nil {
+				t.Errorf("options %+v: %v", opts, err)
+			}
+		}
+	})
+	t.Run("the real parser refuses a value outside its vocabulary", func(t *testing.T) {
+		v := &bashOptionFlags{root: func() (string, error) { return "../..", nil }}
+		ctx := context.Background()
+		sets := []routeOptions{
+			{Tier: "skip"}, {Tier: "Standard"}, {CouncilTier: "standard"},
+			{CouncilTier: "off"}, {MaxLoc: "0"}, {MaxLoc: "-8"}, {MaxLoc: "UNBOUND"},
+			{MaxLoc: "unbound "}, {Tier: "light", CouncilTier: "ultra"},
+		}
+		for _, opts := range sets {
+			if err := v.Validate(ctx, opts); !errors.Is(err, ErrIllegalRunOption) {
+				t.Errorf("options %+v err = %v, want ErrIllegalRunOption", opts, err)
+			}
+		}
+	})
+}
+
+// The advisor seam execs skills/advisor/parse-flags.sh as argv with the flag
+// form the token names: the model-token grammar is the plugin's own
+// (SPEC-039 M37), including the reserved null and --clear tokens.
+func TestAdvisorSeamExecsThePluginAdvisorParser(t *testing.T) {
+	t.Run("the flag form rides the token", func(t *testing.T) {
+		root, log := plantSeam(t, "skills/advisor/parse-flags.sh",
+			`'{"enabled":true,"source":"flag"}'`)
+		v := &bashAdvisorFlags{root: func() (string, error) { return root, nil }}
+		ctx := context.Background()
+		if err := v.Validate(ctx, advisorOn); err != nil {
+			t.Fatalf("bare: %v", err)
+		}
+		if err := v.Validate(ctx, "swift-x/model.1"); err != nil {
+			t.Fatalf("model: %v", err)
+		}
+		raw, err := os.ReadFile(log)
+		if err != nil {
+			t.Fatal(err)
+		}
+		argv := string(raw)
+		if !strings.Contains(argv, "--with-advisor\n") {
+			t.Errorf("argv %q lacks the valueless --with-advisor for the bare token", argv)
+		}
+		if !strings.Contains(argv, "--with-advisor=swift-x/model.1") {
+			t.Errorf("argv %q lacks the model token", argv)
+		}
+	})
+	t.Run("the parser's exit 64 is a typed refusal", func(t *testing.T) {
+		root, _ := plantAutopilotParser(t, 64)
+		v := &bashAdvisorFlags{root: func() (string, error) { return root, nil }}
+		if err := v.Validate(context.Background(), "null"); !errors.Is(err, ErrIllegalAdvisorModel) {
+			t.Fatalf("err = %v, want ErrIllegalAdvisorModel", err)
+		}
+	})
+	t.Run("the real parser admits its own grammar", func(t *testing.T) {
+		v := &bashAdvisorFlags{root: func() (string, error) { return "../..", nil }}
+		ctx := context.Background()
+		for _, token := range []string{advisorOn, "opus", "swift-x/model.1+@_~-", "a:b@c"} {
+			if err := v.Validate(ctx, token); err != nil {
+				t.Errorf("token %q: %v", token, err)
+			}
+		}
+	})
+	t.Run("the real parser refuses a reserved or malformed token", func(t *testing.T) {
+		v := &bashAdvisorFlags{root: func() (string, error) { return "../..", nil }}
+		ctx := context.Background()
+		for _, token := range []string{"null", "--clear", "a..b", "bad model",
+			"mo|del", "mod;el", "tu*r"} {
+			if err := v.Validate(ctx, token); !errors.Is(err, ErrIllegalAdvisorModel) {
+				t.Errorf("token %q err = %v, want ErrIllegalAdvisorModel", token, err)
+			}
+		}
+	})
 }

@@ -234,6 +234,234 @@ func TestTheCommandPreviewIsALabeledApproximation(t *testing.T) {
 		regexp.MustCompile("r\\.command \\? ` The Chief runs \\$\\{r\\.command\\}"))
 }
 
+// SPEC-046 AC4/AC6: the Advanced section of the ticket-route form, the
+// composed-command preview it feeds, and the detail read that shows the
+// options a run ran. The proofs are the shipped bytes again — the page has no
+// build step and the lane has no JS runtime.
+var (
+	// The Advanced section: the run options of SPEC-046 M1, mounted on the
+	// ticket route alone.
+	advancedSection = regexp.MustCompile(`(?s)<details id="route-advanced".*?</details>`)
+	inputTag        = regexp.MustCompile(`<input[^>]*id="([^"]+)"[^>]*>`)
+)
+
+// advancedFields maps every SPEC-046 M1 JSON name to the form control that
+// carries it. The seven fields are six options: the two caps are one option
+// (the run budget) carried by two inputs.
+var advancedFields = map[string]string{
+	"with_advisor":  "route-advisor",
+	"tier":          "route-tier",
+	"council_tier":  "route-council-tier",
+	"max_loc":       "route-max-loc",
+	"concurrency":   "route-concurrency",
+	"wallclock_cap": "route-wallclock-cap",
+	"iteration_cap": "route-iteration-cap",
+}
+
+// AC4: the ticket-route form gains an Advanced section that carries the six
+// run options, every one empty by default, the caps numeric, the plugin
+// vocabularies as client hints only, and the autopilot token outside it. The
+// section rides the ticket route alone, and a retry still carries no options.
+func TestTheAdvancedSectionCarriesTheSixOptions(t *testing.T) {
+	page := webAsset(t, "index.html")
+	js := webAsset(t, "app.js")
+	css := webAsset(t, "style.css")
+
+	section := advancedSection.FindString(page)
+	if section == "" {
+		t.Fatal(`index.html ships no <details id="route-advanced"> section`)
+	}
+
+	inputs := map[string]string{}
+	for _, m := range inputTag.FindAllStringSubmatch(section, -1) {
+		inputs[m[1]] = m[0]
+	}
+	for name, id := range advancedFields {
+		tag, ok := inputs[id]
+		if !ok {
+			t.Errorf("the Advanced section ships no input %q for the %s field", id, name)
+			continue
+		}
+		// Empty by default: an empty field composes nothing, so the shipped
+		// control carries no value and asks for none.
+		if strings.Contains(tag, "value=") {
+			t.Errorf("%s ships a value: every Advanced field starts empty", id)
+		}
+		if strings.Contains(tag, "required") {
+			t.Errorf("%s ships required: an empty option composes nothing", id)
+		}
+	}
+
+	// The caps and the concurrency cap are numeric inputs.
+	for _, id := range []string{"route-concurrency", "route-wallclock-cap", "route-iteration-cap"} {
+		if !strings.Contains(inputs[id], `type="number"`) {
+			t.Errorf("%s is not a numeric input", id)
+		}
+	}
+
+	// The plugin vocabularies ride the section as hints: the words are there
+	// for the operator to read, and the section validates nothing of its own —
+	// SPEC-046 AC2 makes the Chief's seams the gate.
+	for _, hint := range []string{"light", "standard", "full", "skip", "unbound"} {
+		if !strings.Contains(section, hint) {
+			t.Errorf("the Advanced section names no %q client hint", hint)
+		}
+	}
+	for _, banned := range []string{`pattern="`, `min="`, `max="`, `step="`,
+		`maxlength="`, "validity"} {
+		if strings.Contains(section, banned) {
+			t.Errorf("the Advanced section carries %q: the Chief's validation is the gate", banned)
+		}
+	}
+	if strings.Contains(section, "required") {
+		t.Error("the Advanced section marks a field required: an empty option composes nothing")
+	}
+
+	// The autopilot token stays a first-class field: its picker ships outside
+	// the section, ahead of it.
+	if strings.Contains(section, "route-autopilot") {
+		t.Error("the autopilot picker moved inside the Advanced section")
+	}
+	if strings.Index(page, `id="route-autopilot"`) > strings.Index(page, `id="route-advanced"`) {
+		t.Error("the autopilot picker no longer precedes the Advanced section")
+	}
+
+	// The section is mounted on the ticket route alone, and the route body
+	// carries the seven M1 field names through the Advanced inputs.
+	mustMatch(t, "app.js", js, regexp.MustCompile(`\$\("route-advanced"\)\.hidden = !ticket`))
+	mustMatch(t, "app.js", js, regexp.MustCompile(`function advancedOptions\(\)`))
+	mustMatch(t, "app.js", js, regexp.MustCompile(`opts\[name\] = advancedValue\(id\)`))
+	mustMatch(t, "app.js", js, regexp.MustCompile(`Object\.assign\(body, advancedOptions\(\)\)`))
+
+	// AC5: the retry keeps taking no option inputs — chiefd recomposes the
+	// original run's options from the journaled trail.
+	mustMatch(t, "app.js", js,
+		regexp.MustCompile(`verb: "retry", from: \["failed", "halted"\], body: \{\} \}`))
+
+	// A folded box stays folded: the page's own display rules sit above the
+	// user agent's [hidden] rule, so style.css states the fold after them.
+	mustMatch(t, "style.css", css, regexp.MustCompile(`\[hidden\] \{ display: none; \}`))
+	if strings.Index(css, ".row { display: flex") > strings.Index(css, "[hidden] { display: none; }") {
+		t.Error("style.css states the hidden fold before the .row display rule, so it loses")
+	}
+}
+
+var (
+	advancedTable = regexp.MustCompile(`(?s)const ADVANCED_INPUTS = \[.*?\];`)
+	advancedFlags = regexp.MustCompile(`(?s)function advancedFlags\(\) \{.*?\n\}`)
+	composedBody  = regexp.MustCompile(`(?s)function composedCommands\(\) \{.*?\n\}`)
+)
+
+// AC4: the command preview covers the Advanced options in the SPEC-046 M2
+// pinned order — --tier, --council-tier, --max-loc, --concurrency N,
+// --with-advisor[=<model>] — with --autopilot[=<token>] last. An empty field
+// composes nothing, and the caps never enter the command line (M5).
+func TestComposedCommandsPreviewCoversTheAdvancedOptions(t *testing.T) {
+	js := webAsset(t, "app.js")
+
+	// One table names the Advanced controls: the input id, the JSON name it
+	// posts, and whether the value composes into the command.
+	table := advancedTable.FindString(js)
+	if table == "" {
+		t.Fatal("app.js names no ADVANCED_INPUTS table")
+	}
+	rows := [][3]string{
+		{"route-tier", "tier", "true"}, {"route-council-tier", "council_tier", "true"},
+		{"route-max-loc", "max_loc", "true"}, {"route-concurrency", "concurrency", "true"},
+		{"route-advisor", "with_advisor", "true"},
+		{"route-wallclock-cap", "wallclock_cap", "false"},
+		{"route-iteration-cap", "iteration_cap", "false"},
+	}
+	last := -1
+	for _, row := range rows {
+		i := strings.Index(table, row[0])
+		if i < 0 {
+			t.Fatalf("ADVANCED_INPUTS names no %q row", row[0])
+		}
+		pattern := `\[\s*"` + row[0] + `",\s*"` + row[1] + `",\s*` + row[2] + `\s*\]`
+		if !regexp.MustCompile(pattern).MatchString(table) {
+			t.Errorf("ADVANCED_INPUTS lacks the row [%q, %q, %s]", row[0], row[1], row[2])
+		}
+		if i < last {
+			t.Errorf("ADVANCED_INPUTS lists %q out of the M1 order", row[0])
+		}
+		last = i
+	}
+
+	flags := advancedFlags.FindString(js)
+	if flags == "" {
+		t.Fatal("app.js composes no advancedFlags() preview helper")
+	}
+	// The M2 pinned order, read off the order the flags are composed in.
+	last = -1
+	for _, token := range []string{`--tier=`, `--council-tier=`, `--max-loc=`,
+		"--concurrency ", `--with-advisor`} {
+		i := strings.Index(flags, token)
+		if i < 0 {
+			t.Fatalf("the preview composes no %q token", token)
+		}
+		if i < last {
+			t.Fatalf("the preview composes %q out of the SPEC-046 M2 order", token)
+		}
+		last = i
+	}
+	// --concurrency is the plugin's two-token space form, never --concurrency=.
+	if strings.Contains(flags, "--concurrency=") {
+		t.Error("the preview composes --concurrency=N: the plugin's grammar is the space form")
+	}
+	// Every flag is guarded: an empty field composes nothing.
+	if n := strings.Count(flags, "if ("); n < len(rows)-2 {
+		t.Errorf("advancedFlags() guards %d fields, want one guard per command option", n)
+	}
+	// SPEC-046 M5: the caps ride the run's environment, never the command.
+	for _, banned := range []string{"wallclock", "iteration", "AUTOPILOT_"} {
+		if strings.Contains(flags, banned) {
+			t.Errorf("the preview composes %q into the command line: the caps ride the environment", banned)
+		}
+	}
+
+	body := composedBody.FindString(js)
+	if body == "" {
+		t.Fatal("app.js has no composedCommands() preview function")
+	}
+	// The Advanced flags compose after the id and before the autopilot token,
+	// which stays last. The no-options form keeps today's exact preview.
+	mustMatch(t, "app.js", body, regexp.MustCompile(`const flag = token === "bare"`))
+	mustMatch(t, "app.js", body,
+		regexp.MustCompile(`/orchestrate \$\{id\} \$\{advanced\.join\(" "\)\} \$\{flag\}`))
+	mustMatch(t, "app.js", body, regexp.MustCompile(`/orchestrate \$\{id\} \$\{flag\}`))
+	mustMatch(t, "app.js", body, regexp.MustCompile(`/epic \$\{id\} \$\{flag\}`))
+	if strings.Index(body, `advanced.join(" ")`) > strings.Index(body, `/orchestrate ${id} ${flag}`) {
+		t.Error("the preview composes the autopilot token before the Advanced options")
+	}
+	// SPEC-046 M4: an epic id applies none of the Advanced options, so the
+	// preview names the refusal for it rather than an /epic command.
+	mustMatch(t, "app.js", body, regexp.MustCompile(`epic: ""`))
+	mustMatch(t, "app.js", js, regexp.MustCompile(`Preview \(approximate\)`))
+	// The preview follows the Advanced inputs as the operator types.
+	mustMatch(t, "app.js", js,
+		regexp.MustCompile(`if \(previews\) \$\(id\)\.addEventListener\("input", syncRouteForm\)`))
+}
+
+// AC6: the run detail shows the options the run used — the composed command
+// the premise carries and the two caps in effect — read from the detail verb
+// only. An unset cap renders the empty state, not a zero.
+func TestTheDetailViewRendersTheComposedCommandAndCaps(t *testing.T) {
+	js := webAsset(t, "app.js")
+
+	mustMatch(t, "app.js", js, regexp.MustCompile(`\$\("detail-premise"\)\.textContent = d\.premise`))
+	mustMatch(t, "app.js", js,
+		regexp.MustCompile(`pair\(fields, "Wallclock cap", d\.wallclock_cap_s \?`))
+	mustMatch(t, "app.js", js,
+		regexp.MustCompile(`pair\(fields, "Iteration cap", d\.iteration_cap_s \?`))
+	for _, id := range []string{"route-tier", "route-council-tier", "route-max-loc",
+		"route-concurrency", "route-advisor", "route-wallclock-cap", "route-iteration-cap"} {
+		if strings.Contains(js, `$("`+id+`").value = ""`) {
+			t.Errorf("app.js clears %s after a route: an Advanced field keeps what the operator set", id)
+		}
+	}
+}
+
 var (
 	fetchCall  = regexp.MustCompile(`(getJSON|postJSON)\(\s*["\x60]([^"\x60]+)["\x60]`)
 	templateIn = regexp.MustCompile(`\$\{[^}]*\}`)

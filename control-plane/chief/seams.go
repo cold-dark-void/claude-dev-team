@@ -190,6 +190,86 @@ func (v *bashAutopilotFlags) pluginFile(rel string) (string, error) {
 	return pluginFile(v.root, rel)
 }
 
+// OptionsValidator is the run-options seam of the ticket route (SPEC-046 M3):
+// the tier, council-tier, and max-loc vocabularies are the plugin's own —
+// skills/autopilot/parse-flags.sh — never a Go copy.
+type OptionsValidator interface {
+	// Validate refuses an option token the parser refuses with
+	// ErrIllegalRunOption. Only the present fields ride the exec.
+	Validate(ctx context.Context, opts routeOptions) error
+}
+
+// bashOptionFlags is the seam over skills/autopilot/parse-flags.sh for the
+// run options. The script is exec'd as argv with the composed tokens; its
+// exit-64 usage refusal is the vocabulary's verdict, so the seam reads the
+// exit code and never parses prose (the bashAutopilotFlags shape).
+type bashOptionFlags struct {
+	root func() (string, error)
+}
+
+// Validate execs the parser with the parser-owned tokens of the present
+// fields. An empty option set has nothing for the parser to read: it execs
+// nothing. Concurrency, the advisor token, and the caps are not the parser's
+// vocabulary — they are checked by the route (SPEC-046 M3) and by the advisor
+// seam.
+func (v *bashOptionFlags) Validate(ctx context.Context, opts routeOptions) error {
+	tokens := parserTokens(opts)
+	if len(tokens) == 0 {
+		return nil
+	}
+	script, err := v.pluginFile("skills/autopilot/parse-flags.sh")
+	if err != nil {
+		return err
+	}
+	_, err = bash(ctx, append([]string{script}, tokens...))
+	if err == nil {
+		return nil
+	}
+	if exitCodeOf(err) == 64 {
+		return fmt.Errorf("%w: %s is refused by the plugin's flag parser (%v)",
+			ErrIllegalRunOption, strings.Join(tokens, " "), err)
+	}
+	return err
+}
+
+// AdvisorValidator is the advisor-token seam of the ticket route (SPEC-046 M3):
+// the model-token grammar is the plugin's own — skills/advisor/parse-flags.sh
+// (SPEC-039 M37) — never a Go copy of the charset.
+type AdvisorValidator interface {
+	// Validate refuses a token the advisor parser refuses with
+	// ErrIllegalAdvisorModel. The token is the request's with_advisor value:
+	// "true" names the bare flag, any other value the =<model> form.
+	Validate(ctx context.Context, token string) error
+}
+
+// bashAdvisorFlags is the seam over skills/advisor/parse-flags.sh. The script
+// is exec'd as argv with the flag form the token names; its exit-64 refusal is
+// the grammar's verdict — the reserved null and --clear tokens included.
+type bashAdvisorFlags struct {
+	root func() (string, error)
+}
+
+// Validate execs the advisor parser with the composed advisor flag.
+func (v *bashAdvisorFlags) Validate(ctx context.Context, token string) error {
+	script, err := v.pluginFile("skills/advisor/parse-flags.sh")
+	if err != nil {
+		return err
+	}
+	flag := "--with-advisor"
+	if token != advisorOn {
+		flag = "--with-advisor=" + token
+	}
+	_, err = bash(ctx, []string{script, flag})
+	if err == nil {
+		return nil
+	}
+	if exitCodeOf(err) == 64 {
+		return fmt.Errorf("%w: %q is refused by the plugin's advisor parser (%v)",
+			ErrIllegalAdvisorModel, token, err)
+	}
+	return err
+}
+
 // exitCodeOf answers a command's exit code from the error it returned, and
 // -1 when the error names none (the spawn itself failed).
 func exitCodeOf(err error) int {
@@ -216,6 +296,14 @@ func (t *ticketCLI) pluginFile(rel string) (string, error) {
 
 func (m *bashModelMap) pluginFile(rel string) (string, error) {
 	return pluginFile(m.root, rel)
+}
+
+func (v *bashOptionFlags) pluginFile(rel string) (string, error) {
+	return pluginFile(v.root, rel)
+}
+
+func (v *bashAdvisorFlags) pluginFile(rel string) (string, error) {
+	return pluginFile(v.root, rel)
 }
 
 func (p *intercomPhone) pluginFile(rel string) (string, error) {

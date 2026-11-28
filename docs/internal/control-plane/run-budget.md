@@ -77,6 +77,10 @@ Every cap cell is a verbatim cell from SPEC-033: the § AC3 M9 static defaults, 
 - The `opus` row borrows the S iteration cap because a run whose spawns are all `opus` runs few, deep stints. That is an analogy to the S row's meaning, not a derivation from it. Label: unmeasured, phase-1 input.
 - `budget.tier` is not `--tier` and not `council_tier` (SPEC-033 § AC9).
 
+## Per-run caps from the Chief
+
+You can set both caps per run from the Chief, with the run options: the Advanced section of the new-run form carries `wallclock_cap` and `iteration_cap` (SPEC-046 M1), and chiefd puts them on that run's runner environment only (SPEC-046 M5). The env precedence above is unchanged — that per-run value is the env layer for that run.
+
 ## Open BC6 item
 
 **CDT-610** — "BC6 wall-clock budget: exclude user wait, soft-pause ship step" — is PENDING at `.claude/backlog.md:16` (verified 2026-11-15).

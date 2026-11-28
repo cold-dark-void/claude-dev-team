@@ -73,7 +73,8 @@ func (c *Chief) apiRoute(w http.ResponseWriter, r *http.Request) {
 
 // apiRuns serves GET /v1/runs: the board rows — the replayed status plus the
 // detail fields the run detail view and the ticket grouping read (SPEC-045
-// AC3/AC5).
+// AC3/AC5), the composed command and the budget caps in effect included
+// (SPEC-046 M9).
 func (c *Chief) apiRuns(w http.ResponseWriter, r *http.Request) {
 	runs, err := c.Details(r.Context())
 	if err != nil {
@@ -83,7 +84,9 @@ func (c *Chief) apiRuns(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"runs": runs})
 }
 
-// apiRun serves GET /v1/runs/{runID}.
+// apiRun serves GET /v1/runs/{runID}: one run's detail. The run options in
+// effect — the composed command and the two caps — ride the same journal fold
+// (SPEC-046 M9).
 func (c *Chief) apiRun(w http.ResponseWriter, r *http.Request) {
 	rs, err := c.Detail(r.Context(), r.PathValue("runID"))
 	if err != nil {
@@ -313,7 +316,9 @@ func statusOf(err error) int {
 	// The lease and terminal-state refusals and the operator actions' state
 	// refusals (SPEC-045 AC7) are all conflicts with the run's current state.
 	// The ticket route's refusals are not listed here: they chain to
-	// ErrInvalid above, which is their one mapping.
+	// ErrInvalid above, which is their one mapping — the autopilot token
+	// (SPEC-045 M3) and the run options, advisor model token, and epic-option
+	// refusals (SPEC-046 M3/M4) included.
 	case errors.Is(err, ErrRunExists), errors.Is(err, agent.ErrRunning),
 		errors.Is(err, journal.ErrLeaseHeld), errors.Is(err, journal.ErrTerminalState),
 		errors.Is(err, journal.ErrStaleToken), errors.Is(err, journal.ErrNotOwner),

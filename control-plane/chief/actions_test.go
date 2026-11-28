@@ -72,7 +72,10 @@ func (f *actionsAgent) Supervise(ctx context.Context, eng *journal.Engine,
 	}
 	switch st.Status {
 	case journal.StatusClaimed:
-		if err := m.Start(ctx, takeoverOwner, token, req.Model); err != nil {
+		// The real node agent journals the run-scoped caps on the start row
+		// (SPEC-046 M7); the seam mirrors it so the journal proof is real.
+		if err := m.StartWithCaps(ctx, takeoverOwner, token, req.Model,
+			req.WallclockCapS, req.IterationCapS); err != nil {
 			return err
 		}
 	case journal.StatusHalted:
@@ -191,13 +194,22 @@ func stateName(t *testing.T, eng *journal.Engine, runID string) string {
 // the run out to completed or failed; empty leaves it running.
 func seedRoutedRun(t *testing.T, eng *journal.Engine, runID, command, premise, terminal string) {
 	t.Helper()
+	seedRoutedRunCaps(t, eng, runID, command, premise, terminal, 0, 0)
+}
+
+// seedRoutedRunCaps is seedRoutedRun with the operator's budget caps journaled
+// on the run_started row (SPEC-046 M7) — the shape a retry must read back.
+func seedRoutedRunCaps(t *testing.T, eng *journal.Engine, runID, command, premise,
+	terminal string, wallclockCapS, iterationCapS int64) {
+	t.Helper()
 	ctx := context.Background()
 	m := run.New(eng, runID)
 	token, err := m.Claim(ctx, takeoverOwner, runID, "orchestrate", takeoverModel)
 	if err != nil {
 		t.Fatalf("claim %s: %v", runID, err)
 	}
-	if err := m.Start(ctx, takeoverOwner, token, takeoverModel); err != nil {
+	if err := m.StartWithCaps(ctx, takeoverOwner, token, takeoverModel,
+		wallclockCapS, iterationCapS); err != nil {
 		t.Fatalf("start %s: %v", runID, err)
 	}
 	seedStartIntent(t, eng, runID, command)
@@ -269,7 +281,15 @@ func TestStopHaltsRunningAndClaimedRuns(t *testing.T) {
 // halt state.
 func seedResumableStall(t *testing.T, eng *journal.Engine, runID, command, sessionID string) {
 	t.Helper()
-	seedTakeoverRunning(t, eng, runID, takeoverOwner, command)
+	seedResumableStallCaps(t, eng, runID, command, sessionID, 0, 0)
+}
+
+// seedResumableStallCaps is seedResumableStall with the run's budget caps
+// journaled on its run_started row (SPEC-046 M7).
+func seedResumableStallCaps(t *testing.T, eng *journal.Engine, runID, command, sessionID string,
+	wallclockCapS, iterationCapS int64) {
+	t.Helper()
+	seedTakeoverRunningCaps(t, eng, runID, takeoverOwner, command, wallclockCapS, iterationCapS)
 	seedSessionRow(t, eng, runID, sessionID, true)
 	m := run.New(eng, runID)
 	if err := m.Halt(context.Background(), takeoverOwner, 1, run.ReasonStalled, "watchdog"); err != nil {
@@ -509,5 +529,114 @@ func TestActionRefusalsAreDistinctAndTyped(t *testing.T) {
 			t.Errorf("%s of an unknown run = %d %s, want 404 with the typed error",
 				verb, status, out)
 		}
+	}
+}
+
+// AC5 (SPEC-046 M10): a retry starts the next attempt with the same premise
+// flags and the same caps, the caps recovered from the journaled run_started
+// row of M7. The retry request body carries no option field to override them
+// (RetryRequest names a host alone), and a run that carried no caps retries
+// with none — the seam invents no budget.
+func TestRetryCarriesTheOriginalOptionsAndCaps(t *testing.T) {
+	eng := newEngine(t)
+	ag := &actionsAgent{}
+	c := newActionsChief(t, eng, ag)
+	ctx := context.Background()
+	premise := "/orchestrate CDT-677 --tier=full --autopilot=major"
+	seedRoutedRunCaps(t, eng, "CDT-677", "grok", premise, "failed", 7200, 40)
+	seedRoutedRun(t, eng, "CDT-678", "grok", "/orchestrate CDT-678 --autopilot=auto", "failed")
+
+	res, err := c.Retry(ctx, "CDT-677", "")
+	if err != nil {
+		t.Fatalf("retry CDT-677: %v", err)
+	}
+	if res.RunID != "CDT-677-r2" {
+		t.Fatalf("retry run id = %q, want the ticket's next attempt", res.RunID)
+	}
+	call := callFor(t, ag, "CDT-677-r2")
+	if call.Request.WallclockCapS != 7200 || call.Request.IterationCapS != 40 {
+		t.Errorf("retried caps = %d/%d, want the journaled 7200/40",
+			call.Request.WallclockCapS, call.Request.IterationCapS)
+	}
+	if call.Request.Premise != premise {
+		t.Errorf("retried premise = %q, want the journaled command %q",
+			call.Request.Premise, premise)
+	}
+	if call.Request.Workflow != "orchestrate" || call.Request.Model != takeoverModel {
+		t.Errorf("retried work = %+v, want the journaled workflow and model", call.Request)
+	}
+	// The new attempt's own start row carries the caps again: the journal of a
+	// retried run is faithful, so a takeover of it reads the same values back.
+	st, err := eng.RunState(ctx, "CDT-677-r2")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if st.WallclockCapS != 7200 || st.IterationCapS != 40 {
+		t.Errorf("journaled caps of the retry = %d/%d, want 7200/40",
+			st.WallclockCapS, st.IterationCapS)
+	}
+
+	res, err = c.Retry(ctx, "CDT-678", "")
+	if err != nil {
+		t.Fatalf("retry CDT-678: %v", err)
+	}
+	bare := callFor(t, ag, "CDT-678-r2")
+	if bare.Request.WallclockCapS != 0 || bare.Request.IterationCapS != 0 {
+		t.Errorf("retried caps = %d/%d, want 0/0 for a run that carried none",
+			bare.Request.WallclockCapS, bare.Request.IterationCapS)
+	}
+	bareState, err := eng.RunState(ctx, res.RunID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if bareState.WallclockCapS != 0 || bareState.IterationCapS != 0 {
+		t.Errorf("journaled caps = %d/%d, want 0/0",
+			bareState.WallclockCapS, bareState.IterationCapS)
+	}
+}
+
+// AC8 (SPEC-046 M7 ruling): an operator resume reuses the host session by id
+// and re-execs nothing, so the resume seam carries no caps — it is the
+// unchanged Adapter.Resume invocation — and the caps the original start
+// journaled stay the run's record. No second resume path, no new start row.
+func TestResumeRidesTheUnchangedResumeSeam(t *testing.T) {
+	eng := newEngine(t)
+	ag := &actionsAgent{}
+	c := newActionsChief(t, eng, ag)
+	ctx := context.Background()
+	seedResumableStallCaps(t, eng, "CDT-701", "claude", "sess-9", 3600, 25)
+
+	res, err := c.Resume(ctx, "CDT-701")
+	if err != nil {
+		t.Fatalf("resume: %v", err)
+	}
+	if !res.Resumed {
+		t.Fatalf("resume = %+v, want the run resumed", res)
+	}
+	calls := ag.recorded()
+	if len(calls) != 1 {
+		t.Fatalf("spawns = %d, want the one resume", len(calls))
+	}
+	call := calls[0]
+	if !call.Request.OperatorResume {
+		t.Errorf("the resume did not ride the operator-resume seam")
+	}
+	if got := strings.Join(call.Request.Args, " "); got != "-p --resume sess-9" {
+		t.Errorf("resume argv = %q, want the unchanged by-id invocation", got)
+	}
+	if call.Request.WallclockCapS != 0 || call.Request.IterationCapS != 0 {
+		t.Errorf("the resume carried caps %d/%d; the resume seam carries none (SPEC-046 M7)",
+			call.Request.WallclockCapS, call.Request.IterationCapS)
+	}
+	if n := countRows(t, eng, "CDT-701", journal.KindRunStarted, ""); n != 1 {
+		t.Errorf("run_started rows = %d, want the original one — the resume writes no start", n)
+	}
+	st, err := eng.RunState(ctx, "CDT-701")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if st.WallclockCapS != 3600 || st.IterationCapS != 25 {
+		t.Errorf("caps after the resume = %d/%d, want the journaled 3600/25 intact",
+			st.WallclockCapS, st.IterationCapS)
 	}
 }

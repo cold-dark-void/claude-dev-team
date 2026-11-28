@@ -168,6 +168,15 @@ type StartRequest struct {
 	// stalled finding. The resume itself stays the one machine call
 	// (run.Machine.Resume) and the closed run_resumed kind.
 	OperatorResume bool
+	// WallclockCapS and IterationCapS are the operator's per-run budget caps
+	// (SPEC-046 M7), journaled on this start's run_started row so a retry and
+	// a takeover re-spawn read them back from the journal. They are not
+	// credentials and the agent writes nothing from them into the runner's
+	// environment — the host adapter's run-scoped channel owns that
+	// (SPEC-046 M5). Zero means unset. A resume carries neither: the resumed
+	// session is re-used by id and the caps of its own start row stand.
+	WallclockCapS int64
+	IterationCapS int64
 }
 
 // PremiseFrame renders the work premise into one host wire frame — the
@@ -379,7 +388,8 @@ func (a *Agent) claim(ctx context.Context, m *run.Machine, req StartRequest) (in
 	// claimed -> running. A takeover of a running run skips this: the run is
 	// already running, and the takeover is journaled by Claim itself.
 	if st, err := m.State(ctx); err == nil && st.Status == journal.StatusClaimed {
-		if err := m.Start(ctx, a.owner(), token, req.Model); err != nil {
+		if err := m.StartWithCaps(ctx, a.owner(), token, req.Model,
+			req.WallclockCapS, req.IterationCapS); err != nil {
 			return 0, err
 		}
 	}

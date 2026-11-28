@@ -2,8 +2,11 @@ package hostadapter
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
+	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -111,6 +114,13 @@ type StartRequest struct {
 	// fail-closed (AC5/B7).
 	Credentials []InjectCredential
 
+	// RunCaps are the operator's per-run budget caps (SPEC-046 M5). They
+	// ride the run-scoped non-credential channel beside the credential
+	// entries — into that run's runner environment only, never the premise
+	// command line, the chiefd unit environment, or another run's
+	// environment. Zero means unset.
+	RunCaps RunCaps
+
 	// Premise is the run's work premise — the ticket record's text — which
 	// the node agent delivers as the session's first turn (SPEC-044
 	// CDT-665). The adapter renders it through the host's first-turn frame;
@@ -129,7 +139,7 @@ type StartRequest struct {
 // renderer the host's spec names (SPEC-044 CDT-665 M16/AC5).
 func (a *Adapter) Start(ctx context.Context, eng *journal.Engine,
 	req StartRequest) (*Capture, error) {
-	sp, err := a.launchOf(req.Host, req.Credentials)
+	sp, err := a.launchOf(req.Host, req.Credentials, req.RunCaps)
 	if err != nil {
 		return nil, err
 	}
@@ -147,6 +157,11 @@ func (a *Adapter) Start(ctx context.Context, eng *journal.Engine,
 		RunID: req.RunID, Ticket: req.Ticket, Workflow: req.Workflow,
 		Model: req.Model, Command: sp.Command, Args: sp.Args, Env: sp.Env,
 		Premise: req.Premise, PremiseFrame: premiseFrame,
+		// SPEC-046 M7: the caps that ride this runner's environment are
+		// journaled on the same start, so a retry and a takeover re-spawn
+		// read the run's own values back from the journal.
+		WallclockCapS: req.RunCaps.WallclockCapS,
+		IterationCapS: req.RunCaps.IterationCapS,
 	})
 	return cap, err
 }
@@ -389,8 +404,12 @@ func (a *Adapter) supervise(ctx context.Context, eng *journal.Engine,
 
 // launchOf resolves one host's launch argv and environment. The matrix
 // gates the route first (AC6); the credentials resolve against the B7
-// proven-name table (AC5) — an unproven name refuses the launch.
-func (a *Adapter) launchOf(h Host, creds []InjectCredential) (agentLaunch, error) {
+// proven-name table (AC5) — an unproven name refuses the launch; the run
+// caps resolve against the closed non-credential allowlist (SPEC-046 M5) —
+// any other name refuses the launch the same way. Every refusal lands here,
+// before the node agent sees the start and before any journal row is
+// written.
+func (a *Adapter) launchOf(h Host, creds []InjectCredential, caps RunCaps) (agentLaunch, error) {
 	if err := route(h, CapHeadlessStream); err != nil {
 		return agentLaunch{}, err
 	}
@@ -398,7 +417,11 @@ func (a *Adapter) launchOf(h Host, creds []InjectCredential) (agentLaunch, error
 	if err != nil {
 		return agentLaunch{}, err
 	}
-	env := make([]string, 0, len(creds))
+	capEnv, err := caps.EnvEntries()
+	if err != nil {
+		return agentLaunch{}, err
+	}
+	env := make([]string, 0, len(creds)+len(capEnv))
 	for _, c := range creds {
 		entry, err := c.EnvEntry()
 		if err != nil {
@@ -406,16 +429,124 @@ func (a *Adapter) launchOf(h Host, creds []InjectCredential) (agentLaunch, error
 		}
 		env = append(env, entry)
 	}
+	env = append(env, capEnv...)
 	return agentLaunch{Command: sp.LaunchCommand,
 		Args: append([]string(nil), sp.LaunchArgs...), Env: env}, nil
 }
 
 // agentLaunch is one resolved start: the host CLI command, its argv, and the
-// proven credential env entries.
+// launch environment — the proven credential env entries with the run's
+// cap entries appended.
 type agentLaunch struct {
 	Command string
 	Args    []string
 	Env     []string
+}
+
+// ---------------------------------------------------------------------------
+// SPEC-046 CDT-677 M5 — the run-scoped non-credential environment channel
+// ---------------------------------------------------------------------------
+
+// The budget-cap environment names, written exactly as the plugin names them:
+// the autopilot engine reads both from the session environment
+// (skills/autopilot/budget-check.sh). The channel adds no plugin flag and
+// changes no name (SPEC-033 N12/N14, SPEC-046 M6).
+const (
+	EnvCapWallclock = "AUTOPILOT_WALLCLOCK_CAP"
+	EnvCapIteration = "AUTOPILOT_ITERATION_CAP"
+)
+
+// runEnvAllowlist is the channel's closed name set: exactly the two cap names.
+// A start that asks the channel for any other name refuses fail-closed — the
+// same shape as the B7 credential gate, and the reason the caps never reach a
+// runner environment through a guessed name.
+var runEnvAllowlist = []string{EnvCapWallclock, EnvCapIteration}
+
+// The channel's typed refusals. They live with the channel; the package's
+// other refusals are in errors.go.
+var (
+	// ErrRunEnvNameNotAllowed is the SPEC-046 M5 fail-closed rule: a name
+	// outside the two-name allowlist never enters the run environment. The
+	// caps are not credentials, so this gate is separate from
+	// ErrCredentialNameUnproven and the B7 table.
+	ErrRunEnvNameNotAllowed = errors.New("hostadapter: environment name is not on the run-scoped allowlist")
+
+	// ErrRunCapsInvalid refuses a cap that is set to a non-positive value
+	// (SPEC-046 M3/M7: positive integers, zero means unset).
+	ErrRunCapsInvalid = errors.New("hostadapter: run budget cap is not a positive integer")
+)
+
+// RunEnvAllowlist is the channel's closed name set, for tests and surfaces.
+// The copy keeps the package's set closed to a caller.
+func RunEnvAllowlist() []string {
+	out := make([]string, len(runEnvAllowlist))
+	copy(out, runEnvAllowlist)
+	return out
+}
+
+// RunCaps are one run's operator-set budget caps (SPEC-046 M5). They ride
+// that run's runner environment and nothing else: not the premise command
+// line, not the chiefd unit environment, not another run's environment. Zero
+// means unset — the run keeps the budget the plugin derives for itself.
+type RunCaps struct {
+	WallclockCapS int64
+	IterationCapS int64
+}
+
+// EnvEntries composes the channel entries in allowlist order. A cap that is
+// set must be positive; a negative value is a caller defect and refuses
+// fail-closed. The rendering goes through runEnvEntry, so the allowlist gates
+// every entry the adapter writes.
+func (c RunCaps) EnvEntries() ([]string, error) {
+	set := []struct {
+		name  string
+		value int64
+	}{
+		{EnvCapWallclock, c.WallclockCapS},
+		{EnvCapIteration, c.IterationCapS},
+	}
+	var out []string
+	for _, e := range set {
+		if e.value == 0 {
+			continue
+		}
+		if e.value < 0 {
+			return nil, fmt.Errorf("%w: %s = %d", ErrRunCapsInvalid, e.name, e.value)
+		}
+		entry, err := runEnvEntry(e.name, strconv.FormatInt(e.value, 10))
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, entry)
+	}
+	return out, nil
+}
+
+// runEnvEntry is the channel gate: it validates one name against the closed
+// allowlist and renders the NAME=value entry. The name is matched exactly —
+// a near-miss, a lowercase spelling, or a credential name is a refusal, never
+// a coercion onto an allowed name. An empty value is a refusal too: a cap
+// entry with no value is not the plugin's "unset" signal.
+func runEnvEntry(name, value string) (string, error) {
+	if !allowedRunEnvName(name) {
+		return "", fmt.Errorf("%w: %q is not one of %s",
+			ErrRunEnvNameNotAllowed, name, strings.Join(runEnvAllowlist, ", "))
+	}
+	if strings.TrimSpace(value) == "" {
+		return "", fmt.Errorf("%w: %s carries an empty value",
+			ErrRunEnvNameNotAllowed, name)
+	}
+	return name + "=" + value, nil
+}
+
+// allowedRunEnvName reports whether a name is on the closed allowlist.
+func allowedRunEnvName(name string) bool {
+	for _, n := range runEnvAllowlist {
+		if n == name {
+			return true
+		}
+	}
+	return false
 }
 
 // sessionID returns the session id a run's capture holds.

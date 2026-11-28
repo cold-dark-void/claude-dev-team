@@ -99,9 +99,17 @@ type State struct {
 	// StallLimitS is the watchdog's stall limit in seconds, journaled at
 	// run_started. It is a journaled number, never a tuned one (AC9: CDT-610 is
 	// the precondition of any wall-clock tuning).
-	StallLimitS int64  `json:"stall_limit_s,omitempty"`
-	HeartbeatTS string `json:"last_heartbeat_ts,omitempty"`
-	Stint       int    `json:"stint"`
+	StallLimitS int64 `json:"stall_limit_s,omitempty"`
+
+	// WallclockCapS and IterationCapS are the operator's per-run budget caps
+	// journaled at run_started (SPEC-046 M7): wall-clock seconds and an iteration
+	// count. 0 means unset, so a caps-free run keeps the plugin's own budget.
+	// chiefd relays them to that run's runner environment; the plugin never
+	// writes them (SPEC-033 N12) and they carry no ceiling (N14).
+	WallclockCapS int64  `json:"wallclock_cap_s,omitempty"`
+	IterationCapS int64  `json:"iteration_cap_s,omitempty"`
+	HeartbeatTS   string `json:"last_heartbeat_ts,omitempty"`
+	Stint         int    `json:"stint"`
 
 	ClaimCount     int    `json:"claims"`
 	LeaseTakeovers int    `json:"lease_takeovers"`

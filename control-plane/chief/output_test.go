@@ -99,6 +99,121 @@ func TestRunDetailCarriesPremiseHostModelState(t *testing.T) {
 	}
 }
 
+// AC6 (SPEC-046 M9): the run detail read shows the run options in effect — the
+// composed command the ticket route sent (the premise the run carries,
+// SPEC-045 AC3) and the two budget caps. Both fold from the journal: the
+// command from the run's premise row, the caps from its run_started row. A
+// chief that never saw the start answers the same detail, so the UI needs no
+// state source of its own (SPEC-045 AC9). An unset cap renders absent, the
+// convention every unset state field follows.
+func TestRunDetailShowsTheComposedCommandAndCaps(t *testing.T) {
+	eng := newEngine(t)
+	plantTicket(t, "CDT-682", "")
+	plantTicket(t, "CDT-683", "")
+	root, _ := plantAutopilotParser(t, 0)
+	seam := &fakeAgent{}
+	c := newTicketChief(t, eng, &fakeTickets{}, &fakeModels{model: "opus", source: "map"},
+		seam, root)
+
+	const command = "/orchestrate CDT-682 --tier=full --council-tier=light" +
+		" --max-loc=800 --concurrency 4 --with-advisor=opus --autopilot=auto"
+	res, err := c.Route(context.Background(), RouteRequest{
+		Kind: "ticket", TicketID: "CDT-682", Host: hostadapter.HostGrok,
+		Tier: "full", CouncilTier: "light", MaxLoc: "800", Concurrency: "4",
+		WithAdvisor: "opus", WallclockCap: "7200", IterationCap: "40",
+		Autopilot: "auto",
+	})
+	if err != nil {
+		t.Fatalf("route: %v", err)
+	}
+	if res.Command != command {
+		t.Fatalf("route command = %q, want %q", res.Command, command)
+	}
+	// The spawn carries the composed command as the run's work premise, which
+	// is the text the node agent journals as its agent.premise row. The seam
+	// journals claim and start (with the caps) and writes no premise row, so
+	// the test appends the row the real agent appends.
+	reqs := seam.requests()
+	if len(reqs) != 1 {
+		t.Fatalf("starts = %d, want one", len(reqs))
+	}
+	if reqs[0].Premise != command {
+		t.Fatalf("spawn premise = %q, want the composed command %q", reqs[0].Premise, command)
+	}
+	appendSeededEffect(t, eng, res.RunID, agent.EffectPremise,
+		map[string]any{"premise": reqs[0].Premise, "attempt": 1},
+		fmt.Sprintf("agent:premise:%s#1", res.RunID))
+
+	srv := httptest.NewServer(c.Handler())
+	t.Cleanup(srv.Close)
+
+	var detail RunDetail
+	if err := json.Unmarshal(get(t, srv, "/v1/runs/CDT-682"), &detail); err != nil {
+		t.Fatal(err)
+	}
+	if detail.Premise != command {
+		t.Errorf("detail premise = %q, want the composed command %q", detail.Premise, command)
+	}
+	if detail.WallclockCapS != 7200 || detail.IterationCapS != 40 {
+		t.Errorf("detail caps = %d/%d, want the journaled 7200/40",
+			detail.WallclockCapS, detail.IterationCapS)
+	}
+
+	// The board rows carry the same fold — the run detail view reads the list.
+	var doc struct {
+		Runs []RunDetail `json:"runs"`
+	}
+	if err := json.Unmarshal(get(t, srv, "/v1/runs"), &doc); err != nil {
+		t.Fatal(err)
+	}
+	var row RunDetail
+	for _, d := range doc.Runs {
+		if d.RunID == res.RunID {
+			row = d
+		}
+	}
+	if row.Premise != command || row.WallclockCapS != 7200 || row.IterationCapS != 40 {
+		t.Errorf("board row = %+v, want the composed command with the caps 7200/40", row)
+	}
+
+	// A caps-free run names no caps: the fields render absent, the same shape
+	// every unset state field takes.
+	bare, err := c.Route(context.Background(), RouteRequest{
+		Kind: "ticket", TicketID: "CDT-683", Host: hostadapter.HostGrok})
+	if err != nil {
+		t.Fatalf("route the caps-free ticket: %v", err)
+	}
+	var bareDoc map[string]any
+	if err := json.Unmarshal(get(t, srv, "/v1/runs/"+bare.RunID), &bareDoc); err != nil {
+		t.Fatal(err)
+	}
+	for _, key := range []string{"wallclock_cap_s", "iteration_cap_s"} {
+		if v, ok := bareDoc[key]; ok {
+			t.Errorf("a caps-free run carries %s = %v, want the key absent", key, v)
+		}
+	}
+	var bareDetail RunDetail
+	if err := json.Unmarshal(get(t, srv, "/v1/runs/"+bare.RunID), &bareDetail); err != nil {
+		t.Fatal(err)
+	}
+	if bareDetail.WallclockCapS != 0 || bareDetail.IterationCapS != 0 {
+		t.Errorf("caps-free caps = %d/%d, want 0/0",
+			bareDetail.WallclockCapS, bareDetail.IterationCapS)
+	}
+
+	// The read is the journal, not the chief's memory: a restarted chief that
+	// never saw either start answers the same command and the same caps.
+	restarted := NewWithAdapter(eng, &hostadapter.Adapter{Agent: &fakeAgent{}},
+		WithTickets(&fakeTickets{}), WithModelMap(&fakeModels{}), WithPhone(&fakePhone{}))
+	fresh, err := restarted.Detail(context.Background(), res.RunID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if fresh.Premise != command || fresh.WallclockCapS != 7200 || fresh.IterationCapS != 40 {
+		t.Errorf("restarted detail = %+v, want the journaled command with the caps 7200/40", fresh)
+	}
+}
+
 // AC3: GET /v1/runs/{run}/events serves the run's journal rows — the closed
 // event set as the journal carries them, with a row list an unknown run
 // refuses.

@@ -128,6 +128,9 @@ func (f *fakePhone) recorded() []string {
 type fakeAgent struct {
 	mu     sync.Mutex
 	frames []string
+	// reqs records every start request the chief handed the seam, so a test
+	// reads the spawn contract — the run-scoped caps included (SPEC-046 T6).
+	reqs []agent.StartRequest
 	// startDelay delays the supervised claim, so a test can outlast the
 	// route's StartWait.
 	startDelay time.Duration
@@ -138,12 +141,24 @@ func (f *fakeAgent) Supervise(ctx context.Context, eng *journal.Engine,
 	if f.startDelay > 0 {
 		time.Sleep(f.startDelay)
 	}
+	f.mu.Lock()
+	f.reqs = append(f.reqs, req)
+	f.mu.Unlock()
 	m := run.New(eng, req.RunID)
 	token, err := m.Claim(ctx, "fake-agent", req.Ticket, req.Workflow, req.Model)
 	if err != nil {
 		return err
 	}
-	return m.Start(ctx, "fake-agent", token, req.Model)
+	// The real node agent journals the caps on the run_started row
+	// (SPEC-046 M7); the seam mirrors it so the route's journal proof is real.
+	return m.StartWithCaps(ctx, "fake-agent", token, req.Model,
+		req.WallclockCapS, req.IterationCapS)
+}
+
+func (f *fakeAgent) requests() []agent.StartRequest {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return append([]agent.StartRequest(nil), f.reqs...)
 }
 
 func (f *fakeAgent) Stop(_ context.Context, _ *journal.Engine, _ string, _ time.Duration) error {
@@ -851,23 +866,29 @@ func plantTicket(t *testing.T, slug, frontmatter string) string {
 	return slug
 }
 
-// plantAutopilotParser plants the seam's plugin file
-// skills/autopilot/parse-flags.sh and records each call's argv. code is the
-// parser's exit: 0 admits the token, 64 is its malformed-flag refusal — the
-// seam reads the parser's exit code, never a Go copy of the vocabulary.
+// plantAutopilotParser plants the parser files the ticket route's seams exec —
+// skills/autopilot/parse-flags.sh (the autopilot token and the tier,
+// council-tier, and max-loc tokens) and skills/advisor/parse-flags.sh (the
+// --with-advisor token) — at one fixture plugin root, and records each call's
+// argv. code is both parsers' exit: 0 admits the tokens, 64 is their
+// malformed-flag refusal — the seams read the parsers' exit codes, never a Go
+// copy of the vocabulary.
 func plantAutopilotParser(t *testing.T, code int) (root, log string) {
 	t.Helper()
 	root = t.TempDir()
-	path := filepath.Join(root, "skills", "autopilot", "parse-flags.sh")
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	script := fmt.Sprintf("#!/usr/bin/env bash\nprintf '%%s\\n' \"$*\" >> \"$CHIEF_SEAM_LOG\"\nexit %d\n", code)
-	if err := os.WriteFile(path, []byte(script), 0o755); err != nil {
-		t.Fatal(err)
-	}
 	log = filepath.Join(t.TempDir(), "argv.log")
 	t.Setenv("CHIEF_SEAM_LOG", log)
+	for _, rel := range []string{"skills/autopilot/parse-flags.sh",
+		"skills/advisor/parse-flags.sh"} {
+		path := filepath.Join(root, rel)
+		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		script := fmt.Sprintf("#!/usr/bin/env bash\nprintf '%%s\\n' \"$*\" >> \"$CHIEF_SEAM_LOG\"\nexit %d\n", code)
+		if err := os.WriteFile(path, []byte(script), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
 	return root, log
 }
 
@@ -1001,9 +1022,11 @@ func TestRouteRefusesAnIllegalAutopilotToken(t *testing.T) {
 	}
 }
 
-// AC1: an id the local store holds no item for refuses the route with a
-// typed error, before any run row; an id that is not a run-safe id refuses
-// as malformed input and never reaches the store path.
+// AC1/AC7: the "unknown ticket" refusal is the grammar's alone — a
+// grammar-valid id the store holds no item for passes through (SPEC-046 M8,
+// TestRouteTrackerIDWithoutLocalItemPassesThrough), and an id that is not a
+// run-safe id refuses as malformed input before any run row and never reaches
+// the store path.
 func TestRouteRefusesAnUnknownTicketID(t *testing.T) {
 	eng := newEngine(t)
 	root, _ := plantAutopilotParser(t, 0)
@@ -1011,11 +1034,6 @@ func TestRouteRefusesAnUnknownTicketID(t *testing.T) {
 	c := newTicketChief(t, eng, tickets, &fakeModels{}, &fakeAgent{}, root)
 	ctx := context.Background()
 
-	_, err := c.Route(ctx, RouteRequest{
-		Kind: "ticket", TicketID: "CDT-999", Host: hostadapter.HostGrok})
-	if !errors.Is(err, ErrUnknownTicket) {
-		t.Fatalf("err = %v, want ErrUnknownTicket", err)
-	}
 	for _, bad := range []string{"", "  ", "../secrets", "a/b", "CDT 600"} {
 		if _, err := c.Route(ctx, RouteRequest{
 			Kind: "ticket", TicketID: bad, Host: hostadapter.HostGrok}); !errors.Is(err, ErrInvalid) {
@@ -1027,6 +1045,142 @@ func TestRouteRefusesAnUnknownTicketID(t *testing.T) {
 	}
 	if ids, err := c.runIDs(ctx); err != nil || len(ids) != 0 {
 		t.Errorf("the refused routes wrote runs %v (err %v), want none", ids, err)
+	}
+}
+
+// storeItems answers the item file names the local store holds, in Glob order.
+func storeItems(t *testing.T) []string {
+	t.Helper()
+	names, err := filepath.Glob(filepath.Join(os.Getenv("DEVTEAM_MROOT"),
+		".claude", "backlog", "*.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	out := make([]string, 0, len(names))
+	for _, p := range names {
+		out = append(out, filepath.Base(p))
+	}
+	return out
+}
+
+// AC7: a tracker id the local store holds no item for passes through — the
+// route composes /orchestrate <ID> exactly as a local id, starts the run, and
+// writes no store row. The scan of the store's items is frontmatter-only, so
+// an item that names the id in its body resolves to nothing: the route stays
+// on the orchestrate surface.
+func TestRouteTrackerIDWithoutLocalItemPassesThrough(t *testing.T) {
+	eng := newEngine(t)
+	plantTicket(t, "chief-single-point-of-contact-router", "linear_id: CDT-626")
+	plantTicket(t, "node-agent-native-runner", "linear_id: CDT-640")
+	// A body-only mention of the id, with the epic keys a frontmatter match
+	// would carry: the header-only scan must not read them.
+	plantTicket(t, "body-only-mention", "")
+	path := filepath.Join(os.Getenv("DEVTEAM_MROOT"), ".claude", "backlog",
+		"body-only-mention.md")
+	if err := os.WriteFile(path, []byte("# body-only-mention\n\n"+
+		"linear_id: CDT-999\nkind: epic\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	before := storeItems(t)
+
+	root, log := plantAutopilotParser(t, 0)
+	tickets := &fakeTickets{slug: "CDT-999"}
+	c := newTicketChief(t, eng, tickets, &fakeModels{}, &fakeAgent{}, root)
+	ctx := context.Background()
+
+	res, err := c.Route(ctx, RouteRequest{
+		Kind: "ticket", TicketID: "CDT-999", Host: hostadapter.HostGrok})
+	if err != nil {
+		t.Fatalf("route: %v", err)
+	}
+	if res.Surface.Name != "orchestrate" {
+		t.Errorf("surface = %q, want orchestrate — a passthrough id has no item kind",
+			res.Surface.Name)
+	}
+	if want := "/orchestrate CDT-999 --autopilot=auto"; res.Command != want {
+		t.Errorf("command = %q, want %q", res.Command, want)
+	}
+	if res.RunID != "CDT-999" {
+		t.Errorf("run id = %q, want the tracker id", res.RunID)
+	}
+	st, err := eng.RunState(ctx, res.RunID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if st.Workflow != "orchestrate" || st.Ticket != "CDT-999" {
+		t.Errorf("run state = %s/%s, want orchestrate/CDT-999", st.Workflow, st.Ticket)
+	}
+	// No store row: the ticket verbs never ran and the store is exactly what
+	// the operator had before the route.
+	if calls := tickets.recorded(); len(calls) != 0 {
+		t.Errorf("ticket seam calls = %+v, want none", calls)
+	}
+	if after := storeItems(t); strings.Join(after, " ") != strings.Join(before, " ") {
+		t.Errorf("store items = %v, want the scan to stay read-only (%v)", after, before)
+	}
+	raw, err := os.ReadFile(log)
+	if err != nil {
+		t.Fatalf("the parser seam never ran: %v", err)
+	}
+	if !strings.Contains(string(raw), "--autopilot=auto") {
+		t.Errorf("parser argv %q lacks the default --autopilot=auto", raw)
+	}
+}
+
+// AC7: an id that matches an item's frontmatter linear_id resolves to that
+// item — the epic item rides the epic surface, the plain item rides
+// /orchestrate, and the M4 orchestrate-option refusal applies to the resolved
+// epic exactly as it does to a local slug.
+func TestRouteResolvesALinearIDFrontmatterMatch(t *testing.T) {
+	eng := newEngine(t)
+	plantTicket(t, "control-plane-one-ui-and-a-chief-that-drives-durab",
+		"linear_id: CDT-626\nkind: epic")
+	plantTicket(t, "node-agent-native-runner", "linear_id: CDT-640")
+	root, _ := plantAutopilotParser(t, 0)
+	tickets := &fakeTickets{slug: "unused-slug"}
+	c := newTicketChief(t, eng, tickets, &fakeModels{}, &fakeAgent{}, root)
+	ctx := context.Background()
+
+	res, err := c.Route(ctx, RouteRequest{
+		Kind: "ticket", TicketID: "CDT-626", Host: hostadapter.HostClaudeCode})
+	if err != nil {
+		t.Fatalf("route: %v", err)
+	}
+	if res.Surface.Name != "epic" || res.Surface.Path != "commands/epic.md" {
+		t.Errorf("surface = %+v, want epic (commands/epic.md) from the matched item",
+			res.Surface)
+	}
+	if want := "/epic CDT-626 --autopilot=auto"; res.Command != want {
+		t.Errorf("command = %q, want %q", res.Command, want)
+	}
+	st, err := eng.RunState(ctx, res.RunID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if st.Workflow != "epic" || st.Ticket != "CDT-626" {
+		t.Errorf("run state = %s/%s, want epic/CDT-626", st.Workflow, st.Ticket)
+	}
+
+	// M4: the resolved epic refuses the orchestrate-only options by name.
+	_, err = c.Route(ctx, RouteRequest{
+		Kind: "ticket", TicketID: "CDT-626", Host: hostadapter.HostClaudeCode,
+		Tier: "light", Concurrency: "4"})
+	if !errors.Is(err, ErrOrchestrateOnlyOption) {
+		t.Fatalf("err = %v, want ErrOrchestrateOnlyOption on the resolved epic", err)
+	}
+
+	// A plain matched item keeps the orchestrate surface.
+	res, err = c.Route(ctx, RouteRequest{
+		Kind: "ticket", TicketID: "CDT-640", Host: hostadapter.HostGrok,
+		Autopilot: "patch"})
+	if err != nil {
+		t.Fatalf("route: %v", err)
+	}
+	if want := "/orchestrate CDT-640 --autopilot=patch"; res.Command != want {
+		t.Errorf("command = %q, want %q", res.Command, want)
+	}
+	if calls := tickets.recorded(); len(calls) != 0 {
+		t.Errorf("ticket seam calls = %+v, want none", calls)
 	}
 }
 
@@ -1163,20 +1317,600 @@ func TestTheAPIServesTheTicketRouteAndItsRefusals(t *testing.T) {
 	}
 
 	for _, body := range []string{
-		`{"kind":"ticket","ticket_id":"CDT-999","host":"grok"}`,
 		`{"kind":"ticket","ticket_id":"CDT-600","host":"grok","autopilot":"hotdog"}`,
+		// SPEC-046 AC7: the unknown-ticket 400 is the grammar's alone — an id
+		// the grammar refuses, never a grammar-valid id the store lacks.
+		`{"kind":"ticket","ticket_id":"a/b","host":"grok"}`,
 	} {
 		code, out := post(body)
 		if code != http.StatusBadRequest {
 			t.Errorf("status = %d for %s, want 400 (%v)", code, body, out)
 		}
 	}
-	// The refusals wrote nothing: two routes, one run.
+	// The refusals wrote nothing: three routes, one run.
 	runs, err := c.Runs(context.Background())
 	if err != nil {
 		t.Fatal(err)
 	}
 	if len(runs) != 1 || runs[0].RunID != "CDT-600" {
 		t.Errorf("runs = %+v, want only the accepted route's run", runs)
+	}
+}
+
+// --- SPEC-046 AC1: the ticket route's run options (M1/M2) ------------------
+
+// AC1 regression lock (M2): an option request with nothing set composes
+// today's exact command bytes — the SPEC-045 composition, byte for byte, for
+// both workflows and for the bare token.
+func TestComposeRunCommandGoldenBytes(t *testing.T) {
+	for _, tc := range []struct{ workflow, id, token, want string }{
+		{"orchestrate", "CDT-600", "auto", "/orchestrate CDT-600 --autopilot=auto"},
+		{"orchestrate", "CDT-600", "patch", "/orchestrate CDT-600 --autopilot=patch"},
+		{"orchestrate", "CDT-600", "master", "/orchestrate CDT-600 --autopilot=master"},
+		{"orchestrate", "CDT-600", autopilotBare, "/orchestrate CDT-600 --autopilot"},
+		{"epic", "CDT-628", "auto", "/epic CDT-628 --autopilot=auto"},
+		{"epic", "CDT-628", autopilotBare, "/epic CDT-628 --autopilot"},
+	} {
+		if got := composeRunCommand(tc.workflow, tc.id, routeOptions{Autopilot: tc.token}); got != tc.want {
+			t.Errorf("composeRunCommand(%q, %q, %q) = %q, want %q",
+				tc.workflow, tc.id, tc.token, got, tc.want)
+		}
+	}
+}
+
+// AC1: a ticket route that carries no options composes today's exact command
+// and echoes it as today — the empty form is byte-identical to SPEC-045.
+func TestRouteTicketEmptyOptionsComposeTodaysCommand(t *testing.T) {
+	eng := newEngine(t)
+	plantTicket(t, "CDT-600", "")
+	root, _ := plantAutopilotParser(t, 0)
+	c := newTicketChief(t, eng, &fakeTickets{}, &fakeModels{}, &fakeAgent{}, root)
+
+	res, err := c.Route(context.Background(), RouteRequest{
+		Kind: "ticket", TicketID: "CDT-600", Host: hostadapter.HostGrok})
+	if err != nil {
+		t.Fatalf("route: %v", err)
+	}
+	if want := "/orchestrate CDT-600 --autopilot=auto"; res.Command != want {
+		t.Errorf("command = %q, want %q", res.Command, want)
+	}
+}
+
+// AC1 (M2): the present options compose in the pinned order — id first, then
+// --tier, --council-tier, --max-loc, --concurrency N, --with-advisor[=<model>],
+// then --autopilot[=<token>] last. Only present fields compose, `true`
+// composes the bare advisor flag, and the caps never reach the command line
+// (M5).
+func TestRouteTicketComposesOptionsInPinnedOrder(t *testing.T) {
+	for _, tc := range []struct {
+		name, workflow, id string
+		opts               routeOptions
+		want               string
+	}{
+		{"every option", "orchestrate", "CDT-600", routeOptions{
+			Tier: "light", CouncilTier: "skip", MaxLoc: "800", Concurrency: "4",
+			WithAdvisor: "swift-x/model.1", Autopilot: "patch",
+		}, "/orchestrate CDT-600 --tier=light --council-tier=skip --max-loc=800" +
+			" --concurrency 4 --with-advisor=swift-x/model.1 --autopilot=patch"},
+		{"bare advisor", "orchestrate", "CDT-600",
+			routeOptions{WithAdvisor: advisorOn, Autopilot: autopilotBare},
+			"/orchestrate CDT-600 --with-advisor --autopilot"},
+		{"tier and autopilot only", "orchestrate", "CDT-600",
+			routeOptions{Tier: "full", Autopilot: "auto"},
+			"/orchestrate CDT-600 --tier=full --autopilot=auto"},
+		{"max-loc unbound and concurrency", "orchestrate", "CDT-600", routeOptions{
+			MaxLoc: "unbound", Concurrency: "1", Autopilot: "auto",
+		}, "/orchestrate CDT-600 --max-loc=unbound --concurrency 1 --autopilot=auto"},
+		{"council-tier alone before autopilot", "orchestrate", "CDT-600",
+			routeOptions{CouncilTier: "light", Autopilot: "minor"},
+			"/orchestrate CDT-600 --council-tier=light --autopilot=minor"},
+		{"the caps never compose", "orchestrate", "CDT-600", routeOptions{
+			WallclockCap: "2700", IterationCap: "25", Autopilot: "auto",
+		}, "/orchestrate CDT-600 --autopilot=auto"},
+		{"the epic workflow keeps the same order", "epic", "CDT-628",
+			routeOptions{Tier: "light", Autopilot: "auto"},
+			"/epic CDT-628 --tier=light --autopilot=auto"},
+	} {
+		if got := composeRunCommand(tc.workflow, tc.id, tc.opts); got != tc.want {
+			t.Errorf("%s: composeRunCommand = %q, want %q", tc.name, got, tc.want)
+		}
+	}
+}
+
+// AC1 (M2): the route composes the pinned order from the request's fields and
+// echoes it on the response.
+func TestRouteTicketRouteComposesTheAdvancedOptions(t *testing.T) {
+	eng := newEngine(t)
+	plantTicket(t, "CDT-600", "")
+	root, log := plantAutopilotParser(t, 0)
+	c := newTicketChief(t, eng, &fakeTickets{}, &fakeModels{}, &fakeAgent{}, root)
+
+	res, err := c.Route(context.Background(), RouteRequest{
+		Kind: "ticket", TicketID: "CDT-600", Host: hostadapter.HostGrok,
+		WithAdvisor: "true", Tier: "standard", CouncilTier: "full", MaxLoc: "1200",
+		Concurrency: "3", WallclockCap: "2700", IterationCap: "25", Autopilot: "minor"})
+	if err != nil {
+		t.Fatalf("route: %v", err)
+	}
+	want := "/orchestrate CDT-600 --tier=standard --council-tier=full --max-loc=1200" +
+		" --concurrency 3 --with-advisor --autopilot=minor"
+	if res.Command != want {
+		t.Errorf("command = %q, want %q", res.Command, want)
+	}
+	// The autopilot token still reaches the plugin's own parser.
+	raw, err := os.ReadFile(log)
+	if err != nil {
+		t.Fatalf("the parser seam never ran: %v", err)
+	}
+	if !strings.Contains(string(raw), "--autopilot=minor") {
+		t.Errorf("parser argv %q lacks --autopilot=minor", raw)
+	}
+}
+
+// AC1 (M1): the option fields belong to the ticket route alone. The defect,
+// idea, and epic kinds refuse every one of them with a typed 400 that writes
+// no record and no run row.
+func TestRouteNonTicketKindsRefuseTheOptionFields(t *testing.T) {
+	eng := newEngine(t)
+	tickets := &fakeTickets{slug: "opt-refusal"}
+	c := newTestChief(t, eng, &fakeAgent{}, tickets, &fakeModels{}, &fakePhone{})
+	ctx := context.Background()
+
+	fields := []struct {
+		name string
+		set  func(*RouteRequest, string)
+	}{
+		{"with_advisor", func(r *RouteRequest, v string) { r.WithAdvisor = v }},
+		{"tier", func(r *RouteRequest, v string) { r.Tier = v }},
+		{"council_tier", func(r *RouteRequest, v string) { r.CouncilTier = v }},
+		{"max_loc", func(r *RouteRequest, v string) { r.MaxLoc = v }},
+		{"concurrency", func(r *RouteRequest, v string) { r.Concurrency = v }},
+		{"wallclock_cap", func(r *RouteRequest, v string) { r.WallclockCap = v }},
+		{"iteration_cap", func(r *RouteRequest, v string) { r.IterationCap = v }},
+	}
+	for _, kind := range []string{"defect", "idea", "epic"} {
+		for _, f := range fields {
+			req := RouteRequest{Kind: kind, Title: "Opt refusal", Text: "a premise",
+				Host: hostadapter.HostGrok}
+			if kind == "epic" {
+				req.Children = []ChildRequest{{Title: "child one", Text: "a premise"}}
+			}
+			f.set(&req, "2")
+			_, err := c.Route(ctx, req)
+			if !errors.Is(err, ErrInvalid) {
+				t.Errorf("kind %s field %s: err = %v, want ErrInvalid", kind, f.name, err)
+				continue
+			}
+			if !strings.Contains(err.Error(), f.name) {
+				t.Errorf("kind %s field %s: refusal %q names no field", kind, f.name, err)
+			}
+		}
+	}
+	if calls := tickets.recorded(); len(calls) != 0 {
+		t.Errorf("ticket seam calls = %+v, want none", calls)
+	}
+	if ids, err := c.runIDs(ctx); err != nil || len(ids) != 0 {
+		t.Errorf("the refused routes wrote runs %v (err %v), want none", ids, err)
+	}
+}
+
+// AC1 (M1): over HTTP the same refusals answer 400 and the ticket route's
+// option set answers 200 with the composed command.
+func TestTheAPIRefusesTheOptionFieldsOnTheOtherKinds(t *testing.T) {
+	eng := newEngine(t)
+	plantTicket(t, "CDT-600", "")
+	c := newTicketChief(t, eng, &fakeTickets{slug: "CDT-600"},
+		&fakeModels{model: "opus", source: "map"}, &fakeAgent{}, "../..")
+
+	post := func(body string) (int, map[string]any) {
+		t.Helper()
+		req := httptest.NewRequest(http.MethodPost, "/v1/route", strings.NewReader(body))
+		rec := httptest.NewRecorder()
+		c.Handler().ServeHTTP(rec, req)
+		var out map[string]any
+		if err := json.Unmarshal(rec.Body.Bytes(), &out); err != nil {
+			t.Fatalf("body %q is not JSON: %v", rec.Body, err)
+		}
+		return rec.Code, out
+	}
+
+	code, out := post(`{"kind":"ticket","ticket_id":"CDT-600","host":"grok",` +
+		`"tier":"light","concurrency":"4","with_advisor":"true","wallclock_cap":"2700"}`)
+	if code != http.StatusOK {
+		t.Fatalf("status = %d, want 200 (%v)", code, out)
+	}
+	want := "/orchestrate CDT-600 --tier=light --concurrency 4 --with-advisor --autopilot=auto"
+	if out["command"] != want {
+		t.Errorf("command = %v, want %q", out["command"], want)
+	}
+
+	for _, body := range []string{
+		`{"kind":"defect","title":"T","text":"P","host":"grok","tier":"light"}`,
+		`{"kind":"idea","title":"T","text":"P","host":"grok","with_advisor":"true"}`,
+		`{"kind":"epic","title":"T","text":"P","children":[{"title":"c1"}],"concurrency":"4"}`,
+	} {
+		code, out := post(body)
+		if code != http.StatusBadRequest {
+			t.Errorf("status = %d for %s, want 400 (%v)", code, body, out)
+		}
+	}
+}
+
+// --- SPEC-046 AC2: the option-validation seams and the M4 epic refusal ----
+
+// AC2 (M3): the tier, council-tier, and max-loc tokens are validated by the
+// plugin's own parser, exec'd as argv; its exit-64 refusal is a typed 400 that
+// writes no run row. An empty option set execs nothing but the autopilot
+// token's own seam call.
+func TestRouteOptionValidationRidesThePluginParsers(t *testing.T) {
+	t.Run("the present tokens reach the plugin parser as argv", func(t *testing.T) {
+		eng := newEngine(t)
+		plantTicket(t, "CDT-600", "")
+		root, log := plantAutopilotParser(t, 0)
+		c := newTicketChief(t, eng, &fakeTickets{}, &fakeModels{}, &fakeAgent{}, root)
+
+		res, err := c.Route(context.Background(), RouteRequest{
+			Kind: "ticket", TicketID: "CDT-600", Host: hostadapter.HostGrok,
+			Tier: "standard", CouncilTier: "full", MaxLoc: "1200", Autopilot: "minor"})
+		if err != nil {
+			t.Fatalf("route: %v", err)
+		}
+		want := "/orchestrate CDT-600 --tier=standard --council-tier=full" +
+			" --max-loc=1200 --autopilot=minor"
+		if res.Command != want {
+			t.Errorf("command = %q, want %q", res.Command, want)
+		}
+		raw, err := os.ReadFile(log)
+		if err != nil {
+			t.Fatalf("no parser seam ran: %v", err)
+		}
+		argv := string(raw)
+		if !strings.Contains(argv, "--tier=standard --council-tier=full --max-loc=1200\n") {
+			t.Errorf("parser argv %q lacks the option tokens on one call", argv)
+		}
+		if !strings.Contains(argv, "--autopilot=minor") {
+			t.Errorf("parser argv %q lacks the autopilot token", argv)
+		}
+	})
+	t.Run("an empty option set composes no parser tokens", func(t *testing.T) {
+		eng := newEngine(t)
+		plantTicket(t, "CDT-600", "")
+		root, log := plantAutopilotParser(t, 0)
+		c := newTicketChief(t, eng, &fakeTickets{}, &fakeModels{}, &fakeAgent{}, root)
+
+		if _, err := c.Route(context.Background(), RouteRequest{
+			Kind: "ticket", TicketID: "CDT-600", Host: hostadapter.HostGrok}); err != nil {
+			t.Fatalf("route: %v", err)
+		}
+		raw, err := os.ReadFile(log)
+		if err != nil {
+			t.Fatalf("the autopilot seam never ran: %v", err)
+		}
+		if got := strings.TrimSpace(string(raw)); got != "--autopilot=auto" {
+			t.Errorf("parser argv = %q, want only the default autopilot token", got)
+		}
+	})
+	t.Run("the real parser admits its own vocabulary", func(t *testing.T) {
+		eng := newEngine(t)
+		plantTicket(t, "CDT-600", "")
+		c := newTicketChief(t, eng, &fakeTickets{}, &fakeModels{}, &fakeAgent{}, "../..")
+
+		res, err := c.Route(context.Background(), RouteRequest{
+			Kind: "ticket", TicketID: "CDT-600", Host: hostadapter.HostGrok,
+			Tier: "light", CouncilTier: "skip", MaxLoc: "unbound"})
+		if err != nil {
+			t.Fatalf("route: %v", err)
+		}
+		want := "/orchestrate CDT-600 --tier=light --council-tier=skip" +
+			" --max-loc=unbound --autopilot=auto"
+		if res.Command != want {
+			t.Errorf("command = %q, want %q", res.Command, want)
+		}
+	})
+	t.Run("the real parser refuses a value outside its vocabulary", func(t *testing.T) {
+		eng := newEngine(t)
+		plantTicket(t, "CDT-600", "")
+		c := newTicketChief(t, eng, &fakeTickets{}, &fakeModels{}, &fakeAgent{}, "../..")
+		ctx := context.Background()
+
+		for _, tc := range []struct {
+			set   func(*RouteRequest)
+			token string
+		}{
+			{func(r *RouteRequest) { r.Tier = "Standard" }, "--tier=Standard"},
+			{func(r *RouteRequest) { r.Tier = "standard-fast" }, "--tier=standard-fast"},
+			{func(r *RouteRequest) { r.Tier = "light; rm -rf /" }, "--tier=light; rm -rf /"},
+			{func(r *RouteRequest) { r.CouncilTier = "ultra" }, "--council-tier=ultra"},
+			{func(r *RouteRequest) { r.MaxLoc = "0" }, "--max-loc=0"},
+			{func(r *RouteRequest) { r.MaxLoc = "unlimited" }, "--max-loc=unlimited"},
+			{func(r *RouteRequest) { r.MaxLoc = "1.5" }, "--max-loc=1.5"},
+		} {
+			req := RouteRequest{Kind: "ticket", TicketID: "CDT-600", Host: hostadapter.HostGrok}
+			tc.set(&req)
+			_, err := c.Route(ctx, req)
+			if !errors.Is(err, ErrIllegalRunOption) {
+				t.Errorf("token %q err = %v, want ErrIllegalRunOption", tc.token, err)
+				continue
+			}
+			if !strings.Contains(err.Error(), tc.token) {
+				t.Errorf("refusal %q does not name the token %q", err, tc.token)
+			}
+		}
+		// Every refusal landed before any run row (M3).
+		if ids, err := c.runIDs(ctx); err != nil || len(ids) != 0 {
+			t.Errorf("the refused routes wrote runs %v (err %v), want none", ids, err)
+		}
+	})
+}
+
+// AC2 (M3): the advisor model token is validated by the plugin's own advisor
+// parser (SPEC-039 M37) — the reserved tokens and a value outside the charset
+// refuse with a typed 400; the bare flag and a legal model token route.
+func TestRouteRefusesIllegalAdvisorModelToken(t *testing.T) {
+	eng := newEngine(t)
+	plantTicket(t, "CDT-600", "")
+	c := newTicketChief(t, eng, &fakeTickets{}, &fakeModels{}, &fakeAgent{}, "../..")
+	ctx := context.Background()
+
+	for _, token := range []string{"null", "--clear", "a..b", "bad model",
+		"mo|del", "tu*r", "mod;el"} {
+		_, err := c.Route(ctx, RouteRequest{
+			Kind: "ticket", TicketID: "CDT-600", Host: hostadapter.HostGrok,
+			WithAdvisor: token})
+		if !errors.Is(err, ErrIllegalAdvisorModel) {
+			t.Errorf("token %q err = %v, want ErrIllegalAdvisorModel", token, err)
+			continue
+		}
+		if !strings.Contains(err.Error(), token) {
+			t.Errorf("refusal %q does not name the token %q", err, token)
+		}
+	}
+	if ids, err := c.runIDs(ctx); err != nil || len(ids) != 0 {
+		t.Errorf("the refused routes wrote runs %v (err %v), want none", ids, err)
+	}
+
+	for _, token := range []string{"true", "opus", "swift-x/model.1+@_~-"} {
+		res, err := c.Route(ctx, RouteRequest{
+			Kind: "ticket", TicketID: "CDT-600", Host: hostadapter.HostGrok,
+			WithAdvisor: token})
+		if err != nil {
+			t.Errorf("token %q: route: %v", token, err)
+			continue
+		}
+		want := "--with-advisor"
+		if token != advisorOn {
+			want += "=" + token
+		}
+		if !strings.Contains(res.Command, want) {
+			t.Errorf("command = %q, want the %q flag", res.Command, want)
+		}
+	}
+}
+
+// AC2 (M3): concurrency and the two caps are the mechanical positive-integer
+// checks — the CDT-573 grammar for concurrency, cited not copied, and no upper
+// ceiling for the caps (SPEC-033 N14). They refuse before any seam execs.
+func TestRouteRefusesIllegalConcurrencyAndCaps(t *testing.T) {
+	eng := newEngine(t)
+	plantTicket(t, "CDT-600", "")
+	root, log := plantAutopilotParser(t, 0)
+	c := newTicketChief(t, eng, &fakeTickets{}, &fakeModels{}, &fakeAgent{}, root)
+	ctx := context.Background()
+
+	setOf := func(field string) func(*RouteRequest, string) {
+		return func(r *RouteRequest, v string) {
+			switch field {
+			case "concurrency":
+				r.Concurrency = v
+			case "wallclock_cap":
+				r.WallclockCap = v
+			case "iteration_cap":
+				r.IterationCap = v
+			}
+		}
+	}
+	for _, tc := range []struct{ field, value string }{
+		{"concurrency", "0"}, {"concurrency", "-1"}, {"concurrency", "1.5"},
+		{"concurrency", "4x"}, {"concurrency", "unbound"},
+		{"concurrency", "9223372036854775808"},
+		{"wallclock_cap", "0"}, {"wallclock_cap", "-5"}, {"wallclock_cap", "2.5"},
+		{"wallclock_cap", "abc"},
+		{"iteration_cap", "0"}, {"iteration_cap", "zero"},
+		{"iteration_cap", "9223372036854775808"},
+	} {
+		req := RouteRequest{Kind: "ticket", TicketID: "CDT-600", Host: hostadapter.HostGrok}
+		setOf(tc.field)(&req, tc.value)
+		_, err := c.Route(ctx, req)
+		if !errors.Is(err, ErrIllegalOptionNumber) {
+			t.Errorf("%s = %q err = %v, want ErrIllegalOptionNumber", tc.field, tc.value, err)
+			continue
+		}
+		if !strings.Contains(err.Error(), tc.field) {
+			t.Errorf("refusal %q does not name the field %q", err, tc.field)
+		}
+	}
+	// The mechanical check is the syntax layer of M3: it refuses before the
+	// parser seams exec.
+	if _, err := os.Stat(log); !os.IsNotExist(err) {
+		t.Errorf("a numeric refusal reached a parser seam (stat: %v)", err)
+	}
+
+	// The legal forms route. Concurrency composes as the plugin's two-token
+	// form; the caps never reach the command line (M5).
+	for _, tc := range []struct{ field, value, want string }{
+		{"concurrency", "1", " --concurrency 1 "}, {"concurrency", "64", " --concurrency 64 "},
+		{"wallclock_cap", "2700", " --autopilot=auto"},
+		{"iteration_cap", "25", " --autopilot=auto"},
+	} {
+		req := RouteRequest{Kind: "ticket", TicketID: "CDT-600", Host: hostadapter.HostGrok}
+		setOf(tc.field)(&req, tc.value)
+		res, err := c.Route(ctx, req)
+		if err != nil {
+			t.Errorf("%s = %q: route: %v", tc.field, tc.value, err)
+			continue
+		}
+		if !strings.Contains(res.Command, tc.want) {
+			t.Errorf("%s = %q: command = %q, want it to carry %q",
+				tc.field, tc.value, res.Command, tc.want)
+		}
+		if strings.Contains(res.Command, tc.value) && tc.field != "concurrency" {
+			t.Errorf("%s = %q: command = %q carries the cap", tc.field, tc.value, res.Command)
+		}
+	}
+	ids, err := c.runIDs(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(ids) != 4 {
+		t.Errorf("runs = %v, want the four accepted routes only", ids)
+	}
+}
+
+// M4: an epic-kind local item refuses every orchestrate-only option, naming
+// the options, before any run row. The caps are not orchestrate-only — they
+// ride the run's environment (M5) — so the epic route keeps accepting them and
+// composes /epic with the autopilot token alone.
+func TestRouteEpicItemRefusesOrchestrateOnlyOptions(t *testing.T) {
+	fields := []struct {
+		name string
+		set  func(*RouteRequest, string)
+	}{
+		{"with_advisor", func(r *RouteRequest, v string) { r.WithAdvisor = v }},
+		{"tier", func(r *RouteRequest, v string) { r.Tier = v }},
+		{"council_tier", func(r *RouteRequest, v string) { r.CouncilTier = v }},
+		{"max_loc", func(r *RouteRequest, v string) { r.MaxLoc = v }},
+		{"concurrency", func(r *RouteRequest, v string) { r.Concurrency = v }},
+	}
+	t.Run("each orchestrate-only option refuses the epic item", func(t *testing.T) {
+		eng := newEngine(t)
+		plantTicket(t, "CDT-628", "kind: epic")
+		root, _ := plantAutopilotParser(t, 0)
+		c := newTicketChief(t, eng, &fakeTickets{}, &fakeModels{}, &fakeAgent{}, root)
+		ctx := context.Background()
+
+		for _, f := range fields {
+			req := RouteRequest{Kind: "ticket", TicketID: "CDT-628",
+				Host: hostadapter.HostClaudeCode}
+			f.set(&req, "2")
+			_, err := c.Route(ctx, req)
+			if !errors.Is(err, ErrOrchestrateOnlyOption) {
+				t.Errorf("field %s: err = %v, want ErrOrchestrateOnlyOption", f.name, err)
+				continue
+			}
+			if !strings.Contains(err.Error(), f.name) {
+				t.Errorf("field %s: refusal %q names no field", f.name, err)
+			}
+		}
+		if ids, err := c.runIDs(ctx); err != nil || len(ids) != 0 {
+			t.Errorf("the refused routes wrote runs %v (err %v), want none", ids, err)
+		}
+	})
+	t.Run("the caps are not orchestrate-only", func(t *testing.T) {
+		eng := newEngine(t)
+		plantTicket(t, "CDT-628", "kind: epic")
+		root, _ := plantAutopilotParser(t, 0)
+		c := newTicketChief(t, eng, &fakeTickets{}, &fakeModels{}, &fakeAgent{}, root)
+
+		res, err := c.Route(context.Background(), RouteRequest{
+			Kind: "ticket", TicketID: "CDT-628", Host: hostadapter.HostClaudeCode,
+			WallclockCap: "2700", IterationCap: "25"})
+		if err != nil {
+			t.Fatalf("route: %v", err)
+		}
+		if want := "/epic CDT-628 --autopilot=auto"; res.Command != want {
+			t.Errorf("command = %q, want %q", res.Command, want)
+		}
+	})
+	t.Run("the API answers 400 naming the options", func(t *testing.T) {
+		eng := newEngine(t)
+		plantTicket(t, "CDT-628", "kind: epic")
+		root, _ := plantAutopilotParser(t, 0)
+		c := newTicketChief(t, eng, &fakeTickets{}, &fakeModels{}, &fakeAgent{}, root)
+
+		body := `{"kind":"ticket","ticket_id":"CDT-628","host":"claude-code",` +
+			`"tier":"light","concurrency":"4","with_advisor":"true"}`
+		req := httptest.NewRequest(http.MethodPost, "/v1/route", strings.NewReader(body))
+		rec := httptest.NewRecorder()
+		c.Handler().ServeHTTP(rec, req)
+		var out map[string]any
+		if err := json.Unmarshal(rec.Body.Bytes(), &out); err != nil {
+			t.Fatalf("body %q is not JSON: %v", rec.Body, err)
+		}
+		if rec.Code != http.StatusBadRequest {
+			t.Fatalf("status = %d, want 400 (%v)", rec.Code, out)
+		}
+		msg, _ := out["error"].(string)
+		for _, name := range []string{"with_advisor", "tier", "concurrency"} {
+			if !strings.Contains(msg, name) {
+				t.Errorf("refusal %q does not name %q", msg, name)
+			}
+		}
+		if ids, err := c.runIDs(context.Background()); err != nil || len(ids) != 0 {
+			t.Errorf("the refused route wrote runs %v (err %v), want none", ids, err)
+		}
+	})
+}
+
+// AC3/AC8 (SPEC-046 T6): the validated caps ride the one spawn path into the
+// start request and the run's own run_started row — the record a retry and a
+// takeover read back. A route that names no caps spawns none: the chief
+// invents no budget (SPEC-033 N14).
+func TestRouteCapsReachTheSpawnedStartAndTheJournal(t *testing.T) {
+	eng := newEngine(t)
+	plantTicket(t, "CDT-680", "")
+	plantTicket(t, "CDT-681", "")
+	root, _ := plantAutopilotParser(t, 0)
+	seam := &fakeAgent{}
+	c := newTicketChief(t, eng, &fakeTickets{slug: "CDT-680"},
+		&fakeModels{model: "opus", source: "map"}, seam, root)
+
+	res, err := c.Route(context.Background(), RouteRequest{
+		Kind: "ticket", TicketID: "CDT-680", Host: hostadapter.HostGrok,
+		Tier: "full", WallclockCap: "7200", IterationCap: "40", Autopilot: "auto"})
+	if err != nil {
+		t.Fatalf("route: %v", err)
+	}
+	reqs := seam.requests()
+	if len(reqs) != 1 {
+		t.Fatalf("starts = %d, want one", len(reqs))
+	}
+	if reqs[0].WallclockCapS != 7200 || reqs[0].IterationCapS != 40 {
+		t.Errorf("spawn caps = %d/%d, want 7200/40",
+			reqs[0].WallclockCapS, reqs[0].IterationCapS)
+	}
+	// The caps ride the environment channel, never the premise command line.
+	for _, frag := range []string{"7200", "40", "CAP"} {
+		if strings.Contains(res.Command, frag) {
+			t.Errorf("the composed command carries %q: %q", frag, res.Command)
+		}
+	}
+	st, err := eng.RunState(context.Background(), res.RunID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if st.WallclockCapS != 7200 || st.IterationCapS != 40 {
+		t.Errorf("journaled caps = %d/%d, want 7200/40", st.WallclockCapS, st.IterationCapS)
+	}
+
+	bare, err := c.Route(context.Background(), RouteRequest{
+		Kind: "ticket", TicketID: "CDT-681", Host: hostadapter.HostGrok})
+	if err != nil {
+		t.Fatalf("route the option-free ticket: %v", err)
+	}
+	reqs = seam.requests()
+	if len(reqs) != 2 {
+		t.Fatalf("starts = %d, want two", len(reqs))
+	}
+	if reqs[1].WallclockCapS != 0 || reqs[1].IterationCapS != 0 {
+		t.Errorf("spawn caps = %d/%d, want 0/0 for a route with no caps",
+			reqs[1].WallclockCapS, reqs[1].IterationCapS)
+	}
+	bareState, err := eng.RunState(context.Background(), bare.RunID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if bareState.WallclockCapS != 0 || bareState.IterationCapS != 0 {
+		t.Errorf("journaled caps = %d/%d, want 0/0",
+			bareState.WallclockCapS, bareState.IterationCapS)
 	}
 }

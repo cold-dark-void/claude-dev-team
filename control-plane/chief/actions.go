@@ -132,6 +132,12 @@ func (c *Chief) Resume(ctx context.Context, runID string) (ResumeResult, error) 
 // names one. It is valid from failed and from halted:<reason>; every other
 // state refuses with ErrNotRetryable.
 //
+// The caps are part of that fidelity (SPEC-046 M10): the new attempt starts
+// with the caps the old run's run_started row journaled, read from the
+// replayed state — a run the operator capped stays capped across a retry, and
+// a run that carried none retries with none. The request body names a host
+// alone; it carries no option field to override what the journal records.
+//
 // The old run is never touched: failed stays terminal in the lifecycle graph,
 // and the record of the retry is the new run's own claim row. The matrix gates
 // the new start as it gates any start.
@@ -167,11 +173,13 @@ func (c *Chief) Retry(ctx context.Context, runID string, host hostadapter.Host) 
 	}
 
 	// The start rides the route's own path — the claim payload, the premise
-	// frame, and the bounded wait for the run's first row — so a retry is a
-	// start, never a second spawn path.
+	// frame, the caps the old run journaled, and the bounded wait for the
+	// run's first row — so a retry is a start, never a second spawn path.
 	res := &RouteResult{Kind: "ticket", Surface: Surface{Name: st.Workflow},
 		RunID: newRunID, Model: st.Model}
-	if err := c.startRun(ctx, RouteRequest{Host: host}, res, st.Ticket, premise); err != nil {
+	caps := hostadapter.RunCaps{WallclockCapS: st.WallclockCapS,
+		IterationCapS: st.IterationCapS}
+	if err := c.startRun(ctx, RouteRequest{Host: host}, res, st.Ticket, premise, caps); err != nil {
 		return RetryResult{}, err
 	}
 	return RetryResult{RunID: newRunID}, nil

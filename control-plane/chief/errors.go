@@ -33,15 +33,29 @@ var (
 	// exec the plugin's own CLIs from it — the failure is typed and
 	// visible, never a silent one.
 	ErrNoPluginRoot = errors.New("chief: the record root is not a dev-team checkout")
-	// ErrUnknownTicket names a ticket id the local store holds no item for
-	// (SPEC-045 M1). It chains to ErrInvalid so the API answers it as the
-	// 400 it is (statusOf owns the mapping, api.go); the ticket route
-	// refuses with it before any run row is written.
-	ErrUnknownTicket = fmt.Errorf("%w: unknown ticket", ErrInvalid)
 	// ErrIllegalAutopilot is an autopilot token the plugin's own flag
 	// parser refuses (SPEC-045 M3): skills/autopilot/parse-flags.sh exits 64
 	// on it. It chains to ErrInvalid for the same 400 answer.
 	ErrIllegalAutopilot = fmt.Errorf("%w: illegal autopilot token", ErrInvalid)
+	// ErrIllegalRunOption is a tier, council-tier, or max-loc value the
+	// plugin's own flag parser refuses (SPEC-046 M3):
+	// skills/autopilot/parse-flags.sh exits 64 on it.
+	ErrIllegalRunOption = fmt.Errorf("%w: illegal run option", ErrInvalid)
+	// ErrIllegalAdvisorModel is a --with-advisor model token the plugin's own
+	// advisor parser refuses (SPEC-046 M3, SPEC-039 M37):
+	// skills/advisor/parse-flags.sh exits 64 on it.
+	ErrIllegalAdvisorModel = fmt.Errorf("%w: illegal advisor model token", ErrInvalid)
+	// ErrIllegalOptionNumber is a concurrency or budget-cap value that is not
+	// an integer of at least 1 (SPEC-046 M3): the CDT-573 grammar, cited not
+	// copied, and the caps' positive-integer rule with no upper ceiling
+	// (SPEC-033 N14).
+	ErrIllegalOptionNumber = fmt.Errorf("%w: run option is not a positive integer",
+		ErrInvalid)
+	// ErrOrchestrateOnlyOption is a run option an epic id carries (SPEC-046
+	// M4): /epic takes --worktree and --release alone, so the option does not
+	// apply and the route refuses it by name.
+	ErrOrchestrateOnlyOption = fmt.Errorf("%w: option does not apply to an epic id",
+		ErrInvalid)
 	// ErrNotStoppable refuses a stop of a run outside running and claimed
 	// (SPEC-045 M4/AC7). The state is the reason, so it is a conflict.
 	ErrNotStoppable = errors.New("chief: the run is not stoppable")
